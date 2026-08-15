@@ -5,6 +5,7 @@
 pub mod checks;
 pub mod migrate;
 pub mod refs;
+pub mod graduate;
 pub mod rules;
 pub mod agents;
 pub mod fm;

@@ -12,6 +12,8 @@ Usage:
   docsys refs    --repo <dir> [--root <dir>] [--json]
   docsys rules   --agents-md | --procedures [--max-lines <n>]
   docsys agents  [--dir .claude] [--force]   # install hooks + skill + /doc-sync
+  docsys graduate plan <work-file>  [--root <dir>]
+  docsys graduate apply --plan <file> [--root <dir>] [--force]
 
 Exit codes: 0 clean/warnings · 1 error findings · 2 tree not operable
 ";
@@ -27,6 +29,7 @@ struct Opts {
     agents_md: bool,
     procedures: bool,
     max_lines: usize,
+    positional: Vec<String>,
 }
 
 fn parse_opts(args: &[String]) -> Result<Opts, String> {
@@ -41,6 +44,7 @@ fn parse_opts(args: &[String]) -> Result<Opts, String> {
         agents_md: false,
         procedures: false,
         max_lines: 200,
+        positional: Vec::new(),
     };
     let mut it = args.iter();
     while let Some(a) = it.next() {
@@ -61,6 +65,7 @@ fn parse_opts(args: &[String]) -> Result<Opts, String> {
                     .map_err(|_| "--max-lines needs a number".to_string())?;
             }
             "--json" => o.json = true,
+            other if !other.starts_with("--") => o.positional.push(other.to_string()),
             other => return Err(format!("unknown argument `{other}`")),
         }
     }
@@ -94,7 +99,7 @@ fn run_lint(o: &Opts) -> ExitCode {
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let (cmd, sub, rest): (&str, Option<&str>, &[String]) = match args.split_first() {
-        Some((c, r)) if c == "migrate" => match r.split_first() {
+        Some((c, r)) if c == "migrate" || c == "graduate" => match r.split_first() {
             Some((s, r2)) => (c.as_str(), Some(s.as_str()), r2),
             None => (c.as_str(), None, &[]),
         },
@@ -137,6 +142,51 @@ fn main() -> ExitCode {
             } else {
                 eprintln!("rules needs --agents-md or --procedures");
                 ExitCode::from(2)
+            }
+        }
+        ("graduate", Some("plan")) => {
+            let Some(src) = opts.positional.first() else {
+                eprintln!("graduate plan needs a <work-file> argument");
+                return ExitCode::from(2);
+            };
+            match docsys::graduate::plan(&opts.root, src) {
+                Ok(p) => {
+                    print!("{p}");
+                    ExitCode::SUCCESS
+                }
+                Err(e) => {
+                    eprintln!("graduate plan: {e}");
+                    ExitCode::from(2)
+                }
+            }
+        }
+        ("graduate", Some("apply")) => {
+            let Some(plan_path) = &opts.plan else {
+                eprintln!("graduate apply needs --plan <file>");
+                return ExitCode::from(2);
+            };
+            let plan = match std::fs::read_to_string(plan_path) {
+                Ok(p) => p,
+                Err(e) => {
+                    eprintln!("plan: {e}");
+                    return ExitCode::from(2);
+                }
+            };
+            match docsys::graduate::apply(&opts.root, &plan, opts.force) {
+                Ok(done) => {
+                    println!(
+                        "moved {} block(s) · linked {} · destinations touched: {}",
+                        done.moved,
+                        done.linked,
+                        done.dest_files.join(", ")
+                    );
+                    println!("-- running lint --");
+                    run_lint(&Opts { json: false, ..opts })
+                }
+                Err(e) => {
+                    eprintln!("graduate apply: {e}");
+                    ExitCode::from(2)
+                }
             }
         }
         ("agents", None) => match docsys::agents::install(&opts.dir, opts.force) {
