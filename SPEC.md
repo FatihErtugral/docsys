@@ -1,7 +1,8 @@
 # docsys Specification
 
-**Version:** 0.1 (draft)
-**Status:** unstable — rule numbers are stable, rule text may change until 1.0
+**Version:** 0.1
+**Status:** frozen — rule numbers are permanent; rule text may be clarified, not
+redefined, until 1.0
 
 This document defines a documentation system for software projects and personal
 knowledge bases. It is implementation-independent: any tool that satisfies the
@@ -42,6 +43,11 @@ contradiction belong to a human or a model.
 
 **R-004** `advisory` — Capture requires no discipline. Processing requires full
 discipline.
+
+**R-005** `advisory` — Derived artifacts are generated: indexes, routers, graphs,
+backlinks, timestamps, coverage reports. **Prose is never generated.** A system
+that offers to write documentation produces exactly the confident stale copy that
+R-002 forbids.
 
 ---
 
@@ -397,6 +403,20 @@ first.
 | `research/` | `explanation/` |
 | `abandoned` | `explanation/` (rejected alternative) |
 
+### 9.1 Compilation to executable form
+
+The graduation chain has one more link: flowing → permanent → executable.
+
+**R-094** `cmd` · MAY — A `howto` page whose steps have stabilized MAY be
+compiled into an executable agent skill.
+
+**R-095** `cmd` · MUST — A compiled skill MUST record the source identifier and
+content hash. When the source page changes, the compiled skill is reported as
+stale (§11).
+
+**R-096** `agent` · MUST NOT — Compilation MUST NOT invent steps. A procedure not
+fully written on the page is not ready to be compiled.
+
 ---
 
 ## 10. Journal
@@ -527,6 +547,15 @@ content side by side.
 runs in the repository that owns the problem. A central pass is needed only to
 detect providers that nobody consumes.
 
+### 13.5 Asymmetric membership
+
+**R-143** `lint` · MAY — A namespace MAY declare `federation_role: consume-only`.
+It reads manifests but publishes none, and no other namespace may reference it.
+
+**R-144** `advisory` · MUST — A private or machine-local tree MUST be
+`consume-only`. A reference to it resolves on its owner's machine and is dead
+everywhere else, which is a silent failure of the worst kind (R-151).
+
 ---
 
 ## 14. Automation levels
@@ -568,6 +597,7 @@ default_content_language: en     # required
 created: 2026-08-15              # required
 
 namespace: svc-auth              # required when federation is enabled
+federation_role: publish         # publish | consume-only  (R-143)
 
 phase: mvp                       # mvp | mature
 type: app                        # app | library | embedded
@@ -583,9 +613,110 @@ MUST declare `spec`, `profile`, `default_content_language`, and `created`.
 
 ---
 
+## 16. Versioning and migration
+
+A tree created under one version of this specification must be able to move to
+the next without hand editing.
+
+### 16.1 Compatibility
+
+**R-170** `cmd` · MUST — A major version the tool does not implement causes a
+refusal to operate (R-014). A minor version difference MUST NOT block operation.
+
+**R-171** `cmd` · MUST — Every command reports a version difference in one line
+and names the command that resolves it. A migration the user never hears about
+does not happen.
+
+### 16.2 What a migration may change
+
+**R-172** `cmd` · MUST — A migration changes structure only: frontmatter field
+names, directory locations, default values. It MUST NOT modify prose. This is
+R-090 extended to version upgrades.
+
+**R-173** `cmd` · MUST — A migration MUST be declared as data, so it can be
+reviewed, diffed, and tested independently of the implementation that runs it.
+
+**R-174** `cmd` · MUST — Every migration step declares a strategy:
+
+| Strategy | Behavior |
+|---|---|
+| `auto` | Applied mechanically |
+| `suggest` | A value is proposed; a human confirms |
+| `manual` | Listed only; never applied automatically |
+
+**R-175** `cmd` · MUST NOT — A change requiring judgment MUST NOT be applied
+automatically. Semantic changes are always `manual`.
+
+### 16.3 Execution
+
+**R-176** `cmd` · MUST — The default action is a plan. Nothing is written without
+an explicit apply.
+
+**R-177** `cmd` · MUST — Chained migrations apply one version at a time, each as
+its own commit. A single combined commit destroys the information about which
+step broke.
+
+**R-178** `advisory` — Rollback uses version control. No separate rollback
+mechanism is specified.
+
+**R-179** `ci` · MUST — Every migration MUST have a conformance test: a corpus
+tree at the source version, migrated, then compared against the expected tree at
+the target version.
+
+### 16.4 Manifest versioning
+
+**R-180** `cmd` · MUST — The federation manifest format is versioned
+independently of this specification and changes more slowly. Repositories are not
+upgraded on the same day; a manifest format that moved with every specification
+release would break federation continuously.
+
+**R-181** `cmd` · MUST — An implementation MUST read manifest versions older than
+its own.
+
+---
+
 ## Appendix — open questions for 0.2
 
-These are known gaps, recorded so they are not rediscovered:
+These are known gaps, recorded so they are not rediscovered.
+
+### Audience-facing documentation
+
+This specification covers documentation written for the people who build a
+system. Documentation written for the people who *use* it needs three additions,
+designed but deliberately deferred:
+
+**Product layer.** A namespace is one service. A product is usually several. A
+product declares its members:
+
+```yaml
+product: checkout
+namespaces: [svc-cart, svc-payment, svc-inventory]
+```
+
+**Audience field.** `internal: true` today is only an export filter. Three
+audiences actually exist and they need different pages:
+
+```yaml
+audience: internal | integrator | end-user
+```
+
+**Derivation, distinct from graduation.** A user-facing page cannot be a copy of
+an internal one — the assumed knowledge differs. It cannot be independent either,
+or it goes stale. So it is rewritten but tracked:
+
+```yaml
+id: checkout-setup
+audience: end-user
+derives_from:
+  - id: deploy-runbook
+    hash: 8c21f0
+```
+
+Graduation *moves* content (R-090). Derivation *rewrites and tracks* it. When the
+source changes the hash no longer matches and the user-facing page is reported
+stale — which addresses the standard failure mode of product documentation.
+
+### Other gaps
 
 - Brownfield ingestion: which signals in version-control history are worth
   turning into documentation, and which are noise
@@ -595,3 +726,5 @@ These are known gaps, recorded so they are not rediscovered:
 - Whether `verification: unverified|verified` (knowledge-base profile) should
   apply to the `project` profile as well
 - Epic status aggregation rules when legs disagree
+- Generated API references (OpenAPI and equivalents): linked from the router, or
+  addressed by identifier like any other page
