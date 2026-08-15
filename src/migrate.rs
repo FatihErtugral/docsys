@@ -463,7 +463,7 @@ pub fn init(root: &Path, lang: &str) -> Result<(), String> {
 
 const REPO_SKIP_DIRS: [&str; 6] = [".git", "node_modules", "target", "build", "dist", ".venv"];
 
-fn repo_text_files(repo: &Path, docs_root: &Path) -> Vec<PathBuf> {
+pub fn repo_text_files(repo: &Path, docs_root: &Path) -> Vec<PathBuf> {
     fn walk(dir: &Path, docs_root: &Path, out: &mut Vec<PathBuf>) {
         let Ok(entries) = fs::read_dir(dir) else { return };
         let mut paths: Vec<PathBuf> = entries.filter_map(|e| e.ok().map(|e| e.path())).collect();

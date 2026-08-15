@@ -8,7 +8,8 @@ Usage:
   docsys lint    [--root <dir>] [--json]
   docsys init    [--root <dir>] [--lang <code>]
   docsys migrate inventory [--root <dir>]            # plan skeleton to stdout
-  docsys migrate apply --plan <file> [--root <dir>] [--lang <code>]
+  docsys migrate apply --plan <file> [--root <dir>] [--lang <code>] [--repo <dir>]
+  docsys refs    --repo <dir> [--root <dir>] [--json]
 
 Exit codes: 0 clean/warnings · 1 error findings · 2 tree not operable
 ";
@@ -87,6 +88,48 @@ fn main() -> ExitCode {
     };
     match (cmd, sub) {
         ("lint", None) => run_lint(&opts),
+        ("refs", None) => {
+            let Some(repo) = &opts.repo else {
+                eprintln!("refs needs --repo <dir>");
+                return ExitCode::from(2);
+            };
+            let tree = match docsys::tree::DocTree::load(&opts.root) {
+                Ok(t) if t.docmeta_present => t,
+                Ok(_) => {
+                    eprintln!("refs: `{}` has no .docmeta.yml", opts.root.display());
+                    return ExitCode::from(2);
+                }
+                Err(e) => {
+                    eprintln!("refs: {e}");
+                    return ExitCode::from(2);
+                }
+            };
+            let report = docsys::refs::run(repo, &tree);
+            if opts.json {
+                print!("{}", to_json(&report));
+            } else {
+                for f in &report.findings {
+                    println!("{} {} {} [{}] {}", f.severity.tag(), f.rule, f.file, f.subject, f.message);
+                }
+                let errors = report
+                    .findings
+                    .iter()
+                    .filter(|f| f.severity == docsys::model::Severity::Error)
+                    .count();
+                let units: usize = report.inspected.values().sum();
+                println!("-- {errors} error(s), {} warning(s); {units} unit(s) inspected",
+                    report.findings.len() - errors);
+            }
+            if report
+                .findings
+                .iter()
+                .any(|f| f.severity == docsys::model::Severity::Error)
+            {
+                ExitCode::from(1)
+            } else {
+                ExitCode::SUCCESS
+            }
+        }
         ("init", None) => match migrate::init(&opts.root, &opts.lang) {
             Ok(()) => {
                 println!("initialized `{}`", opts.root.display());

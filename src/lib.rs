@@ -4,6 +4,7 @@
 
 pub mod checks;
 pub mod migrate;
+pub mod refs;
 pub mod fm;
 pub mod model;
 pub mod tree;

@@ -26,6 +26,7 @@ line back into rule text; until then this file is the authority for `docsys`.
 | D-018 | **Migrated identifiers.** `id` derives from the filename in kebab-case (`AppManifests.md` → `app-manifests`); `type` is the plan's target; `updated` is the migration date. |
 | D-019 | **Out-of-tree links survive migration.** A relative link escaping the docs root is depth-corrected to keep pointing where it pointed (R-172: the migration rewrites what its own moves invalidated) — and is then judged by lint on its own merits, which surfaces pre-existing R-075 debt instead of silently breaking or hiding it. |
 | D-020 | **Inbound repo references.** `--repo` extends migration to the other side of the boundary: inventory reports every file referencing into the docs tree (Phase A risk report), apply rewrites exact moved-path strings across the repo — including inside URLs that carry the repo's own paths — and reports what it could not map (directory-level and generated-path references) as RISK lines for judgment. A match preceded by `/` or a word character is someone else's path, never rewritten, never a risk. |
+| D-021 | **`refs` scope.** The code scan covers every readable text file in the repo minus the docs tree (lint owns that side), minus `scan_exclude` prefixes from `.docmeta.yml` (R-077 — the owner's word on archived sub-projects and tooling). Token grammar and resolution are byte-identical with the docs-side check: one shared index, one shared tokenizer, so the two sides can never disagree. Supersedes D-012. |
 
 ## Open (assigned, not yet decided)
 

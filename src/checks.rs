@@ -388,6 +388,86 @@ fn check_graduated_targets(tree: &DocTree, r: &mut Report) {
     r.inspected.insert("graduated-targets", inspected);
 }
 
+/// Everything a `doc:` token can resolve against (shared with `refs`).
+pub struct ResolutionIndex {
+    pub ids: BTreeSet<String>,
+    /// (prefix, defining-page body) pairs for `defines:` families (D-008).
+    pub families: Vec<(String, String)>,
+    pub tombstones: Vec<String>,
+}
+
+pub fn build_index(tree: &DocTree) -> ResolutionIndex {
+    let mut families = Vec::new();
+    for page in &tree.pages {
+        if page.kind != Kind::Permanent {
+            continue;
+        }
+        if let Some(fm) = &page.fm {
+            if let Some(fam) = fm.fields.get("defines").and_then(Value::as_str) {
+                if let Some(prefix) = fam.strip_suffix('*') {
+                    families.push((prefix.to_string(), page.text.clone()));
+                }
+            }
+        }
+    }
+    ResolutionIndex {
+        ids: permanent_ids(tree).into_iter().map(str::to_string).collect(),
+        families,
+        tombstones: tree.tombstones.clone(),
+    }
+}
+
+/// R-073's trailing-punctuation strip set (spec list + backtick, D-015).
+pub const DOC_TOKEN_PUNCT: [char; 11] = ['.', ',', ';', ':', ')', ']', '"', '\'', '?', '!', '`'];
+
+/// Extract `doc:` tokens on a line: (token, before_ok) with punctuation
+/// stripped per R-073. `before_ok` guards against `htmldoc:` lookalikes.
+pub fn doc_tokens_on_line(line: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut rest = line;
+    while let Some(pos) = rest.find("doc: ") {
+        let before_ok = pos == 0
+            || rest
+                .get(..pos)
+                .and_then(|s| s.chars().last())
+                .is_none_or(|c| !c.is_ascii_alphanumeric());
+        let after = rest.get(pos + 5..).unwrap_or("");
+        let raw = after.split_whitespace().next().unwrap_or("");
+        let token = raw.trim_end_matches(DOC_TOKEN_PUNCT);
+        rest = after;
+        if before_ok && !token.is_empty() {
+            out.push(token.to_string());
+        }
+    }
+    out
+}
+
+/// Resolve one token against the index. `Ok(())` when it resolves; `Err`
+/// carries the finding class.
+pub enum DocRefFail {
+    Foreign,
+    BadGrammar,
+    Dangling,
+}
+
+pub fn resolve_doc_token(idx: &ResolutionIndex, token: &str) -> Result<(), DocRefFail> {
+    if token.starts_with('@') {
+        return Err(DocRefFail::Foreign);
+    }
+    if !is_local_id(token) {
+        return Err(DocRefFail::BadGrammar);
+    }
+    let family_hit = idx
+        .families
+        .iter()
+        .any(|(prefix, body)| token.starts_with(prefix.as_str()) && occurs_as_token(body, token));
+    if idx.ids.contains(token) || family_hit || idx.tombstones.iter().any(|t| t == token) {
+        Ok(())
+    } else {
+        Err(DocRefFail::Dangling)
+    }
+}
+
 fn permanent_ids(tree: &DocTree) -> BTreeSet<&str> {
     let mut ids = BTreeSet::new();
     for page in &tree.pages {
@@ -484,75 +564,38 @@ fn check_links(tree: &DocTree, r: &mut Report) {
     r.inspected.insert("wiki-links", inspected);
 }
 
-/// `doc:` references inside the docs tree (code scanning arrives with `refs`).
+/// `doc:` references inside the docs tree (code scanning lives in `refs`).
 fn check_doc_refs(tree: &DocTree, r: &mut Report) {
-    let ids = permanent_ids(tree);
-    // defines: families — (pattern-prefix, defining page text) pairs; v0 glob
-    // subset is a trailing `*` only (D-008).
-    let mut families: Vec<(String, &str)> = Vec::new();
-    for page in &tree.pages {
-        if page.kind != Kind::Permanent {
-            continue;
-        }
-        if let Some(fm) = &page.fm {
-            if let Some(fam) = fm.fields.get("defines").and_then(Value::as_str) {
-                if let Some(prefix) = fam.strip_suffix('*') {
-                    families.push((prefix.to_string(), page.text.as_str()));
-                }
-            }
-        }
-    }
-    const PUNCT: [char; 11] = ['.', ',', ';', ':', ')', ']', '"', '\'', '?', '!', '`'];
+    let idx = build_index(tree);
     let mut inspected = 0usize;
     for page in &tree.pages {
         for (line, text_line) in scannable_lines(&page.text) {
-            let mut rest = text_line;
-            while let Some(pos) = rest.find("doc: ") {
-                // `doc:` must stand alone, not be the tail of `htmldoc:`.
-                let before_ok = pos == 0
-                    || rest
-                        .get(..pos)
-                        .and_then(|s| s.chars().last())
-                        .is_none_or(|c| !c.is_ascii_alphanumeric());
-                let after = rest.get(pos + 5..).unwrap_or("");
-                let raw = after.split_whitespace().next().unwrap_or("");
-                let token = raw.trim_end_matches(PUNCT);
-                rest = after;
-                if !before_ok || token.is_empty() {
-                    continue;
-                }
+            for token in doc_tokens_on_line(text_line) {
                 inspected += 1;
-                if token.starts_with('@') {
-                    r.findings.push(Finding::warn(
+                match resolve_doc_token(&idx, &token) {
+                    Ok(()) => {}
+                    Err(DocRefFail::Foreign) => r.findings.push(Finding::warn(
                         R076,
                         &page.rel,
-                        token,
+                        &token,
                         "foreign reference — unresolvable here (federation is experimental)"
                             .to_string(),
-                    ));
-                    continue;
-                }
-                if !is_local_id(token) {
-                    r.findings.push(Finding::warn(
+                    )),
+                    Err(DocRefFail::BadGrammar) => r.findings.push(Finding::warn(
                         R073,
                         &page.rel,
-                        token,
+                        &token,
                         format!("line {}: `{token}` is not a local-id", line + 1),
-                    ));
-                    continue;
-                }
-                let family_hit = families.iter().any(|(prefix, body)| {
-                    token.starts_with(prefix.as_str()) && occurs_as_token(body, token)
-                });
-                if !ids.contains(token) && !family_hit && !tree.tombstones.iter().any(|t| t == token)
-                {
-                    r.findings.push(Finding::err(
+                    )),
+                    Err(DocRefFail::Dangling) => r.findings.push(Finding::err(
                         R076,
                         &page.rel,
-                        token,
-                        format!("line {}: `doc: {token}` resolves to no id, alias, or family member",
-                            line + 1),
-                    ));
+                        &token,
+                        format!(
+                            "line {}: `doc: {token}` resolves to no id, alias, or family member",
+                            line + 1
+                        ),
+                    )),
                 }
             }
         }
