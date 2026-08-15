@@ -22,33 +22,33 @@ discipline, distilled into a permanent layer the code can point at.
 
 ```mermaid
 flowchart LR
-    subgraph FLOW["work/  (flowing layer)"]
-        J[journal.md<br/>≤5-line entries]
-        F[features/]
-        P[postmortems/]
-        R[research/]
-        D[debt.md · questions.md]
+    subgraph WORK["work/ — flowing layer (has status, ends)"]
+        direction TB
+        F["features/ · postmortems/ · research/"]
+        J["journal.md<br/>entries ≤ 5 lines"]
+        J -->|"over 500 lines"| S["journal/<br/>archive slices"]
     end
 
-    subgraph PERM["permanent layer"]
-        REF["reference/<br/>facts code cannot state"]
-        HOW["howto/<br/>procedures"]
-        EXP["explanation/<br/>why · ADRs"]
+    subgraph PERM["permanent layer (id: is the contract)"]
+        direction TB
+        REF["reference/ — facts code cannot state"]
+        HOW["howto/ — procedures"]
+        EXP["explanation/ — why · ADRs"]
     end
 
-    CODE["source code<br/>// doc: token-ttl"]
+    CODE["source code"]
     SKILL["executable skill"]
 
-    F -- "graduate<br/>(byte-exact)" --> REF
-    F -- graduate --> EXP
-    P -- graduate --> REF
-    P -- graduate --> HOW
-    R -- graduate --> EXP
-    J -- "500 lines →<br/>archive slice" --> J
-    CODE -- "doc: &lt;id&gt; — never a path" --> PERM
-    REF -. "verifies: hash pin<br/>drift = loud" .-> CODE
-    HOW -- "compile<br/>(mature only)" --> SKILL
+    F ==>|"graduate — byte-exact,<br/>never rewritten"| PERM
+    CODE -->|"doc: &lt;id&gt;<br/>never a path"| PERM
+    PERM -.->|"verifies: hash pin<br/>code drift = loud"| CODE
+    HOW -->|"compile<br/>(mature only)"| SKILL
 ```
+
+Which section of a work file lands in which permanent type is a lookup, not a
+guess — the template sections map to destinations (R-049): contract surface →
+`reference/`, decisions and rejected alternatives → `explanation/`, procedural
+lessons → `howto/`.
 
 Two contracts carry everything:
 
