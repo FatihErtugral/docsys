@@ -5,6 +5,33 @@ All notable changes to docsys are documented here. The format follows
 [SemVer](https://semver.org/). Release notes are extracted from this file
 by the release workflow — the tag's section becomes the GitHub release body.
 
+## [0.2.2] - 2026-08-16
+
+Warnings got the same treatment errors did: on a real tree, more than half of
+them were the checker misreading the repository. 311 warnings became 0, and the
+tool learned six things.
+
+### Added
+
+- `.docmeta.yml` accepts `list_labels: [deferred=<local form>, repay when=…]`
+  (R-108), the same shape `headings` already had: a tree writing its
+  documentation in another language must not be forced to embed English words
+  in its own prose to satisfy a checker.
+
+### Fixed
+
+- A token containing `<`, `>`, `{` or `}` is a metasyntactic placeholder, not a
+  reference (R-073). Prose documenting the citation form — including this
+  project's own generated agent text — was failing the convention it teaches.
+- Closed work (`graduated`, `abandoned`) is exempt from the section template
+  (R-048): the template guides open work and makes graduation mechanical, so
+  demanding it of a finished page asks for structure that can do nothing.
+- A root-level page's full path is its bare name, so `[[roadmap]]` is not a
+  short-name link (R-070).
+- `graduated_to` resolves through the shared resolver (R-056): a destination
+  named through a `defines:` family is as real as a page id, and two resolvers
+  over one identifier space eventually disagree.
+
 ## [0.2.1] - 2026-08-16
 
 The same real repository, one layer deeper: 212 errors became 2, and every

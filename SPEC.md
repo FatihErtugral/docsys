@@ -342,7 +342,12 @@ guess into a lookup.
 **R-048** `lint` · MUST — The three core tracked-work categories have templates,
 installed into `_templates/` at initialization. A tracked-work file MUST carry
 its category's section headings; a missing section **is reported**. A section
-with nothing to say is left empty — it is never filled for completeness.
+with nothing to say is left empty — it is never filled for completeness. Closed
+work — `graduated` or `abandoned` — is exempt: the template guides work while it
+is open and makes graduation mechanical (R-049), so demanding it of a page whose
+value was already extracted or explicitly discontinued asks for structure that
+can no longer do anything. A closed page that carries the headings keeps them
+(R-098).
 
 | Category | Required sections |
 |---|---|
@@ -386,6 +391,13 @@ other two use `- [ ]` for open and `- [x]` for closed entries:
 | `debt.md` closed | `- [x] <debt> -- deferred: <reason> -- repay when: <trigger> -- resolved: <note or link>` |
 | `questions.md` open | `- [ ] YYYY-MM-DD <question>` optionally ` -- <context or link>` |
 | `questions.md` closed | `- [x] YYYY-MM-DD <question> -- answered: <link or one line>` |
+
+The field labels above are canonical, not literal: `.docmeta.yml` MAY declare
+`list_labels: [deferred=<local form>, repay when=<local form>, resolved=<local
+form>, answered=<local form>]`, exactly as `headings` does for template sections
+(D-025). A tree writing its documentation in another language must not be forced
+to embed English words in its own prose to satisfy a checker; the tool knows no
+language, so the tree declares its own.
 
 The field markers are the literal strings ` -- deferred: `, ` -- repay when: `,
 ` -- resolved: `, ` -- answered: `, and bare ` -- `. They are matched **in the
@@ -637,7 +649,10 @@ than a tool guessing one.
 
 **R-070** `lint` · MUST — A doc-to-doc link MUST be a wiki-link carrying the full
 path from the documentation root: `[[reference/token-ttl]]` or
-`[[reference/token-ttl|alias]]`. Short-name links are invalid.
+`[[reference/token-ttl|alias]]`. Short-name links are invalid. A page that lives
+at the root has no directory in its path, so `[[roadmap]]` for `roadmap.md` is
+already the full path, not a short name — a bare name is a violation only when
+no root-level page answers to it.
 
 > Known tension: R-062 declares filenames cosmetic, yet this rule makes the path
 > a contract between documents. An identifier-based link form is deferred; see
@@ -668,8 +683,13 @@ by path:
 // doc: @svc-auth/token-ttl
 ```
 
-**R-073** `lint` · MUST — The token following `doc:` is read up to the first
-whitespace, then stripped of trailing punctuation (`.` `,` `;` `:` `)` `]` `"`
+**R-073** `lint` · MUST — A token containing `<`, `>`, `{` or `}` is a
+metasyntactic placeholder, not a reference: prose that documents the citation form itself
+(`doc: <id>`) writes one, and so does a code template that renders the citation
+(`doc: {doc_id}`); reading either as an identifier makes documentation about the
+convention fail the convention — this specification's own generated agent text
+does exactly that. Otherwise the token following `doc:` is read up to
+the first whitespace, then stripped of trailing punctuation (`.` `,` `;` `:` `)` `]` `"`
 `'` `?` `!` and the backtick) — a reference at the end of a sentence, or
 written as inline code, is still a reference. A reference opened inside an
 inline-code span ends at the closing backtick, and whatever the prose attaches

@@ -132,11 +132,12 @@ fn check_docmeta(tree: &DocTree, r: &mut Report) {
         ));
     }
     // R-161: unknown keys are reported, never rejected.
-    const KNOWN: [&str; 15] = [
+    const KNOWN: [&str; 16] = [
         "spec",
         "profile",
         "default_content_language",
         "journal_entry_max_lines",
+        "list_labels",
         "stale_active_days",
         "created",
         "namespace",
@@ -377,9 +378,12 @@ fn check_work(tree: &DocTree, r: &mut Report) {
     r.inspected.insert("work", inspected);
 }
 
-/// `graduated_to` entries must resolve against permanent ids (R-056).
+/// `graduated_to` entries must resolve against permanent ids (R-056). The
+/// resolution is the shared one (D-021): a destination named through a
+/// `defines:` family is as real as a page id, and two resolvers over one
+/// identifier space would eventually disagree.
 fn check_graduated_targets(tree: &DocTree, r: &mut Report) {
-    let ids: BTreeSet<&str> = permanent_ids(tree);
+    let idx = build_index(tree);
     let mut inspected = 0usize;
     for page in &tree.pages {
         if page.kind != Kind::Tracked {
@@ -391,7 +395,7 @@ fn check_graduated_targets(tree: &DocTree, r: &mut Report) {
         };
         for g in grads {
             inspected += 1;
-            if !ids.contains(g.as_str()) && !tree.tombstones.iter().any(|t| t == g) {
+            if !matches!(resolve_doc_token(&idx, g), Ok(Resolved::Permanent)) {
                 r.findings.push(Finding::warn(
                     R056,
                     &page.rel,
@@ -525,6 +529,12 @@ pub fn doc_tokens_on_line(line: &str) -> Vec<String> {
             after.split_whitespace().next().unwrap_or("")
         };
         let token = raw.trim_end_matches(DOC_TOKEN_PUNCT);
+        // R-073: `doc: <id>` in prose documents the form; it cites nothing.
+        let token = if token.contains(['<', '>', '{', '}']) {
+            ""
+        } else {
+            token
+        };
         base += pos + 5;
         rest = after;
         if before_ok && !token.is_empty() {
@@ -682,7 +692,9 @@ fn check_links(tree: &DocTree, r: &mut Report) {
     for page in &tree.pages {
         for (line, target) in wiki_links(&page.text) {
             inspected += 1;
-            if !target.contains('/') && page.kind != Kind::Router {
+            // A root-level page's full path is its bare name (R-070).
+            let root_level = paths.contains(target.as_str());
+            if !target.contains('/') && !root_level && page.kind != Kind::Router {
                 // Short-name links are invalid (R-070) — except the router,
                 // where entries like [[reference/x|name]] always carry a path
                 // anyway, so this branch simply never fires there.
@@ -1092,9 +1104,10 @@ fn check_list_grammars(tree: &DocTree, r: &mut Report) {
             }
             let norm = line.replace(" — ", " -- ");
             let ok = if is_debt {
-                let base = norm.contains(" -- deferred: ") && norm.contains(" -- repay when: ");
+                let base = norm.contains(&format!(" -- {}: ", label_of(tree, "deferred")))
+                    && norm.contains(&format!(" -- {}: ", label_of(tree, "repay when")));
                 if closed {
-                    base && norm.contains(" -- resolved: ")
+                    base && norm.contains(&format!(" -- {}: ", label_of(tree, "resolved")))
                 } else {
                     base
                 }
@@ -1102,7 +1115,7 @@ fn check_list_grammars(tree: &DocTree, r: &mut Report) {
                 let after = norm.get(6..).unwrap_or("");
                 let date_ok = is_iso_date(after.get(..10).unwrap_or(""));
                 if closed {
-                    date_ok && norm.contains(" -- answered: ")
+                    date_ok && norm.contains(&format!(" -- {}: ", label_of(tree, "answered")))
                 } else {
                     date_ok
                 }
@@ -1122,6 +1135,16 @@ fn check_list_grammars(tree: &DocTree, r: &mut Report) {
 
 /// `headings: [Context=Bağlam, ...]` — canonical key → displayed heading.
 /// The tool translates nothing; it only matches (D-025).
+/// Local forms of the list-item field labels (R-108), same shape as the
+/// heading map: canonical name → the form this tree actually writes.
+fn label_of(tree: &DocTree, canonical: &str) -> String {
+    tree.docmeta_list("list_labels")
+        .iter()
+        .filter_map(|e| e.split_once('='))
+        .find(|(k, _)| k.trim() == canonical)
+        .map_or_else(|| canonical.to_string(), |(_, v)| v.trim().to_string())
+}
+
 pub fn heading_map(tree: &DocTree) -> std::collections::BTreeMap<String, String> {
     tree.docmeta_list("headings")
         .iter()
@@ -1166,6 +1189,17 @@ fn check_templates(tree: &DocTree, r: &mut Report) {
         let Some((_, required)) = SECTIONS.iter().find(|(c, _)| *c == category) else {
             continue; // R-042 categories have no template
         };
+        // R-048: closed work is exempt — the template guides open work and
+        // makes graduation mechanical; a finished page cannot use it.
+        let closed = page.fm.as_ref().is_some_and(|fm| {
+            matches!(
+                fm.fields.get("status").and_then(Value::as_str),
+                Some("graduated") | Some("abandoned")
+            )
+        });
+        if closed {
+            continue;
+        }
         inspected += 1;
         let missing: Vec<&str> = required
             .iter()

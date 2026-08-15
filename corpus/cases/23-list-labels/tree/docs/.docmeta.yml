@@ -1,0 +1,4 @@
+spec: docsys/0.4
+profile: project
+default_content_language: xx
+list_labels: [deferred=WHY, repay when=WHEN, resolved=FIXED]
