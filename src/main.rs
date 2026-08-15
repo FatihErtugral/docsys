@@ -10,6 +10,8 @@ Usage:
   docsys migrate inventory [--root <dir>]            # plan skeleton to stdout
   docsys migrate apply --plan <file> [--root <dir>] [--lang <code>] [--repo <dir>]
   docsys refs    --repo <dir> [--root <dir>] [--json]
+  docsys rules   --agents-md | --procedures [--max-lines <n>]
+  docsys agents  [--dir .claude] [--force]   # install hooks + skill + /doc-sync
 
 Exit codes: 0 clean/warnings · 1 error findings · 2 tree not operable
 ";
@@ -20,6 +22,11 @@ struct Opts {
     lang: String,
     plan: Option<PathBuf>,
     repo: Option<PathBuf>,
+    dir: PathBuf,
+    force: bool,
+    agents_md: bool,
+    procedures: bool,
+    max_lines: usize,
 }
 
 fn parse_opts(args: &[String]) -> Result<Opts, String> {
@@ -29,6 +36,11 @@ fn parse_opts(args: &[String]) -> Result<Opts, String> {
         lang: "en".to_string(),
         plan: None,
         repo: None,
+        dir: PathBuf::from(".claude"),
+        force: false,
+        agents_md: false,
+        procedures: false,
+        max_lines: 200,
     };
     let mut it = args.iter();
     while let Some(a) = it.next() {
@@ -37,6 +49,17 @@ fn parse_opts(args: &[String]) -> Result<Opts, String> {
             "--lang" => o.lang = it.next().ok_or("--lang needs a value")?.clone(),
             "--plan" => o.plan = Some(PathBuf::from(it.next().ok_or("--plan needs a value")?)),
             "--repo" => o.repo = Some(PathBuf::from(it.next().ok_or("--repo needs a value")?)),
+            "--dir" => o.dir = PathBuf::from(it.next().ok_or("--dir needs a value")?),
+            "--force" => o.force = true,
+            "--agents-md" => o.agents_md = true,
+            "--procedures" => o.procedures = true,
+            "--max-lines" => {
+                o.max_lines = it
+                    .next()
+                    .ok_or("--max-lines needs a value")?
+                    .parse()
+                    .map_err(|_| "--max-lines needs a number".to_string())?;
+            }
             "--json" => o.json = true,
             other => return Err(format!("unknown argument `{other}`")),
         }
@@ -88,6 +111,53 @@ fn main() -> ExitCode {
     };
     match (cmd, sub) {
         ("lint", None) => run_lint(&opts),
+        ("rules", None) => {
+            if opts.procedures {
+                match docsys::rules::procedures() {
+                    Some(p) => {
+                        print!("{p}");
+                        ExitCode::SUCCESS
+                    }
+                    None => {
+                        eprintln!("rules: section 14.3 not found in the embedded spec");
+                        ExitCode::from(2)
+                    }
+                }
+            } else if opts.agents_md {
+                match docsys::rules::check_budget(opts.max_lines) {
+                    Ok(_) => {
+                        print!("{}", docsys::rules::agents_md());
+                        ExitCode::SUCCESS
+                    }
+                    Err(e) => {
+                        eprintln!("rules: {e}");
+                        ExitCode::from(1)
+                    }
+                }
+            } else {
+                eprintln!("rules needs --agents-md or --procedures");
+                ExitCode::from(2)
+            }
+        }
+        ("agents", None) => match docsys::agents::install(&opts.dir, opts.force) {
+            Ok(done) => {
+                for f in &done.written {
+                    println!("wrote   {}/{f}", opts.dir.display());
+                }
+                for f in &done.skipped {
+                    println!("skipped {}/{f} (exists; --force to overwrite)", opts.dir.display());
+                }
+                println!("\n-- merge into .claude/settings.json by hand (protected file): --");
+                println!("{}", docsys::agents::SETTINGS_SNIPPET);
+                println!("-- and add the generated block to AGENTS.md: --");
+                println!("   docsys rules --agents-md >> AGENTS.md   # review the diff first");
+                ExitCode::SUCCESS
+            }
+            Err(e) => {
+                eprintln!("agents: {e}");
+                ExitCode::from(2)
+            }
+        },
         ("refs", None) => {
             let Some(repo) = &opts.repo else {
                 eprintln!("refs needs --repo <dir>");
@@ -182,11 +252,8 @@ fn main() -> ExitCode {
                     }
                     println!("-- running lint on the migrated tree --");
                     run_lint(&Opts {
-                        root: opts.root.clone(),
                         json: false,
-                        lang: opts.lang.clone(),
-                        plan: None,
-                        repo: None,
+                        ..opts
                     })
                 }
                 Err(e) => {

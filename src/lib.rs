@@ -5,6 +5,8 @@
 pub mod checks;
 pub mod migrate;
 pub mod refs;
+pub mod rules;
+pub mod agents;
 pub mod fm;
 pub mod model;
 pub mod tree;
