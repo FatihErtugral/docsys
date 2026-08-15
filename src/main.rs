@@ -117,7 +117,7 @@ fn main() -> ExitCode {
     match (cmd, sub) {
         ("help", _) | ("--help", _) | ("-h", _) => {
             print!("{USAGE}");
-            return ExitCode::SUCCESS;
+            ExitCode::SUCCESS
         }
         ("lint", None) => run_lint(&opts),
         ("rules", None) => {
