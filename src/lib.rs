@@ -3,6 +3,7 @@
 //! choice is registered in corpus/DECISIONS.md (R-193).
 
 pub mod checks;
+pub mod migrate;
 pub mod fm;
 pub mod model;
 pub mod tree;

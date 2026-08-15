@@ -602,7 +602,21 @@ fn check_paths(tree: &DocTree, r: &mut Report) {
                     format!("line {}: absolute filesystem path outside quoted material", line + 1),
                 ));
             }
-            if text_line.contains("](../") || text_line.contains("[[../") {
+            // A `..` segment is fine while it stays inside the tree; only a
+            // resolution that pops past the root escapes (first migration
+            // pilot: `../howto/x.md` from `reference/` was falsely flagged).
+            let mut escapes = false;
+            for target in crate::migrate::md_link_targets_line(text_line) {
+                if target.starts_with("..")
+                    && crate::migrate::resolve(&page.rel, &target).is_none()
+                {
+                    escapes = true;
+                }
+            }
+            if text_line.contains("[[../") {
+                escapes = true; // wiki-links are root-relative; `..` never valid
+            }
+            if escapes {
                 r.findings.push(Finding::err(
                     R075,
                     &page.rel,
