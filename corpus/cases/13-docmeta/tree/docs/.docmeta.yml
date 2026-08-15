@@ -1,0 +1,4 @@
+spec: docsys/1.0
+profile: project
+default_content_language: en
+scan_exlude: [x]

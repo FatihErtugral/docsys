@@ -1,0 +1,7 @@
+EXIT	0
+WARN	R-080	work/features/bad.md	status
+WARN	R-054	work/features/bad.md	updated
+WARN	R-058	work/features/bad.md	epic
+WARN	R-055	work/features/dropped.md	abandoned_reason
+WARN	R-056	work/features/gone.md	nowhere
+WARN	R-081	work/features/gone.md	confirmed

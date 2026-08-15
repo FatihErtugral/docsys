@@ -1,0 +1,5 @@
+spec: docsys/0.4
+profile: project
+default_content_language: en
+epics:
+  - checkout-v2

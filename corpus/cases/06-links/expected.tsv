@@ -1,0 +1,4 @@
+EXIT	1
+ERROR	R-071	reference/alive.md	reference/ghost
+WARN	R-071	reference/alive.md	reference/retired
+WARN	R-070	reference/alive.md	shortname

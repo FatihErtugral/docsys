@@ -1,0 +1,4 @@
+EXIT	1
+ERROR	R-076	reference/notes.md	adr-9999
+ERROR	R-076	reference/notes.md	no-such-id
+WARN	R-076	reference/notes.md	@svc-auth/token-ttl

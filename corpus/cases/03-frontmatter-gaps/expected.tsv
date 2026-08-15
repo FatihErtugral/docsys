@@ -1,0 +1,4 @@
+EXIT	0
+WARN	R-050	reference/no-fm.md	frontmatter
+WARN	R-030	reference/bad-type.md	type
+WARN	R-050	reference/bad-type.md	updated

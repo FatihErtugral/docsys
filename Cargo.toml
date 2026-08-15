@@ -1,0 +1,19 @@
+[package]
+name = "docsys"
+version = "0.1.0"
+edition = "2021"
+description = "Reference implementation of the docsys documentation-system specification"
+license = "MIT OR Apache-2.0"
+
+# Zero runtime dependencies is a registered decision (corpus/DECISIONS.md D-001):
+# the binary must be auditable, fast to build, and free of supply-chain surface.
+[dependencies]
+
+[lints.rust]
+unsafe_code = "forbid"
+
+[lints.clippy]
+unwrap_used = "deny"
+expect_used = "deny"
+indexing_slicing = "deny"
+panic = "deny"
