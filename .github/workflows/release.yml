@@ -64,5 +64,6 @@ jobs:
           [ -s notes.md ] || echo "See CHANGELOG.md." > notes.md
           gh release create "$GITHUB_REF_NAME" --title "$GITHUB_REF_NAME" \
             --notes-file notes.md 2>/dev/null || true
-          gh release upload "$GITHUB_REF_NAME" docsys-*.tar.gz* docsys-*.zip* --clobber 2>/dev/null \
-            || gh release upload "$GITHUB_REF_NAME" docsys-* --clobber
+          shopt -s nullglob
+          assets=(docsys-*.tar.gz docsys-*.tar.gz.sha256 docsys-*.zip docsys-*.zip.sha256)
+          gh release upload "$GITHUB_REF_NAME" "${assets[@]}" --clobber
