@@ -15,7 +15,10 @@ Usage:
   docsys graduate plan <work-file>  [--root <dir>]
   docsys graduate apply --plan <file> [--root <dir>] [--force]
 
-Exit codes: 0 clean/warnings · 1 error findings · 2 tree not operable
+Exit codes (the contract scripts and CI read):
+  0  ok — clean, or warnings only (warnings inform; they never block)
+  1  blocking findings — the tree violates an error-level rule
+  2  could not evaluate — missing docs root / .docmeta.yml, or bad invocation
 ";
 
 struct Opts {
