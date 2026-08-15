@@ -3,7 +3,7 @@
 //! makes the identifier a real contract: a typo in a code comment stops being
 //! invisible the day this runs in CI.
 
-use crate::checks::{self, doc_tokens_on_line, resolve_doc_token, DocRefFail, Report};
+use crate::checks::{self, doc_tokens_on_line, resolve_doc_token, DocRefFail, Report, Resolved};
 use crate::migrate::repo_text_files;
 use crate::model::{Finding, RuleId};
 use crate::tree::DocTree;
@@ -13,6 +13,7 @@ use std::path::Path;
 
 const R073: RuleId = RuleId("R-073");
 const R076: RuleId = RuleId("R-076");
+const R194: RuleId = RuleId("R-194");
 
 /// Scan the repository (excluding the docs tree itself — lint owns that side)
 /// and resolve every `doc:` token against the tree's identifiers.
@@ -49,7 +50,30 @@ pub fn run(repo: &Path, tree: &DocTree) -> Report {
             for token in doc_tokens_on_line(line) {
                 tokens += 1;
                 match resolve_doc_token(&idx, &token) {
-                    Ok(()) => {}
+                    Ok(Resolved::Permanent) => {}
+                    // Code asking a graduated page for an answer is the sharp
+                    // case: "no longer the source of truth" and "the code reads
+                    // it" cannot both be true (R-194).
+                    Ok(Resolved::Graduated) => r.findings.push(Finding::err(
+                        R194,
+                        &frel,
+                        &token,
+                        format!(
+                            "line {}: `doc: {token}` points at a graduated page — cite the \
+                             destination it graduated to",
+                            i + 1
+                        ),
+                    )),
+                    Ok(Resolved::Flowing) => r.findings.push(Finding::warn(
+                        R194,
+                        &frel,
+                        &token,
+                        format!(
+                            "line {}: `doc: {token}` cites the flowing layer — the page is real \
+                             but temporary; distil it",
+                            i + 1
+                        ),
+                    )),
                     Err(DocRefFail::Foreign) => r.findings.push(Finding::warn(
                         R076,
                         &frel,

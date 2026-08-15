@@ -680,6 +680,18 @@ under federation (§13, R-139); in a tree with no federation state a foreign
 reference **is reported** as unresolvable here, never silently accepted and
 never a core error — the core cannot check what only a manifest knows.
 
+**R-194** `lint` · MUST — A `doc:` reference resolves against **every** page
+identifier in the tree, tracked work included — a work page's `id` is an `id`
+(R-076). Because the flowing layer is temporary, the resolution carries a
+severity of its own: a reference to a page whose `status` is `graduated`
+**is an error** — that page announced its permanent value moved elsewhere and
+is not loaded into agent context (§5.2), so a citation pointing at it sends the
+reader to a husk; a reference to any other tracked-work page **is reported**,
+naming the distillation that has not happened yet. Field origin: the first real
+adoption cited 33 work pages that exist, and reporting them as dangling made a
+working tree look broken while the real debt — 54 identifiers with no page at
+all — was buried in the same list.
+
 **R-079** `lint` · MUST — A `doc:` reference resolved through a `defines:`
 family MUST name a member that exists: the cited identifier occurs on the
 defining page, as a heading or in its body. A glob match alone resolves

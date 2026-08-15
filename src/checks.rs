@@ -42,6 +42,7 @@ const R103: RuleId = RuleId("R-103");
 const R108: RuleId = RuleId("R-108");
 const R160: RuleId = RuleId("R-160");
 const R161: RuleId = RuleId("R-161");
+const R194: RuleId = RuleId("R-194");
 
 /// Fenced-code and blockquote lines are quoted material (R-074/R-075): path
 /// and reference scanning skips them. Returns the lines that participate.
@@ -404,6 +405,11 @@ fn check_graduated_targets(tree: &DocTree, r: &mut Report) {
 /// Everything a `doc:` token can resolve against (shared with `refs`).
 pub struct ResolutionIndex {
     pub ids: BTreeSet<String>,
+    /// Identifiers of the flowing layer — real pages, but temporary ones, so a
+    /// citation resolves and is reported rather than blocking (R-194).
+    pub flowing: BTreeSet<String>,
+    /// Flowing pages that already announced their value moved on.
+    pub graduated: BTreeSet<String>,
     /// (prefix, defining-page body) pairs for `defines:` families (D-008).
     pub families: Vec<(String, String)>,
     pub tombstones: Vec<String>,
@@ -431,11 +437,33 @@ pub fn build_index(tree: &DocTree) -> ResolutionIndex {
             }
         }
     }
+    let permanent: BTreeSet<String> = permanent_ids(tree)
+        .into_iter()
+        .map(str::to_string)
+        .collect();
+    let (mut flowing, mut graduated) = (BTreeSet::new(), BTreeSet::new());
+    for page in &tree.pages {
+        if page.kind == Kind::Permanent {
+            continue;
+        }
+        let Some(fm) = &page.fm else { continue };
+        let Some(id) = fm.fields.get("id").and_then(Value::as_str) else {
+            continue;
+        };
+        if permanent.contains(id) {
+            continue;
+        }
+        let status = fm.fields.get("status").and_then(Value::as_str);
+        if status == Some("graduated") {
+            graduated.insert(id.to_string());
+        } else {
+            flowing.insert(id.to_string());
+        }
+    }
     ResolutionIndex {
-        ids: permanent_ids(tree)
-            .into_iter()
-            .map(str::to_string)
-            .collect(),
+        ids: permanent,
+        flowing,
+        graduated,
         families,
         tombstones: tree.tombstones.clone(),
     }
@@ -474,7 +502,17 @@ pub enum DocRefFail {
     Dangling,
 }
 
-pub fn resolve_doc_token(idx: &ResolutionIndex, token: &str) -> Result<(), DocRefFail> {
+/// What a resolved `doc:` reference points at (R-194). The layer decides the
+/// severity: the permanent layer is the contract, the flowing layer is a
+/// promise not yet kept, and a graduated page is a husk.
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+pub enum Resolved {
+    Permanent,
+    Flowing,
+    Graduated,
+}
+
+pub fn resolve_doc_token(idx: &ResolutionIndex, token: &str) -> Result<Resolved, DocRefFail> {
     if token.starts_with('@') {
         return Err(DocRefFail::Foreign);
     }
@@ -486,7 +524,7 @@ pub fn resolve_doc_token(idx: &ResolutionIndex, token: &str) -> Result<(), DocRe
         if token.starts_with(prefix.as_str()) {
             family_prefix_hit = true;
             if occurs_as_token(body, token) {
-                return Ok(());
+                return Ok(Resolved::Permanent);
             }
         }
     }
@@ -497,7 +535,11 @@ pub fn resolve_doc_token(idx: &ResolutionIndex, token: &str) -> Result<(), DocRe
         return Err(DocRefFail::BadGrammar);
     }
     if idx.ids.contains(token) || idx.tombstones.iter().any(|t| t == token) {
-        Ok(())
+        Ok(Resolved::Permanent)
+    } else if idx.graduated.contains(token) {
+        Ok(Resolved::Graduated)
+    } else if idx.flowing.contains(token) {
+        Ok(Resolved::Flowing)
     } else {
         Err(DocRefFail::Dangling)
     }
@@ -616,7 +658,27 @@ fn check_doc_refs(tree: &DocTree, r: &mut Report) {
             for token in doc_tokens_on_line(text_line) {
                 inspected += 1;
                 match resolve_doc_token(&idx, &token) {
-                    Ok(()) => {}
+                    Ok(Resolved::Permanent) => {}
+                    Ok(Resolved::Graduated) => r.findings.push(Finding::err(
+                        R194,
+                        &page.rel,
+                        &token,
+                        format!(
+                            "line {}: `doc: {token}` points at a graduated page — its permanent \
+                             value moved on; cite the destination",
+                            line + 1
+                        ),
+                    )),
+                    Ok(Resolved::Flowing) => r.findings.push(Finding::warn(
+                        R194,
+                        &page.rel,
+                        &token,
+                        format!(
+                            "line {}: `doc: {token}` cites the flowing layer — distil it into a \
+                             permanent page",
+                            line + 1
+                        ),
+                    )),
                     Err(DocRefFail::Foreign) => r.findings.push(Finding::warn(
                         R076,
                         &page.rel,
