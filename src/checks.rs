@@ -576,7 +576,7 @@ fn check_links(tree: &DocTree, r: &mut Report) {
                 continue;
             }
             // An explicit [[_archive/...]] link is a deliberate citation of a
-            // record — it resolves silently (field convention, t-embed pilot).
+            // record — it resolves silently (field convention from a pilot).
             let explicit_archive =
                 target.starts_with("_archive/") && tree.root.join(format!("{target}.md")).exists();
             let archived = tree

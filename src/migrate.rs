@@ -495,10 +495,74 @@ pub fn repo_text_files(repo: &Path, docs_root: &Path) -> Vec<PathBuf> {
             }
         }
     }
-    let mut out = Vec::new();
     let docs_canon = docs_root.canonicalize().ok();
+    if let Some(listed) = git_listed_files(repo, docs_canon.as_deref()) {
+        return listed;
+    }
+    let mut out = Vec::new();
     walk(repo, docs_canon.as_deref(), &mut out);
     out
+}
+
+/// The project's own file list, straight from git: tracked files plus untracked
+/// ones that `.gitignore` does not exclude (D-029). A hand-maintained skip list
+/// cannot keep up with reality — build outputs, vendored trees, and nested
+/// worktrees all live under names no list predicts, and scanning them turns a
+/// clean repo into thousands of phantom findings. Returns None outside a git
+/// repository, where the directory walk remains the answer.
+fn git_listed_files(repo: &Path, docs_canon: Option<&Path>) -> Option<Vec<PathBuf>> {
+    let out = std::process::Command::new("git")
+        .args([
+            "ls-files",
+            "-z",
+            "--cached",
+            "--others",
+            "--exclude-standard",
+        ])
+        .current_dir(repo)
+        .output()
+        .ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    // git reports repo-relative paths, so the docs root is excluded by its own
+    // repo-relative prefix — comparing a relative path against an absolute
+    // root is the D-027 mismatch, and it silently excludes nothing.
+    let repo_canon = repo.canonicalize().ok();
+    let docs_prefix = match (repo_canon.as_deref(), docs_canon) {
+        (Some(r), Some(d)) => d
+            .strip_prefix(r)
+            .ok()
+            .map(|p| format!("{}/", p.to_string_lossy().replace('\\', "/"))),
+        _ => None,
+    };
+    let mut files = Vec::new();
+    for raw in out.stdout.split(|b| *b == 0) {
+        if raw.is_empty() {
+            continue;
+        }
+        let Ok(rel) = std::str::from_utf8(raw) else {
+            continue;
+        };
+        if docs_prefix.as_ref().is_some_and(|p| rel.starts_with(p)) {
+            continue;
+        }
+        let p = repo.join(rel);
+        // A submodule lists as a directory entry, and a stale index entry may
+        // name a file that no longer exists.
+        if !p.is_file() {
+            continue;
+        }
+        if fs::metadata(&p)
+            .map(|m| m.len() > 2_000_000)
+            .unwrap_or(true)
+        {
+            continue;
+        }
+        files.push(p);
+    }
+    files.sort();
+    Some(files)
 }
 
 /// Inbound references from the repo into the docs tree, as inventory evidence

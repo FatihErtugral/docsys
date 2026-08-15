@@ -137,3 +137,44 @@ fn repo_walk_excludes_docs_root_under_any_spelling() {
     assert!(files.iter().any(|f| f.ends_with("code.c")));
     let _ = fs::remove_dir_all(&repo);
 }
+
+#[test]
+fn the_repo_walk_asks_git_and_honors_gitignore() {
+    let repo = tmp("gitignore");
+    let docs = repo.join("docs");
+    fs::create_dir_all(&docs).unwrap();
+    fs::write(docs.join("page.md"), "x\n").unwrap();
+    fs::create_dir_all(repo.join("build/nested")).unwrap();
+    fs::write(repo.join("build/nested/generated.c"), "// doc: ghost\n").unwrap();
+    fs::create_dir_all(repo.join("vendored")).unwrap();
+    fs::write(repo.join("vendored/copy.c"), "// doc: ghost\n").unwrap();
+    fs::write(repo.join("code.c"), "// doc: real\n").unwrap();
+    // `vendored/` is ignored by name, not by any built-in skip list: only the
+    // project's own .gitignore knows it does not belong to the project.
+    fs::write(repo.join(".gitignore"), "vendored/\nbuild/\n").unwrap();
+    assert!(std::process::Command::new("git")
+        .args(["init", "-q"])
+        .current_dir(&repo)
+        .status()
+        .unwrap()
+        .success());
+
+    let files = docsys::migrate::repo_text_files(&repo, &docs);
+    let names: Vec<String> = files
+        .iter()
+        .map(|f| {
+            f.strip_prefix(&repo)
+                .unwrap_or(f)
+                .to_string_lossy()
+                .replace('\\', "/")
+        })
+        .collect();
+    assert!(names.contains(&"code.c".to_string()), "{names:?}");
+    assert!(
+        !names.iter().any(|n| n.starts_with("vendored/")),
+        "{names:?}"
+    );
+    assert!(!names.iter().any(|n| n.starts_with("build/")), "{names:?}");
+    assert!(!names.iter().any(|n| n.starts_with("docs/")), "{names:?}");
+    let _ = fs::remove_dir_all(&repo);
+}
