@@ -1,8 +1,10 @@
 # docsys Specification
 
-**Version:** 0.3
-**Status:** draft — rule numbers are permanent; rule text may be clarified, not
-redefined, within a minor version
+**Version:** 0.4
+**Status:** frozen core + experimental federation. Rule numbers are permanent;
+rule text may be clarified, not redefined, within a minor version. From 0.4 the
+fix policy is **deletion-first**: no change adds net normative rules — text
+grows only when a smaller text was tried and failed.
 
 This document defines a documentation system for software projects and personal
 knowledge bases. It is implementation-independent: any tool that satisfies the
@@ -54,7 +56,11 @@ requires full discipline.
 **R-005** `advisory` · MUST NOT — Tooling MUST NOT author prose. It generates
 only derived artifacts: indexes, routers, graphs, backlinks, timestamps,
 coverage reports. Rendering normative text from this specification into another
-format (R-155) is transformation, not authorship.
+format (R-155) is transformation, not authorship. The boundary is determinism,
+not the binary the words pass through: a model exercising judgment is an author
+under this rule, not tooling. The opening sentence R-099 requires is written by
+the model as author; what no conformant tool does is generate prose
+deterministically and present it as authored.
 
 ---
 
@@ -102,24 +108,35 @@ escalation criterion in R-151:
 treats as blocking, so two implementations can be compared on the behavior teams
 actually experience.
 
-**R-016** `advisory` · MUST — A rule blocks only if it uses a blocking word above
-*and* meets R-151's criterion. Whether a given outcome is irreversible or
-silently wrong is a judgment, which is why this is not a mechanical check; R-015
-makes the resulting choice visible instead.
+**R-016** WITHDRAWN — restated §2.2's severity table and R-151's criterion; both
+remain the authoritative statements.
 
 **R-017** `advisory` · MUST — A rule that states no severity word warns. An
 implementation MUST NOT invent blocking behavior for such a rule, and this
 specification MUST NOT leave a rule unmarked whose violation is silently wrong.
 
-**R-018** `ci` · MUST — Every guarantee tagged `cmd` MUST have a `lint` backstop
-that detects the same violation when it is produced by hand instead of by the
-command.
+**R-018** `ci` · MUST — Every guarantee tagged `cmd` whose violation leaves an
+observable trace in the tree or its version-control history MUST have a `lint`
+backstop that detects the same violation when it is produced by hand instead of
+by the command. A `cmd` rule that constrains only how a command behaves —
+atomicity (R-097), plan-before-apply (R-176) — leaves no tree state a backstop
+could inspect; such rules are verified by conformance tests (R-010, R-190)
+instead.
 
 > Rationale: `cmd` describes what a tool does, not what a tree looks like. A
 > human who deletes a page with `git rm` bypasses tombstone creation; a team that
 > appends to `journal.md` in an editor bypasses rotation. Without a backstop the
 > guarantee holds only for people who were already using the tool correctly —
 > which is the population that did not need it.
+
+**Experimental sections.** A section whose heading carries `(EXPERIMENTAL)` is
+a design draft, not a conformance requirement. Its rules keep their numbers and
+declaration form — the tags record *intended* enforcement — but no conformance
+obligation (R-010, R-190, R-191) attaches to them, and no normative rule may
+depend on one for its own meaning or enforcement. An experimental section
+becomes normative only after a reference implementation exists and its rules
+survive against real use: a complex system that works grows out of a simple
+system that works, never out of more prose.
 
 Rule numbers are permanent. A withdrawn rule keeps its number and states where
 its content went; numbers are never reused. A withdrawal declaration matches:
@@ -137,11 +154,13 @@ by at least one conformance test, unless the rule's level is `MAY` and the
 implementation does not offer the optional capability. An implementation MUST be
 able to report, per rule, which check covers it.
 
-**R-011** `ci` · MUST — An *applicable* check that inspected zero units MUST
-report failure, not success. A check is applicable when the tree declares the
-feature it verifies: federation checks are applicable only when `namespace` is
-declared, freshness checks only when at least one `verifies` block exists. An
-inapplicable check reports "not applicable", never "passed".
+**R-011** `ci` · MUST — Every check MUST report how many units it inspected,
+and the distinction that matters is *empty population* versus *dead scan*. An
+empty population — no tracked work yet, no `verifies` blocks, no foreign
+references — reports zero and passes: a fresh tree is not a broken one. A
+**dead scan** — the check's configured scope matched no files even though files
+of that kind exist in the tree — MUST report failure, not success. A check
+whose feature is not declared at all reports "not applicable", never "passed".
 
 > Rationale for R-011: in field use, a hook whose path patterns no longer matched
 > anything stayed green for weeks while the rule it enforced was dead.
@@ -155,6 +174,20 @@ in its `.docmeta.yml`. The major component MUST match an implemented major
 version; the minor component MUST NOT be required to match.
 
 **R-014** WITHDRAWN — merged into R-170.
+
+### 2.4 Definitions
+
+**Content change.** A change to a page is a *content change* unless it touches
+only: the `updated` field, the verification record (R-028), a `sources:` path
+rewrite performed under R-027, or a structural target rewrite performed by a
+migration under R-172. Every rule that reads "content change" — R-024, R-052,
+R-082, R-085, R-106 — reads this definition. This is a definition, not a rule:
+it cannot be violated, so it carries no enforcement tag and incurs no coverage
+obligation.
+
+> Without this, the `updated` repair (R-156) is itself a newer change than the
+> value it writes, and the repair loop never terminates; and a mechanical
+> `sources:` rewrite would flip every resting page to `unverified`.
 
 ---
 
@@ -173,8 +206,8 @@ shared across profiles.
 | Grouping axis | none | domain |
 | Extra field | — | `verification` |
 
-**R-021** `advisory` · MUST — Profiles are independent systems. A tree of one
-profile MUST NOT require the existence of a tree of another profile.
+**R-021** WITHDRAWN — a special case of R-022: absent a reference there is no
+dependency, so no tree can require the existence of a tree of another profile.
 
 **R-022** `advisory` · MUST — The only coupling between trees is a reference
 (§7). Absent a reference, there is no dependency and no shared state.
@@ -194,10 +227,9 @@ evidence trail of a `wiki/` page is a silent failure of the kind R-151 forbids.
 
 **R-024** `lint` · MUST — A `wiki/` page carries `verification: unverified` or
 `verification: verified`, and `sources:` listing the `raw/` paths it rests on. A
-page whose **content or `sources:` changed** becomes `unverified`. Changes to the
-verification fields themselves — `verification` and the record required by R-028 —
-are not content changes; without this carve-out the act of recording verification
-would immediately undo it.
+page that undergoes a **content change** (§2.4) becomes `unverified`. The §2.4
+exclusions are what make verification recordable at all: without them the act of
+recording it, or a mechanical `sources:` path rewrite, would immediately undo it.
 
 **R-025** `agent` · MUST — Only an independent session may set `verified`. The
 session that produced a page never verifies it.
@@ -252,7 +284,20 @@ documentation owns those.
 **R-034** `lint` · MUST — Every permanent page MUST be reachable from the root
 router (`index.md`). An unreachable page is an orphan and **is reported**:
 adding the router line afterwards is routine and reversible, so blocking here
-would be the friction R-150 warns about.
+would be the friction R-151 warns about. The check is applicable (R-011) only
+when at least one permanent page exists.
+
+**R-035** `lint` · MUST — A router line is:
+
+```
+- [[<path>|<title>]] -- <one sentence>
+```
+
+New entries are **appended at the end**; any richer ordering is human work. A
+line not matching the grammar **is reported**. The format is normative because
+three rules depend on it: reachability edges (R-034), the journal slice's
+router line (R-103), and deterministic router repair (R-156). A router routes —
+its entries are links and one-sentence hooks, never content.
 
 ### 4.2 Flowing layer
 
@@ -272,9 +317,10 @@ work/
 
 **R-041** `lint` · MUST — Files under `features/`, `postmortems/`, and
 `research/` are *tracked work* and carry `status` (§8). `journal.md`,
-`debt.md`, `questions.md`, and journal archive slices under `journal/` are *list
-files*: they hold many independent items, do not track the life of one unit of
-work, and MUST NOT carry `status`.
+`debt.md`, `questions.md`, journal archive slices under `journal/`, and archived
+list-file slices under `_archive/` (R-108) are *list files*: they hold many
+independent items, do not track the life of one unit of work, and MUST NOT
+carry `status`.
 
 **R-042** `lint` · MAY — A tree MAY declare additional tracked-work categories in
 `.docmeta.yml`. They are subject to the `status` rules but have no defined
@@ -284,11 +330,89 @@ graduation target.
 needed. Only `journal.md` and `debt.md` are created at initialization. An empty
 directory reads as an obligation and produces filler content.
 
-### 4.3 Reserved directories
+### 4.3 Tracked-work templates
+
+Templates bind *tracked work*, not capture. Capture — a journal line, an inbox
+note — stays format-free (R-004): friction at capture is lost knowledge. A
+tracked-work file is a processing artifact, and its structure is the input
+format of graduation: standard sections turn "which block goes where" from a
+guess into a lookup.
+
+**R-048** `lint` · MUST — The three core tracked-work categories have templates,
+installed into `_templates/` at initialization. A tracked-work file MUST carry
+its category's section headings; a missing section **is reported**. A section
+with nothing to say is left empty — it is never filled for completeness.
+
+| Category | Required sections |
+|---|---|
+| `features/` | `## Context` · `## Decision` · `## Contract surface` · `## Rejected alternatives` |
+| `postmortems/` | `## What happened` · `## Root cause` · `## Recurrence` · `## Lesson` |
+| `research/` | `## Question` · `## Tried` · `## Learned` · `## Why no decision` |
+
+Section headings are structural tokens (R-120): the heading line is fixed
+English, the prose beneath it follows the content language (R-121).
+
+**R-049** `advisory` · MUST — Every required section has a **declared
+disposition**: it graduates to a destination, or it is explicitly retained and
+archived with the file. A section is never silently dropped. Graduation reads
+this table instead of inferring:
+
+| Section | Disposition |
+|---|---|
+| `Context` | retained — frames the file |
+| `What happened` | retained — the narrative is the record |
+| `Root cause` | `explanation/` — the systemic why MUST survive the file |
+| `Tried` | `explanation/` — negative results are knowledge |
+| `Contract surface` | `reference/` |
+| `Decision`, `Rejected alternatives` | `explanation/` (ADR) |
+| `Recurrence` — the invariant and its test | `reference/` |
+| `Lesson` | `howto/` when procedural, else `explanation/` |
+| `Learned` | `explanation/` |
+| `Question`, `Why no decision` — still open at closure | a **fresh** `questions.md` item (R-108 grammar) linking back; the section itself is retained. Writing the item is model authorship, licensed as in R-099 — a section cannot move byte-exactly into a one-line grammar |
+| `Question`, `Why no decision` — closed with reasoning | `explanation/` |
+
+List files are not templated — they hold many independent items, not sections —
+but each has an **item grammar**:
+
+**R-108** `lint` · MUST — A list-file entry MUST match its item grammar; a
+non-matching entry **is reported**. The check is applicable (R-011) only when
+the file has at least one entry. `journal.md` is governed by R-100/R-101. The
+other two use `- [ ]` for open and `- [x]` for closed entries:
+
+| File | Item grammar |
+|---|---|
+| `debt.md` open | `- [ ] <debt> -- deferred: <reason> -- repay when: <trigger>` |
+| `debt.md` closed | `- [x] <debt> -- deferred: <reason> -- repay when: <trigger> -- resolved: <note or link>` |
+| `questions.md` open | `- [ ] YYYY-MM-DD <question>` optionally ` -- <context or link>` |
+| `questions.md` closed | `- [x] YYYY-MM-DD <question> -- answered: <link or one line>` |
+
+The field markers are the literal strings ` -- deferred: `, ` -- repay when: `,
+` -- resolved: `, ` -- answered: `, and bare ` -- `. They are matched **in the
+declared order, at the first occurrence of each, left to right**; the last
+field takes the remainder of the line, so field text may contain hyphens and
+dashes freely. All separators are ASCII — one canonical spelling, because two
+equivalent spellings make identical entries diff differently.
+
+Closed entries remain valid indefinitely. When a list file grows past the
+journal limit (R-103's threshold applies), closed entries MAY be moved in bulk
+to an archive slice under `_archive/` — the location R-041 already names; the
+slice remains a list file and its entries stay subject to this grammar. The R-093 question is
+asked before the sweep — a closed entry whose `resolved:` points nowhere may be
+the only record of the answer.
+
+> A debt entry without a repayment trigger is never repaid — it is a wish, not a
+> debt. A question without a date cannot be aged, and an unaged question list
+> only grows.
+
+### 4.4 Reserved directories
 
 **R-044** `lint` · MUST — The following names are reserved and excluded from
 orphan and type checks: `_archive/`, `_templates/`, `_unsorted/`,
 `.federation/`. Files under `.federation/` are additionally subject to R-149.
+Files under `_archive/` are additionally excluded from resolution checks
+(R-059, R-071, R-076): an archived page is a record, not a live claim, and its
+references describe the tree as it was — erroring on them forever as their
+targets retire would push teams to delete instead of archive (R-045).
 
 **R-045** `agent` · MUST NOT — A command MUST NOT delete authored content;
 obsolete content moves to `_archive/`. Derived content is exempt: refreshing a
@@ -301,6 +425,14 @@ for a human to assess.
 
 **R-046** `agent` · SHOULD — `_unsorted/` is temporary. Content that cannot be
 classified goes there and is reported, never force-fitted into a type.
+
+**R-047** `lint` · MUST — A page under `_archive/` is not an authoritative home.
+Its `id`, when present, MUST have a tombstone in the ledger (R-066) — archiving
+retires the identifier, with `superseded_by` naming the graduation destination
+when one exists (R-093). An archived identifier without a tombstone **is
+reported**. `provides` (R-131) derives from live pages only, so an archived page
+reaches the manifest solely through its tombstone, as `withdrawn` — never as an
+active contract.
 
 ---
 
@@ -337,18 +469,25 @@ namespaces. An unowned shared contract is an error.
 > Rationale: in field use, a wire protocol between two components went
 > undocumented for months because neither side considered itself the owner.
 
-**R-052** `cmd` · MUST — `updated` MUST be maintained by tooling. Where a page's
-`updated` is older than its last content change in version-control history, a
-check reports it. Filesystem timestamps are never used; a fresh clone resets
-them.
+**R-052** `cmd` · MUST — `updated` MUST be maintained by tooling. Filesystem
+timestamps are never used; a fresh clone resets them. R-106 backstops the hand
+edit that skips the tooling.
 
-**R-053** `lint` · MAY — Router files (`index.md`), trackers (`roadmap.md`), and
-`README.md` are exempt from frontmatter but MUST follow their own format rules.
+**R-106** `lint` · MUST — Where version-control history is available, a page
+whose `updated` is older than its last content change in history **is
+reported**. This is the R-018 backstop for R-052: an edit made without the
+tooling leaves exactly this trace.
+
+**R-053** `lint` · MAY — Router files (`index.md`) and `README.md` are exempt
+from frontmatter. Router lines follow R-035.
 
 **R-057** `lint` · MUST — `title` defaults to the text of the page's first
 heading; `summary` defaults to its first paragraph, truncated at the first
 sentence boundary. An implementation MUST use these defaults when the fields are
-absent, so that two exporters produce identical manifests for identical trees.
+absent, so that one implementation produces identical manifests for identical
+trees. The sentence-boundary algorithm is implementation-defined (§19), so
+identity across *implementations* is not guaranteed; a tree that needs it
+authors `title` and `summary` explicitly.
 
 ### 5.2 Tracked work files
 
@@ -356,7 +495,8 @@ absent, so that two exporters produce identical manifests for identical trees.
 ---
 status: active                     # required
 updated: 2026-08-15                # required
-epic: "@company/checkout-v2"       # optional
+epic: checkout-v2                  # optional — declared in .docmeta.yml epics:
+confirmed: "fatih, 2026-08-15"     # required at done and graduated (R-081)
 abandoned_reason: "..."            # required when status: abandoned
 graduated_to: [token-ttl]          # required when status: graduated
 ---
@@ -371,10 +511,14 @@ graduated_to: [token-ttl]          # required when status: graduated
 **R-056** `lint` · MUST — `status: graduated` MUST carry `graduated_to` with at
 least one identifier that resolves.
 
-**R-058** `lint` · MUST — `epic`, when present, MUST be a `foreign-id` (§6.1) and
-MUST resolve. An unvalidated grouping field is the disease R-162 was written to
-cure: a typo silently detaches the work from its epic and no aggregation ever
-reports it missing.
+**R-058** `lint` · MUST — `epic`, when present, MUST match `local-id` or
+`foreign-id` (§6.1). A local value MUST appear in the `epics:` list declared in
+`.docmeta.yml` — a typo has nowhere to hide, and a single non-federated
+repository groups work without inventing a namespace. A foreign value **is
+reported** as unsupported: the manifest cannot represent epics today, and
+silently accepting an unresolvable grouping is the disease R-162 was written to
+cure. The check is applicable (R-011) only when a tracked-work file declares an
+`epic`.
 
 ---
 
@@ -391,10 +535,14 @@ foreign-id ::= "@" namespace "/" local-id
 **R-060** `lint` · MUST — An `id` MUST match `local-id`. ASCII lowercase,
 digits, and hyphens only, regardless of the page's content language.
 
-**R-061** `lint` · MUST — An `id` MUST be unique within its namespace, counting
-`aliases` and tombstones (§6.2) as occupied. A collision **is an error**: two
-pages claiming one identifier make every reference to it ambiguous and make the
-exported hash depend on directory traversal order.
+**R-061** `lint` · MUST — An `id` MUST be unique within its namespace. The
+uniqueness domain is: every page carrying `id` outside `_archive/` and
+`.federation/`, plus `aliases`, plus tombstones (§6.2). A collision **is an
+error**: two pages claiming one identifier make every reference to it ambiguous
+and make the exported hash depend on directory traversal order. Two exclusions
+are deliberate: an archived copy sharing its own tombstone's identifier is the
+expected record pair, not a collision (R-047); and a materialized foreign page
+never enters the local domain — its home namespace owns that identifier.
 
 **R-062** `advisory` · MUST — **The identifier is the contract; the filename is
 cosmetic.** An `id` MUST NOT change when a file is renamed, moved, or translated.
@@ -405,15 +553,18 @@ cosmetic.** An `id` MUST NOT change when a file is renamed, moved, or translated
 **R-063** `lint` · MAY — A page MAY declare `defines:` with a glob to register
 itself as the definition site of an identifier family, for example `adr-*`. The
 glob is matched against `local-id` values and therefore uses the same lowercase
-grammar as R-060.
+grammar as R-060. Its purpose is family resolution: it matches the identifiers
+by which members are *cited* (R-076), and R-079 checks that a cited member
+actually exists on the defining page.
 
 > `defines:` is authored. It is not the manifest field `provides` (R-131), which
 > is derived. In 0.1 both were called `provides`, which four reviewers read as a
 > contradiction.
 
-**R-064** `advisory` · MUST — A `defines:` pattern MUST match the *definition*
-form, not the *citation* form. A pattern that also matches citations reports
-broken references as healthy.
+**R-064** WITHDRAWN — its definition-form/citation-form distinction contradicted
+the purpose of R-063, whose glob exists precisely to match citations (R-076);
+the failure it targeted — broken references reported as healthy — is prevented
+by R-079's membership check.
 
 ### 6.2 Identifier lifecycle
 
@@ -423,37 +574,51 @@ outage.
 
 **R-065** `lint` · MUST — A retired identifier is never reused. Renaming a page's
 identifier means: the new `id` is assigned, and the previous one is added to
-`aliases`. Both resolve; the alias resolves with a deprecation notice.
+`aliases`. Both resolve; the alias resolves with a deprecation notice. Where
+version-control history is available, an alias that disappeared from a page
+without entering the ledger **is reported** — hand-tidying an alias frees a name
+some cached reference still trusts.
 
 **R-066** `cmd` · MUST — Removing an identifier creates a tombstone in the
 **tombstone ledger** at `.tombstones.yml` in the documentation root, maintained
-only by tooling. Each entry records the identifier, the withdrawal date, and optionally
-`superseded_by`. A tombstoned identifier resolves to an explanatory error, never
-to "not found".
+only by tooling. Each entry records the identifier, the withdrawal date, whether
+the page was marked `internal: true` (R-135), and optionally `superseded_by`. A
+tombstoned identifier resolves to an explanatory error, never to "not found".
 
 The ledger exists because a deleted page cannot supply its own tombstone, and
 because the guarantee that a retired identifier is never reused (R-065) must hold
 in a single repository with no federation at all — which is the most common
 deployment.
 
-**R-067** `lint` · MUST — A tombstone is **never removed**. The deprecation window
-declared in `.docmeta.yml` (`deprecation_window`, default 180 days) governs how a
-tombstoned identifier *resolves*, not how long the entry lives: inside the window
-it resolves with a deprecation notice and **is reported**; after it, resolution
-**is an error** naming `superseded_by` if present.
+**R-107** `lint` · MUST — Where version-control history is available, a deleted
+page whose `id` has no ledger entry **is reported**. This is the R-018 backstop
+for R-066: `git rm` bypasses tombstone creation, and the ledgerless
+disappearance is its trace. Actual reuse of the freed identifier is the
+collision R-061 blocks.
+
+**R-067** `lint` · MUST — A tombstone is **never removed**, with one exception:
+restoring the archived page it belongs to. Un-archiving returns the identifier
+to its original owner and deletes its ledger entry in the same command — the
+one case where removal cannot free the name for anyone else. Otherwise the
+deprecation window declared in `.docmeta.yml` (`deprecation_window`, default
+180 days) governs how a tombstoned identifier *resolves*, not how long the
+entry lives: inside the window it resolves with a deprecation notice and **is
+reported**; after it, resolution **is an error** naming `superseded_by` if
+present.
 
 > Pruning the ledger would free the identifier for reuse, since the ledger is the
 > only thing that makes R-061 count a retired identifier as occupied. A reused
 > identifier turns every cached reference into a confident lie (R-002) — the one
 > outcome R-065 exists to prevent.
 
-**R-068** `cmd` · MUST — Renaming a namespace follows the same rule: the previous
-namespace is retained as an alias in the manifest for the deprecation window, and
-foreign references to it resolve with a deprecation notice.
+R-068, namespace renaming, lives in §13 (EXPERIMENTAL) — it has no meaning
+outside federation.
 
 **R-069** `cmd` · MUST — Splitting or merging pages tombstones the retired
-identifiers with `superseded_by` listing the replacements. A consumer of a split
-identifier receives an error naming all successors, so a human can choose.
+identifiers with `superseded_by` listing the replacements. Resolution follows
+R-067's window like any other tombstone; the notice — deprecation inside the
+window, error after it — names all successors, so a human can choose rather
+than a tool guessing one.
 
 ---
 
@@ -471,7 +636,18 @@ path from the documentation root: `[[reference/token-ttl]]` or
 
 **R-071** `lint` · MUST — Every link target MUST resolve. Resolution appends
 `.md` when the path has no extension, and does not follow symlinks outside the
-tree.
+tree. A target that moved to `_archive/` still resolves — to the archived
+copy — and **is reported**: the live link is evidence of remaining interest, so
+archiving never breaks a build; it surfaces the pages that still cared. A
+target that exists nowhere is dangling, and a dangling target **is an error**:
+a dangling wiki-link, a dangling `doc:` reference (R-076) and a dangling
+foreign reference (R-139) are one failure class — the reference an agent cannot
+resolve and answers anyway — and silently wrong is exactly R-151's criterion,
+so all three carry the same severity. One
+dangling reference yields **one finding** per referencing file and target
+(R-158's identity), carrying every applicable rule number — never three
+diagnostics for one break — and each finding names its referencing file, which
+is what R-152 requires.
 
 ### 7.2 Code to documentation
 
@@ -484,13 +660,20 @@ by path:
 ```
 
 **R-073** `lint` · MUST — The token following `doc:` is read up to the first
-whitespace. A reference intended for a specific record writes that identifier
-directly.
+whitespace, then stripped of trailing punctuation (`.`, `,`, `;`, `:`, `)`) —
+a reference at the end of a sentence is still a reference.
 
 **R-076** `lint` · MUST — Both local and foreign references MUST resolve. A local
 `doc: <local-id>` that matches no `id`, no alias, and no `defines:` family is an
 error. In 0.1 only foreign references were required to resolve, so a typo in a
 local reference was invisible.
+
+**R-079** `lint` · MUST — A `doc:` reference resolved through a `defines:`
+family MUST name a member that exists: the cited identifier occurs on the
+defining page, as a heading or in its body. A glob match alone resolves
+nothing — otherwise `defines: adr-*` would make `doc: adr-9999` resolve
+forever — so a family citation with no such member is unresolved and falls
+under R-076.
 
 ### 7.3 Documentation to code
 
@@ -501,8 +684,12 @@ judgment: a path inside a quoted stack trace or an embedded snippet is not a
 reference. The `verifies` block (§11) is an audit binding, not a reference, and
 is exempt.
 
-**R-075** `lint` · MUST NOT — Absolute paths (`/home/...`, `C:\...`) and links
-that escape the tree root are errors.
+**R-075** `lint` · MUST NOT — Absolute filesystem paths (`/home/...`, `C:\...`)
+and **relative** links that traverse outside the tree root are errors, except
+inside fenced code blocks and block quotes — the mechanically identifiable form
+of the quoted material R-074 exempts. External URLs (`https://...`) are not
+tree-escaping links and are permitted. Whether such quoted material belongs on the page at all remains
+R-074's judgment.
 
 **R-112** WITHDRAWN — its content is the exemption note now attached to R-074.
 
@@ -563,9 +750,10 @@ Transitions follow this table, and a transition not listed **is reported**:
 Passing tests or a green build means `active`.
 
 **R-082** `lint` · MUST — `graduated` is terminal, and a graduated file receives
-no new authored content. Where version-control history is available, a transition
-out of `graduated` or new content in a graduated file **is reported** — otherwise
-knowledge added there stays permanently outside agent context.
+no further **content change** (§2.4). Where version-control history is available,
+a transition out of `graduated` or a content change in a graduated file **is
+reported** — otherwise knowledge added there stays permanently outside agent
+context.
 
 **R-083** `cmd` · MUST — A command MUST refuse a transition to `abandoned`
 without a reason. R-055 checks the resulting file; this rule prevents the
@@ -612,6 +800,13 @@ Graduation moves permanent knowledge out of the flowing layer.
 - a top-level CommonMark block element that is not inside such a section:
   paragraph, list, fenced code block, table, or block quote.
 
+When the heading is a required template section (R-048), the addressed range
+**begins after the heading line**: the heading stays in the source so the file
+keeps satisfying its template, the section body is what moves, and the body is
+replaced by the destination link (R-091). The destination's own heading is
+written during page preparation (R-099), where model authorship is already
+licensed.
+
 Blocks are addressed by byte offsets **in the source file as it exists on disk**,
 not in any normalized form. The canonical form (R-113) exists only for hashing;
 using it for addressing would shift every offset in a file with CRLF endings or
@@ -619,9 +814,12 @@ decomposed Unicode and make R-090's byte-exact copy select the wrong range.
 
 ### 9.2 Movement
 
-**R-090** `cmd` · MUST — Graduation MUST move content, never rewrite it. A
-conformant implementation copies whole blocks byte-for-byte; the model selects
-which block goes where and never retypes the text.
+**R-090** `cmd` · MUST — In the `project` profile, graduation MUST move content,
+never rewrite it. A conformant implementation copies whole blocks byte-for-byte;
+the model selects which block goes where and never retypes the text. In the
+`knowledge-base` profile graduation is distillation, not movement (R-092): the
+wiki page is new text tracked to its evidence through `sources:`, no block is
+moved, and byte-exact copying does not apply.
 
 > This converts a rule that depended on model discipline into a mechanical
 > guarantee.
@@ -663,14 +861,19 @@ first.
 | Source | Usual destination |
 |---|---|
 | `features/` | `reference/` (contract), `explanation/` (decision) |
-| `postmortems/` | `reference/` (invariant), `howto/` (runbook) |
+| `postmortems/` | `reference/` (invariant), `howto/` (runbook), `explanation/` (systemic cause, negative results) |
 | `research/` | `explanation/` |
 | `abandoned` | `explanation/` (rejected alternative) |
 
 **R-097** `cmd` · MUST — Every command that writes more than one file MUST be
 atomic: either all writes land or none do. A command MUST refuse to start on a
-dirty working tree unless explicitly forced, and MUST leave no state in which two
-authoritative copies of the same content both pass lint.
+dirty working tree unless explicitly forced, and **on completion** MUST leave no
+state in which two authoritative copies of the same content both pass lint — the
+prepared-but-not-yet-shrunk state *during* a graduation (R-092, R-099) is the
+in-flight state atomicity governs, not a violation of this clause. List-file
+appends (a journal line, a `questions.md` item) are single-file writes and are
+exempt from the dirty-tree refusal: they are the capture path (R-004), and an
+escape hatch that needs `--force` is not an escape hatch.
 
 ### 9.3 Compilation to executable form
 
@@ -690,12 +893,17 @@ fully written on the page is not ready to be compiled.
 
 ## 10. Journal
 
-**R-100** `lint` · MUST — A journal entry opens with `## YYYY-MM-DD — title`.
+**R-100** `lint` · MUST — A journal entry opens with `## YYYY-MM-DD` followed by a
+separator and a title. The separator is `-`, `--` or an em dash; requiring a
+character most keyboards cannot produce would put R-120's ASCII principle and
+this rule in conflict for no benefit.
 
 **R-101** `lint` · SHOULD — An entry is 2–5 lines: what triggered it, what
 changed, which gate passed, which page holds the permanent content. An entry
-whose body exceeds 15 source lines is reported. Lines are counted in the source
-file, not as rendered.
+whose body exceeds **5 source lines is reported** — the check matches the rule,
+because a checker looser than its rule text is what R-012 forbids, and the
+3,800-line journal in R-102's rationale was reachable one tolerated entry at a
+time. Lines are counted in the source file, not as rendered.
 
 **R-102** `agent` · MUST NOT — Measurements, tables, algorithms, API lists,
 register maps, and rejected alternatives MUST NOT be written to the journal. They
@@ -708,10 +916,17 @@ requires reading the prose, so this is not a static check.
 
 **R-103** `cmd` · MUST — When the active journal exceeds 500 lines, the oldest
 whole days are moved to an archive slice named
-`work/journal/<first-date>--<last-date>.md`, which gets one router line. Slices
+`work/journal/<first-date>--<last-date>.md` — `<first-date>` is the earlier
+calendar date, whatever order the entries appear in — which gets one router
+line. Slices
 are cut on day boundaries; a single day larger than the limit becomes its own
 slice. A slice is a list file (R-041) and carries no `status`: it is a
 chronology archive, not a unit of work that graduated anywhere.
+
+**R-105** `lint` · MUST — An active `journal.md` whose length exceeds the limit
+in R-103 **is reported**, naming the rotation that resolves it. This is the
+R-018 backstop for R-103: appending in an editor bypasses rotation, and the
+oversized file is the trace it leaves.
 
 **R-104** `lint` · MUST — Entries are ordered newest first. A retrospective entry
 is inserted at its own date, not appended.
@@ -744,6 +959,14 @@ form is: UTF-8, NFC-normalized, LF line endings, trailing whitespace removed fro
 each line, exactly one trailing LF. Without a fixed definition two
 implementations disagree about staleness for the same tree.
 
+A **page's** content hash covers its **body** — everything after the closing
+frontmatter delimiter; a file without frontmatter hashes whole. Frontmatter is
+identity and bookkeeping, and a bookkeeping change (an `updated` bump) must not
+churn manifests, compiled skills and materializations estate-wide. Frontmatter
+is not left unguarded: for materialized pages it is reconstructed from the
+manifest and checked by R-137; `verifies` hashes cover the referenced code
+region, unchanged.
+
 **R-114** `lint` · MUST — When `symbol` is absent, the hash covers the whole file
 at `path`. When `symbol` is present, the implementation MUST declare how it
 resolves symbols for that language, and MUST report an error rather than guess
@@ -754,9 +977,9 @@ when a symbol is ambiguous or unresolvable.
 ## 12. Language
 
 **R-120** `lint` · MUST — Structural tokens MUST be ASCII: directory names, file
-names, frontmatter field names, `id` values, `status` values, link syntax. This
-is checked as a character-class and enumeration constraint, not as a language
-determination.
+names, frontmatter field names, `id` values, `status` values, link syntax, and
+tracked-work template section headings (R-048). This is checked as a
+character-class and enumeration constraint, not as a language determination.
 
 **R-125** `advisory` · SHOULD — Structural tokens SHOULD read as English. No
 check can determine the language of `masa`, so this is guidance, not a gate.
@@ -778,10 +1001,19 @@ prose at all.
 
 ---
 
-## 13. Federation
+## 13. Federation (EXPERIMENTAL)
 
 Federation lets independent repositories reference each other's documentation
 without sharing a repository, a database, or a server.
+
+> **Why experimental.** Six audit rounds produced findings here faster than
+> fixes closed them, and the unresolved holes — manifest serialization, the
+> namespace-to-location bootstrap, `consumes` representation, `.federation/`
+> version-control status — are exactly the kind that only interoperating
+> implementations settle. This section stabilizes against a reference
+> implementation and a second real estate, not against further audit. Until
+> then its rules bind nothing; a core tree that never declares `namespace` is
+> untouched by everything below.
 
 ### 13.1 Declaration
 
@@ -793,10 +1025,18 @@ federation fields. What is never authored is the *dependency data* —
 
 **R-131** `cmd` · MUST — The manifest fields `provides` and `consumes` MUST be
 derived, never authored. `provides` comes from two sources: pages currently
-carrying `id`, **and the tombstone ledger** (R-066) for identifiers that no
-longer have a page. `consumes` comes from `doc: @ns/id` references found within
-the scan scope (R-077). Pages marked `internal: true` are excluded from both
-(R-135). Deriving `provides` from live pages alone would drop every tombstone on
+carrying `id` outside `_archive/` (R-047), `.federation/`, `_unsorted/` and
+`_templates/`, **and the tombstone ledger** (R-066) for identifiers that no
+longer have a live page — excluding `internal: true` pages and ledger entries
+marked internal (R-135). A materialized foreign page or an unclassified draft
+must never be re-exported as this namespace's own contract. `consumes` comes
+from `doc: @ns/id` references found within the scan scope (R-077) minus
+`_archive/` — a dead reference in an archived record must not keep a foreign
+contract alive — including references on `internal: true` pages:
+the page is unexported, but its dependency is real, and hiding it lets a
+provider retire a contract still in use. What `internal: true` removes is the
+page's own identifier from `provides` (R-135), not its outgoing references.
+Deriving `provides` from live pages alone would drop every tombstone on
 the next export and break the deprecation window the moment it was needed.
 
 > A hand-maintained dependency list goes stale by construction (R-002). The
@@ -811,7 +1051,9 @@ MUST NOT nest. All federation rules apply unchanged.
 
 **R-133** `cmd` · MUST — `export` produces a manifest containing the manifest
 format version, the namespace, the spec version, the namespace's own aliases
-(R-068), and for each identifier: type, title, summary, content hash, owner,
+(R-068), the derived `consumes` list (R-131 — without it R-140's consumer
+report and R-141's index have nothing to read), and for each identifier: type,
+title, summary, content hash, owner,
 state (`active` or `withdrawn`), and any `aliases` (R-065). A **withdrawn** entry
 carries only identifier, state, withdrawal date and optional `superseded_by` —
 the page that supplied type, title, summary, hash and owner no longer exists, so
@@ -826,7 +1068,20 @@ are identity metadata, not body content, and are the deliberate exception —
 without them a consumer cannot tell what an identifier is before fetching it.
 
 **R-135** `lint` · MUST — A page marked `internal: true` is excluded from the
-manifest and from derived dependency data (R-131).
+manifest: its identifier appears in neither the active nor the withdrawn list,
+and when the page is deleted its ledger tombstone (R-066) carries the internal
+marking so the exclusion survives the page. Exclusion covers the page's own
+identifier, not its outgoing references — those still count toward `consumes`
+(R-131).
+
+**R-167** `cmd` · MUST — Marking a previously **exported** page `internal: true`
+in place MUST be refused. The identifier is public; taking it private is a
+withdrawal, and the conformant path is the withdrawal path: retire the
+identifier (R-066, with the R-140 consumer report), and give the internal
+content a new identifier. The R-018 backstop: where version-control history is
+available, a page that gained `internal: true` **after appearing in a published
+manifest** is reported — a page that was never exported may flip freely, and
+reporting it would only teach teams to ignore the check.
 
 **R-019** `advisory` · MUST — A publisher MUST ensure its content channel does
 not serve `internal: true` pages. No local check can observe what a remote
@@ -847,8 +1102,9 @@ mechanism is not fixed by this specification: a URL, a package artifact, a git
 remote and revision, or a filesystem path are all conformant. What is fixed is
 that the location is declared and resolvable without human intervention.
 
-**R-146** `cmd` · MUST — The manifest is authoritative. Content fetched through
-the content channel MUST be verified against the hash recorded in the manifest.
+**R-146** WITHDRAWN — entailed by R-136 and R-147: a materialization must hash
+to the manifest value, and a mismatch is never materialized — the verification
+this rule restated.
 
 **R-147** `cmd` · MUST NOT — Content whose hash does not match the manifest MUST
 NOT be materialized. A mismatch is reported as a failure, never silently
@@ -856,13 +1112,14 @@ accepted.
 
 **R-148** `cmd` · MUST — When a provider is unreachable, the last verified
 materialization is retained and its age is reported. A transient outage MUST NOT
-delete content a consumer already had.
+delete content a consumer already had. That retained state is what existence
+checks read (R-139).
 
 **R-149** `lint` · MUST — Every materialized page under `.federation/` MUST have
 provenance recording source namespace, identifier, content hash, and fetch time.
 Provenance lives in a **sidecar** at `.federation/<namespace>/<id>.provenance.yml`,
 never inside the page: writing it into the page would change the bytes and break
-the hash that R-146 verifies and R-137 protects. The path is fixed because it is
+the hash that R-136 pins and R-137 protects. The path is fixed because it is
 a cross-implementation surface — one tool's materialization must be readable by
 another's checker. Sidecars are provenance records, not materialized pages, and
 do not themselves require provenance. A materialized page without a sidecar is an
@@ -875,25 +1132,32 @@ error, so hand-placed content cannot masquerade as federated content.
 ### 13.4 Consumption
 
 **R-136** `cmd` · MUST — A consumed page is materialized at
-`.federation/<namespace>/<id>.md` as a read-only copy whose canonical form
-(R-113) hashes to the value in the manifest, with its provenance in a sidecar
-(R-149). Identity is defined by the canonical hash, not by raw bytes: a checkout
-that converts line endings is still conformant, and requiring byte identity would
-declare it tampered while every hash check passed. The namespace-scoped path
-prevents two providers exporting the same `local-id` from colliding.
+`.federation/<namespace>/<id>.md`: its **body** is the provider's page body,
+whose canonical form (R-113) hashes to the manifest value; its **frontmatter is
+reconstructed from the manifest fields** (R-133) — it is a derived artifact, not
+the provider's bytes, so nothing in it escapes verification. Provenance lives in
+the sidecar (R-149). Identity is defined by the canonical body hash, not raw
+bytes: a checkout that converts line endings is still conformant. The
+namespace-scoped path prevents two providers exporting the same `local-id` from
+colliding.
 
 **R-137** `lint` · MUST NOT — Files under `.federation/` MUST NOT be edited
-locally. A file whose content no longer matches its recorded provenance hash is
-an error.
+locally. The check verifies both halves of a materialized page: a body whose
+canonical hash no longer matches the provenance record, or frontmatter that no
+longer equals the manifest-derived reconstruction (R-136), **is an error**.
 
 **R-138** WITHDRAWN — the exemption is stated normatively in R-002 itself.
 
 ### 13.5 Enforcement
 
 **R-139** `ci` · MUST — A reference to a nonexistent foreign identifier MUST fail
-the consuming repository's pipeline. This is an instance of the R-151 exception:
-an agent that cannot resolve a reference invents an answer, so the failure is
-silent and harmful.
+the consuming repository's pipeline. Existence is evaluated against the newest
+*verified* federation state held locally — the last materialized manifest
+(R-148) — never against a live provider query: an identifier absent from that
+state does not exist, and one present in it exists even while its provider is
+unreachable, with the state's age reported. This is an instance of the R-151
+exception: an agent that cannot resolve a reference invents an answer, so the
+failure is silent and harmful.
 
 **R-140** `ci` · MUST — Removing or tombstoning a provided identifier MUST report
 the consuming namespaces *known to the local federation state* before the change
@@ -911,7 +1175,18 @@ repository SHOULD receive an automated change proposal showing the old and new
 content side by side. The old content is the previous verified materialization;
 the new content comes through the content channel.
 
-### 13.6 Asymmetric membership
+### 13.6 Namespace lifecycle
+
+**R-068** `cmd` · MUST — Renaming a namespace follows R-067's shape at namespace
+level: the previous namespace is retained as an alias in the manifest
+**permanently**, and the deprecation window governs how foreign references to it
+resolve, not how long the alias lives — inside the window they resolve with a
+deprecation notice and **are reported**; after it, resolution **is an error**
+naming the current namespace. Dropping the alias would free the name for another
+estate and turn every cached `@old-ns/...` reference into a lie — the
+namespace-level twin of the reuse R-067 prevents.
+
+### 13.7 Asymmetric membership
 
 **R-144** `lint` · MAY — A namespace MAY declare `federation_role: consume-only`.
 It reads manifests but publishes none, and no other namespace may reference it.
@@ -920,18 +1195,35 @@ It reads manifests but publishes none, and no other namespace may reference it.
 > resolves on its owner's machine and is dead everywhere else, which is exactly
 > the silent failure R-151 exists to prevent.
 
+### 13.8 Manifest versioning
+
+**R-180** `cmd` · MUST — The federation manifest format carries its own version,
+independent of this specification, and changes more slowly. Repositories are not
+upgraded on the same day; a manifest format that moved with every specification
+release would break federation continuously.
+
+**R-181** `cmd` · MUST — Within a manifest major version it implements, an
+implementation MUST read every older minor version, and MUST ignore unknown
+fields in newer minor versions. Backward reading alone would force the
+estate-wide lockstep upgrade that R-180 exists to prevent.
+
+**R-182** `cmd` · MUST — A manifest **major** version an implementation does not
+implement causes a refusal to consume that namespace, reported by name, not a
+silent skip. R-181 governs minors within an implemented major; this rule governs
+majors.
+
 ---
 
 ## 14. Automation levels
 
-**R-150** `advisory` · MUST — Automated checks warn by default. Hard blocking
-creates friction, and friction is resolved by disabling the check entirely —
-which removes the protection completely.
+**R-150** WITHDRAWN — absorbed into R-151, whose escalation criterion entails
+warn-by-default; the friction rationale now lives there.
 
 **R-151** `advisory` · MUST — A check escalates to blocking only when the outcome
-is **irreversible** or **silently wrong**. Everything else warns. A rule blocks by
-using a blocking word from §2.2; R-016 requires that choice to meet this
-criterion, and R-015 requires it to be visible.
+is **irreversible** or **silently wrong**. Everything else warns: hard blocking
+elsewhere creates friction, and friction is resolved by disabling the check
+entirely — which removes the protection completely. A rule blocks by using a
+blocking word from §2.2, and R-015 requires the resulting choice to be visible.
 
 > The second criterion was added after federation was designed: a broken
 > reference is reversible but produces a confidently wrong answer, which is worse
@@ -954,6 +1246,263 @@ honored.
 this specification, not maintained as a hand-written copy. This is transformation
 of existing normative text, not authorship (R-005).
 
+### 14.1 Repair
+
+Detection is defined above; repair has its own constraints. The characteristic
+failure of automated repair is not a wrong fix but a loop: two tools — or a tool
+and an agent — correcting each other forever.
+
+**R-156** `cmd` · MUST NOT — Automatic repair MUST NOT touch authored prose. A
+finding is repairable only when exactly one correct outcome is derivable from
+the tree itself: a missing router line (format and position fixed by R-035; the
+sentence is the R-057 summary — derived, not authored), a lagging `updated`
+field (per the §2.4 definition), a link target moved **by the same command
+invocation**, a provenance refresh. Everything else is a decision, and
+decisions go to a human or a model (R-003).
+
+**R-157** `cmd` · MUST — Repair MUST be idempotent: running the same repair
+twice produces zero changes the second time. A repair that oscillates against
+another tool's output fails this rule by construction.
+
+**R-158** `cmd` · MUST — A finding's identity is the triple (rule, file,
+subject), where *subject* is the key each rule's finding format declares — the
+target of a reference, the field of a frontmatter check, the block of a
+structure check — registered in the conformance corpus (R-193). Dangling
+references are one finding class with the identity (R-071, referencing file,
+target); R-076 and R-139 detections map onto it, the finding lists every
+applicable rule, and the strongest applicable severity governs.
+
+A repair pass MAY expose new findings — a repaired router line brings pages
+into checks that could not see them before. What a pass MUST NOT do is
+**reopen** a finding it previously closed: reopening is the oscillation signal,
+and the loop stops and reports. The loop ends when a pass performs zero
+repairs. Termination follows from two facts: findings are finite, and repair is
+idempotent (R-157), so each (identity, repair) pair occurs at most once.
+
+### 14.2 Decision procedures — the agent-facing rule format
+
+R-155 says agent rule text is generated; this section fixes its shape. A
+judgment cannot be made mathematically sharp — if it could, it would be a lint
+rule (R-003). What it can be made is **decidable**: bounded input, a closed set
+of outcomes, a default for indecision, and an escape that is always legitimate.
+That combination is what lets a weak model fail *safely* instead of guessing.
+
+```
+EVIDENCE : what to read before answering — a bounded list, never "the repo"
+QUESTION : one decidable question about observable evidence, not about intent
+OPTIONS  : a closed, ordered set of outcomes — first match wins,
+           and every outcome names its next action
+DEFAULT  : the outcome chosen when the question cannot be answered
+ESCAPE   : where the case goes when no option fits — always legitimate
+VERIFY   : the mechanical check or independent review that catches a wrong answer
+NEVER    : what is forbidden regardless of the answer
+```
+
+**R-163** `cmd` · MUST — Generated agent rule text (R-155) MUST present every
+`agent`-tagged rule as a decision procedure, and the procedures are **authored
+normative content — §14.3 of this specification**, rendered by the generator. A
+generator MUST NOT invent OPTIONS, DEFAULT, ESCAPE or VERIFY absent from §14.3;
+the R-018 backstop is a lint comparing emitted procedures against the authored
+set. VERIFY MAY name the independent audit as the reviewer, but MUST name the
+specific audit check.
+
+**R-164** `advisory` · MUST — OPTIONS is closed and ordered; the first option
+whose test passes wins, so overlapping options cannot produce two answers.
+DEFAULT MUST be one of the OPTIONS **or the ESCAPE** — and where a wrong pick is
+costlier than a delay, the escape *is* the right default. DEFAULT and ESCAPE
+MUST NOT prescribe different actions for the same condition: one condition, one
+answer. The escape is never a failure: a model that cannot decide routes to the
+escape instead of forcing the nearest option — an honest "I don't know" stays
+cheaper than a confident guess.
+
+**R-165** `lint` · MUST — The generated always-loaded text MUST stay within
+`agent_rules_max_lines` (default 200). The budget has a **floor**: the rendered
+size of the authored mandatory set (§14.3). A configured value below the floor
+**is an error**, stated here because R-161 covers unknown keys, not known keys
+with impossible values — and a budget that silently drops mandatory procedures
+is R-151's "silently wrong". The shipped default MUST be at or above the floor.
+Past the budget, models degrade across *all* instructions uniformly — every
+added line taxes every existing rule — so the ceiling is a hard gate, not a
+style preference.
+
+### 14.3 The authored procedures
+
+This is the normative content R-163 renders — one procedure per `agent`-tagged
+rule, indented so none parses as a rule declaration. Escapes name the `project`
+profile's files; in the `knowledge-base` profile the escape target is a note in
+`raw/inbox/` — the profile's capture surface — wherever a procedure says
+`questions.md` or "the journal".
+
+    P/R-031 — choose the type of a permanent page
+    EVIDENCE : the content being placed; the four-question table (§4.1)
+    QUESTION : which one question is the reader asking of this content?
+    OPTIONS  : look up a value or format       → reference/
+               follow steps to a goal          → howto/
+               understand why it is this way   → explanation/
+               learn from zero, guided         → tutorial/
+    DEFAULT  : the escape — a default type would make explanation/ the
+               dumping ground and silence the R-046 signal
+    ESCAPE   : answers more than one → split (R-031); answers none, or cannot
+               be split cleanly → _unsorted/ + a questions.md item
+    VERIFY   : audit type-mixing review (reads each page against the table)
+    NEVER    : force content into the nearest type
+
+    P/R-025 — verify a knowledge-base page
+    EVIDENCE : the page; its sources:; who authored it (history)
+    QUESTION : did this session produce any of the page's content?
+    OPTIONS  : yes → do not verify — leave for another session
+               no  → check every claim against sources:, then set verified
+    DEFAULT  : do not verify
+    ESCAPE   : authorship unclear → do not verify + questions.md item
+    VERIFY   : R-028 record; audit checks verifier differs from author
+    NEVER    : verify your own output
+
+    P/R-032 — open a page so it stands alone
+    EVIDENCE : the page's first two sentences
+    QUESTION : could a reader with no context tell what this is and when to
+               read it?
+    OPTIONS  : yes → done · no → write the two-sentence opening
+    DEFAULT  : write the opening
+    ESCAPE   : the page's purpose cannot be stated → it likely mixes types;
+               run P/R-031 first
+    VERIFY   : audit reads openings
+    NEVER    : open with content that assumes the previous page was read
+
+    P/R-033 — decide whether documentation repeats the code
+    EVIDENCE : the content; the code region it describes
+    QUESTION : does the code itself state this (signature, parameter list,
+               literal value)?
+    OPTIONS  : yes → do not write it; the code owns it
+               no  → write it; it is what the code cannot say
+    DEFAULT  : do not write it — a duplicate becomes a trusted lie when the
+               code changes (R-002); an omission is only an omission
+    ESCAPE   : cannot tell who owns it → do not write + questions.md item
+    VERIFY   : audit duplicate-source-of-truth check
+    NEVER    : copy a signature or a parameter list
+
+    P/R-045 — remove or archive
+    EVIDENCE : the content; whether it is authored or derived
+    QUESTION : is this authored content?
+    OPTIONS  : authored → move to _archive/ · derived → regenerate freely
+    DEFAULT  : treat as authored
+    ESCAPE   : secret or legally required removal → delete, and record that a
+               removal happened (never the content) in the journal
+    VERIFY   : R-107 ledgerless-disappearance check; history review
+    NEVER    : delete authored content for tidiness
+
+    P/R-046 — revisit _unsorted/
+    EVIDENCE : the item; the four-question table
+    QUESTION : can it now be classified into exactly one type?
+    OPTIONS  : yes → classify, frontmatter, router line · no → leave it
+    DEFAULT  : leave it
+    ESCAPE   : same as leaving — _unsorted/ is the escape
+    VERIFY   : audit reports _unsorted/ age
+    NEVER    : force it because it has waited long enough
+
+    P/R-074 — a path appears in documentation
+    EVIDENCE : the surrounding text; is it inside a fence or quotation?
+    QUESTION : is the path a pointer the reader should follow, or quoted
+               material (trace, log, example)?
+    OPTIONS  : pointer → replace with an embedded snippet + why-comment
+               quoted  → keep it inside its fence or quotation
+    DEFAULT  : the escape — replacing quoted evidence destroys it, and
+               fencing a live pointer merely hides it from lint
+    ESCAPE   : unsure → leave the text untouched + questions.md item naming
+               the file and line
+    VERIFY   : R-075 lint on paths outside fences
+    NEVER    : rewrite quoted evidence — a trace is a record, not prose
+
+    P/R-081 — set done
+    EVIDENCE : the human's words in this session
+    QUESTION : did a human explicitly confirm completion, in words?
+    OPTIONS  : yes → done, recording `confirmed: <who>, <date>` in the
+               file's frontmatter (the field §5.2 defines for this)
+               no  → stays active
+    DEFAULT  : active
+    ESCAPE   : ambiguous ("looks fine"?) → ask once; no answer → active
+    VERIFY   : R-080 transition table; audit reads `confirmed:` records
+    NEVER    : infer done from a green build or passing tests
+
+    P/R-092 — route a block during graduation
+    EVIDENCE : the block; the permanent layer searched by topic; R-049
+    QUESTION : does this content already exist on a permanent page?
+    OPTIONS  : yes → replace the block with a link to it
+               no  → prepare the destination (R-099), then move (R-090)
+    DEFAULT  : treat as new — a duplicate is caught by audit, a loss is not
+    ESCAPE   : cannot tell whether two blocks say the same → move nothing,
+               leave the block where it is + questions.md item; the work file
+               stays active until the question closes (one home, R-002)
+    VERIFY   : audit duplicate check; R-056 resolution of graduated_to
+    NEVER    : shrink the source before the destination exists. In the
+               knowledge-base profile nothing is ever moved or shrunk — the
+               wiki page is new text and raw/ stays untouched (R-092)
+
+    P/R-093 — archive gate
+    EVIDENCE : the file; the permanent layer; the R-049 dispositions
+    QUESTION : does any still-true information here exist nowhere else?
+    OPTIONS  : yes → graduate it first, per R-049 · no → archive
+    DEFAULT  : graduate first
+    ESCAPE   : cannot judge whether it is still true → questions.md item, and
+               do not archive yet
+    VERIFY   : R-047 tombstone check; audit
+    NEVER    : archive unique knowledge
+
+    P/R-096 — compile a howto into a skill
+    EVIDENCE : the howto page, start to finish
+    QUESTION : is every step written, with no gap you would fill from memory?
+    OPTIONS  : yes → compile · no → report the gaps, do not compile
+    DEFAULT  : do not compile
+    ESCAPE   : unsure whether a step is complete → do not compile
+    VERIFY   : R-095 source-hash pin; execution failures surface gaps
+    NEVER    : fill a gap from your own knowledge
+
+    P/R-102 — write a journal entry
+    EVIDENCE : the draft entry
+    QUESTION : does it contain a measurement, table, API list, register map,
+               algorithm, or rejected alternative? (R-102's list, complete)
+    OPTIONS  : yes → that content goes to its permanent page; the journal
+               keeps 2–5 lines + a wiki-link to it (R-070 — `doc:` is the
+               code-side form, R-072)
+               no  → write the entry
+    DEFAULT  : move the content out
+    ESCAPE   : no permanent home exists yet → it stays in the work file, and
+               the journal links there
+    VERIFY   : R-101 length report; audit duplicate check
+    NEVER    : park permanent knowledge in the journal "for now"
+
+    P/R-121 — choose a page's language
+    EVIDENCE : .docmeta.yml default_content_language; the page's lang:
+    QUESTION : is this a new page?
+    OPTIONS  : new → default_content_language, or its explicit lang:
+               existing → the page's current language (P/R-122)
+    DEFAULT  : default_content_language
+    ESCAPE   : an existing page is already mixed → pick its dominant
+               language + questions.md item; never "fix" wholesale
+    VERIFY   : audit language spot-check
+    NEVER    : switch an existing page's language
+
+    P/R-122 — edit an existing page
+    EVIDENCE : the page's prose
+    QUESTION : what language is it written in?
+    OPTIONS  : that language → continue in it
+    DEFAULT  : the page's existing language
+    ESCAPE   : genuinely mixed → continue in the dominant language, and the
+               questions.md item flags the page for a deliberate one-language
+               pass — the mixed state is a debt, not a norm; fixing it
+               wholesale mid-edit is a human decision, not a side effect
+    VERIFY   : audit language spot-check
+    NEVER    : mix languages within one page
+
+    P/R-123 — a term that might be translated
+    EVIDENCE : the term — code identifier, protocol name, library name,
+               quotation? (R-123's list, verbatim)
+    QUESTION : is it one of those four?
+    OPTIONS  : yes → keep the original form · no → translate freely
+    DEFAULT  : keep the original form
+    ESCAPE   : unsure whether it is a proper name → keep the original
+    VERIFY   : audit language spot-check
+    NEVER    : translate an identifier or a quotation
+
 ---
 
 ## 15. `.docmeta.yml`
@@ -964,12 +1513,15 @@ profile: project                 # required — project | knowledge-base
 default_content_language: en     # required
 created: 2026-08-15              # optional
 
+# --- federation block: EXPERIMENTAL (§13) — omit it entirely in a core tree ---
 namespace: svc-auth              # required when federation is enabled
 federation_role: publish         # publish | consume-only  (R-144)
 manifest_url: "…"                # required when publishing (R-145)
 content_url: "…"                 # required when publishing (R-145)
+# ---------------------------------------------------------------------------
 
 work_categories: []              # additional tracked-work categories (R-042)
+epics: []                        # declared epic labels (R-058)
 domains: []                      # knowledge-base profile only (R-026)
 
 scan_exclude: []                 # added to version-control ignores (R-077)
@@ -977,6 +1529,7 @@ postmortem_threshold: "4h"       # R-087
 stale_active_days: 90            # R-085
 deprecation_window: 180          # days, R-067
 lock_timeout: "4h"               # R-154
+agent_rules_max_lines: 200       # R-165
 ```
 
 **R-160** `lint` · MUST — `.docmeta.yml` MUST exist at the documentation root and
@@ -1056,21 +1609,8 @@ the target version.
 
 ### 16.4 Manifest versioning
 
-**R-180** `cmd` · MUST — The federation manifest format carries its own version,
-independent of this specification, and changes more slowly. Repositories are not
-upgraded on the same day; a manifest format that moved with every specification
-release would break federation continuously.
-
-**R-181** `cmd` · MUST — Within a manifest major version it implements, an
-implementation MUST read every older minor version, and MUST ignore unknown
-fields in newer minor versions. Backward reading alone would force the
-estate-wide lockstep upgrade that R-180 exists to prevent.
-
-**R-182** `cmd` · MUST — A manifest **major** version an implementation does not
-implement causes a refusal to consume that namespace, reported by name, not a
-silent skip. R-181 governs minors within an implemented major; this rule governs
-majors. In 0.2 the two overlapped and a consumer could be required both to read
-and to refuse the same manifest.
+Moved to §13.8 (EXPERIMENTAL): the manifest is a federation surface, and its
+versioning rules stabilize with the rest of federation.
 
 ---
 
@@ -1095,90 +1635,11 @@ document deliberately did not make.
 
 ## 18. Revision history
 
-> This section is informative, not normative. Where it disagrees with a rule, the
-> rule governs.
+The revision history of this specification is its version-control log. A prose
+copy of it inside the document was deleted in 0.4: it restated rule text at a
+second home, drifted from it twice, and once contradicted it — the exact failure
+R-002 names.
 
-### 0.3 — second and third audits
-
-The third audit ran the same six reviewers against the post-fix text. New
-findings fell from 24 to 15, and their character changed: the first two rounds
-found mechanisms that could not work, the third found mechanisms applied
-inconsistently. Fixes from that round:
-
-| Change | Rules |
-|---|---|
-| Every `cmd` guarantee now requires a `lint` backstop — the pattern behind tombstones, journal rotation and graduation all being bypassable by hand | R-018 |
-| Severity made consistent: staleness, orphans and status violations report; identifier collision blocks. R-151 no longer claims every blocking rule cites it | R-015, R-016, R-017, R-034, R-061, R-080, R-082, R-111, R-151 |
-| Tombstones are never pruned; the deprecation window governs resolution, not retention. Pruning would free the identifier and let a cached reference resolve to unrelated content | R-067 |
-| Withdrawn manifest entries carry a reduced field set; a deleted page cannot supply title, summary, hash or owner | R-133 |
-| Federated identity defined by canonical hash rather than raw bytes, which no check could verify | R-136 |
-| Provenance sidecar path fixed; it is a cross-implementation surface | R-149 |
-| `internal: true` split: manifest exclusion is checkable, channel behavior is not, and the specification now says so instead of pretending | R-135, R-019 |
-| Partial graduation allowed: `graduated_to` may appear on an active file, and the file-level transition needs human confirmation | R-091 |
-| Knowledge-base distillation distinguished from copying, resolving the apparent R-002 conflict | R-092 |
-| `epic`, `sources:` resolution, and wiki directory/type agreement given rules; all three were unvalidated fields | R-058, R-059, R-029 |
-| `MAY` rules exempted from the violating-tree requirement | R-191 |
-| Breaking minor releases acknowledged for 0.x, tied to migrations | R-170 |
-| Editorial: duplicate §2.2 numbering, a stale `docsys/0.2` example, and a note describing 0.3 as future | §2.3, §15, R-070 |
-
-### 0.2 — first audit
-
-0.2 was audited again by six independent reviewers: two cloud models (one of them
-run twice, once with repository context and once in an isolated directory
-containing only this file), one cloud model in a separate session with no context
-at all, and three local models. 41 findings were verified. Most of them were
-created by the 0.2 fixes themselves.
-
-| Change | Rules |
-|---|---|
-| Tombstone ledger introduced; the manifest can no longer be the only tombstone store, and identifier reuse is now prevented without federation | R-066, R-131 |
-| Manifest carries aliases, withdrawal dates and successors, so §6.2's lifecycle can cross a repository boundary at all | R-133 |
-| Provenance moved to sidecars; writing it into the page broke the very hash it verifies | R-149, R-136 |
-| Journal slices are list files and carry no `status`; in 0.2 the first rotation produced a file that failed lint | R-041, R-103 |
-| Graduation gained a page-preparation step; a page built only from moved bytes could never satisfy the frontmatter and opening-context rules | R-099 |
-| `raw/` redefined as content-immutable rather than path-immutable, and graduation inverted for the knowledge-base profile, which could not distill anything under 0.2 | R-023, R-027, R-091 |
-| Verification no longer undoes itself; a change to the `verification` field alone is not a content change | R-024, R-028 |
-| Block offsets measured in the file on disk, not the canonical form used for hashing | R-098 |
-| Severity vocabulary defined: "is an error" blocks, "is reported" warns, and blocking must be justifiable under R-151 | R-015 |
-| Work-lifecycle transition table made explicit; `draft → graduated` previously passed | R-080 |
-| `internal: true` strengthened to `MUST` and extended to the content channel | R-135 |
-| Unknown configuration keys reported rather than silently ignored, resolving a rule that contradicted its own rationale | R-161 |
-| Manifest minor and major compatibility separated | R-181, R-182 |
-| `created` made optional; it was required but read by no rule, which R-162 forbids | R-160, R-162 |
-| Authored federation fields stated correctly; 0.2 claimed `namespace` was the only one while requiring three more | R-130 |
-| Corpus made the register of implementation-defined decisions | R-193 |
-| Withdrawn as redundant | R-124, R-138, R-142, R-192 |
-
-### 0.2 — first audit
-
-0.1 was audited by four independent models (one cloud, three local) before
-release. 97 raw findings produced 28 verified issues. The material changes:
-
-| Change | Rules |
-|---|---|
-| Federation content transport specified; the consumption flow had no source of bytes | R-145–R-149 |
-| Identifier lifecycle added: aliases, tombstones, deprecation window, split/merge | R-065–R-069 |
-| Five rules moved from `lint` to `agent` because no static check can decide them | R-074, R-102, and the split of R-120/R-125 |
-| `advisory` redefined as "normative but unverifiable" instead of "guidance only" | §2.1 |
-| Consumer reporting made honest; complete coverage declared to need an optional index | R-140–R-142 |
-| Content hash defined: sha256 over a canonical form | R-113 |
-| "Block" defined so graduation has a deterministic input | R-098 |
-| Scan scope defined; extension-limited scanning forbidden | R-077, R-078 |
-| Local `doc:` references must resolve; in 0.1 a typo was invisible | R-076 |
-| `provides:` (authored) renamed to `defines:` to end the collision with the derived manifest field | R-063 |
-| Version declaration parsed as major.minor; R-014 merged into R-170 | R-013, R-170 |
-| Manifest forward compatibility added | R-181, R-182 |
-| Zero-unit failure scoped to *applicable* checks | R-011 |
-| `.federation/` exemption from R-002 made normative rather than explanatory | R-002, R-138 |
-| Provenance required under `.federation/` so hand-placed files cannot pass | R-149 |
-| Timestamps read from version-control history, never the filesystem | R-052, R-085 |
-| Atomicity required for multi-file commands | R-097 |
-| Title and summary defaults defined so exporters agree | R-057 |
-| `knowledge-base` profile given a minimum definition | R-023–R-026 |
-| Behavior-free configuration fields removed | R-162 |
-| Rule-declaration grammar fixed so a parser cannot mistake the example for a rule | §2.1 |
-
----
 
 ## 19. Open questions
 
@@ -1248,8 +1709,8 @@ produce another round of contradictions.
 
 ### Known gaps, deferred
 
-- **Manifest authenticity.** R-146 verifies that content matches the manifest,
-  not that the manifest is genuine. Signing, trusted origin, and anti-replay are
+- **Manifest authenticity.** Hash verification (R-136, R-147) proves that
+  content matches the manifest, not that the manifest is genuine. Signing, trusted origin, and anti-replay are
   unaddressed; a forged manifest with matching content passes every check.
 - **Bootstrap.** A consumer resolving `@svc-auth/token-ttl` must already know
   where `svc-auth` publishes. There is no namespace-to-location mapping.
@@ -1261,9 +1722,6 @@ produce another round of contradictions.
 - **Publication atomicity.** A provider can publish a manifest before its content.
 - **Cache bounds.** No maximum age for a retained materialization, and no
   fail-open or fail-closed policy when a provider is permanently gone.
-- **Tombstone retention.** Nothing prunes the ledger after the deprecation window.
-- **Archived pages.** A page under `_archive/` still carries an `id` and is still
-  exported as active.
 - **Monorepo scan partitioning.** Several namespace roots in one repository each
   scan the whole tree.
 - **Binary assets.** Diagrams and images are neither permitted nor forbidden.
