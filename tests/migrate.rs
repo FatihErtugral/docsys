@@ -1,3 +1,6 @@
+#![allow(clippy::panic, clippy::unwrap_used, clippy::expect_used)]
+// Tests report through panics by design; the production lints stay strict.
+
 //! Migration behavior locks: in-tree links follow their targets, out-of-tree
 //! links are depth-corrected, frontmatter and skeleton are generated.
 

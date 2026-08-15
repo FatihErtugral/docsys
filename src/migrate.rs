@@ -127,9 +127,7 @@ pub fn resolve(from: &str, target: &str) -> Option<String> {
         match seg {
             "" | "." => {}
             ".." => {
-                if parts.pop().is_none() {
-                    return None; // escapes the tree
-                }
+                parts.pop()?; // escapes the tree
             }
             s => parts.push(s.to_string()),
         }
