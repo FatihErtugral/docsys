@@ -10,6 +10,7 @@ use std::path::Path;
 
 const GATE_MARKER: &str = "docsys documentation gate";
 
+#[derive(Debug)]
 pub struct AdoptOutcome {
     pub report_path: String,
     pub summary: Vec<String>,
