@@ -20,7 +20,10 @@ fn strip_md_links(s: &str) -> String {
     let mut out = String::new();
     let mut rest = s;
     while let Some(start) = rest.find('[') {
-        let Some(mid) = rest.get(start..).and_then(|x| x.find("](").map(|i| start + i)) else {
+        let Some(mid) = rest
+            .get(start..)
+            .and_then(|x| x.find("](").map(|i| start + i))
+        else {
             break;
         };
         let Some(end) = rest.get(mid..).and_then(|x| x.find(')').map(|i| mid + i)) else {
@@ -57,9 +60,10 @@ pub fn today() -> String {
 
 fn md_files(root: &Path) -> Vec<PathBuf> {
     fn walk(dir: &Path, out: &mut Vec<PathBuf>) {
-        let Ok(entries) = fs::read_dir(dir) else { return };
-        let mut paths: Vec<PathBuf> =
-            entries.filter_map(|e| e.ok().map(|e| e.path())).collect();
+        let Ok(entries) = fs::read_dir(dir) else {
+            return;
+        };
+        let mut paths: Vec<PathBuf> = entries.filter_map(|e| e.ok().map(|e| e.path())).collect();
         paths.sort();
         for p in paths {
             let name = p.file_name().and_then(|n| n.to_str()).unwrap_or("");
@@ -311,9 +315,10 @@ pub fn apply(
 
     for (old, target) in &mapping {
         let old_path = root.join(old);
-        let text = fs::read_to_string(&old_path)
-            .map_err(|e| format!("{old}: {e}"))?;
-        let Some(new) = new_rel.get(old) else { continue };
+        let text = fs::read_to_string(&old_path).map_err(|e| format!("{old}: {e}"))?;
+        let Some(new) = new_rel.get(old) else {
+            continue;
+        };
 
         // Rewrite relative links whose resolved target also moved.
         let mut body = String::new();
@@ -402,7 +407,8 @@ pub fn apply(
     // Router: generated entries are derived (title + first sentence, R-057);
     // appended to an existing router, created otherwise (R-035 append rule).
     let index = root.join("index.md");
-    let mut router = fs::read_to_string(&index).unwrap_or_else(|_| "# Documentation\n\n".to_string());
+    let mut router =
+        fs::read_to_string(&index).unwrap_or_else(|_| "# Documentation\n\n".to_string());
     if !router.ends_with('\n') {
         router.push('\n');
     }
@@ -465,7 +471,9 @@ const REPO_SKIP_DIRS: [&str; 6] = [".git", "node_modules", "target", "build", "d
 
 pub fn repo_text_files(repo: &Path, docs_root: &Path) -> Vec<PathBuf> {
     fn walk(dir: &Path, docs_canon: Option<&Path>, out: &mut Vec<PathBuf>) {
-        let Ok(entries) = fs::read_dir(dir) else { return };
+        let Ok(entries) = fs::read_dir(dir) else {
+            return;
+        };
         let mut paths: Vec<PathBuf> = entries.filter_map(|e| e.ok().map(|e| e.path())).collect();
         paths.sort();
         for p in paths {
@@ -473,13 +481,16 @@ pub fn repo_text_files(repo: &Path, docs_root: &Path) -> Vec<PathBuf> {
             if p.is_dir() {
                 // Canonical comparison: `./docs` and `docs` are the same tree,
                 // and a docs root scanned as code floods refs with its own ids.
-                let is_docs_root = docs_canon
-                    .is_some_and(|d| p.canonicalize().ok().as_deref() == Some(d));
+                let is_docs_root =
+                    docs_canon.is_some_and(|d| p.canonicalize().ok().as_deref() == Some(d));
                 if REPO_SKIP_DIRS.contains(&name) || is_docs_root {
                     continue;
                 }
                 walk(&p, docs_canon, out);
-            } else if fs::metadata(&p).map(|m| m.len() <= 2_000_000).unwrap_or(false) {
+            } else if fs::metadata(&p)
+                .map(|m| m.len() <= 2_000_000)
+                .unwrap_or(false)
+            {
                 out.push(p);
             }
         }
@@ -497,7 +508,9 @@ pub fn inbound_report(repo: &Path, docs_root: &Path) -> Vec<(String, usize)> {
     let needle = format!("{prefix}/");
     let mut out = Vec::new();
     for file in repo_text_files(repo, docs_root) {
-        let Ok(text) = fs::read_to_string(&file) else { continue };
+        let Ok(text) = fs::read_to_string(&file) else {
+            continue;
+        };
         let hits = text.matches(&needle).count();
         if hits > 0 {
             out.push((rel(&file, repo), hits));
@@ -516,7 +529,9 @@ pub fn rewrite_repo_references(
 ) {
     let prefix = rel(docs_root, repo);
     for file in repo_text_files(repo, docs_root) {
-        let Ok(text) = fs::read_to_string(&file) else { continue };
+        let Ok(text) = fs::read_to_string(&file) else {
+            continue;
+        };
         if !text.contains(&format!("{prefix}/")) {
             continue;
         }
@@ -535,10 +550,9 @@ pub fn rewrite_repo_references(
             }
         }
         let frel = rel(&file, repo);
-        if count > 0
-            && fs::write(&file, &fresh).is_ok() {
-                out.repo_rewrites.push((frel.clone(), count));
-            }
+        if count > 0 && fs::write(&file, &fresh).is_ok() {
+            out.repo_rewrites.push((frel.clone(), count));
+        }
         // Leftovers: references into the docs tree that map to nothing now —
         // directory-level links, globs, prose. Judgment, so they are reported.
         for (i, line) in fresh.lines().enumerate() {
@@ -561,7 +575,8 @@ pub fn rewrite_repo_references(
                 let candidate = token.trim_end_matches('.');
                 let rel_in_docs = candidate.strip_prefix(&format!("{prefix}/")).unwrap_or("");
                 if !rel_in_docs.is_empty() && !docs_root.join(rel_in_docs).exists() {
-                    out.repo_risks.push(format!("{frel}:{}: {candidate}", i + 1));
+                    out.repo_risks
+                        .push(format!("{frel}:{}: {candidate}", i + 1));
                 }
             }
         }
@@ -588,9 +603,11 @@ mod tests {
         assert_eq!(resolve("a/b.md", "../x.md").as_deref(), Some("x.md"));
         assert_eq!(resolve("a/b.md", "c.md").as_deref(), Some("a/c.md"));
         assert_eq!(resolve("a.md", "../out.md"), None);
-        assert_eq!(relative_link("howto/a.md", "reference/b.md"), "../reference/b.md");
+        assert_eq!(
+            relative_link("howto/a.md", "reference/b.md"),
+            "../reference/b.md"
+        );
         assert_eq!(relative_link("a.md", "reference/b.md"), "reference/b.md");
         assert_eq!(relative_link("reference/a.md", "reference/b.md"), "b.md");
     }
 }
-

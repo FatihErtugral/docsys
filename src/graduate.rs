@@ -102,9 +102,7 @@ pub fn blocks_with(text: &str, template_headings: &[String]) -> Vec<Block> {
     }
     let mut out = Vec::new();
     let cursor = i;
-    let body_of = |a: usize, b: usize| -> String {
-        lines.get(a..b).unwrap_or(&[]).join("\n")
-    };
+    let body_of = |a: usize, b: usize| -> String { lines.get(a..b).unwrap_or(&[]).join("\n") };
     // Block 0: content before the first heading (if any non-blank line).
     let first_heading = (i..lines.len())
         .find(|&j| lines.get(j).is_some_and(|l| heading_level(l).is_some()))
@@ -131,7 +129,9 @@ pub fn blocks_with(text: &str, template_headings: &[String]) -> Vec<Block> {
     // selections are rejected at apply time.
     for j in first_heading..lines.len() {
         let Some(line) = lines.get(j) else { continue };
-        let Some(level) = heading_level(line) else { continue };
+        let Some(level) = heading_level(line) else {
+            continue;
+        };
         let mut end = j + 1;
         while end < lines.len() {
             if let Some(l) = lines.get(end) {
@@ -175,7 +175,11 @@ pub fn plan(root: &Path, source_rel: &str) -> Result<String, String> {
          # A `move:` destination must already exist with an id (prepare it first, R-099).\n",
     );
     for b in &bs {
-        let kept = if b.keep_heading { " · heading stays (R-048)" } else { "" };
+        let kept = if b.keep_heading {
+            " · heading stays (R-048)"
+        } else {
+            ""
+        };
         let _ = writeln!(
             out,
             "# block {} · L{}-L{} · fnv:{:016x}{} · \"{}\"",
@@ -230,7 +234,9 @@ fn add_graduated_to(text: &str, ids: &[String]) -> String {
         .skip(1)
         .find(|(_, l)| l.as_str() == "---")
         .map(|(i, _)| i);
-    let Some(close) = close else { return text.to_string() };
+    let Some(close) = close else {
+        return text.to_string();
+    };
     let existing = lines
         .iter()
         .take(close)
@@ -393,10 +399,7 @@ pub fn apply(root: &Path, plan_text: &str, force: bool) -> Result<Outcome, Strin
             }
             Action::Move(dest) => {
                 let id = dest_id(root, dest)?;
-                let body = lines
-                    .get(b.body_start..b.end)
-                    .unwrap_or(&[])
-                    .join("\n");
+                let body = lines.get(b.body_start..b.end).unwrap_or(&[]).join("\n");
                 dest_appends.push((dest.clone(), body));
                 let link = format!("Moved to [[{dest}|{id}]].");
                 replacements.push((b.body_start, b.end, link));

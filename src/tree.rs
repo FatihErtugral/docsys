@@ -116,8 +116,7 @@ fn parse_tombstones(text: &str) -> Vec<String> {
 impl DocTree {
     pub fn load(root: &Path) -> std::io::Result<DocTree> {
         let docmeta_path = root.join(".docmeta.yml");
-        let (docmeta, docmeta_present, docmeta_problems) = match fs::read_to_string(&docmeta_path)
-        {
+        let (docmeta, docmeta_present, docmeta_problems) = match fs::read_to_string(&docmeta_path) {
             Ok(text) => {
                 // .docmeta.yml is pure frontmatter fields without the fences.
                 let framed = format!("---\n{text}---\n");
@@ -148,7 +147,12 @@ impl DocTree {
             let rel = rel_of(&path, root);
             let kind = classify(&rel, &extra_tracked);
             let fm = fm::parse(&text);
-            pages.push(Page { rel, kind, text, fm });
+            pages.push(Page {
+                rel,
+                kind,
+                text,
+                fm,
+            });
         }
 
         Ok(DocTree {

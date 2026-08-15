@@ -155,7 +155,11 @@ pub fn write_agents_block(path: &std::path::Path) -> Result<&'static str, String
         Some(text) => match (text.find(BLOCK_BEGIN), text.find(BLOCK_END)) {
             (Some(a), Some(b)) if b > a => {
                 let after = text.get(b + BLOCK_END.len()..).unwrap_or("");
-                format!("{}{block}{}", text.get(..a).unwrap_or(""), after.trim_start_matches('\n'))
+                format!(
+                    "{}{block}{}",
+                    text.get(..a).unwrap_or(""),
+                    after.trim_start_matches('\n')
+                )
             }
             _ => {
                 let sep = if text.ends_with('\n') { "\n" } else { "\n\n" };
@@ -186,6 +190,9 @@ mod tests {
         assert!(s.contains("R-081:"), "{s}");
         assert!(s.contains("doc: <id>"));
         let lines = s.lines().count();
-        assert!(lines <= 200, "summary is {lines} lines — over the default budget");
+        assert!(
+            lines <= 200,
+            "summary is {lines} lines — over the default budget"
+        );
     }
 }

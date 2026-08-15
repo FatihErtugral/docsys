@@ -38,7 +38,10 @@ pub fn run(repo: &Path, tree: &DocTree) -> Report {
             .unwrap_or(&file)
             .to_string_lossy()
             .replace('\\', "/");
-        if excludes.iter().any(|p| frel.starts_with(p.trim_end_matches('/'))) {
+        if excludes
+            .iter()
+            .any(|p| frel.starts_with(p.trim_end_matches('/')))
+        {
             files_scanned -= 1;
             continue;
         }
@@ -84,11 +87,15 @@ pub fn run(repo: &Path, tree: &DocTree) -> Report {
             .to_string_lossy()
             .replace('\\', "/");
         if !frel.ends_with(".md")
-            || excludes.iter().any(|p| frel.starts_with(p.trim_end_matches('/')))
+            || excludes
+                .iter()
+                .any(|p| frel.starts_with(p.trim_end_matches('/')))
         {
             continue;
         }
-        let Ok(text) = fs::read_to_string(&file) else { continue };
+        let Ok(text) = fs::read_to_string(&file) else {
+            continue;
+        };
         if let Some(fm) = crate::fm::parse(&text) {
             if fm.fields.contains_key("id") {
                 r.findings.push(Finding::warn(

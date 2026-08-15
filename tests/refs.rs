@@ -47,7 +47,11 @@ fn code_refs_resolve_dangle_and_respect_scan_exclude() {
     // adr-9999: prefix matches but the member does not occur on the page (R-079).
     // no-such-id: plain dangling, trailing period stripped (R-073).
     // vendor/: excluded by the tree's own scan_exclude (R-077).
-    assert_eq!(errs, vec!["adr-9999".to_string(), "no-such-id".to_string()], "{errs:?}");
+    assert_eq!(
+        errs,
+        vec!["adr-9999".to_string(), "no-such-id".to_string()],
+        "{errs:?}"
+    );
     let _ = fs::remove_dir_all(&repo);
 }
 
@@ -76,7 +80,11 @@ fn agents_md_managed_block_is_idempotent_and_preserves_owner_prose() {
     docsys::rules::write_agents_block(&path).unwrap();
     let twice = fs::read_to_string(&path).unwrap();
     assert_eq!(once, twice, "second run must change nothing");
-    assert_eq!(twice.matches("docsys:rules:begin").count(), 1, "one block, updated in place");
+    assert_eq!(
+        twice.matches("docsys:rules:begin").count(),
+        1,
+        "one block, updated in place"
+    );
     let _ = fs::remove_dir_all(&dir);
 }
 
@@ -85,7 +93,11 @@ fn stray_docs_page_outside_tree_is_reported() {
     let repo = tmp("stray");
     let docs = repo.join("docs");
     fs::create_dir_all(&docs).unwrap();
-    fs::write(docs.join(".docmeta.yml"), "spec: docsys/0.4\nprofile: project\ndefault_content_language: en\n").unwrap();
+    fs::write(
+        docs.join(".docmeta.yml"),
+        "spec: docsys/0.4\nprofile: project\ndefault_content_language: en\n",
+    )
+    .unwrap();
     fs::create_dir_all(repo.join("components/ui")).unwrap();
     fs::write(
         repo.join("components/ui/README.md"),
@@ -95,12 +107,17 @@ fn stray_docs_page_outside_tree_is_reported() {
     let tree = DocTree::load(&docs).unwrap();
     let report = refs::run(&repo, &tree);
     assert!(
-        report.findings.iter().any(|f| f.subject == "stray" && f.file == "components/ui/README.md"),
-        "{:?}", report.findings
+        report
+            .findings
+            .iter()
+            .any(|f| f.subject == "stray" && f.file == "components/ui/README.md"),
+        "{:?}",
+        report.findings
     );
     let _ = fs::remove_dir_all(&repo);
 }
 
+#[cfg(unix)] // the alias is built with a symlink; the invariant is platform-neutral
 #[test]
 fn repo_walk_excludes_docs_root_under_any_spelling() {
     let repo = tmp("rootspell");

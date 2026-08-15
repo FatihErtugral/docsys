@@ -63,7 +63,8 @@ fn scannable_lines(text: &str) -> Vec<(usize, &str)> {
 }
 
 fn check_docmeta(tree: &DocTree, r: &mut Report) {
-    r.inspected.insert("docmeta", usize::from(tree.docmeta_present));
+    r.inspected
+        .insert("docmeta", usize::from(tree.docmeta_present));
     if !tree.docmeta_present {
         // Without .docmeta.yml nothing else is decidable; main turns this into
         // a configuration error (exit 2, D-005).
@@ -76,22 +77,29 @@ fn check_docmeta(tree: &DocTree, r: &mut Report) {
         return;
     }
     for p in &tree.docmeta_problems {
-        r.findings
-            .push(Finding::warn(R161, "-", ".docmeta.yml", format!("parse: {p}")));
+        r.findings.push(Finding::warn(
+            R161,
+            "-",
+            ".docmeta.yml",
+            format!("parse: {p}"),
+        ));
     }
     match tree.docmeta_str("spec") {
-        Some(v) if v.strip_prefix("docsys/0.").is_some_and(|m| {
-            m.chars().all(|c| c.is_ascii_digit()) && !m.is_empty()
-        }) => {}
+        Some(v)
+            if v.strip_prefix("docsys/0.")
+                .is_some_and(|m| m.chars().all(|c| c.is_ascii_digit()) && !m.is_empty()) => {}
         Some(v) => r.findings.push(Finding::err(
             R013,
             "-",
             "spec",
             format!("`{v}` is not an implemented `docsys/0.<minor>` version"),
         )),
-        None => r
-            .findings
-            .push(Finding::warn(R160, "-", "spec", "missing `spec:`".to_string())),
+        None => r.findings.push(Finding::warn(
+            R160,
+            "-",
+            "spec",
+            "missing `spec:`".to_string(),
+        )),
     }
     match tree.docmeta_str("profile") {
         Some("project") => {}
@@ -171,8 +179,12 @@ fn check_permanent_frontmatter(tree: &DocTree, r: &mut Report) {
             continue;
         };
         for p in &fm.problems {
-            r.findings
-                .push(Finding::warn(R050, &page.rel, "frontmatter", format!("parse: {p}")));
+            r.findings.push(Finding::warn(
+                R050,
+                &page.rel,
+                "frontmatter",
+                format!("parse: {p}"),
+            ));
         }
         let missing: Vec<&str> = ["id", "type", "updated"]
             .into_iter()
@@ -420,7 +432,10 @@ pub fn build_index(tree: &DocTree) -> ResolutionIndex {
         }
     }
     ResolutionIndex {
-        ids: permanent_ids(tree).into_iter().map(str::to_string).collect(),
+        ids: permanent_ids(tree)
+            .into_iter()
+            .map(str::to_string)
+            .collect(),
         families,
         tombstones: tree.tombstones.clone(),
     }
@@ -519,7 +534,9 @@ fn wiki_links(text: &str) -> Vec<(usize, String)> {
     for (i, line) in scannable_lines(text) {
         let mut rest = line;
         while let Some(start) = rest.find("[[") {
-            let Some(after) = rest.get(start + 2..) else { break };
+            let Some(after) = rest.get(start + 2..) else {
+                break;
+            };
             let Some(end) = after.find("]]") else { break };
             let inner = after.get(..end).unwrap_or("");
             let target = inner.split('|').next().unwrap_or("").trim();
@@ -551,15 +568,17 @@ fn check_links(tree: &DocTree, r: &mut Report) {
                     R070,
                     &page.rel,
                     &target,
-                    format!("line {}: short-name link — full path from the docs root required",
-                        line + 1),
+                    format!(
+                        "line {}: short-name link — full path from the docs root required",
+                        line + 1
+                    ),
                 ));
                 continue;
             }
             // An explicit [[_archive/...]] link is a deliberate citation of a
             // record — it resolves silently (field convention, t-embed pilot).
-            let explicit_archive = target.starts_with("_archive/")
-                && tree.root.join(format!("{target}.md")).exists();
+            let explicit_archive =
+                target.starts_with("_archive/") && tree.root.join(format!("{target}.md")).exists();
             let archived = tree
                 .root
                 .join("_archive")
@@ -666,7 +685,10 @@ fn check_paths(tree: &DocTree, r: &mut Report) {
                     R075,
                     &page.rel,
                     "absolute-path",
-                    format!("line {}: absolute filesystem path outside quoted material", line + 1),
+                    format!(
+                        "line {}: absolute filesystem path outside quoted material",
+                        line + 1
+                    ),
                 ));
             }
             // A `..` segment is fine while it stays inside the tree; only a
@@ -674,8 +696,7 @@ fn check_paths(tree: &DocTree, r: &mut Report) {
             // pilot: `../howto/x.md` from `reference/` was falsely flagged).
             let mut escapes = false;
             for target in crate::migrate::md_link_targets_line(text_line) {
-                if target.starts_with("..")
-                    && crate::migrate::resolve(&page.rel, &target).is_none()
+                if target.starts_with("..") && crate::migrate::resolve(&page.rel, &target).is_none()
                 {
                     escapes = true;
                 }
@@ -688,7 +709,10 @@ fn check_paths(tree: &DocTree, r: &mut Report) {
                     R075,
                     &page.rel,
                     "escaping-link",
-                    format!("line {}: relative link traverses outside the tree", line + 1),
+                    format!(
+                        "line {}: relative link traverses outside the tree",
+                        line + 1
+                    ),
                 ));
             }
         }
@@ -747,7 +771,11 @@ fn check_router_and_orphans(tree: &DocTree, r: &mut Report) {
         if !reachable.insert(t.clone()) {
             continue;
         }
-        if let Some(page) = tree.pages.iter().find(|p| p.rel.trim_end_matches(".md") == t) {
+        if let Some(page) = tree
+            .pages
+            .iter()
+            .find(|p| p.rel.trim_end_matches(".md") == t)
+        {
             queue.extend(wiki_links(&page.text).into_iter().map(|(_, x)| x));
         }
     }
@@ -799,12 +827,10 @@ fn check_journal(tree: &DocTree, r: &mut Report) {
                 inspected += 1;
                 flush(r, entry_start.take());
                 let date = rest.get(..10).unwrap_or("");
-                let sep_ok = rest
-                    .get(10..)
-                    .is_some_and(|s| {
-                        let s = s.trim_start();
-                        s.starts_with('-') || s.starts_with('—')
-                    });
+                let sep_ok = rest.get(10..).is_some_and(|s| {
+                    let s = s.trim_start();
+                    s.starts_with('-') || s.starts_with('—')
+                });
                 if !is_iso_date(date) || !sep_ok {
                     r.findings.push(Finding::warn(
                         R100,
@@ -892,16 +918,33 @@ pub fn heading_map(tree: &DocTree) -> std::collections::BTreeMap<String, String>
 fn check_templates(tree: &DocTree, r: &mut Report) {
     let map = heading_map(tree);
     const SECTIONS: [(&str, [&str; 4]); 3] = [
-        ("features", ["Context", "Decision", "Contract surface", "Rejected alternatives"]),
-        ("postmortems", ["What happened", "Root cause", "Recurrence", "Lesson"]),
-        ("research", ["Question", "Tried", "Learned", "Why no decision"]),
+        (
+            "features",
+            [
+                "Context",
+                "Decision",
+                "Contract surface",
+                "Rejected alternatives",
+            ],
+        ),
+        (
+            "postmortems",
+            ["What happened", "Root cause", "Recurrence", "Lesson"],
+        ),
+        (
+            "research",
+            ["Question", "Tried", "Learned", "Why no decision"],
+        ),
     ];
     let mut inspected = 0usize;
     for page in &tree.pages {
         if page.kind != Kind::Tracked {
             continue;
         }
-        let Some(category) = page.rel.strip_prefix("work/").and_then(|s| s.split('/').next())
+        let Some(category) = page
+            .rel
+            .strip_prefix("work/")
+            .and_then(|s| s.split('/').next())
         else {
             continue;
         };

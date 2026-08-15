@@ -43,14 +43,32 @@ fn greenfield_adopt_scaffolds_everything_and_is_idempotent() {
     // no .githooks, no configured hooksPath → gate falls back to .git/hooks
     let gate = fs::read_to_string(repo.join(".git/hooks/pre-commit")).unwrap();
     assert!(gate.contains("docsys documentation gate"), "{gate}");
-    assert!(out.summary.iter().any(|s| s.contains("created")), "{:?}", out.summary);
+    assert!(
+        out.summary.iter().any(|s| s.contains("created")),
+        "{:?}",
+        out.summary
+    );
 
     // Second run: everything already in place, nothing rewritten destructively.
     let again = docsys::adopt::run(&repo, &docs, "en").unwrap();
-    assert!(again.summary.iter().any(|s| s.contains(".docmeta.yml: kept")), "{:?}", again.summary);
-    assert!(again.summary.iter().any(|s| s.contains("gate: kept")), "{:?}", again.summary);
+    assert!(
+        again
+            .summary
+            .iter()
+            .any(|s| s.contains(".docmeta.yml: kept")),
+        "{:?}",
+        again.summary
+    );
+    assert!(
+        again.summary.iter().any(|s| s.contains("gate: kept")),
+        "{:?}",
+        again.summary
+    );
     // settings now exists → untouched, and the merge snippet moves to the checklist
-    assert!(again.summary.iter().any(|s| s.contains("settings.json: untouched")));
+    assert!(again
+        .summary
+        .iter()
+        .any(|s| s.contains("settings.json: untouched")));
     let report = fs::read_to_string(repo.join("ADOPTION.md")).unwrap();
     assert!(report.contains("Merge the docsys hook wires"), "{report}");
     let _ = fs::remove_dir_all(&repo);
@@ -109,6 +127,10 @@ fn docmeta_upgrade_prepends_missing_keys_and_keeps_owner_lines() {
     assert!(meta.contains("profile: project\n"));
     assert!(meta.contains("default_content_language: en\n"));
     assert!(meta.ends_with("custom_key: kept-verbatim\n"), "{meta}");
-    assert!(out.summary.iter().any(|s| s.contains("upgraded")), "{:?}", out.summary);
+    assert!(
+        out.summary.iter().any(|s| s.contains("upgraded")),
+        "{:?}",
+        out.summary
+    );
     let _ = fs::remove_dir_all(&repo);
 }

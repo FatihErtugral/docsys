@@ -1,5 +1,7 @@
 # docsys
 
+[![ci](https://github.com/FatihErtugral/docsys/actions/workflows/ci.yml/badge.svg)](https://github.com/FatihErtugral/docsys/actions/workflows/ci.yml)
+
 **A documentation system that agents and humans keep honest — mechanically.**
 
 Plain markdown + git. A single zero-dependency binary enforces the mechanics;

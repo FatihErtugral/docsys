@@ -236,13 +236,22 @@ pub fn adoption_report(claude_dir: &Path) -> Vec<String> {
     }
     files.sort();
     for f in files {
-        let rel = f.strip_prefix(claude_dir).unwrap_or(&f).to_string_lossy().replace('\\', "/");
-        if rel.starts_with("skills/docsys/") || rel.starts_with("hooks/pre-commit-docs")
-            || rel.starts_with("hooks/stop-docs-reminder") || rel.starts_with("hooks/post-edit-updated")
-            || rel.starts_with("commands/docsys-sync") {
+        let rel = f
+            .strip_prefix(claude_dir)
+            .unwrap_or(&f)
+            .to_string_lossy()
+            .replace('\\', "/");
+        if rel.starts_with("skills/docsys/")
+            || rel.starts_with("hooks/pre-commit-docs")
+            || rel.starts_with("hooks/stop-docs-reminder")
+            || rel.starts_with("hooks/post-edit-updated")
+            || rel.starts_with("commands/docsys-sync")
+        {
             continue; // our own assets are not adoption surface
         }
-        let Ok(text) = fs::read_to_string(&f) else { continue };
+        let Ok(text) = fs::read_to_string(&f) else {
+            continue;
+        };
         let mut calls: Vec<String> = Vec::new();
         for line in text.lines() {
             // allowed-tools: Bash(cmd ...) declarations
@@ -251,7 +260,11 @@ pub fn adoption_report(claude_dir: &Path) -> Vec<String> {
                 let after = rest.get(pos + 5..).unwrap_or("");
                 if let Some(end) = after.find(')') {
                     let inner = after.get(..end).unwrap_or("").trim();
-                    let head = inner.split_whitespace().take(2).collect::<Vec<_>>().join(" ");
+                    let head = inner
+                        .split_whitespace()
+                        .take(2)
+                        .collect::<Vec<_>>()
+                        .join(" ");
                     if !head.is_empty() && !calls.contains(&head) {
                         calls.push(head);
                     }
@@ -264,7 +277,11 @@ pub fn adoption_report(claude_dir: &Path) -> Vec<String> {
             let trimmed = line.trim_start();
             for prefix in ["python3 ", "python ", "bash ", "sh ", "make "] {
                 if trimmed.starts_with(prefix) {
-                    let head = trimmed.split_whitespace().take(2).collect::<Vec<_>>().join(" ");
+                    let head = trimmed
+                        .split_whitespace()
+                        .take(2)
+                        .collect::<Vec<_>>()
+                        .join(" ");
                     if !calls.contains(&head) {
                         calls.push(head);
                     }
@@ -281,8 +298,11 @@ pub fn adoption_report(claude_dir: &Path) -> Vec<String> {
 }
 
 fn collect_files(dir: &Path, out: &mut Vec<std::path::PathBuf>) {
-    let Ok(entries) = fs::read_dir(dir) else { return };
-    let mut paths: Vec<std::path::PathBuf> = entries.filter_map(|e| e.ok().map(|e| e.path())).collect();
+    let Ok(entries) = fs::read_dir(dir) else {
+        return;
+    };
+    let mut paths: Vec<std::path::PathBuf> =
+        entries.filter_map(|e| e.ok().map(|e| e.path())).collect();
     paths.sort();
     for p in paths {
         if p.is_dir() {
@@ -292,4 +312,3 @@ fn collect_files(dir: &Path, out: &mut Vec<std::path::PathBuf>) {
         }
     }
 }
-

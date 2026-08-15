@@ -105,8 +105,10 @@ pub fn parse(text: &str) -> Option<Frontmatter> {
             pending_list_key = None;
         }
         if line.starts_with(' ') || line.starts_with('\t') {
-            fm.problems
-                .push(format!("line {}: nesting beyond the registered subset", idx + 1));
+            fm.problems.push(format!(
+                "line {}: nesting beyond the registered subset",
+                idx + 1
+            ));
             continue;
         }
         let Some((key, rest)) = line.split_once(':') else {
@@ -116,8 +118,10 @@ pub fn parse(text: &str) -> Option<Frontmatter> {
         };
         let key = key.trim();
         if !is_key(key) {
-            fm.problems
-                .push(format!("line {}: key `{key}` is not a structural token", idx + 1));
+            fm.problems.push(format!(
+                "line {}: key `{key}` is not a structural token",
+                idx + 1
+            ));
             continue;
         }
         if fm.fields.contains_key(key) {
@@ -138,11 +142,13 @@ pub fn parse(text: &str) -> Option<Frontmatter> {
                 Some((v, _)) => v,
                 None => rest,
             };
-            fm.fields.insert(key.to_string(), Value::Str(strip_quotes(val)));
+            fm.fields
+                .insert(key.to_string(), Value::Str(strip_quotes(val)));
         }
     }
 
-    fm.problems.push("frontmatter never closed with `---`".to_string());
+    fm.problems
+        .push("frontmatter never closed with `---`".to_string());
     Some(fm)
 }
 
@@ -155,10 +161,19 @@ mod tests {
         let text = "---\nid: token-ttl\ntype: reference # trailing\ntags: [a, b]\nsources:\n  - raw/x.md\n---\nbody\n";
         let fm = parse(text).unwrap_or_default();
         assert!(fm.problems.is_empty(), "{:?}", fm.problems);
-        assert_eq!(fm.fields.get("id").and_then(Value::as_str), Some("token-ttl"));
-        assert_eq!(fm.fields.get("type").and_then(Value::as_str), Some("reference"));
         assert_eq!(
-            fm.fields.get("tags").and_then(Value::as_list).map(<[String]>::len),
+            fm.fields.get("id").and_then(Value::as_str),
+            Some("token-ttl")
+        );
+        assert_eq!(
+            fm.fields.get("type").and_then(Value::as_str),
+            Some("reference")
+        );
+        assert_eq!(
+            fm.fields
+                .get("tags")
+                .and_then(Value::as_list)
+                .map(<[String]>::len),
             Some(2)
         );
         assert_eq!(fm.body_start, 7);

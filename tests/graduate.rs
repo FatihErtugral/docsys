@@ -1,4 +1,10 @@
-#![allow(clippy::panic, clippy::unwrap_used, clippy::expect_used, clippy::indexing_slicing, clippy::ptr_arg)]
+#![allow(
+    clippy::panic,
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::indexing_slicing,
+    clippy::ptr_arg
+)]
 // Tests report through panics by design; the production lints stay strict.
 
 use docsys::graduate;
@@ -44,11 +50,17 @@ fn apply_moves_bytes_links_source_and_records_graduation() {
 
     let src = fs::read_to_string(root.join("work/features/x.md")).unwrap();
     assert!(src.contains("graduated_to: [keys]"), "{src}");
-    assert!(src.contains("## Contract surface\nMoved to [[reference/keys|keys]]."), "{src}");
+    assert!(
+        src.contains("## Contract surface\nMoved to [[reference/keys|keys]]."),
+        "{src}"
+    );
     assert!(!src.contains("SHA of cart-id"), "body left the source");
 
     let dest = fs::read_to_string(root.join("reference/keys.md")).unwrap();
-    assert!(dest.contains("The key is the SHA of cart-id + day."), "byte-exact arrival");
+    assert!(
+        dest.contains("The key is the SHA of cart-id + day."),
+        "byte-exact arrival"
+    );
     let _ = fs::remove_dir_all(&root);
 }
 

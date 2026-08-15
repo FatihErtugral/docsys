@@ -1,0 +1,48 @@
+name: ci
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: rustup toolchain install stable --profile minimal --component clippy,rustfmt
+      - run: cargo fmt --check
+      - run: cargo clippy --all-targets -- -D warnings
+
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - run: rustup toolchain install stable --profile minimal
+      - run: cargo test --locked
+
+  # The binary must stay able to lint its own conformance corpus and adopt a
+  # fresh repository on every platform — the dogfood check.
+  dogfood:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - run: rustup toolchain install stable --profile minimal
+      - run: cargo build --release --locked
+      - name: adopt a fresh repository end-to-end
+        shell: bash
+        run: |
+          set -euo pipefail
+          bin="$PWD/target/release/docsys"
+          mkdir demo && cd demo && git init -q
+          "$bin" adopt
+          "$bin" lint --root docs
+          test -f ADOPTION.md && test -f .claude/settings.json

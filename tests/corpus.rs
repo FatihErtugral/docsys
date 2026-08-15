@@ -37,7 +37,15 @@ fn run_case(case: &Path) -> Result<(), String> {
     let mut got: Vec<String> = report
         .findings
         .iter()
-        .map(|f| format!("{}\t{}\t{}\t{}", f.severity.tag(), f.rule, f.file, f.subject))
+        .map(|f| {
+            format!(
+                "{}\t{}\t{}\t{}",
+                f.severity.tag(),
+                f.rule,
+                f.file,
+                f.subject
+            )
+        })
         .collect();
     got.sort();
     got.dedup();
@@ -68,7 +76,10 @@ fn corpus() {
         .map(|rd| rd.filter_map(|e| e.ok().map(|e| e.path())).collect())
         .unwrap_or_default();
     cases.sort();
-    assert!(!cases.is_empty(), "corpus/cases is empty — nothing was tested (R-011)");
+    assert!(
+        !cases.is_empty(),
+        "corpus/cases is empty — nothing was tested (R-011)"
+    );
 
     let mut failures = String::new();
     let mut passed = 0usize;

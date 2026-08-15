@@ -85,7 +85,14 @@ fn run_lint(o: &Opts) -> ExitCode {
         print!("{}", to_json(&report));
     } else {
         for f in &report.findings {
-            println!("{} {} {} [{}] {}", f.severity.tag(), f.rule, f.file, f.subject, f.message);
+            println!(
+                "{} {} {} [{}] {}",
+                f.severity.tag(),
+                f.rule,
+                f.file,
+                f.subject,
+                f.message
+            );
         }
         let errors = report
             .findings
@@ -129,7 +136,11 @@ fn main() -> ExitCode {
         ("lint", None) => run_lint(&opts),
         ("adopt", None) => {
             let repo = opts.repo.clone().unwrap_or_else(|| PathBuf::from("."));
-            let root = if opts.root.is_absolute() { opts.root.clone() } else { repo.join(&opts.root) };
+            let root = if opts.root.is_absolute() {
+                opts.root.clone()
+            } else {
+                repo.join(&opts.root)
+            };
             match docsys::adopt::run(&repo, &root, &opts.lang) {
                 Ok(done) => {
                     for s in &done.summary {
@@ -162,7 +173,10 @@ fn main() -> ExitCode {
                         if let Some(target) = &opts.plan {
                             match docsys::rules::write_agents_block(target) {
                                 Ok(_) => {
-                                    println!("managed block written to {} (idempotent)", target.display());
+                                    println!(
+                                        "managed block written to {} (idempotent)",
+                                        target.display()
+                                    );
                                     return ExitCode::SUCCESS;
                                 }
                                 Err(e) => {
@@ -221,7 +235,10 @@ fn main() -> ExitCode {
                         done.dest_files.join(", ")
                     );
                     println!("-- running lint --");
-                    run_lint(&Opts { json: false, ..opts })
+                    run_lint(&Opts {
+                        json: false,
+                        ..opts
+                    })
                 }
                 Err(e) => {
                     eprintln!("graduate apply: {e}");
@@ -245,7 +262,10 @@ fn main() -> ExitCode {
                     println!("wrote   {}/{f}", opts.dir.display());
                 }
                 for f in &done.skipped {
-                    println!("skipped {}/{f} (exists; --force to overwrite)", opts.dir.display());
+                    println!(
+                        "skipped {}/{f} (exists; --force to overwrite)",
+                        opts.dir.display()
+                    );
                 }
                 println!("\n-- merge into .claude/settings.json by hand (protected file): --");
                 println!("{}", docsys::agents::SETTINGS_SNIPPET);
@@ -289,7 +309,14 @@ fn main() -> ExitCode {
                 print!("{}", to_json(&report));
             } else {
                 for f in &report.findings {
-                    println!("{} {} {} [{}] {}", f.severity.tag(), f.rule, f.file, f.subject, f.message);
+                    println!(
+                        "{} {} {} [{}] {}",
+                        f.severity.tag(),
+                        f.rule,
+                        f.file,
+                        f.subject,
+                        f.message
+                    );
                 }
                 let errors = report
                     .findings
@@ -297,8 +324,10 @@ fn main() -> ExitCode {
                     .filter(|f| f.severity == docsys::model::Severity::Error)
                     .count();
                 let units: usize = report.inspected.values().sum();
-                println!("-- {errors} error(s), {} warning(s); {units} unit(s) inspected",
-                    report.findings.len() - errors);
+                println!(
+                    "-- {errors} error(s), {} warning(s); {units} unit(s) inspected",
+                    report.findings.len() - errors
+                );
             }
             if report
                 .findings

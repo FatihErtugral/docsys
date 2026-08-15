@@ -3,14 +3,14 @@
 //! choice is registered in corpus/DECISIONS.md (R-193).
 
 pub mod adopt;
-pub mod checks;
-pub mod migrate;
-pub mod refs;
-pub mod graduate;
-pub mod rules;
 pub mod agents;
+pub mod checks;
 pub mod fm;
+pub mod graduate;
+pub mod migrate;
 pub mod model;
+pub mod refs;
+pub mod rules;
 pub mod tree;
 
 use model::Severity;
@@ -87,7 +87,11 @@ pub fn to_json(report: &checks::Report) -> String {
     }
     let mut s = String::from("{\n  \"findings\": [\n");
     for (i, f) in report.findings.iter().enumerate() {
-        let comma = if i + 1 == report.findings.len() { "" } else { "," };
+        let comma = if i + 1 == report.findings.len() {
+            ""
+        } else {
+            ","
+        };
         s.push_str(&format!(
             "    {{\"severity\":\"{}\",\"rule\":\"{}\",\"file\":\"{}\",\"subject\":\"{}\",\"message\":\"{}\"}}{comma}\n",
             f.severity.tag(),
