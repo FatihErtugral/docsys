@@ -90,6 +90,11 @@ pub fn parse(text: &str) -> Option<Frontmatter> {
             pending_list_key = None;
             continue;
         }
+        // A whole-line comment (D-002): configuration people cannot annotate is
+        // configuration people copy without understanding.
+        if line.trim_start().starts_with('#') {
+            continue;
+        }
         // Block-list item for the key on the previous line?
         if let Some(key) = pending_list_key.clone() {
             if let Some(item) = line.strip_prefix("  - ") {

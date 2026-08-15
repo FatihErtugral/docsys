@@ -1,0 +1,5 @@
+spec: docsys/0.4
+profile: project
+default_content_language: en
+# A whole-line comment must not break the parse.
+journal_entry_max_lines: 8

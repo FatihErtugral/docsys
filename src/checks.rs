@@ -132,10 +132,12 @@ fn check_docmeta(tree: &DocTree, r: &mut Report) {
         ));
     }
     // R-161: unknown keys are reported, never rejected.
-    const KNOWN: [&str; 13] = [
+    const KNOWN: [&str; 15] = [
         "spec",
         "profile",
         "default_content_language",
+        "journal_entry_max_lines",
+        "stale_active_days",
         "created",
         "namespace",
         "federation_role",
@@ -484,7 +486,23 @@ pub fn doc_tokens_on_line(line: &str) -> Vec<String> {
                 .and_then(|s| s.chars().last())
                 .is_none_or(|c| !c.is_ascii_alphanumeric());
         let after = rest.get(pos + 5..).unwrap_or("");
-        let raw = after.split_whitespace().next().unwrap_or("");
+        // R-073: a reference opened inside an inline-code span ends at the
+        // closing backtick — prose glues suffixes to it (a case ending, a
+        // possessive), and those belong to the sentence, not the identifier.
+        let opened_in_code = rest
+            .get(..pos)
+            .is_some_and(|s| s.matches('`').count() % 2 == 1);
+        let raw = if opened_in_code {
+            after
+                .split('`')
+                .next()
+                .unwrap_or("")
+                .split_whitespace()
+                .next()
+                .unwrap_or("")
+        } else {
+            after.split_whitespace().next().unwrap_or("")
+        };
         let token = raw.trim_end_matches(DOC_TOKEN_PUNCT);
         rest = after;
         if before_ok && !token.is_empty() {
@@ -757,25 +775,43 @@ fn check_paths(tree: &DocTree, r: &mut Report) {
             // resolution that pops past the root escapes (first migration
             // pilot: `../howto/x.md` from `reference/` was falsely flagged).
             let mut escapes = false;
+            let mut all_targets_exist = true;
             for target in crate::migrate::md_link_targets_line(text_line) {
                 if target.starts_with("..") && crate::migrate::resolve(&page.rel, &target).is_none()
                 {
                     escapes = true;
+                    // R-075: a link that actually points at a file is working
+                    // documentation (a catalog README next to the code), not
+                    // the silent breakage §2.2 reserves blocking for.
+                    let from_dir = tree.root.join(&page.rel);
+                    let exists = from_dir
+                        .parent()
+                        .map(|d| d.join(&target))
+                        .is_some_and(|p| p.exists());
+                    if !exists {
+                        all_targets_exist = false;
+                    }
                 }
             }
             if text_line.contains("[[../") {
                 escapes = true; // wiki-links are root-relative; `..` never valid
+                all_targets_exist = false;
             }
             if escapes {
-                r.findings.push(Finding::err(
-                    R075,
-                    &page.rel,
-                    "escaping-link",
-                    format!(
-                        "line {}: relative link traverses outside the tree",
-                        line + 1
-                    ),
-                ));
+                let msg = format!(
+                    "line {}: relative link traverses outside the tree",
+                    line + 1
+                );
+                r.findings.push(if all_targets_exist {
+                    Finding::warn(
+                        R075,
+                        &page.rel,
+                        "escaping-link",
+                        format!("{msg} — target exists; the link breaks if the tree moves"),
+                    )
+                } else {
+                    Finding::err(R075, &page.rel, "escaping-link", msg)
+                });
             }
         }
     }
@@ -871,15 +907,20 @@ fn check_journal(tree: &DocTree, r: &mut Report) {
                 format!("{total_lines} lines — rotation (journal slice) resolves this"),
             ));
         }
+        // R-101: 5 lines unless the tree declares a discipline of its own.
+        let budget = tree
+            .docmeta_str("journal_entry_max_lines")
+            .and_then(|v| v.parse::<usize>().ok())
+            .unwrap_or(5);
         let mut entry_start: Option<(usize, usize)> = None; // (line, body_len)
         let flush = |r: &mut Report, e: Option<(usize, usize)>| {
             if let Some((line, body)) = e {
-                if body > 5 {
+                if body > budget {
                     r.findings.push(Finding::warn(
                         R101,
                         &page.rel,
                         &format!("entry-{}", line + 1),
-                        format!("entry body is {body} lines (max 5)"),
+                        format!("entry body is {body} lines (max {budget})"),
                     ));
                 }
             }
@@ -891,6 +932,13 @@ fn check_journal(tree: &DocTree, r: &mut Report) {
                 let date = rest.get(..10).unwrap_or("");
                 let sep_ok = rest.get(10..).is_some_and(|s| {
                     let s = s.trim_start();
+                    // R-100: one bracketed annotation may sit between the date
+                    // and the separator (an entry counter, a channel tag).
+                    let s = match s.chars().next() {
+                        Some('(') => s.split_once(')').map_or(s, |(_, rest)| rest).trim_start(),
+                        Some('[') => s.split_once(']').map_or(s, |(_, rest)| rest).trim_start(),
+                        _ => s,
+                    };
                     s.starts_with('-') || s.starts_with('—')
                 });
                 if !is_iso_date(date) || !sep_ok {

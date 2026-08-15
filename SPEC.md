@@ -671,7 +671,11 @@ by path:
 **R-073** `lint` · MUST — The token following `doc:` is read up to the first
 whitespace, then stripped of trailing punctuation (`.` `,` `;` `:` `)` `]` `"`
 `'` `?` `!` and the backtick) — a reference at the end of a sentence, or
-written as inline code, is still a reference.
+written as inline code, is still a reference. A reference opened inside an
+inline-code span ends at the closing backtick, and whatever the prose attaches
+after it is not part of the identifier: an inflected language glues a case
+suffix to the closing backtick, English glues a possessive, and reading those
+into the token invents an identifier that was never written.
 
 **R-076** `lint` · MUST — A local `doc: <local-id>` that matches no `id`, no
 alias, and no `defines:` family **is an error** — in 0.1 local references were
@@ -714,6 +718,13 @@ inside fenced code blocks and block quotes — the mechanically identifiable for
 of the quoted material R-074 exempts. External URLs (`https://...`) are not
 tree-escaping links and are permitted. Whether such quoted material belongs on the page at all remains
 R-074's judgment.
+
+An escaping link whose target **exists** is **reported** instead: documentation
+that routes to a file living beside the code — a catalog README, a schema, a
+build file — is a deliberate, working link, and the severity doctrine (§2.2)
+blocks only what is irreversible or silently wrong. It stays reported because
+the link breaks the day the docs tree moves, which is R-062's whole argument for
+identifiers; a *broken* escaping link remains an error.
 
 **R-112** WITHDRAWN — its content is the exemption note now attached to R-074.
 
@@ -923,15 +934,25 @@ fully written on the page is not ready to be compiled.
 **R-100** `lint` · MUST — A journal entry opens with `## YYYY-MM-DD` followed by a
 separator and a title. The separator is `-`, `--` or an em dash; requiring a
 character most keyboards cannot produce would put R-120's ASCII principle and
-this rule in conflict for no benefit.
+this rule in conflict for no benefit. Between the date and the separator a tree
+MAY carry one bracketed annotation — `(448)`, `[ops]` — because entry counters
+and channel tags are common field conventions that leave the date first and
+machine-readable, which is all this rule protects.
 
 **R-101** `lint` · SHOULD — An entry is **at most 5 source lines**: what
 triggered it, what changed, which gate passed, which page holds the permanent
-content. An entry exceeding 5 lines **is reported** — the check matches the rule
-exactly, because a checker looser than its rule text is what R-012 forbids, and
-the 3,800-line journal in R-102's rationale was reachable one tolerated entry at
-a time. There is no lower bound: a one-line entry is a fine entry. Lines are
-counted in the source file, not as rendered.
+content. An entry exceeding the budget **is reported** — the check matches the
+rule exactly, because a checker looser than its rule text is what R-012 forbids,
+and the 3,800-line journal in R-102's rationale was reachable one tolerated
+entry at a time. There is no lower bound: a one-line entry is a fine entry.
+Lines are counted in the source file, not as rendered.
+
+The budget is 5 lines unless `.docmeta.yml` declares `journal_entry_max_lines`,
+which a tree MAY raise to state a discipline it actually keeps. Making it
+configurable is not a loophole: the number stays in one visible place instead of
+in an agent's memory, a tree that never declares it keeps the strict default,
+and a tool that warns hundreds of times against a documented house rule teaches
+people to ignore warnings — the failure R-150 exists to prevent.
 
 **R-102** `agent` · MUST NOT — Measurements, tables, algorithms, API lists,
 register maps, and rejected alternatives MUST NOT be written to the journal. They
