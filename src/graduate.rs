@@ -71,7 +71,25 @@ fn heading_level(line: &str) -> Option<usize> {
     }
 }
 
-pub fn blocks(text: &str) -> Vec<Block> {
+fn load_heading_map(root: &Path) -> Vec<String> {
+    // Displayed forms of the template headings: canonical + any mapped names.
+    let mut shown: Vec<String> = TEMPLATE_HEADINGS.iter().map(|s| (*s).to_string()).collect();
+    if let Ok(text) = fs::read_to_string(root.join(".docmeta.yml")) {
+        let framed = format!("---\n{text}---\n");
+        if let Some(f) = fm::parse(&framed) {
+            if let Some(list) = f.fields.get("headings").and_then(fm::Value::as_list) {
+                for e in list {
+                    if let Some((_, v)) = e.split_once('=') {
+                        shown.push(format!("## {}", v.trim()));
+                    }
+                }
+            }
+        }
+    }
+    shown
+}
+
+pub fn blocks_with(text: &str, template_headings: &[String]) -> Vec<Block> {
     let lines: Vec<&str> = text.lines().collect();
     // Skip frontmatter.
     let mut i = 0usize;
@@ -124,7 +142,7 @@ pub fn blocks(text: &str) -> Vec<Block> {
             }
             end += 1;
         }
-        let keep = TEMPLATE_HEADINGS.contains(&line.trim_end());
+        let keep = template_headings.iter().any(|h| h == line.trim_end());
         let body_start = if keep { cursor + 1 } else { cursor };
         let body = body_of(body_start, end);
         out.push(Block {
@@ -141,9 +159,14 @@ pub fn blocks(text: &str) -> Vec<Block> {
     out
 }
 
+pub fn blocks(text: &str) -> Vec<Block> {
+    let canonical: Vec<String> = TEMPLATE_HEADINGS.iter().map(|s| (*s).to_string()).collect();
+    blocks_with(text, &canonical)
+}
+
 pub fn plan(root: &Path, source_rel: &str) -> Result<String, String> {
     let text = fs::read_to_string(root.join(source_rel)).map_err(|e| e.to_string())?;
-    let bs = blocks(&text);
+    let bs = blocks_with(&text, &load_heading_map(root));
     if bs.is_empty() {
         return Err("the source has no blocks to graduate".to_string());
     }
@@ -274,7 +297,7 @@ pub fn apply(root: &Path, plan_text: &str, force: bool) -> Result<Outcome, Strin
         .to_string();
     let source_path = root.join(&source_rel);
     let text = fs::read_to_string(&source_path).map_err(|e| e.to_string())?;
-    let bs = blocks(&text);
+    let bs = blocks_with(&text, &load_heading_map(root));
 
     // Parse and validate actions against the current blocks.
     let mut actions: Vec<(usize, Action)> = Vec::new();

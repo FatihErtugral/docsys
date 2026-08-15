@@ -123,7 +123,7 @@ fn check_docmeta(tree: &DocTree, r: &mut Report) {
         ));
     }
     // R-161: unknown keys are reported, never rejected.
-    const KNOWN: [&str; 12] = [
+    const KNOWN: [&str; 13] = [
         "spec",
         "profile",
         "default_content_language",
@@ -136,6 +136,7 @@ fn check_docmeta(tree: &DocTree, r: &mut Report) {
         "epics",
         "scan_exclude",
         "deprecation_window",
+        "headings",
     ];
     for key in tree.docmeta.keys() {
         if !KNOWN.contains(&key.as_str()) {
@@ -878,7 +879,18 @@ fn check_list_grammars(tree: &DocTree, r: &mut Report) {
     r.inspected.insert("list-grammar", inspected);
 }
 
+/// `headings: [Context=Bağlam, ...]` — canonical key → displayed heading.
+/// The tool translates nothing; it only matches (D-025).
+pub fn heading_map(tree: &DocTree) -> std::collections::BTreeMap<String, String> {
+    tree.docmeta_list("headings")
+        .iter()
+        .filter_map(|e| e.split_once('='))
+        .map(|(k, v)| (k.trim().to_string(), v.trim().to_string()))
+        .collect()
+}
+
 fn check_templates(tree: &DocTree, r: &mut Report) {
+    let map = heading_map(tree);
     const SECTIONS: [(&str, [&str; 4]); 3] = [
         ("features", ["Context", "Decision", "Contract surface", "Rejected alternatives"]),
         ("postmortems", ["What happened", "Root cause", "Recurrence", "Lesson"]),
@@ -900,7 +912,8 @@ fn check_templates(tree: &DocTree, r: &mut Report) {
         let missing: Vec<&str> = required
             .iter()
             .filter(|s| {
-                let heading = format!("## {s}");
+                let shown = map.get(**s).map(String::as_str).unwrap_or(s);
+                let heading = format!("## {shown}");
                 !page.text.lines().any(|l| l.trim_end() == heading)
             })
             .copied()
