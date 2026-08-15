@@ -153,6 +153,7 @@ the mapping, the tool copies the bytes.
 
 | Command | What it does |
 |---|---|
+| `docsys adopt [--repo .] [--root docs]` | One-command integration: docmeta (or the full init skeleton on a fresh project), agent assets, `settings.json` when absent, AGENTS.md managed block, git pre-commit gate (warn-mode), and an `ADOPTION.md` report whose checklist carries every judgment call. Idempotent. |
 | `docsys lint [--root docs] [--json]` | Full tree validation: frontmatter, ids, links, journal discipline, templates, list grammars. Errors exit 1, warnings don't. |
 | `docsys init [--root docs]` | Greenfield skeleton: `.docmeta.yml`, router, journal, debt. |
 | `docsys migrate inventory / apply` | Brownfield adoption: evidence-rich plan → approved mapping → mechanical move with link rewriting on both sides of the docs boundary. |
@@ -191,14 +192,14 @@ docsys lint --root docs      # WARN R-050 (frontmatter) + WARN R-034 (orphan)
 ### 2 · The agent layer (where it becomes a system)
 
 ```sh
-docsys agents                          # 4 warn-only hooks + /doc-sync + skill → .claude/
-docsys rules --agents-md >> AGENTS.md  # the always-loaded block (~33 lines)
+docsys adopt                           # assets + settings.json + AGENTS.md block + git gate + report
 docsys rules --procedures | less       # the 15 authored decision procedures
 ```
 
-Merge the printed hook snippet into `.claude/settings.json` by hand (it is a
-protected file — the tool deliberately never writes it). Then open an agent
-session in that directory and try the loop:
+`adopt` writes `.claude/settings.json` only when the file does not exist — an
+existing one may carry MCP servers and permission lists, so the merge snippet
+lands on the `ADOPTION.md` checklist instead of being clobbered. Then open an
+agent session in that directory and try the loop:
 
 - open with something ambiguous ("let's look at the timer") → the
   session-intent hook asks for the work type, once

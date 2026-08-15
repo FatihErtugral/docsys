@@ -12,6 +12,7 @@ Usage:
   docsys refs    --repo <dir> [--root <dir>] [--json]
   docsys rules   --agents-md | --procedures [--max-lines <n>] [--write <file>]
   docsys agents  --report [--dir .claude]    # existing layer + its shell calls
+  docsys adopt   [--repo .] [--root docs] [--lang <code>]  # one-command adoption
   docsys agents  [--dir .claude] [--force]   # install hooks + skill + /doc-sync
   docsys graduate plan <work-file>  [--root <dir>]
   docsys graduate apply --plan <file> [--root <dir>] [--force]
@@ -126,6 +127,23 @@ fn main() -> ExitCode {
             ExitCode::SUCCESS
         }
         ("lint", None) => run_lint(&opts),
+        ("adopt", None) => {
+            let repo = opts.repo.clone().unwrap_or_else(|| PathBuf::from("."));
+            let root = if opts.root.is_absolute() { opts.root.clone() } else { repo.join(&opts.root) };
+            match docsys::adopt::run(&repo, &root, &opts.lang) {
+                Ok(done) => {
+                    for s in &done.summary {
+                        println!("{s}");
+                    }
+                    println!("\nreport + judgment checklist: {}", done.report_path);
+                    ExitCode::SUCCESS
+                }
+                Err(e) => {
+                    eprintln!("adopt: {e}");
+                    ExitCode::from(2)
+                }
+            }
+        }
         ("rules", None) => {
             if opts.procedures {
                 match docsys::rules::procedures() {
@@ -233,6 +251,8 @@ fn main() -> ExitCode {
                 println!("{}", docsys::agents::SETTINGS_SNIPPET);
                 println!("-- and add the generated block to AGENTS.md: --");
                 println!("   docsys rules --agents-md >> AGENTS.md   # review the diff first");
+                println!("\ntip: `docsys adopt` does all of this in one pass — assets,");
+                println!("settings.json (when absent), AGENTS.md block, git gate, report.");
                 ExitCode::SUCCESS
             }
             Err(e) => {
@@ -245,10 +265,18 @@ fn main() -> ExitCode {
                 eprintln!("refs needs --repo <dir>");
                 return ExitCode::from(2);
             };
-            let tree = match docsys::tree::DocTree::load(&opts.root) {
+            // The root must be anchored to the repo: a bare `docs` next to a
+            // walk that yields `./docs/...` fails the inside-the-tree prefix
+            // test and the docs tree gets scanned as if it were code.
+            let root = if opts.root.is_absolute() {
+                opts.root.clone()
+            } else {
+                repo.join(&opts.root)
+            };
+            let tree = match docsys::tree::DocTree::load(&root) {
                 Ok(t) if t.docmeta_present => t,
                 Ok(_) => {
-                    eprintln!("refs: `{}` has no .docmeta.yml", opts.root.display());
+                    eprintln!("refs: `{}` has no .docmeta.yml", root.display());
                     return ExitCode::from(2);
                 }
                 Err(e) => {

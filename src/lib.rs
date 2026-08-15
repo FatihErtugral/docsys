@@ -2,6 +2,7 @@
 //! v0 scope: `lint` over the `project` profile. Every implementation-defined
 //! choice is registered in corpus/DECISIONS.md (R-193).
 
+pub mod adopt;
 pub mod checks;
 pub mod migrate;
 pub mod refs;
