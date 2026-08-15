@@ -12,9 +12,9 @@ rules below is conformant.
 
 The reference implementation is `docsys`, a single static binary.
 
-> **0.1 was never released.** It was audited by four independent models before
-> publication and revised into this version. No migration path from 0.1 is
-> provided or needed. See §18 for what changed and why.
+> **No version before 0.4 was released.** The text was audited by up to six
+> independent models across six adversarial rounds and revised each time; the
+> full history, with reasons, is the version-control log (§18).
 
 ---
 
@@ -118,10 +118,11 @@ specification MUST NOT leave a rule unmarked whose violation is silently wrong.
 **R-018** `ci` · MUST — Every guarantee tagged `cmd` whose violation leaves an
 observable trace in the tree or its version-control history MUST have a `lint`
 backstop that detects the same violation when it is produced by hand instead of
-by the command. A `cmd` rule that constrains only how a command behaves —
-atomicity (R-097), plan-before-apply (R-176) — leaves no tree state a backstop
-could inspect; such rules are verified by conformance tests (R-010, R-190)
-instead.
+by the command. Two classes are verified by conformance tests (R-010, R-190)
+instead: rules that constrain only how a command behaves — atomicity (R-097),
+plan-before-apply (R-176) — and rules whose trace exists but is not mechanically
+decidable, such as R-097's duplicate-content clause, where sameness is judgment
+(R-092) and the backstop is the audit's duplicate check.
 
 > Rationale: `cmd` describes what a tool does, not what a tree looks like. A
 > human who deletes a page with `git rm` bypasses tombstone creation; a team that
@@ -408,7 +409,8 @@ the only record of the answer.
 
 **R-044** `lint` · MUST — The following names are reserved and excluded from
 orphan and type checks: `_archive/`, `_templates/`, `_unsorted/`,
-`.federation/`. Files under `.federation/` are additionally subject to R-149.
+`.federation/`. Files under `.federation/` are governed by §13 when federation
+is active, and do not exist otherwise.
 Files under `_archive/` are additionally excluded from resolution checks
 (R-059, R-071, R-076): an archived page is a record, not a live claim, and its
 references describe the tree as it was — erroring on them forever as their
@@ -461,13 +463,13 @@ verifies:                # optional — freshness pin (§11)
 ```
 
 **R-050** `lint` · MUST — A permanent page MUST carry `id`, `type`, and
-`updated`.
+`updated`. Router files (`index.md`) and `README.md` are exempt; router lines
+follow R-035.
 
-**R-051** `lint` · MUST — `owner` MUST be present on any page exported to other
-namespaces. An unowned shared contract is an error.
-
-> Rationale: in field use, a wire protocol between two components went
-> undocumented for months because neither side considered itself the owner.
+**R-051** WITHDRAWN — absorbed by R-133 (EXPERIMENTAL): `owner` is a field of
+the export manifest, and "exported" has no meaning outside federation, so the
+requirement is checked where it is checkable — at export. The field lesson
+behind it (a wire protocol nobody owned) stays in R-133's territory.
 
 **R-052** `cmd` · MUST — `updated` MUST be maintained by tooling. Filesystem
 timestamps are never used; a fresh clone resets them. R-106 backstops the hand
@@ -478,8 +480,9 @@ whose `updated` is older than its last content change in history **is
 reported**. This is the R-018 backstop for R-052: an edit made without the
 tooling leaves exactly this trace.
 
-**R-053** `lint` · MAY — Router files (`index.md`) and `README.md` are exempt
-from frontmatter. Router lines follow R-035.
+**R-053** WITHDRAWN — folded into R-050. An exemption is not an optional
+capability, and at `MAY` level R-010 let an implementation decline to test it
+and then demand frontmatter on `index.md`.
 
 **R-057** `lint` · MUST — `title` defaults to the text of the page's first
 heading; `summary` defaults to its first paragraph, truncated at the first
@@ -581,9 +584,10 @@ some cached reference still trusts.
 
 **R-066** `cmd` · MUST — Removing an identifier creates a tombstone in the
 **tombstone ledger** at `.tombstones.yml` in the documentation root, maintained
-only by tooling. Each entry records the identifier, the withdrawal date, whether
-the page was marked `internal: true` (R-135), and optionally `superseded_by`. A
-tombstoned identifier resolves to an explanatory error, never to "not found".
+only by tooling. Each entry records the identifier, the withdrawal date, and
+optionally `superseded_by`. (Federation adds an internality marking to ledger
+entries — that is R-135's business, §13, not the core ledger's.) A tombstoned
+identifier resolves to an explanatory error, never to "not found".
 
 The ledger exists because a deleted page cannot supply its own tombstone, and
 because the guarantee that a retired identifier is never reused (R-065) must hold
@@ -641,9 +645,9 @@ copy — and **is reported**: the live link is evidence of remaining interest, s
 archiving never breaks a build; it surfaces the pages that still cared. A
 target that exists nowhere is dangling, and a dangling target **is an error**:
 a dangling wiki-link, a dangling `doc:` reference (R-076) and a dangling
-foreign reference (R-139) are one failure class — the reference an agent cannot
-resolve and answers anyway — and silently wrong is exactly R-151's criterion,
-so all three carry the same severity. One
+foreign reference (under federation: R-139, §13) are one failure class — the
+reference an agent cannot resolve and answers anyway — and silently wrong is
+exactly R-151's criterion, so all carry the same severity. One
 dangling reference yields **one finding** per referencing file and target
 (R-158's identity), carrying every applicable rule number — never three
 diagnostics for one break — and each finding names its referencing file, which
@@ -660,13 +664,15 @@ by path:
 ```
 
 **R-073** `lint` · MUST — The token following `doc:` is read up to the first
-whitespace, then stripped of trailing punctuation (`.`, `,`, `;`, `:`, `)`) —
-a reference at the end of a sentence is still a reference.
+whitespace, then stripped of trailing punctuation (`.` `,` `;` `:` `)` `]` `"`
+`'` `?` `!`) — a reference at the end of a sentence is still a reference.
 
-**R-076** `lint` · MUST — Both local and foreign references MUST resolve. A local
-`doc: <local-id>` that matches no `id`, no alias, and no `defines:` family is an
-error. In 0.1 only foreign references were required to resolve, so a typo in a
-local reference was invisible.
+**R-076** `lint` · MUST — A local `doc: <local-id>` that matches no `id`, no
+alias, and no `defines:` family **is an error** — in 0.1 local references were
+not required to resolve, so a typo was invisible. Foreign references resolve
+under federation (§13, R-139); in a tree with no federation state a foreign
+reference **is reported** as unresolvable here, never silently accepted and
+never a core error — the core cannot check what only a manifest knows.
 
 **R-079** `lint` · MUST — A `doc:` reference resolved through a `defines:`
 family MUST name a member that exists: the cited identifier occurs on the
@@ -705,8 +711,8 @@ NOT restrict scanning to a hardcoded set of file extensions.
 > under-reports `consumes`, and the provider then deletes a contract that is in
 > use.
 
-**R-078** `lint` · MUST — A scan MUST report the number of files inspected. Zero
-inspected files fails under R-011.
+**R-078** WITHDRAWN — absorbed by R-011, which already requires every check to
+report its inspected count and owns the zero-count semantics.
 
 ---
 
@@ -746,8 +752,12 @@ Transitions follow this table, and a transition not listed **is reported**:
 > exists for. Status is reversible and visible, so these are reported rather than
 > blocked (R-151).
 
-**R-081** `agent` · MUST — `done` is set only on explicit human confirmation.
-Passing tests or a green build means `active`.
+**R-081** `agent` · MUST — `done` and the file-level transition to `graduated`
+are set only on explicit human confirmation, recorded as `confirmed:` in the
+file's frontmatter (§5.2). Passing tests or a green build means `active`. The
+lint half: a file at `done` or `graduated` without `confirmed:` **is reported**
+— the record is what lets a later audit distinguish a confirmed transition from
+an agent's guess, the same reason R-028 exists for verification.
 
 **R-082** `lint` · MUST — `graduated` is terminal, and a graduated file receives
 no further **content change** (§2.4). Where version-control history is available,
@@ -759,10 +769,9 @@ context.
 without a reason. R-055 checks the resulting file; this rule prevents the
 transition from happening without one.
 
-**R-084** `advisory` · SHOULD — Abandonment has two forms and they differ in
-value. Work abandoned as unnecessary is archived. Work abandoned *after being
-tried* carries expensive knowledge and SHOULD graduate to `explanation/` as a
-rejected alternative.
+**R-084** WITHDRAWN — absorbed by R-093, whose table already routes `abandoned`
+work to `explanation/` as a rejected alternative and whose archive gate decides
+the tried-versus-unnecessary split.
 
 **R-085** `lint` · SHOULD — A file whose last content change in version-control
 history is older than `stale_active_days` (default 90) while `status: active`
@@ -898,12 +907,13 @@ separator and a title. The separator is `-`, `--` or an em dash; requiring a
 character most keyboards cannot produce would put R-120's ASCII principle and
 this rule in conflict for no benefit.
 
-**R-101** `lint` · SHOULD — An entry is 2–5 lines: what triggered it, what
-changed, which gate passed, which page holds the permanent content. An entry
-whose body exceeds **5 source lines is reported** — the check matches the rule,
-because a checker looser than its rule text is what R-012 forbids, and the
-3,800-line journal in R-102's rationale was reachable one tolerated entry at a
-time. Lines are counted in the source file, not as rendered.
+**R-101** `lint` · SHOULD — An entry is **at most 5 source lines**: what
+triggered it, what changed, which gate passed, which page holds the permanent
+content. An entry exceeding 5 lines **is reported** — the check matches the rule
+exactly, because a checker looser than its rule text is what R-012 forbids, and
+the 3,800-line journal in R-102's rationale was reachable one tolerated entry at
+a time. There is no lower bound: a one-line entry is a fine entry. Lines are
+counted in the source file, not as rendered.
 
 **R-102** `agent` · MUST NOT — Measurements, tables, algorithms, API lists,
 register maps, and rejected alternatives MUST NOT be written to the journal. They
@@ -980,21 +990,24 @@ when a symbol is ambiguous or unresolvable.
 names, frontmatter field names, `id` values, `status` values, link syntax, and
 tracked-work template section headings (R-048). This is checked as a
 character-class and enumeration constraint, not as a language determination.
+(Structural tokens should also *read* as English — but no check can determine
+the language of `masa`, so that stays guidance inside this note, not a rule.)
 
-**R-125** `advisory` · SHOULD — Structural tokens SHOULD read as English. No
-check can determine the language of `masa`, so this is guidance, not a gate.
+**R-125** WITHDRAWN — folded into R-120 as the note above; an unverifiable
+SHOULD was consuming a rule number and a coverage slot.
 
 **R-121** `agent` · MAY — Content language is free and declared as
 `default_content_language` in `.docmeta.yml`. A page may override it with
 `lang:`.
 
 **R-122** `agent` · MUST — When editing an existing page, its language is
-preserved. A page has one prose language; code identifiers, protocol names,
-product names, and quotations retain their original form and do not count as
-mixing (R-123).
+preserved. A page has one prose language; the terms R-123 protects retain their
+original form and do not count as mixing.
 
-**R-123** `agent` · MUST NOT — Code identifiers, protocol names, library names,
-and quotations are never translated.
+**R-123** `agent` · MUST NOT — Code identifiers, protocol names, library and
+product names, and quotations are never translated. This list is the single
+definition; R-122 and P/R-123 cite it rather than restating it — two lists
+drifted apart once already.
 
 **R-124** WITHDRAWN — subsumed by R-172, which forbids migrations from altering
 prose at all.
@@ -1328,10 +1341,10 @@ style preference.
 ### 14.3 The authored procedures
 
 This is the normative content R-163 renders — one procedure per `agent`-tagged
-rule, indented so none parses as a rule declaration. Escapes name the `project`
-profile's files; in the `knowledge-base` profile the escape target is a note in
-`raw/inbox/` — the profile's capture surface — wherever a procedure says
-`questions.md` or "the journal".
+rule, indented so none parses as a rule declaration. Procedures name the
+`project` profile's surfaces; in the `knowledge-base` profile, read
+`questions.md` and "the journal" as a note in `raw/inbox/` — the profile's
+capture surface — and read the type directories as `wiki/<domain>/<type>/`.
 
     P/R-031 — choose the type of a permanent page
     EVIDENCE : the content being placed; the four-question table (§4.1)
@@ -1370,8 +1383,9 @@ profile's files; in the `knowledge-base` profile the escape target is a note in
 
     P/R-033 — decide whether documentation repeats the code
     EVIDENCE : the content; the code region it describes
-    QUESTION : does the code itself state this (signature, parameter list,
-               literal value)?
+    QUESTION : does the code itself state this (signature, parameter list)?
+               A measured value or an operating limit is NOT stated by code —
+               reference/ exists precisely for those (R-031's "which value")
     OPTIONS  : yes → do not write it; the code owns it
                no  → write it; it is what the code cannot say
     DEFAULT  : do not write it — a duplicate becomes a trusted lie when the
@@ -1400,7 +1414,9 @@ profile's files; in the `knowledge-base` profile the escape target is a note in
     NEVER    : force it because it has waited long enough
 
     P/R-074 — a path appears in documentation
-    EVIDENCE : the surrounding text; is it inside a fence or quotation?
+    EVIDENCE : the surrounding text; is it inside a fence or quotation? A
+               path inside a `verifies:` block is an audit binding (§11),
+               exempt by R-074's own text — not this procedure's business
     QUESTION : is the path a pointer the reader should follow, or quoted
                material (trace, log, example)?
     OPTIONS  : pointer → replace with an embedded snippet + why-comment
@@ -1412,12 +1428,13 @@ profile's files; in the `knowledge-base` profile the escape target is a note in
     VERIFY   : R-075 lint on paths outside fences
     NEVER    : rewrite quoted evidence — a trace is a record, not prose
 
-    P/R-081 — set done
-    EVIDENCE : the human's words in this session
-    QUESTION : did a human explicitly confirm completion, in words?
-    OPTIONS  : yes → done, recording `confirmed: <who>, <date>` in the
-               file's frontmatter (the field §5.2 defines for this)
-               no  → stays active
+    P/R-081 — set done, or graduate the file
+    EVIDENCE : the human's words in this session; which transition is asked
+    QUESTION : did a human explicitly confirm THIS transition, in words?
+    OPTIONS  : yes, done       → done + `confirmed: <who>, <date>` (§5.2)
+               yes, graduated  → graduated + `confirmed:` updated — done was
+               one confirmation, leaving context forever is another (R-091)
+               no → status unchanged
     DEFAULT  : active
     ESCAPE   : ambiguous ("looks fine"?) → ask once; no answer → active
     VERIFY   : R-080 transition table; audit reads `confirmed:` records
@@ -1494,9 +1511,9 @@ profile's files; in the `knowledge-base` profile the escape target is a note in
     NEVER    : mix languages within one page
 
     P/R-123 — a term that might be translated
-    EVIDENCE : the term — code identifier, protocol name, library name,
-               quotation? (R-123's list, verbatim)
-    QUESTION : is it one of those four?
+    EVIDENCE : the term, against R-123's list: code identifier, protocol
+               name, library or product name, quotation
+    QUESTION : is it on R-123's list?
     OPTIONS  : yes → keep the original form · no → translate freely
     DEFAULT  : keep the original form
     ESCAPE   : unsure whether it is a proper name → keep the original
@@ -1508,7 +1525,7 @@ profile's files; in the `knowledge-base` profile the escape target is a note in
 ## 15. `.docmeta.yml`
 
 ```yaml
-spec: docsys/0.3                 # required
+spec: docsys/0.4                 # required
 profile: project                 # required — project | knowledge-base
 default_content_language: en     # required
 created: 2026-08-15              # optional
