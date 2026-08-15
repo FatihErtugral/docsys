@@ -403,9 +403,17 @@ pub fn build_index(tree: &DocTree) -> ResolutionIndex {
             continue;
         }
         if let Some(fm) = &page.fm {
-            if let Some(fam) = fm.fields.get("defines").and_then(Value::as_str) {
+            // `provides:` is the pre-0.2 spelling of the same page-level
+            // declaration (renamed to avoid colliding with the manifest field);
+            // the founding field trees still carry it, so both are read.
+            let fam = fm
+                .fields
+                .get("defines")
+                .or_else(|| fm.fields.get("provides"))
+                .and_then(Value::as_str);
+            if let Some(fam) = fam {
                 if let Some(prefix) = fam.strip_suffix('*') {
-                    families.push((prefix.to_string(), page.text.clone()));
+                    families.push((prefix.trim().to_string(), page.text.clone()));
                 }
             }
         }
@@ -454,14 +462,25 @@ pub fn resolve_doc_token(idx: &ResolutionIndex, token: &str) -> Result<(), DocRe
     if token.starts_with('@') {
         return Err(DocRefFail::Foreign);
     }
+    // A declared family carries its own case (R-063): match the pattern first,
+    // then require the member to occur on the defining page (R-079). A prefix
+    // hit with a missing member is a dangling reference, not bad grammar.
+    let mut family_prefix_hit = false;
+    for (prefix, body) in &idx.families {
+        if token.starts_with(prefix.as_str()) {
+            family_prefix_hit = true;
+            if occurs_as_token(body, token) {
+                return Ok(());
+            }
+        }
+    }
+    if family_prefix_hit {
+        return Err(DocRefFail::Dangling);
+    }
     if !is_local_id(token) {
         return Err(DocRefFail::BadGrammar);
     }
-    let family_hit = idx
-        .families
-        .iter()
-        .any(|(prefix, body)| token.starts_with(prefix.as_str()) && occurs_as_token(body, token));
-    if idx.ids.contains(token) || family_hit || idx.tombstones.iter().any(|t| t == token) {
+    if idx.ids.contains(token) || idx.tombstones.iter().any(|t| t == token) {
         Ok(())
     } else {
         Err(DocRefFail::Dangling)

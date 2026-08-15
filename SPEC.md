@@ -554,11 +554,16 @@ cosmetic.** An `id` MUST NOT change when a file is renamed, moved, or translated
 > broke every reference, silently — no compiler, test, or reviewer saw it.
 
 **R-063** `lint` · MAY — A page MAY declare `defines:` with a glob to register
-itself as the definition site of an identifier family, for example `adr-*`. The
-glob is matched against `local-id` values and therefore uses the same lowercase
-grammar as R-060. Its purpose is family resolution: it matches the identifiers
-by which members are *cited* (R-076), and R-079 checks that a cited member
-actually exists on the defining page.
+itself as the definition site of an identifier family, for example `ADR-*`. A
+family pattern carries **its own case**: `family-prefix ::= [A-Za-z0-9]+ ("-"
+[A-Za-z0-9]+)* "-"` followed by `*`, matched case-sensitively. Family members
+are not page ids — R-060's lowercase grammar governs ids, the declared pattern
+governs its members — so the founding field convention (`ADR-mem-budget`,
+`K-036`, entrenched across hundreds of code references) is legal by
+declaration, while undeclared uppercase tokens remain grammar findings. Its
+purpose is family resolution: it matches the identifiers by which members are
+*cited* (R-076), and R-079 checks that a cited member actually exists on the
+defining page.
 
 > `defines:` is authored. It is not the manifest field `provides` (R-131), which
 > is derived. In 0.1 both were called `provides`, which four reviewers read as a
