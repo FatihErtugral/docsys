@@ -1,6 +1,6 @@
 # docsys
 
-[![ci](https://github.com/FatihErtugral/docsys/actions/workflows/ci.yml/badge.svg)](https://github.com/FatihErtugral/docsys/actions/workflows/ci.yml)
+[![ci](https://github.com/FatihErtugral/docsys/actions/workflows/ci.yml/badge.svg)](https://github.com/FatihErtugral/docsys/actions/workflows/ci.yml) [![crates.io](https://img.shields.io/crates/v/docsys.svg)](https://crates.io/crates/docsys)
 
 **A documentation system that agents and humans keep honest — mechanically.**
 
@@ -167,9 +167,14 @@ the mapping, the tool copies the bytes.
 ## Quick start
 
 ```sh
-cargo install --path .    # zero dependencies → one static binary on your PATH
+cargo install docsys      # zero dependencies → one static binary on your PATH
 docsys help
 ```
+
+No Rust toolchain? Grab a prebuilt binary for Linux (static musl,
+x86_64/aarch64), macOS (Intel/Apple Silicon), or Windows from the
+[releases page](https://github.com/FatihErtugral/docsys/releases) and put it
+on your PATH.
 
 ### 1 · Feel it on a clean project (5 minutes)
 
