@@ -101,7 +101,7 @@ pub fn blocks_with(text: &str, template_headings: &[String]) -> Vec<Block> {
         i = (i + 1).min(lines.len());
     }
     let mut out = Vec::new();
-    let mut cursor = i;
+    let cursor = i;
     let body_of = |a: usize, b: usize| -> String {
         lines.get(a..b).unwrap_or(&[]).join("\n")
     };
@@ -126,14 +126,13 @@ pub fn blocks_with(text: &str, template_headings: &[String]) -> Vec<Block> {
             checksum: fnv(body.as_bytes()),
         });
     }
-    cursor = first_heading;
-    while cursor < lines.len() {
-        let Some(line) = lines.get(cursor) else { break };
-        let Some(level) = heading_level(line) else {
-            cursor += 1;
-            continue;
-        };
-        let mut end = cursor + 1;
+    // Every heading's section is a block (R-098) — nested sections included,
+    // so a `##` inside a page-title `#` is addressable on its own. Overlapping
+    // selections are rejected at apply time.
+    for j in first_heading..lines.len() {
+        let Some(line) = lines.get(j) else { continue };
+        let Some(level) = heading_level(line) else { continue };
+        let mut end = j + 1;
         while end < lines.len() {
             if let Some(l) = lines.get(end) {
                 if heading_level(l).is_some_and(|n| n <= level) {
@@ -143,18 +142,17 @@ pub fn blocks_with(text: &str, template_headings: &[String]) -> Vec<Block> {
             end += 1;
         }
         let keep = template_headings.iter().any(|h| h == line.trim_end());
-        let body_start = if keep { cursor + 1 } else { cursor };
+        let body_start = if keep { j + 1 } else { j };
         let body = body_of(body_start, end);
         out.push(Block {
             index: out.len(),
-            start: cursor,
+            start: j,
             body_start,
             end,
             keep_heading: keep,
             snippet: line.trim().to_string(),
             checksum: fnv(body.as_bytes()),
         });
-        cursor = end;
     }
     out
 }
@@ -343,6 +341,27 @@ pub fn apply(root: &Path, plan_text: &str, force: bool) -> Result<Outcome, Strin
                             "block {idx} changed since the plan was written — re-plan (D-024)"
                         ));
                     }
+                }
+            }
+        }
+    }
+
+    // Overlapping selections (a parent section and its child both acted on)
+    // are a conflict, not a merge (R-098 nested enumeration).
+    {
+        let mut chosen: Vec<(usize, usize)> = actions
+            .iter()
+            .filter(|(_, a)| !matches!(a, Action::Keep))
+            .filter_map(|(i, _)| bs.get(*i).map(|b| (b.body_start, b.end)))
+            .collect();
+        chosen.sort_unstable();
+        for w in chosen.windows(2) {
+            if let [a, b] = w {
+                if b.0 < a.1 {
+                    return Err(
+                        "plan selects overlapping blocks (a section and its subsection) — pick one"
+                            .to_string(),
+                    );
                 }
             }
         }

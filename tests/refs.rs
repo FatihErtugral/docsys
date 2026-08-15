@@ -79,3 +79,24 @@ fn agents_md_managed_block_is_idempotent_and_preserves_owner_prose() {
     assert_eq!(twice.matches("docsys:rules:begin").count(), 1, "one block, updated in place");
     let _ = fs::remove_dir_all(&dir);
 }
+
+#[test]
+fn stray_docs_page_outside_tree_is_reported() {
+    let repo = tmp("stray");
+    let docs = repo.join("docs");
+    fs::create_dir_all(&docs).unwrap();
+    fs::write(docs.join(".docmeta.yml"), "spec: docsys/0.4\nprofile: project\ndefault_content_language: en\n").unwrap();
+    fs::create_dir_all(repo.join("components/ui")).unwrap();
+    fs::write(
+        repo.join("components/ui/README.md"),
+        "---\nid: ui-guide\ntype: howto\nupdated: 2026-08-15\n---\nA page pretending outside the tree.\n",
+    )
+    .unwrap();
+    let tree = DocTree::load(&docs).unwrap();
+    let report = refs::run(&repo, &tree);
+    assert!(
+        report.findings.iter().any(|f| f.subject == "stray" && f.file == "components/ui/README.md"),
+        "{:?}", report.findings
+    );
+    let _ = fs::remove_dir_all(&repo);
+}

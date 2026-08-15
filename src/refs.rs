@@ -74,6 +74,34 @@ pub fn run(repo: &Path, tree: &DocTree) -> Report {
         }
     }
 
+    // Stray docs page: a markdown file OUTSIDE the docs tree carrying an
+    // `id:` frontmatter claim — it looks like a page, but no check governs it
+    // (behavior carried over from the founding estate's check_stray_docs).
+    for file in repo_text_files(repo, &tree.root) {
+        let frel = file
+            .strip_prefix(repo)
+            .unwrap_or(&file)
+            .to_string_lossy()
+            .replace('\\', "/");
+        if !frel.ends_with(".md")
+            || excludes.iter().any(|p| frel.starts_with(p.trim_end_matches('/')))
+        {
+            continue;
+        }
+        let Ok(text) = fs::read_to_string(&file) else { continue };
+        if let Some(fm) = crate::fm::parse(&text) {
+            if fm.fields.contains_key("id") {
+                r.findings.push(Finding::warn(
+                    RuleId("R-020"),
+                    &frel,
+                    "stray",
+                    "markdown page with an `id:` living outside the docs tree —                      no check governs it there; move it in, or drop the identity claim"
+                        .to_string(),
+                ));
+            }
+        }
+    }
+
     r.inspected.insert("code-files", files_scanned);
     r.inspected.insert("code-doc-refs", tokens);
     r.findings.sort();
