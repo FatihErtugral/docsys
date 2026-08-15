@@ -18,6 +18,7 @@ struct Opts {
     json: bool,
     lang: String,
     plan: Option<PathBuf>,
+    repo: Option<PathBuf>,
 }
 
 fn parse_opts(args: &[String]) -> Result<Opts, String> {
@@ -26,6 +27,7 @@ fn parse_opts(args: &[String]) -> Result<Opts, String> {
         json: false,
         lang: "en".to_string(),
         plan: None,
+        repo: None,
     };
     let mut it = args.iter();
     while let Some(a) = it.next() {
@@ -33,6 +35,7 @@ fn parse_opts(args: &[String]) -> Result<Opts, String> {
             "--root" => o.root = PathBuf::from(it.next().ok_or("--root needs a value")?),
             "--lang" => o.lang = it.next().ok_or("--lang needs a value")?.clone(),
             "--plan" => o.plan = Some(PathBuf::from(it.next().ok_or("--plan needs a value")?)),
+            "--repo" => o.repo = Some(PathBuf::from(it.next().ok_or("--repo needs a value")?)),
             "--json" => o.json = true,
             other => return Err(format!("unknown argument `{other}`")),
         }
@@ -97,6 +100,12 @@ fn main() -> ExitCode {
         ("migrate", Some("inventory")) => match migrate::inventory(&opts.root) {
             Ok(plan) => {
                 print!("{plan}");
+                if let Some(repo) = &opts.repo {
+                    println!("# -- inbound references from the repo (will need rewriting) --");
+                    for (file, hits) in migrate::inbound_report(repo, &opts.root) {
+                        println!("# inbound: {file} · {hits} reference(s)");
+                    }
+                }
                 ExitCode::SUCCESS
             }
             Err(e) => {
@@ -116,15 +125,26 @@ fn main() -> ExitCode {
                     return ExitCode::from(2);
                 }
             };
-            match migrate::apply(&opts.root, &plan, &opts.lang) {
+            match migrate::apply(&opts.root, &plan, &opts.lang, opts.repo.as_deref()) {
                 Ok(done) => {
                     println!(
                         "moved {} · kept {} · archived {} · links rewritten {}",
                         done.moved, done.kept, done.archived, done.links_rewritten
                     );
+                    for (file, n) in &done.repo_rewrites {
+                        println!("repo rewrite: {file} · {n} reference(s)");
+                    }
+                    for risk in &done.repo_risks {
+                        println!("RISK unmapped inbound: {risk}");
+                    }
                     println!("-- running lint on the migrated tree --");
-                    run_lint(&Opts { json: false, ..Opts {
-                        root: opts.root.clone(), json: false, lang: opts.lang.clone(), plan: None } })
+                    run_lint(&Opts {
+                        root: opts.root.clone(),
+                        json: false,
+                        lang: opts.lang.clone(),
+                        plan: None,
+                        repo: None,
+                    })
                 }
                 Err(e) => {
                     eprintln!("apply: {e}");

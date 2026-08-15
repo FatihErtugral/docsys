@@ -252,12 +252,21 @@ pub struct ApplyOutcome {
     pub kept: usize,
     pub archived: usize,
     pub links_rewritten: usize,
+    /// (file, rewrites) for inbound path references fixed across the repo.
+    pub repo_rewrites: Vec<(String, usize)>,
+    /// Inbound references the rewrite could not map (judgment needed).
+    pub repo_risks: Vec<String>,
 }
 
 /// Apply a filled plan: move files, write frontmatter, rewrite relative links
 /// among the moved set, generate `.docmeta.yml` and a router. Content bodies
 /// are never touched beyond the link-target rewrite (R-172's boundary).
-pub fn apply(root: &Path, plan_text: &str, lang: &str) -> Result<ApplyOutcome, String> {
+pub fn apply(
+    root: &Path,
+    plan_text: &str,
+    lang: &str,
+    repo: Option<&Path>,
+) -> Result<ApplyOutcome, String> {
     let mut mapping: Vec<(String, String)> = Vec::new(); // old rel → target kind
     for (i, line) in plan_text.lines().enumerate() {
         let line = line.trim();
@@ -290,7 +299,14 @@ pub fn apply(root: &Path, plan_text: &str, lang: &str) -> Result<ApplyOutcome, S
     }
 
     let date = today();
-    let mut out = ApplyOutcome { moved: 0, kept: 0, archived: 0, links_rewritten: 0 };
+    let mut out = ApplyOutcome {
+        moved: 0,
+        kept: 0,
+        archived: 0,
+        links_rewritten: 0,
+        repo_rewrites: Vec::new(),
+        repo_risks: Vec::new(),
+    };
     let mut router_entries: Vec<(String, String, String)> = Vec::new(); // path-noext, title, sentence
 
     for (old, target) in &mapping {
@@ -416,6 +432,10 @@ pub fn apply(root: &Path, plan_text: &str, lang: &str) -> Result<ApplyOutcome, S
         fs::write(&debt, "# Debt\n").map_err(|e| e.to_string())?;
     }
 
+    if let Some(repo_root) = repo {
+        rewrite_repo_references(repo_root, root, &new_rel, &mut out);
+    }
+
     Ok(out)
 }
 
@@ -441,6 +461,110 @@ pub fn init(root: &Path, lang: &str) -> Result<(), String> {
     Ok(())
 }
 
+const REPO_SKIP_DIRS: [&str; 6] = [".git", "node_modules", "target", "build", "dist", ".venv"];
+
+fn repo_text_files(repo: &Path, docs_root: &Path) -> Vec<PathBuf> {
+    fn walk(dir: &Path, docs_root: &Path, out: &mut Vec<PathBuf>) {
+        let Ok(entries) = fs::read_dir(dir) else { return };
+        let mut paths: Vec<PathBuf> = entries.filter_map(|e| e.ok().map(|e| e.path())).collect();
+        paths.sort();
+        for p in paths {
+            let name = p.file_name().and_then(|n| n.to_str()).unwrap_or("");
+            if p.is_dir() {
+                if REPO_SKIP_DIRS.contains(&name) || p == docs_root {
+                    continue;
+                }
+                walk(&p, docs_root, out);
+            } else if fs::metadata(&p).map(|m| m.len() <= 2_000_000).unwrap_or(false) {
+                out.push(p);
+            }
+        }
+    }
+    let mut out = Vec::new();
+    walk(repo, docs_root, &mut out);
+    out
+}
+
+/// Inbound references from the repo into the docs tree, as inventory evidence
+/// (SPEC setup-migrate Phase A: the links that a move would break).
+pub fn inbound_report(repo: &Path, docs_root: &Path) -> Vec<(String, usize)> {
+    let prefix = rel(docs_root, repo);
+    let needle = format!("{prefix}/");
+    let mut out = Vec::new();
+    for file in repo_text_files(repo, docs_root) {
+        let Ok(text) = fs::read_to_string(&file) else { continue };
+        let hits = text.matches(&needle).count();
+        if hits > 0 {
+            out.push((rel(&file, repo), hits));
+        }
+    }
+    out
+}
+
+/// Rewrite inbound path references after a migration (Phase C: grep the repo
+/// and fix links to moved files). Purely mechanical: exact old→new strings.
+pub fn rewrite_repo_references(
+    repo: &Path,
+    docs_root: &Path,
+    moves: &BTreeMap<String, String>,
+    out: &mut ApplyOutcome,
+) {
+    let prefix = rel(docs_root, repo);
+    for file in repo_text_files(repo, docs_root) {
+        let Ok(text) = fs::read_to_string(&file) else { continue };
+        if !text.contains(&format!("{prefix}/")) {
+            continue;
+        }
+        let mut fresh = text.clone();
+        let mut count = 0usize;
+        for (old, new) in moves {
+            if old == new {
+                continue;
+            }
+            let from = format!("{prefix}/{old}");
+            let to = format!("{prefix}/{new}");
+            let n = fresh.matches(&from).count();
+            if n > 0 {
+                fresh = fresh.replace(&from, &to);
+                count += n;
+            }
+        }
+        let frel = rel(&file, repo);
+        if count > 0
+            && fs::write(&file, &fresh).is_ok() {
+                out.repo_rewrites.push((frel.clone(), count));
+            }
+        // Leftovers: references into the docs tree that map to nothing now —
+        // directory-level links, globs, prose. Judgment, so they are reported.
+        for (i, line) in fresh.lines().enumerate() {
+            if let Some(pos) = line.find(&format!("{prefix}/")) {
+                // A match preceded by `/` or a word character is a segment of
+                // some other path or URL (arm.com/documentation/…), not a
+                // reference into this tree.
+                let preceded = line
+                    .get(..pos)
+                    .and_then(|s| s.chars().last())
+                    .is_some_and(|c| c == '/' || c.is_ascii_alphanumeric());
+                if preceded {
+                    continue;
+                }
+                let tail = line.get(pos..).unwrap_or("");
+                let token: String = tail
+                    .chars()
+                    .take_while(|c| !c.is_whitespace() && !"()[]<>\"'`,".contains(*c) || *c == '.')
+                    .collect();
+                let candidate = token.trim_end_matches('.');
+                let rel_in_docs = candidate.strip_prefix(&format!("{prefix}/")).unwrap_or("");
+                if !rel_in_docs.is_empty() && !docs_root.join(rel_in_docs).exists() {
+                    out.repo_risks.push(format!("{frel}:{}: {candidate}", i + 1));
+                }
+            }
+        }
+    }
+    out.repo_risks.sort();
+    out.repo_risks.dedup();
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -464,3 +588,4 @@ mod tests {
         assert_eq!(relative_link("reference/a.md", "reference/b.md"), "b.md");
     }
 }
+
