@@ -58,6 +58,11 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
+          # Release notes are the tag's section of CHANGELOG.md.
+          ver="${GITHUB_REF_NAME#v}"
+          awk -v ver="$ver" '/^## /{p = index($0, "[" ver "]") > 0} p' CHANGELOG.md > notes.md
+          [ -s notes.md ] || echo "See CHANGELOG.md." > notes.md
           gh release create "$GITHUB_REF_NAME" --title "$GITHUB_REF_NAME" \
-            --notes "See README.md for install and quick start." 2>/dev/null || true
-          gh release upload "$GITHUB_REF_NAME" docsys-*.* --clobber
+            --notes-file notes.md 2>/dev/null || true
+          gh release upload "$GITHUB_REF_NAME" docsys-*.tar.gz* docsys-*.zip* --clobber 2>/dev/null \
+            || gh release upload "$GITHUB_REF_NAME" docsys-* --clobber
