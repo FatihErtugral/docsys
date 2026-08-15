@@ -1,6 +1,6 @@
 # docsys Specification
 
-**Version:** 0.2
+**Version:** 0.3
 **Status:** draft — rule numbers are permanent; rule text may be clarified, not
 redefined, within a minor version
 
@@ -40,8 +40,10 @@ The reference implementation is `docsys`, a single static binary.
 version-controlled tree. No database, no proprietary format.
 
 **R-002** `advisory` · MUST — A fact MUST have exactly one home. A stale copy is
-more dangerous than a missing page, because it is trusted. Derived, read-only,
-hash-pinned materializations are not copies in this sense; see R-138.
+more dangerous than a missing page, because it is trusted. A materialization
+under `.federation/` is exempt: it is derived, read-only, hash-pinned, and
+machine-refreshed. What this rule forbids is an *unchecked* copy that can
+silently lie.
 
 **R-003** `advisory` · MUST — Deterministic checks belong to tooling;
 classification and contradiction belong to a human or a model.
@@ -86,6 +88,39 @@ The level is as defined in RFC 2119.
 
 `advisory` does not mean optional. It means no automated check can decide it.
 
+### 2.2 Severity vocabulary
+
+This specification uses two words for check outcomes, and they map onto the
+escalation criterion in R-151:
+
+| Word in rule text | Behavior | When it is allowed |
+|---|---|---|
+| **is an error** / **fails** | Blocks: nonzero exit, pipeline stops | Only when the outcome is irreversible or silently wrong (R-151) |
+| **is reported** | Warns: named in output, exit unaffected | Everything else |
+
+**R-015** `lint` · MUST — An implementation MUST be able to list which rules it
+treats as blocking, so two implementations can be compared on the behavior teams
+actually experience.
+
+**R-016** `advisory` · MUST — A rule blocks only if it uses a blocking word above
+*and* meets R-151's criterion. Whether a given outcome is irreversible or
+silently wrong is a judgment, which is why this is not a mechanical check; R-015
+makes the resulting choice visible instead.
+
+**R-017** `advisory` · MUST — A rule that states no severity word warns. An
+implementation MUST NOT invent blocking behavior for such a rule, and this
+specification MUST NOT leave a rule unmarked whose violation is silently wrong.
+
+**R-018** `ci` · MUST — Every guarantee tagged `cmd` MUST have a `lint` backstop
+that detects the same violation when it is produced by hand instead of by the
+command.
+
+> Rationale: `cmd` describes what a tool does, not what a tree looks like. A
+> human who deletes a page with `git rm` bypasses tombstone creation; a team that
+> appends to `journal.md` in an editor bypasses rotation. Without a backstop the
+> guarantee holds only for people who were already using the tool correctly —
+> which is the population that did not need it.
+
 Rule numbers are permanent. A withdrawn rule keeps its number and states where
 its content went; numbers are never reused. A withdrawal declaration matches:
 
@@ -95,7 +130,7 @@ its content went; numbers are never reused. A withdrawal declaration matches:
 
 A parser that counts rules counts both forms and reports withdrawals separately.
 
-### 2.2 Coverage requirement
+### 2.3 Coverage requirement
 
 **R-010** `ci` · MUST — Every rule tagged `lint`, `ci`, or `cmd` MUST be covered
 by at least one conformance test, unless the rule's level is `MAY` and the
@@ -146,20 +181,45 @@ profile MUST NOT require the existence of a tree of another profile.
 
 ### 3.1 The knowledge-base profile
 
-**R-023** `lint` · MUST — In the `knowledge-base` profile, `raw/` is append-only.
-An existing file under `raw/` is never modified or deleted; new files enter
-through `raw/inbox/` and are relocated to `raw/<domain>/` once processed.
+**R-023** `lint` · MUST — In the `knowledge-base` profile, `raw/` is
+**content-immutable**, not path-immutable. The bytes of an existing file are
+never changed and no file is deleted, but relocation is permitted and expected:
+new files enter through `raw/inbox/` and move to `raw/<domain>/` once processed.
+Removing a secret or content whose deletion is legally required is not a
+violation.
+
+**R-027** `cmd` · MUST — Relocating a file under `raw/` MUST rewrite every
+`sources:` entry that pointed at the old path. A relocation that severs the
+evidence trail of a `wiki/` page is a silent failure of the kind R-151 forbids.
 
 **R-024** `lint` · MUST — A `wiki/` page carries `verification: unverified` or
 `verification: verified`, and `sources:` listing the `raw/` paths it rests on. A
-new or modified page is always `unverified`.
+page whose **content or `sources:` changed** becomes `unverified`. Changes to the
+verification fields themselves — `verification` and the record required by R-028 —
+are not content changes; without this carve-out the act of recording verification
+would immediately undo it.
 
 **R-025** `agent` · MUST — Only an independent session may set `verified`. The
 session that produced a page never verifies it.
 
+**R-028** `lint` · MUST — Setting `verified` MUST record, in the page's
+frontmatter, who verified it and which source revision was verified. Without
+this record no reviewer can establish whether verification was independent
+(R-025) or whether it predates the current content.
+
 **R-026** `lint` · MUST — `domain` values are declared in `.docmeta.yml`. A page
-whose domain is not declared is an error; content that fits no declared domain
-stays in `raw/inbox/` rather than being forced into the nearest one.
+whose domain is not declared **is reported**; content that fits no declared
+domain stays in `raw/inbox/` rather than being forced into the nearest one.
+
+**R-029** `lint` · MUST — In `wiki/<domain>/<type>/`, the directory's type
+segment MUST match the page's declared `type`. Readers navigate this profile by
+directory; a `type: reference` page sitting under `howto/` misdirects everyone
+who arrives that way.
+
+**R-059** `lint` · MUST — Every `sources:` entry MUST resolve. R-071 covers only
+wiki-links, so without this a manual move or deletion under `raw/` severs a
+verified page's evidence trail with nothing reporting it — including when R-027's
+command path was bypassed entirely.
 
 ---
 
@@ -190,7 +250,9 @@ already states. Signatures and parameter lists are not copied; generated API
 documentation owns those.
 
 **R-034** `lint` · MUST — Every permanent page MUST be reachable from the root
-router (`index.md`). An unreachable page is an orphan and is an error.
+router (`index.md`). An unreachable page is an orphan and **is reported**:
+adding the router line afterwards is routine and reversible, so blocking here
+would be the friction R-150 warns about.
 
 ### 4.2 Flowing layer
 
@@ -209,9 +271,10 @@ work/
 ```
 
 **R-041** `lint` · MUST — Files under `features/`, `postmortems/`, and
-`research/` are *tracked work* and carry `status` (§8). `journal.md`, `debt.md`,
-and `questions.md` are *list files*: they hold many independent items, do not
-track the life of one unit of work, and MUST NOT carry `status`.
+`research/` are *tracked work* and carry `status` (§8). `journal.md`,
+`debt.md`, `questions.md`, and journal archive slices under `journal/` are *list
+files*: they hold many independent items, do not track the life of one unit of
+work, and MUST NOT carry `status`.
 
 **R-042** `lint` · MAY — A tree MAY declare additional tracked-work categories in
 `.docmeta.yml`. They are subject to the `status` rules but have no defined
@@ -227,11 +290,14 @@ directory reads as an obligation and produces filler content.
 orphan and type checks: `_archive/`, `_templates/`, `_unsorted/`,
 `.federation/`. Files under `.federation/` are additionally subject to R-149.
 
-**R-045** `lint` · MUST NOT — A command MUST NOT delete content; obsolete content
-moves to `_archive/`. Where version-control history is available, a check MAY
-report content that disappeared without an archive counterpart. Removing a
-secret, a credential, or content whose deletion is legally required is not a
-violation of this rule.
+**R-045** `agent` · MUST NOT — A command MUST NOT delete authored content;
+obsolete content moves to `_archive/`. Derived content is exempt: refreshing a
+`.federation/` materialization replaces bytes without archiving them, and so does
+regenerating any other derived artifact. Removing a secret, a credential, or
+content whose deletion is legally required is also not a violation. The
+exemptions require judgment, which is why this is not a `lint` rule; where
+version-control history is available a check reports disappeared authored content
+for a human to assess.
 
 **R-046** `agent` · SHOULD — `_unsorted/` is temporary. Content that cannot be
 classified goes there and is reported, never force-fitted into a type.
@@ -305,6 +371,11 @@ graduated_to: [token-ttl]          # required when status: graduated
 **R-056** `lint` · MUST — `status: graduated` MUST carry `graduated_to` with at
 least one identifier that resolves.
 
+**R-058** `lint` · MUST — `epic`, when present, MUST be a `foreign-id` (§6.1) and
+MUST resolve. An unvalidated grouping field is the disease R-162 was written to
+cure: a typo silently detaches the work from its epic and no aggregation ever
+reports it missing.
+
 ---
 
 ## 6. Identifiers
@@ -321,7 +392,9 @@ foreign-id ::= "@" namespace "/" local-id
 digits, and hyphens only, regardless of the page's content language.
 
 **R-061** `lint` · MUST — An `id` MUST be unique within its namespace, counting
-`aliases` and tombstones (§6.2) as occupied.
+`aliases` and tombstones (§6.2) as occupied. A collision **is an error**: two
+pages claiming one identifier make every reference to it ambiguous and make the
+exported hash depend on directory traversal order.
 
 **R-062** `advisory` · MUST — **The identifier is the contract; the filename is
 cosmetic.** An `id` MUST NOT change when a file is renamed, moved, or translated.
@@ -352,14 +425,27 @@ outage.
 identifier means: the new `id` is assigned, and the previous one is added to
 `aliases`. Both resolve; the alias resolves with a deprecation notice.
 
-**R-066** `cmd` · MUST — Removing an exported identifier creates a tombstone: the
-manifest continues to list it with `state: withdrawn`, the date, and optionally
+**R-066** `cmd` · MUST — Removing an identifier creates a tombstone in the
+**tombstone ledger** at `.tombstones.yml` in the documentation root, maintained
+only by tooling. Each entry records the identifier, the withdrawal date, and optionally
 `superseded_by`. A tombstoned identifier resolves to an explanatory error, never
 to "not found".
 
-**R-067** `lint` · MUST — A tombstone MUST be retained for at least the
-deprecation window declared in `.docmeta.yml` (`deprecation_window`, default 180
-days). Removing it earlier is a breaking change to consumers.
+The ledger exists because a deleted page cannot supply its own tombstone, and
+because the guarantee that a retired identifier is never reused (R-065) must hold
+in a single repository with no federation at all — which is the most common
+deployment.
+
+**R-067** `lint` · MUST — A tombstone is **never removed**. The deprecation window
+declared in `.docmeta.yml` (`deprecation_window`, default 180 days) governs how a
+tombstoned identifier *resolves*, not how long the entry lives: inside the window
+it resolves with a deprecation notice and **is reported**; after it, resolution
+**is an error** naming `superseded_by` if present.
+
+> Pruning the ledger would free the identifier for reuse, since the ledger is the
+> only thing that makes R-061 count a retired identifier as occupied. A reused
+> identifier turns every cached reference into a confident lie (R-002) — the one
+> outcome R-065 exists to prevent.
 
 **R-068** `cmd` · MUST — Renaming a namespace follows the same rule: the previous
 namespace is retained as an alias in the manifest for the deprecation window, and
@@ -380,8 +466,8 @@ path from the documentation root: `[[reference/token-ttl]]` or
 `[[reference/token-ttl|alias]]`. Short-name links are invalid.
 
 > Known tension: R-062 declares filenames cosmetic, yet this rule makes the path
-> a contract between documents. An identifier-based link form is under
-> consideration for 0.3; see §19.
+> a contract between documents. An identifier-based link form is deferred; see
+> §19.
 
 **R-071** `lint` · MUST — Every link target MUST resolve. Resolution appends
 `.md` when the path has no extension, and does not follow symlinks outside the
@@ -456,13 +542,30 @@ draft ──► active ──► done ──► graduated
 | `graduated` | Permanent value extracted; not loaded into agent context |
 | `abandoned` | Discontinued; reason recorded |
 
-**R-080** `lint` · MUST — `status` MUST be one of the five values above.
+**R-080** `lint` · MUST — `status` MUST be one of the five values above. A file is
+created as `draft` or `active`; any other initial value **is reported**.
+Transitions follow this table, and a transition not listed **is reported**:
+
+| From | Allowed to |
+|---|---|
+| `draft` | `active`, `abandoned` |
+| `active` | `done`, `abandoned` |
+| `done` | `graduated`, `active` (reopened) |
+| `abandoned` | `graduated`, `active` (resumed) |
+| `graduated` | — (terminal) |
+
+> In 0.2 only the exit from `graduated` was constrained, so a file could be born
+> `graduated` or jump `draft → graduated`, skipping the human confirmation R-081
+> exists for. Status is reversible and visible, so these are reported rather than
+> blocked (R-151).
 
 **R-081** `agent` · MUST — `done` is set only on explicit human confirmation.
 Passing tests or a green build means `active`.
 
-**R-082** `lint` · MUST — `graduated` is terminal. Where version-control history
-is available, a transition out of `graduated` is reported.
+**R-082** `lint` · MUST — `graduated` is terminal, and a graduated file receives
+no new authored content. Where version-control history is available, a transition
+out of `graduated` or new content in a graduated file **is reported** — otherwise
+knowledge added there stays permanently outside agent context.
 
 **R-083** `cmd` · MUST — A command MUST refuse a transition to `abandoned`
 without a reason. R-055 checks the resulting file; this rule prevents the
@@ -509,8 +612,10 @@ Graduation moves permanent knowledge out of the flowing layer.
 - a top-level CommonMark block element that is not inside such a section:
   paragraph, list, fenced code block, table, or block quote.
 
-Blocks are addressed by their byte offsets in the source file, computed on the
-canonical form defined in R-113.
+Blocks are addressed by byte offsets **in the source file as it exists on disk**,
+not in any normalized form. The canonical form (R-113) exists only for hashing;
+using it for addressing would shift every offset in a file with CRLF endings or
+decomposed Unicode and make R-090's byte-exact copy select the wrong range.
 
 ### 9.2 Movement
 
@@ -522,13 +627,34 @@ which block goes where and never retypes the text.
 > guarantee.
 
 **R-091** `cmd` · MUST — After graduation the source file MUST retain a link to
-the destination and MUST record `graduated_to`.
+the destination and MUST record `graduated_to`. `graduated_to` may be present on
+a file whose `status` is still `active`: graduating one block does not end the
+work. The file-level transition to `status: graduated` happens only when nothing
+of permanent value remains, and like `done` it requires explicit human
+confirmation (R-081).
+
+In the `knowledge-base` profile the source is content-immutable (R-023), so the
+link runs the other way: the destination page records the source in `sources:`
+and the raw file is left untouched.
+
+**R-099** `cmd` · MUST — Creating a new destination page is a two-step operation.
+First the page is prepared: `id`, `type`, `updated` and the context-establishing
+opening (R-032) are written — the frontmatter by the tool, the opening sentence
+by the model. Then blocks are moved into it byte-exactly (R-090). Without this
+split, a page created purely by moving bytes can never satisfy R-050 and R-032,
+and graduation into a page that does not yet exist would be impossible.
 
 **R-092** `agent` · MUST — Order matters. A block whose content already exists on
 a permanent page is removed from the source and replaced by a link. A block that
 exists nowhere permanent is written to its destination *before* the source is
 shrunk. Deciding whether two blocks say the same thing is judgment, not a
 comparison of bytes.
+
+In the `knowledge-base` profile nothing is removed from the source: the raw note
+is evidence, not a draft. A `wiki/` page is not a copy of it but a distillation —
+new text, written by a human or a model, tracked back to its evidence through
+`sources:`. R-002 is satisfied because the wiki page is the single home of the
+distilled fact; the raw note is the record of where it came from.
 
 **R-093** `agent` · MUST — Before archiving anything, the question is asked: does
 this information exist anywhere else? If not, and it is still true, it graduates
@@ -582,9 +708,10 @@ requires reading the prose, so this is not a static check.
 
 **R-103** `cmd` · MUST — When the active journal exceeds 500 lines, the oldest
 whole days are moved to an archive slice named
-`work/journal/<first-date>--<last-date>.md`, carrying `status: graduated` and one
-router line. Slices are cut on day boundaries; a single day larger than the limit
-becomes its own slice.
+`work/journal/<first-date>--<last-date>.md`, which gets one router line. Slices
+are cut on day boundaries; a single day larger than the limit becomes its own
+slice. A slice is a list file (R-041) and carries no `status`: it is a
+chronology archive, not a unit of work that graduated anywhere.
 
 **R-104** `lint` · MUST — Entries are ordered newest first. A retrospective entry
 is inserted at its own date, not appended.
@@ -605,9 +732,11 @@ verifies:
 **R-110** `lint` · MAY — A page MAY declare `verifies`. When the hash of the
 referenced region no longer matches, the page is reported as stale.
 
-**R-111** `lint` · MUST — A stale page is a loud failure, never a silent one. It
-is the only mechanism in this specification that detects code-documentation
-drift mechanically.
+**R-111** `lint` · MUST — Staleness **is reported** on every run until resolved,
+naming the page and the region that moved. "Loud" here means never silent, not
+blocking: drift is reversible and visible, and a build that fails on every
+documentation lag gets its check disabled. This is the only mechanism in this
+specification that detects code-documentation drift mechanically.
 
 **R-113** `lint` · MUST — A **content hash** is `sha256` over the canonical form
 of the content, written as `sha256:` followed by lowercase hex. The canonical
@@ -644,8 +773,8 @@ mixing (R-123).
 **R-123** `agent` · MUST NOT — Code identifiers, protocol names, library names,
 and quotations are never translated.
 
-**R-124** `agent` · MUST NOT — Migration never translates. Content moves as it
-is. See also R-172, which forbids migrations from touching prose at all.
+**R-124** WITHDRAWN — subsumed by R-172, which forbids migrations from altering
+prose at all.
 
 ---
 
@@ -657,12 +786,18 @@ without sharing a repository, a database, or a server.
 ### 13.1 Declaration
 
 **R-130** `lint` · MUST — A tree participating in federation MUST declare
-`namespace` in `.docmeta.yml`. The namespace is the only federation field written
-by hand.
+`namespace` in `.docmeta.yml`, together with its `federation_role` (R-144) and,
+when publishing, its transport locations (R-145). These are the authored
+federation fields. What is never authored is the *dependency data* —
+`provides` and `consumes` (R-131).
 
 **R-131** `cmd` · MUST — The manifest fields `provides` and `consumes` MUST be
-derived, never authored. `provides` comes from pages carrying `id`; `consumes`
-comes from `doc: @ns/id` references found within the scan scope (R-077).
+derived, never authored. `provides` comes from two sources: pages currently
+carrying `id`, **and the tombstone ledger** (R-066) for identifiers that no
+longer have a page. `consumes` comes from `doc: @ns/id` references found within
+the scan scope (R-077). Pages marked `internal: true` are excluded from both
+(R-135). Deriving `provides` from live pages alone would drop every tombstone on
+the next export and break the deprecation window the moment it was needed.
 
 > A hand-maintained dependency list goes stale by construction (R-002). The
 > authored, page-level declaration of an identifier family is a different thing
@@ -675,15 +810,30 @@ MUST NOT nest. All federation rules apply unchanged.
 ### 13.2 Export
 
 **R-133** `cmd` · MUST — `export` produces a manifest containing the manifest
-format version, the namespace, the spec version, and for each provided
-identifier: type, title, summary, content hash, owner, and state (`active` or
-`withdrawn`). Titles and summaries follow R-057.
+format version, the namespace, the spec version, the namespace's own aliases
+(R-068), and for each identifier: type, title, summary, content hash, owner,
+state (`active` or `withdrawn`), and any `aliases` (R-065). A **withdrawn** entry
+carries only identifier, state, withdrawal date and optional `superseded_by` —
+the page that supplied type, title, summary, hash and owner no longer exists, so
+requiring them would make a conformant manifest impossible after any deletion.
+Pages excluded by R-135 appear in neither list. Titles and summaries follow
+R-057. Without the alias and tombstone entries the lifecycle rules of §6.2 cannot
+cross a repository boundary.
 
-**R-134** `cmd` · MUST NOT — The manifest MUST NOT contain page prose. Prose
-travels through the content channel (§13.3), not the manifest.
+**R-134** `cmd` · MUST NOT — The manifest MUST NOT contain page **bodies**. Prose
+travels through the content channel (§13.3). Title and the one-sentence summary
+are identity metadata, not body content, and are the deliberate exception —
+without them a consumer cannot tell what an identifier is before fetching it.
 
-**R-135** `lint` · MAY — A page marked `internal: true` is excluded from the
-manifest.
+**R-135** `lint` · MUST — A page marked `internal: true` is excluded from the
+manifest and from derived dependency data (R-131).
+
+**R-019** `advisory` · MUST — A publisher MUST ensure its content channel does
+not serve `internal: true` pages. No local check can observe what a remote
+serves, and R-145 permits a plain git remote as a channel — which necessarily
+serves every tracked file. A tree with internal pages and a whole-repository
+content channel is therefore nonconformant even though lint cannot see it.
+Confidentiality is a property of the channel, not of a frontmatter field.
 
 ### 13.3 Transport
 
@@ -708,24 +858,35 @@ accepted.
 materialization is retained and its age is reported. A transient outage MUST NOT
 delete content a consumer already had.
 
-**R-149** `lint` · MUST — Every file under `.federation/` MUST carry provenance:
-source namespace, identifier, content hash, and the time it was fetched. A file
-without provenance is an error, so hand-placed content cannot masquerade as
-federated content.
+**R-149** `lint` · MUST — Every materialized page under `.federation/` MUST have
+provenance recording source namespace, identifier, content hash, and fetch time.
+Provenance lives in a **sidecar** at `.federation/<namespace>/<id>.provenance.yml`,
+never inside the page: writing it into the page would change the bytes and break
+the hash that R-146 verifies and R-137 protects. The path is fixed because it is
+a cross-implementation surface — one tool's materialization must be readable by
+another's checker. Sidecars are provenance records, not materialized pages, and
+do not themselves require provenance. A materialized page without a sidecar is an
+error, so hand-placed content cannot masquerade as federated content.
+
+> A sidecar can be forged along with its page. Provenance proves what a file
+> claims to be, not that the claim is true; authenticating the manifest itself is
+> listed in §19 as an open problem.
 
 ### 13.4 Consumption
 
-**R-136** `cmd` · MUST — A consumed page is materialized under `.federation/` as
-a read-only copy carrying its provenance (R-149).
+**R-136** `cmd` · MUST — A consumed page is materialized at
+`.federation/<namespace>/<id>.md` as a read-only copy whose canonical form
+(R-113) hashes to the value in the manifest, with its provenance in a sidecar
+(R-149). Identity is defined by the canonical hash, not by raw bytes: a checkout
+that converts line endings is still conformant, and requiring byte identity would
+declare it tampered while every hash check passed. The namespace-scoped path
+prevents two providers exporting the same `local-id` from colliding.
 
 **R-137** `lint` · MUST NOT — Files under `.federation/` MUST NOT be edited
 locally. A file whose content no longer matches its recorded provenance hash is
 an error.
 
-**R-138** `advisory` · MUST — R-002 does not apply to materializations under
-`.federation/`. They are exempt because they are derived, read-only,
-hash-pinned, and machine-refreshed. What R-002 forbids is an *unchecked* copy
-that can silently lie.
+**R-138** WITHDRAWN — the exemption is stated normatively in R-002 itself.
 
 ### 13.5 Enforcement
 
@@ -743,9 +904,7 @@ that no consumers exist.
 every participating namespace's manifest. That index is an optional component. An
 estate without one operates with the partial knowledge described in R-140.
 
-**R-142** `advisory` · SHOULD — Every check that can run in the repository owning
-the problem does run there; no central service is required for those. Complete
-consumer coverage (R-141) is the single exception, and it is optional.
+**R-142** WITHDRAWN — its content is fully stated by R-140 and R-141.
 
 **R-143** `cmd` · SHOULD — When a consumed page's hash changes, the consuming
 repository SHOULD receive an automated change proposal showing the old and new
@@ -770,8 +929,9 @@ creates friction, and friction is resolved by disabling the check entirely —
 which removes the protection completely.
 
 **R-151** `advisory` · MUST — A check escalates to blocking only when the outcome
-is **irreversible** or **silently wrong**. Everything else warns. Every blocking
-rule in this specification cites this rule.
+is **irreversible** or **silently wrong**. Everything else warns. A rule blocks by
+using a blocking word from §2.2; R-016 requires that choice to meet this
+criterion, and R-015 requires it to be visible.
 
 > The second criterion was added after federation was designed: a broken
 > reference is reversible but produces a confidently wrong answer, which is worse
@@ -799,10 +959,10 @@ of existing normative text, not authorship (R-005).
 ## 15. `.docmeta.yml`
 
 ```yaml
-spec: docsys/0.2                 # required
+spec: docsys/0.3                 # required
 profile: project                 # required — project | knowledge-base
 default_content_language: en     # required
-created: 2026-08-15              # required
+created: 2026-08-15              # optional
 
 namespace: svc-auth              # required when federation is enabled
 federation_role: publish         # publish | consume-only  (R-144)
@@ -820,17 +980,18 @@ lock_timeout: "4h"               # R-154
 ```
 
 **R-160** `lint` · MUST — `.docmeta.yml` MUST exist at the documentation root and
-MUST declare `spec`, `profile`, `default_content_language`, and `created`.
+MUST declare `spec`, `profile`, and `default_content_language`. `created` was
+required in 0.2 but read by no rule, which R-162 forbids; it is now optional.
 
-**R-161** `lint` · MUST — An implementation MUST reject unknown keys under a
-different major version and MUST ignore unknown keys within the same major
-version. Silent acceptance of a misspelled key is a configuration bug that
-surfaces as missing enforcement.
+**R-161** `lint` · MUST — An unknown key MUST be **reported but not rejected**.
+This keeps a newer tree usable by an older tool (R-170) while making a misspelled
+key visible: silently ignoring `scan_exlude` would disable a check nobody
+notices. Report-not-reject is the only behavior that serves both.
 
-**R-162** `lint` · MAY — An implementation MAY store its own configuration
-elsewhere. Fields that affect no rule in this specification do not belong in
-`.docmeta.yml`; in 0.1 three such fields (`phase`, `type`, `mode`) implied
-behavior that no conformant tool provided.
+**R-162** `lint` · MUST NOT — `.docmeta.yml` MUST NOT contain fields that affect
+no rule in this specification; implementations store their own configuration
+elsewhere. In 0.1 three such fields (`phase`, `type`, `mode`) implied behavior no
+conformant tool provided.
 
 ---
 
@@ -844,6 +1005,12 @@ the next without hand editing.
 **R-170** `cmd` · MUST — An implementation MUST refuse to operate on a tree whose
 major version it does not implement, rather than degrade silently. A minor
 version difference MUST NOT block operation.
+
+> While the major version is 0, a minor release may tighten rules in ways that
+> make a previously conformant tree report violations. Every such change ships
+> with a migration (§16.2), and a tool encountering an unmigrated older tree
+> reports the pending migration (R-171) instead of treating the tree as broken.
+> After 1.0 this exception ends.
 
 **R-171** `cmd` · MUST — Every command reports a version difference in one line
 and names the command that resolves it. When no such command exists — an older
@@ -894,14 +1061,16 @@ independent of this specification, and changes more slowly. Repositories are not
 upgraded on the same day; a manifest format that moved with every specification
 release would break federation continuously.
 
-**R-181** `cmd` · MUST — An implementation MUST read manifest versions older than
-its own, and MUST ignore unknown fields in manifest versions newer than its own
-within the same major version. Backward reading alone would force the estate-wide
-lockstep upgrade that R-180 exists to prevent.
+**R-181** `cmd` · MUST — Within a manifest major version it implements, an
+implementation MUST read every older minor version, and MUST ignore unknown
+fields in newer minor versions. Backward reading alone would force the
+estate-wide lockstep upgrade that R-180 exists to prevent.
 
-**R-182** `cmd` · MUST — A manifest major version an implementation does not
+**R-182** `cmd` · MUST — A manifest **major** version an implementation does not
 implement causes a refusal to consume that namespace, reported by name, not a
-silent skip.
+silent skip. R-181 governs minors within an implemented major; this rule governs
+majors. In 0.2 the two overlapped and a consumer could be required both to read
+and to refuse the same manifest.
 
 ---
 
@@ -910,16 +1079,77 @@ silent skip.
 **R-190** `ci` · MUST — An implementation MUST ship a conformance corpus: trees
 exercising each `lint`, `ci`, and `cmd` rule, with expected outputs.
 
-**R-191** `ci` · MUST — The corpus MUST include at least one tree per rule that
-*violates* it. A checker that never sees a violation is untested.
+**R-191** `ci` · MUST — The corpus MUST include at least one tree that *violates*
+each rule it covers under R-010. A rule whose level is `MAY` and whose optional
+capability the implementation does not offer is out of scope for both rules — it
+cannot be violated by declining to implement it.
 
-**R-192** `advisory` · SHOULD — The corpus is the portable part of this
-specification. An independent implementation demonstrates conformance by passing
-it.
+**R-192** WITHDRAWN — adds no obligation beyond R-190 and R-191.
+
+**R-193** `advisory` · MUST — Where this specification leaves a decision to the
+implementation, the implementation MUST record its decision in the corpus. The
+corpus is therefore not only a test suite but the register of choices this
+document deliberately did not make.
 
 ---
 
-## 18. Changes from 0.1
+## 18. Revision history
+
+> This section is informative, not normative. Where it disagrees with a rule, the
+> rule governs.
+
+### 0.3 — second and third audits
+
+The third audit ran the same six reviewers against the post-fix text. New
+findings fell from 24 to 15, and their character changed: the first two rounds
+found mechanisms that could not work, the third found mechanisms applied
+inconsistently. Fixes from that round:
+
+| Change | Rules |
+|---|---|
+| Every `cmd` guarantee now requires a `lint` backstop — the pattern behind tombstones, journal rotation and graduation all being bypassable by hand | R-018 |
+| Severity made consistent: staleness, orphans and status violations report; identifier collision blocks. R-151 no longer claims every blocking rule cites it | R-015, R-016, R-017, R-034, R-061, R-080, R-082, R-111, R-151 |
+| Tombstones are never pruned; the deprecation window governs resolution, not retention. Pruning would free the identifier and let a cached reference resolve to unrelated content | R-067 |
+| Withdrawn manifest entries carry a reduced field set; a deleted page cannot supply title, summary, hash or owner | R-133 |
+| Federated identity defined by canonical hash rather than raw bytes, which no check could verify | R-136 |
+| Provenance sidecar path fixed; it is a cross-implementation surface | R-149 |
+| `internal: true` split: manifest exclusion is checkable, channel behavior is not, and the specification now says so instead of pretending | R-135, R-019 |
+| Partial graduation allowed: `graduated_to` may appear on an active file, and the file-level transition needs human confirmation | R-091 |
+| Knowledge-base distillation distinguished from copying, resolving the apparent R-002 conflict | R-092 |
+| `epic`, `sources:` resolution, and wiki directory/type agreement given rules; all three were unvalidated fields | R-058, R-059, R-029 |
+| `MAY` rules exempted from the violating-tree requirement | R-191 |
+| Breaking minor releases acknowledged for 0.x, tied to migrations | R-170 |
+| Editorial: duplicate §2.2 numbering, a stale `docsys/0.2` example, and a note describing 0.3 as future | §2.3, §15, R-070 |
+
+### 0.2 — first audit
+
+0.2 was audited again by six independent reviewers: two cloud models (one of them
+run twice, once with repository context and once in an isolated directory
+containing only this file), one cloud model in a separate session with no context
+at all, and three local models. 41 findings were verified. Most of them were
+created by the 0.2 fixes themselves.
+
+| Change | Rules |
+|---|---|
+| Tombstone ledger introduced; the manifest can no longer be the only tombstone store, and identifier reuse is now prevented without federation | R-066, R-131 |
+| Manifest carries aliases, withdrawal dates and successors, so §6.2's lifecycle can cross a repository boundary at all | R-133 |
+| Provenance moved to sidecars; writing it into the page broke the very hash it verifies | R-149, R-136 |
+| Journal slices are list files and carry no `status`; in 0.2 the first rotation produced a file that failed lint | R-041, R-103 |
+| Graduation gained a page-preparation step; a page built only from moved bytes could never satisfy the frontmatter and opening-context rules | R-099 |
+| `raw/` redefined as content-immutable rather than path-immutable, and graduation inverted for the knowledge-base profile, which could not distill anything under 0.2 | R-023, R-027, R-091 |
+| Verification no longer undoes itself; a change to the `verification` field alone is not a content change | R-024, R-028 |
+| Block offsets measured in the file on disk, not the canonical form used for hashing | R-098 |
+| Severity vocabulary defined: "is an error" blocks, "is reported" warns, and blocking must be justifiable under R-151 | R-015 |
+| Work-lifecycle transition table made explicit; `draft → graduated` previously passed | R-080 |
+| `internal: true` strengthened to `MUST` and extended to the content channel | R-135 |
+| Unknown configuration keys reported rather than silently ignored, resolving a rule that contradicted its own rationale | R-161 |
+| Manifest minor and major compatibility separated | R-181, R-182 |
+| `created` made optional; it was required but read by no rule, which R-162 forbids | R-160, R-162 |
+| Authored federation fields stated correctly; 0.2 claimed `namespace` was the only one while requiring three more | R-130 |
+| Corpus made the register of implementation-defined decisions | R-193 |
+| Withdrawn as redundant | R-124, R-138, R-142, R-192 |
+
+### 0.2 — first audit
 
 0.1 was audited by four independent models (one cloud, three local) before
 release. 97 raw findings produced 28 verified issues. The material changes:
@@ -997,6 +1227,47 @@ Graduation *moves* content (R-090). Derivation *rewrites and tracks* it. When th
 source changes the hash no longer matches and the user-facing page is reported
 stale — which addresses the standard failure mode of product documentation.
 
+### Deliberately left to the implementation
+
+These are decisions this document does not make. Writing a tool forces each of
+them; the decision is then recorded in the corpus (R-193) and folded back here
+once a second implementation has to agree with it. Guessing them now would
+produce another round of contradictions.
+
+- Which lexical contexts count as a `doc:` reference: comments, strings, fenced
+  code, generated files, quoted logs
+- How `verifies: symbol` resolves per language, and what happens when a symbol is
+  ambiguous
+- The sentence-boundary algorithm behind R-057's summary default
+- Which link forms create reachability edges for R-034
+- Behavior when version-control history is unavailable: shallow clones, exported
+  archives, non-Git systems
+- The lock file's name and format (R-154)
+- What evidence establishes an "independent session" (R-025)
+- The YAML and CommonMark dialects, and duplicate-key policy
+
+### Known gaps, deferred
+
+- **Manifest authenticity.** R-146 verifies that content matches the manifest,
+  not that the manifest is genuine. Signing, trusted origin, and anti-replay are
+  unaddressed; a forged manifest with matching content passes every check.
+- **Bootstrap.** A consumer resolving `@svc-auth/token-ttl` must already know
+  where `svc-auth` publishes. There is no namespace-to-location mapping.
+- **Namespace ownership.** Nothing prevents two estates from claiming the same
+  namespace.
+- **Lockfile.** Consumers have no way to pin an accepted revision of a foreign
+  contract.
+- **Federation cycles.** A consumes B consumes A is undefined.
+- **Publication atomicity.** A provider can publish a manifest before its content.
+- **Cache bounds.** No maximum age for a retained materialization, and no
+  fail-open or fail-closed policy when a provider is permanently gone.
+- **Tombstone retention.** Nothing prunes the ledger after the deprecation window.
+- **Archived pages.** A page under `_archive/` still carries an `id` and is still
+  exported as active.
+- **Monorepo scan partitioning.** Several namespace roots in one repository each
+  scan the whole tree.
+- **Binary assets.** Diagrams and images are neither permitted nor forbidden.
+
 ### Other gaps
 
 - Brownfield ingestion: which signals in version-control history are worth
@@ -1006,6 +1277,3 @@ stale — which addresses the standard failure mode of product documentation.
 - Whether `verification` should extend to the `project` profile
 - Epic status aggregation when legs disagree
 - Generated API references: linked from the router, or addressed by identifier
-- Authentication and integrity of the content channel beyond hash verification
-  (R-146 verifies content matches the manifest, but not that the manifest itself
-  is authentic)
