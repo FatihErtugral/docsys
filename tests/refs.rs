@@ -100,3 +100,23 @@ fn stray_docs_page_outside_tree_is_reported() {
     );
     let _ = fs::remove_dir_all(&repo);
 }
+
+#[test]
+fn repo_walk_excludes_docs_root_under_any_spelling() {
+    let repo = tmp("rootspell");
+    let docs = repo.join("docs");
+    fs::create_dir_all(&docs).unwrap();
+    fs::write(docs.join("page.md"), "x\n").unwrap();
+    fs::write(repo.join("code.c"), "y\n").unwrap();
+    // The same tree under a different spelling (the `--repo . --root docs`
+    // class of mismatch): exclusion must hold by identity, not by string.
+    let alias = repo.join("docs-alias");
+    std::os::unix::fs::symlink(&docs, &alias).unwrap();
+    let files = docsys::migrate::repo_text_files(&repo, &alias);
+    assert!(
+        files.iter().all(|f| !f.starts_with(&docs)),
+        "docs tree leaked into the code walk: {files:?}"
+    );
+    assert!(files.iter().any(|f| f.ends_with("code.c")));
+    let _ = fs::remove_dir_all(&repo);
+}

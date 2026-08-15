@@ -464,24 +464,29 @@ pub fn init(root: &Path, lang: &str) -> Result<(), String> {
 const REPO_SKIP_DIRS: [&str; 6] = [".git", "node_modules", "target", "build", "dist", ".venv"];
 
 pub fn repo_text_files(repo: &Path, docs_root: &Path) -> Vec<PathBuf> {
-    fn walk(dir: &Path, docs_root: &Path, out: &mut Vec<PathBuf>) {
+    fn walk(dir: &Path, docs_canon: Option<&Path>, out: &mut Vec<PathBuf>) {
         let Ok(entries) = fs::read_dir(dir) else { return };
         let mut paths: Vec<PathBuf> = entries.filter_map(|e| e.ok().map(|e| e.path())).collect();
         paths.sort();
         for p in paths {
             let name = p.file_name().and_then(|n| n.to_str()).unwrap_or("");
             if p.is_dir() {
-                if REPO_SKIP_DIRS.contains(&name) || p == docs_root {
+                // Canonical comparison: `./docs` and `docs` are the same tree,
+                // and a docs root scanned as code floods refs with its own ids.
+                let is_docs_root = docs_canon
+                    .is_some_and(|d| p.canonicalize().ok().as_deref() == Some(d));
+                if REPO_SKIP_DIRS.contains(&name) || is_docs_root {
                     continue;
                 }
-                walk(&p, docs_root, out);
+                walk(&p, docs_canon, out);
             } else if fs::metadata(&p).map(|m| m.len() <= 2_000_000).unwrap_or(false) {
                 out.push(p);
             }
         }
     }
     let mut out = Vec::new();
-    walk(repo, docs_root, &mut out);
+    let docs_canon = docs_root.canonicalize().ok();
+    walk(repo, docs_canon.as_deref(), &mut out);
     out
 }
 
