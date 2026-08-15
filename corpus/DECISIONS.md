@@ -21,6 +21,7 @@ line back into rule text; until then this file is the authority for `docsys`.
 | D-013 | **Router acceptance.** `- [[<path>|<title>]] -- <sentence>` with ` -- ` canonical; a spaced em dash is accepted on read, never emitted. |
 | D-014 | **Router-entry detection.** Only `- ` lines containing `[[` are entries subject to R-035's grammar; plain bullets are prose, and whether prose belongs on a router is judgment (first pilot: three false positives on layout-description bullets). |
 | D-015 | **Backtick strip.** The backtick joined R-073's trailing-punctuation set (folded back into the spec): `` `doc: x` `` written as inline code is the reference convention of a real field tree. |
+| D-016 | **Brownfield signal.** A tree whose markdown files all sit outside the layout — a router counts as inside — warns under R-020 (`layout`): an unmigrated tree must not read as a clean one (second pilot: 63 flat files, four findings, misleading silence). |
 
 ## Open (assigned, not yet decided)
 

@@ -865,6 +865,27 @@ pub fn run(tree: &DocTree) -> Report {
             "tree",
             "the documentation root contains no markdown files".to_string(),
         ));
+    } else {
+        // D-016: files exist but none live inside the layout — that is not a
+        // clean tree, it is an unmigrated one, and silence would be the lie.
+        let in_layout = tree.pages.iter().any(|p| {
+            matches!(
+                p.kind,
+                Kind::Permanent | Kind::Tracked | Kind::ListFile | Kind::Router
+            )
+        });
+        if !in_layout {
+            let n = tree.pages.len();
+            r.findings.push(Finding::warn(
+                RuleId("R-020"),
+                "-",
+                "layout",
+                format!(
+                    "{n} markdown file(s), none inside the project layout — \
+                     a brownfield tree; migration, not linting, is the next step"
+                ),
+            ));
+        }
     }
     r.findings.sort();
     r.findings.dedup();
