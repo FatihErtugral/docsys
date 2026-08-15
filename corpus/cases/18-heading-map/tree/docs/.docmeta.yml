@@ -1,4 +1,4 @@
 spec: docsys/0.4
 profile: project
-default_content_language: tr
-headings: [Context=Baglam, Decision=Karar, Contract surface=Sozlesme yuzeyi, Rejected alternatives=Reddedilen alternatifler]
+default_content_language: xx
+headings: [Context=CTX Local Form, Decision=DEC Local Form, Contract surface=SRF Local Form, Rejected alternatives=REJ Local Form]
