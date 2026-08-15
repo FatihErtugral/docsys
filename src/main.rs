@@ -10,7 +10,8 @@ Usage:
   docsys migrate inventory [--root <dir>] [--repo <dir>]   # plan skeleton to stdout
   docsys migrate apply --plan <file> [--root <dir>] [--lang <code>] [--repo <dir>]
   docsys refs    --repo <dir> [--root <dir>] [--json]
-  docsys rules   --agents-md | --procedures [--max-lines <n>]
+  docsys rules   --agents-md | --procedures [--max-lines <n>] [--write <file>]
+  docsys agents  --report [--dir .claude]    # existing layer + its shell calls
   docsys agents  [--dir .claude] [--force]   # install hooks + skill + /doc-sync
   docsys graduate plan <work-file>  [--root <dir>]
   docsys graduate apply --plan <file> [--root <dir>] [--force]
@@ -59,6 +60,8 @@ fn parse_opts(args: &[String]) -> Result<Opts, String> {
             "--dir" => o.dir = PathBuf::from(it.next().ok_or("--dir needs a value")?),
             "--force" => o.force = true,
             "--agents-md" => o.agents_md = true,
+            "--write" => o.plan = Some(PathBuf::from(it.next().ok_or("--write needs a value")?)),
+            "--report" => o.procedures = true, // reuse: agents --report
             "--procedures" => o.procedures = true,
             "--max-lines" => {
                 o.max_lines = it
@@ -138,6 +141,18 @@ fn main() -> ExitCode {
             } else if opts.agents_md {
                 match docsys::rules::check_budget(opts.max_lines) {
                     Ok(_) => {
+                        if let Some(target) = &opts.plan {
+                            match docsys::rules::write_agents_block(target) {
+                                Ok(_) => {
+                                    println!("managed block written to {} (idempotent)", target.display());
+                                    return ExitCode::SUCCESS;
+                                }
+                                Err(e) => {
+                                    eprintln!("rules --write: {e}");
+                                    return ExitCode::from(2);
+                                }
+                            }
+                        }
                         print!("{}", docsys::rules::agents_md());
                         ExitCode::SUCCESS
                     }
@@ -195,6 +210,16 @@ fn main() -> ExitCode {
                     ExitCode::from(2)
                 }
             }
+        }
+        ("agents", None) if opts.procedures => {
+            // --report: mechanical inventory of the existing layer (D-026).
+            println!("existing agent layer under {}:", opts.dir.display());
+            for line in docsys::agents::adoption_report(&opts.dir) {
+                println!("  {line}");
+            }
+            println!("\ndelegation is judgment: keep the owner's prose, repoint the");
+            println!("mechanical calls to docsys where they duplicate a command.");
+            ExitCode::SUCCESS
         }
         ("agents", None) => match docsys::agents::install(&opts.dir, opts.force) {
             Ok(done) => {

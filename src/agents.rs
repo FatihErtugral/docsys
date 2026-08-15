@@ -105,7 +105,7 @@ description: Scan code↔doc drift and un-graduated done work; propose debt item
 allowed-tools: Bash(git log:*), Bash(git diff:*), Bash(git show:*), Bash(docsys *), Read, Grep, Glob, Edit
 ---
 
-# /doc-sync — documentation drift check
+# /docsys-sync — documentation drift check
 
 Manual, never automatic. Report; propose `docs/work/debt.md` items as a diff
 and wait for approval. Commit nothing.
@@ -181,7 +181,7 @@ pub fn install(claude_dir: &Path, force: bool) -> Result<Installed, String> {
         ("hooks/stop-docs-reminder.sh", STOP_DOCS_REMINDER, true),
         ("hooks/post-edit-updated.sh", POST_EDIT_UPDATED, true),
         ("hooks/session-intent.sh", SESSION_INTENT, true),
-        ("commands/doc-sync.md", DOC_SYNC, false),
+        ("commands/docsys-sync.md", DOC_SYNC, false),
         ("skills/docsys/SKILL.md", SKILL_MD, false),
     ];
     let mut out = Installed {
@@ -224,3 +224,72 @@ pub const SETTINGS_SNIPPET: &str = r#"{
     ]
   }
 }"#;
+
+/// Adoption report: what agent layer already exists, and which shell commands
+/// it invokes. Detection is mechanical; deciding what to delegate to docsys is
+/// judgment and stays with an agent and a human (D-026).
+pub fn adoption_report(claude_dir: &Path) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut files: Vec<std::path::PathBuf> = Vec::new();
+    for sub in ["hooks", "commands", "skills", "rules"] {
+        collect_files(&claude_dir.join(sub), &mut files);
+    }
+    files.sort();
+    for f in files {
+        let rel = f.strip_prefix(claude_dir).unwrap_or(&f).to_string_lossy().replace('\\', "/");
+        if rel.starts_with("skills/docsys/") || rel.starts_with("hooks/pre-commit-docs")
+            || rel.starts_with("hooks/stop-docs-reminder") || rel.starts_with("hooks/post-edit-updated")
+            || rel.starts_with("commands/docsys-sync") {
+            continue; // our own assets are not adoption surface
+        }
+        let Ok(text) = fs::read_to_string(&f) else { continue };
+        let mut calls: Vec<String> = Vec::new();
+        for line in text.lines() {
+            // allowed-tools: Bash(cmd ...) declarations
+            let mut rest = line;
+            while let Some(pos) = rest.find("Bash(") {
+                let after = rest.get(pos + 5..).unwrap_or("");
+                if let Some(end) = after.find(')') {
+                    let inner = after.get(..end).unwrap_or("").trim();
+                    let head = inner.split_whitespace().take(2).collect::<Vec<_>>().join(" ");
+                    if !head.is_empty() && !calls.contains(&head) {
+                        calls.push(head);
+                    }
+                    rest = after.get(end + 1..).unwrap_or("");
+                } else {
+                    break;
+                }
+            }
+            // fenced/script invocation lines
+            let trimmed = line.trim_start();
+            for prefix in ["python3 ", "python ", "bash ", "sh ", "make "] {
+                if trimmed.starts_with(prefix) {
+                    let head = trimmed.split_whitespace().take(2).collect::<Vec<_>>().join(" ");
+                    if !calls.contains(&head) {
+                        calls.push(head);
+                    }
+                }
+            }
+        }
+        if calls.is_empty() {
+            out.push(format!("{rel} · no shell calls detected"));
+        } else {
+            out.push(format!("{rel} · invokes: {}", calls.join(" · ")));
+        }
+    }
+    out
+}
+
+fn collect_files(dir: &Path, out: &mut Vec<std::path::PathBuf>) {
+    let Ok(entries) = fs::read_dir(dir) else { return };
+    let mut paths: Vec<std::path::PathBuf> = entries.filter_map(|e| e.ok().map(|e| e.path())).collect();
+    paths.sort();
+    for p in paths {
+        if p.is_dir() {
+            collect_files(&p, out);
+        } else {
+            out.push(p);
+        }
+    }
+}
+

@@ -63,3 +63,19 @@ fn agents_install_writes_assets_and_respects_existing() {
     assert!(skill.contains("docsys rules --procedures"));
     let _ = fs::remove_dir_all(dir.parent().unwrap_or(&dir));
 }
+
+#[test]
+fn agents_md_managed_block_is_idempotent_and_preserves_owner_prose() {
+    let dir = tmp("managed");
+    let path = dir.join("AGENTS.md");
+    fs::write(&path, "# My constitution\n\nOwner prose stays.\n").unwrap();
+    docsys::rules::write_agents_block(&path).unwrap();
+    let once = fs::read_to_string(&path).unwrap();
+    assert!(once.starts_with("# My constitution"), "owner prose first");
+    assert!(once.contains("docsys:rules:begin"));
+    docsys::rules::write_agents_block(&path).unwrap();
+    let twice = fs::read_to_string(&path).unwrap();
+    assert_eq!(once, twice, "second run must change nothing");
+    assert_eq!(twice.matches("docsys:rules:begin").count(), 1, "one block, updated in place");
+    let _ = fs::remove_dir_all(&dir);
+}

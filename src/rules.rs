@@ -142,6 +142,31 @@ pub fn check_budget(max_lines: usize) -> Result<(usize, usize), String> {
     Ok((summary_lines, max_lines))
 }
 
+const BLOCK_BEGIN: &str = "<!-- docsys:rules:begin — generated, do not edit inside -->";
+const BLOCK_END: &str = "<!-- docsys:rules:end -->";
+
+/// Write/update the generated block inside a managed marker region of `path`.
+/// Owner prose outside the markers is never touched; re-runs are idempotent.
+pub fn write_agents_block(path: &std::path::Path) -> Result<&'static str, String> {
+    let block = format!("{BLOCK_BEGIN}\n{}{BLOCK_END}\n", agents_md());
+    let existing = std::fs::read_to_string(path).ok();
+    let new_text = match existing {
+        None => block.clone(),
+        Some(text) => match (text.find(BLOCK_BEGIN), text.find(BLOCK_END)) {
+            (Some(a), Some(b)) if b > a => {
+                let after = text.get(b + BLOCK_END.len()..).unwrap_or("");
+                format!("{}{block}{}", text.get(..a).unwrap_or(""), after.trim_start_matches('\n'))
+            }
+            _ => {
+                let sep = if text.ends_with('\n') { "\n" } else { "\n\n" };
+                format!("{text}{sep}{block}")
+            }
+        },
+    };
+    std::fs::write(path, new_text).map_err(|e| e.to_string())?;
+    Ok("written")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
