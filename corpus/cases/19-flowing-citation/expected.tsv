@@ -1,3 +1,5 @@
 EXIT	1
-ERROR	R-194	work/features/moved.md	moved-work
+ERROR	R-194	work/features/deadend.md	dead-work
+WARN	R-056	work/features/deadend.md	graduated_to
 WARN	R-194	work/features/live.md	live-work
+WARN	R-194	work/features/moved.md	moved-work

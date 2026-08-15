@@ -64,6 +64,28 @@ pub fn run(repo: &Path, tree: &DocTree) -> Report {
                             i + 1
                         ),
                     )),
+                    // Code following a signpost still lands on the answer, so
+                    // it is reported, not blocked (R-194).
+                    Ok(Resolved::GraduatedSignposted) => r.findings.push(Finding::warn(
+                        R194,
+                        &frel,
+                        &token,
+                        format!(
+                            "line {}: `doc: {token}` cites a graduated page — cite the \
+                             destination it signposts",
+                            i + 1
+                        ),
+                    )),
+                    Ok(Resolved::Archived) => r.findings.push(Finding::warn(
+                        R194,
+                        &frel,
+                        &token,
+                        format!(
+                            "line {}: `doc: {token}` cites an archived record — code should \
+                             cite a live page",
+                            i + 1
+                        ),
+                    )),
                     Ok(Resolved::Flowing) => r.findings.push(Finding::warn(
                         R194,
                         &frel,

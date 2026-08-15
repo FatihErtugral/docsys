@@ -410,8 +410,12 @@ pub struct ResolutionIndex {
     /// Identifiers of the flowing layer — real pages, but temporary ones, so a
     /// citation resolves and is reported rather than blocking (R-194).
     pub flowing: BTreeSet<String>,
-    /// Flowing pages that already announced their value moved on.
+    /// Graduated pages with no resolvable destination — citing one dead-ends.
     pub graduated: BTreeSet<String>,
+    /// Graduated pages that name where their value went: signposts, not husks.
+    pub graduated_signposted: BTreeSet<String>,
+    /// Identifiers of archived pages — records, resolvable, never live claims.
+    pub archived: BTreeSet<String>,
     /// (prefix, defining-page body) pairs for `defines:` families (D-008).
     pub families: Vec<(String, String)>,
     pub tombstones: Vec<String>,
@@ -444,6 +448,7 @@ pub fn build_index(tree: &DocTree) -> ResolutionIndex {
         .map(str::to_string)
         .collect();
     let (mut flowing, mut graduated) = (BTreeSet::new(), BTreeSet::new());
+    let mut graduated_signposted = BTreeSet::new();
     for page in &tree.pages {
         if page.kind == Kind::Permanent {
             continue;
@@ -457,7 +462,17 @@ pub fn build_index(tree: &DocTree) -> ResolutionIndex {
         }
         let status = fm.fields.get("status").and_then(Value::as_str);
         if status == Some("graduated") {
-            graduated.insert(id.to_string());
+            // A signposted husk redirects the reader; a dead end does not.
+            let signposted = fm
+                .fields
+                .get("graduated_to")
+                .and_then(Value::as_list)
+                .is_some_and(|d| d.iter().any(|x| !x.as_str().trim().is_empty()));
+            if signposted {
+                graduated_signposted.insert(id.to_string());
+            } else {
+                graduated.insert(id.to_string());
+            }
         } else {
             flowing.insert(id.to_string());
         }
@@ -466,6 +481,8 @@ pub fn build_index(tree: &DocTree) -> ResolutionIndex {
         ids: permanent,
         flowing,
         graduated,
+        graduated_signposted,
+        archived: archived_ids(&tree.root),
         families,
         tombstones: tree.tombstones.clone(),
     }
@@ -479,6 +496,10 @@ pub const DOC_TOKEN_PUNCT: [char; 11] = ['.', ',', ';', ':', ')', ']', '"', '\''
 pub fn doc_tokens_on_line(line: &str) -> Vec<String> {
     let mut out = Vec::new();
     let mut rest = line;
+    // Absolute offset of `rest` in `line`: inline-code parity must be counted
+    // from the start of the line, not from the last match (a second reference
+    // on the same line would otherwise read the wrong span).
+    let mut base = 0usize;
     while let Some(pos) = rest.find("doc: ") {
         let before_ok = pos == 0
             || rest
@@ -489,8 +510,8 @@ pub fn doc_tokens_on_line(line: &str) -> Vec<String> {
         // R-073: a reference opened inside an inline-code span ends at the
         // closing backtick — prose glues suffixes to it (a case ending, a
         // possessive), and those belong to the sentence, not the identifier.
-        let opened_in_code = rest
-            .get(..pos)
+        let opened_in_code = line
+            .get(..base + pos)
             .is_some_and(|s| s.matches('`').count() % 2 == 1);
         let raw = if opened_in_code {
             after
@@ -504,6 +525,7 @@ pub fn doc_tokens_on_line(line: &str) -> Vec<String> {
             after.split_whitespace().next().unwrap_or("")
         };
         let token = raw.trim_end_matches(DOC_TOKEN_PUNCT);
+        base += pos + 5;
         rest = after;
         if before_ok && !token.is_empty() {
             out.push(token.to_string());
@@ -527,7 +549,12 @@ pub enum DocRefFail {
 pub enum Resolved {
     Permanent,
     Flowing,
+    /// Graduated with no destination recorded: following it dead-ends.
     Graduated,
+    /// Graduated and signposted: following it redirects.
+    GraduatedSignposted,
+    /// An archived record: resolvable, but not a live claim.
+    Archived,
 }
 
 pub fn resolve_doc_token(idx: &ResolutionIndex, token: &str) -> Result<Resolved, DocRefFail> {
@@ -539,9 +566,11 @@ pub fn resolve_doc_token(idx: &ResolutionIndex, token: &str) -> Result<Resolved,
     // hit with a missing member is a dangling reference, not bad grammar.
     let mut family_prefix_hit = false;
     for (prefix, body) in &idx.families {
-        if token.starts_with(prefix.as_str()) {
+        if let Some(short) = token.strip_prefix(prefix.as_str()) {
             family_prefix_hit = true;
-            if occurs_as_token(body, token) {
+            // R-079: the member may be written in full or in the page's own
+            // short form — the register already says which family it lists.
+            if occurs_as_token(body, token) || (!short.is_empty() && occurs_as_token(body, short)) {
                 return Ok(Resolved::Permanent);
             }
         }
@@ -556,11 +585,44 @@ pub fn resolve_doc_token(idx: &ResolutionIndex, token: &str) -> Result<Resolved,
         Ok(Resolved::Permanent)
     } else if idx.graduated.contains(token) {
         Ok(Resolved::Graduated)
+    } else if idx.graduated_signposted.contains(token) {
+        Ok(Resolved::GraduatedSignposted)
     } else if idx.flowing.contains(token) {
         Ok(Resolved::Flowing)
+    } else if idx.archived.contains(token) {
+        Ok(Resolved::Archived)
     } else {
         Err(DocRefFail::Dangling)
     }
+}
+
+/// Identifiers declared by pages under `_archive/`. The walk skips that
+/// directory for every check (D-007) — a record joins no population — but a
+/// reference to a record still has to resolve, so its ids are read here.
+fn archived_ids(root: &std::path::Path) -> BTreeSet<String> {
+    fn walk(dir: &std::path::Path, out: &mut BTreeSet<String>) {
+        let Ok(entries) = std::fs::read_dir(dir) else {
+            return;
+        };
+        for e in entries.filter_map(Result::ok) {
+            let p = e.path();
+            if p.is_dir() {
+                walk(&p, out);
+            } else if p.extension().is_some_and(|x| x == "md") {
+                let Ok(text) = std::fs::read_to_string(&p) else {
+                    continue;
+                };
+                if let Some(fm) = crate::fm::parse(&text) {
+                    if let Some(id) = fm.fields.get("id").and_then(Value::as_str) {
+                        out.insert(id.to_string());
+                    }
+                }
+            }
+        }
+    }
+    let mut out = BTreeSet::new();
+    walk(&root.join("_archive"), &mut out);
+    out
 }
 
 fn permanent_ids(tree: &DocTree) -> BTreeSet<&str> {
@@ -675,8 +737,37 @@ fn check_doc_refs(tree: &DocTree, r: &mut Report) {
         for (line, text_line) in scannable_lines(&page.text) {
             for token in doc_tokens_on_line(text_line) {
                 inspected += 1;
+                // R-194: the journal records moments; a dated entry citing what
+                // was true then is history, not a broken reference.
+                let historical = page.rel == "work/journal.md"
+                    || page.rel.starts_with("work/journal/")
+                    || page.rel.starts_with("_archive/");
                 match resolve_doc_token(&idx, &token) {
                     Ok(Resolved::Permanent) => {}
+                    Ok(Resolved::Graduated) if historical => {}
+                    Ok(Resolved::Flowing) if historical => {}
+                    Ok(Resolved::GraduatedSignposted) if historical => {}
+                    Ok(Resolved::Archived) if historical => {}
+                    Ok(Resolved::Archived) => r.findings.push(Finding::warn(
+                        R194,
+                        &page.rel,
+                        &token,
+                        format!(
+                            "line {}: `doc: {token}` cites an archived record — dated content, \
+                             not a live claim",
+                            line + 1
+                        ),
+                    )),
+                    Ok(Resolved::GraduatedSignposted) => r.findings.push(Finding::warn(
+                        R194,
+                        &page.rel,
+                        &token,
+                        format!(
+                            "line {}: `doc: {token}` cites a graduated page — it signposts its \
+                             destination; cite that unless you mean the provenance",
+                            line + 1
+                        ),
+                    )),
                     Ok(Resolved::Graduated) => r.findings.push(Finding::err(
                         R194,
                         &page.rel,
@@ -710,15 +801,25 @@ fn check_doc_refs(tree: &DocTree, r: &mut Report) {
                         &token,
                         format!("line {}: `{token}` is not a local-id", line + 1),
                     )),
-                    Err(DocRefFail::Dangling) => r.findings.push(Finding::err(
-                        R076,
-                        &page.rel,
-                        &token,
-                        format!(
+                    Err(DocRefFail::Dangling) => {
+                        let msg = format!(
                             "line {}: `doc: {token}` resolves to no id, alias, or family member",
                             line + 1
-                        ),
-                    )),
+                        );
+                        r.findings.push(if historical {
+                            Finding::warn(
+                                R076,
+                                &page.rel,
+                                &token,
+                                format!(
+                                    "{msg} — a record cannot be edited; tombstone the rename or \
+                                     distil the page"
+                                ),
+                            )
+                        } else {
+                            Finding::err(R076, &page.rel, &token, msg)
+                        });
+                    }
                 }
             }
         }
@@ -737,11 +838,15 @@ fn occurs_as_token(body: &str, token: &str) -> bool {
                 .get(..abs)
                 .and_then(|s| s.chars().last())
                 .is_none_or(|c| !c.is_ascii_alphanumeric() && c != '-');
+        // R-079: an occurrence that is itself a citation proves nothing.
+        let is_citation = body
+            .get(..abs)
+            .is_some_and(|s| s.trim_end_matches('`').ends_with("doc: "));
         let after_ok = body
             .get(abs + token.len()..)
             .and_then(|s| s.chars().next())
             .is_none_or(|c| !c.is_ascii_alphanumeric() && c != '-');
-        if before_ok && after_ok {
+        if before_ok && after_ok && !is_citation {
             return true;
         }
         start = abs + token.len().max(1);

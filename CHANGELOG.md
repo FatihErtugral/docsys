@@ -5,6 +5,32 @@ All notable changes to docsys are documented here. The format follows
 [SemVer](https://semver.org/). Release notes are extracted from this file
 by the release workflow — the tag's section becomes the GitHub release body.
 
+## [0.2.1] - 2026-08-16
+
+The same real repository, one layer deeper: 212 errors became 2, and every
+step of the drop was the tool learning, not the repository changing.
+
+### Fixed
+
+- R-079: a family member may be written in the register's own short form —
+  a page listing `(utf8-text)` under `defines: ADR-*` defines `ADR-utf8-text`,
+  and demanding the prefix twice made pages fail to define what they plainly
+  define. An occurrence that is itself a `doc:` citation no longer counts as
+  evidence: a reference cannot prove its own target (the hole withdrawn R-064
+  was meant to close).
+- The historical layer never blocks. A journal entry, an archive slice, or an
+  `_archive/` page citing a graduated, flowing, or missing identifier is
+  reported, not an error: a dated record cannot be corrected by editing it, and
+  the legitimate repairs — a tombstone, a distilled page — are what the report
+  names. An error nobody may honestly clear is one people learn to bypass.
+- A citation to an archived page resolves and is reported; the record is real,
+  dated content, exactly as an explicit `[[_archive/…]]` link already was.
+- A graduated page that records `graduated_to` is a signpost, not a husk:
+  citing it is reported, not blocked. Only a graduated page with nowhere to
+  point remains an error.
+- Inline-code parity is counted from the start of the line, so a second
+  reference on the same line parses (it used to swallow the closing backtick).
+
 ## [0.2.0] - 2026-08-16
 
 First release shaped by a real adoption: every change below came from running

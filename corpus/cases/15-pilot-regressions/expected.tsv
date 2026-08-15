@@ -1,2 +1,2 @@
-EXIT	1
-ERROR	R-076	work/journal.md	debt
+EXIT	0
+WARN	R-076	work/journal.md	debt

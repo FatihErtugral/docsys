@@ -678,7 +678,12 @@ suffix to the closing backtick, English glues a possessive, and reading those
 into the token invents an identifier that was never written.
 
 **R-076** `lint` · MUST — A local `doc: <local-id>` that matches no `id`, no
-alias, and no `defines:` family **is an error** — in 0.1 local references were
+alias, and no `defines:` family **is an error** in the live layer, and **is
+reported** in the historical one (the journal, its archive slices, `_archive/`):
+a dated record cannot be corrected by editing it, and the legitimate repairs —
+a tombstone for a renamed identifier (R-066), a page distilled at last — are
+exactly what the report names. An error nobody may honestly clear is an error
+people learn to bypass (R-150). In 0.1 local references were
 not required to resolve, so a typo was invisible. Foreign references resolve
 under federation (§13, R-139); in a tree with no federation state a foreign
 reference **is reported** as unresolvable here, never silently accepted and
@@ -687,21 +692,40 @@ never a core error — the core cannot check what only a manifest knows.
 **R-194** `lint` · MUST — A `doc:` reference resolves against **every** page
 identifier in the tree, tracked work included — a work page's `id` is an `id`
 (R-076). Because the flowing layer is temporary, the resolution carries a
-severity of its own: a reference to a page whose `status` is `graduated`
-**is an error** — that page announced its permanent value moved elsewhere and
-is not loaded into agent context (§5.2), so a citation pointing at it sends the
-reader to a husk; a reference to any other tracked-work page **is reported**,
-naming the distillation that has not happened yet. Field origin: the first real
+severity of its own: a reference to a page whose `status` is `graduated` and
+whose `graduated_to` names no resolvable destination **is an error** — that page
+announced its permanent value moved elsewhere and is not loaded into agent
+context (§5.2), so the citation is a dead end. When `graduated_to` does resolve,
+the same citation **is reported**: the husk is a signpost, the reader is
+mechanically redirected, and provenance ("this decision was carried out here")
+is a legitimate reason to keep pointing at it; a reference to any other tracked-work page **is reported**,
+naming the distillation that has not happened yet. A citation whose identifier belongs to an
+archived page resolves and **is reported**: the page is a record, not a live
+claim (R-059), and the same convention already governs an explicit `[[_archive/…]]`
+link — a reader following it lands on real, dated content and knows what layer
+it is. The journal is exempt from the error, active file and archive slices
+alike: an entry is a dated statement
+about what was true when it was written, the historical layer is never edited
+retroactively (R-104), and demanding that a two-month-old entry cite a page that
+did not exist yet asks history to be false. Field origin: the first real
 adoption cited 33 work pages that exist, and reporting them as dangling made a
 working tree look broken while the real debt — 54 identifiers with no page at
 all — was buried in the same list.
 
 **R-079** `lint` · MUST — A `doc:` reference resolved through a `defines:`
 family MUST name a member that exists: the cited identifier occurs on the
-defining page, as a heading or in its body. A glob match alone resolves
-nothing — otherwise `defines: adr-*` would make `doc: adr-9999` resolve
-forever — so a family citation with no such member is unresolved and falls
-under R-076.
+defining page, as a heading or in its body — in full, or with the family prefix
+removed, because a page that already declares the family commonly lists its
+members in short form (`(utf8-text)` under a register of `ADR-*`) and demanding
+the prefix twice makes a page fail to define what it plainly defines. A glob
+match alone resolves nothing — otherwise `defines: adr-*` would make
+`doc: adr-9999` resolve forever, and the short form does not weaken that: the
+member still has to occur — so a family citation with no such member is
+unresolved and falls under R-076. An occurrence that is itself a `doc:` citation
+is not evidence: a reference cannot prove its own target, and without this the
+defining page can cite any phantom member of its own family and have it read as
+healthy — the exact failure withdrawn R-064 targeted. This demands no definition
+syntax; it only refuses self-proof.
 
 ### 7.3 Documentation to code
 
