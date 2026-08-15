@@ -19,6 +19,8 @@ line back into rule text; until then this file is the authority for `docsys`.
 | D-011 | **Expected-output format.** Corpus cases carry `expected.tsv`: one finding per line, `SEVERITY<TAB>RULE<TAB>FILE<TAB>SUBJECT`, sorted; a first line `EXIT<TAB>n` asserts the exit class. Comparison is exact set equality — extra findings fail the case as hard as missing ones. |
 | D-012 | **Code scanning (R-077) not offered in v0.** `doc:` references are resolved inside the documentation tree only; the `refs` command brings the code scan and R-072 with it. |
 | D-013 | **Router acceptance.** `- [[<path>|<title>]] -- <sentence>` with ` -- ` canonical; a spaced em dash is accepted on read, never emitted. |
+| D-014 | **Router-entry detection.** Only `- ` lines containing `[[` are entries subject to R-035's grammar; plain bullets are prose, and whether prose belongs on a router is judgment (first pilot: three false positives on layout-description bullets). |
+| D-015 | **Backtick strip.** The backtick joined R-073's trailing-punctuation set (folded back into the spec): `` `doc: x` `` written as inline code is the reference convention of a real field tree. |
 
 ## Open (assigned, not yet decided)
 

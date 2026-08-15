@@ -665,7 +665,8 @@ by path:
 
 **R-073** `lint` · MUST — The token following `doc:` is read up to the first
 whitespace, then stripped of trailing punctuation (`.` `,` `;` `:` `)` `]` `"`
-`'` `?` `!`) — a reference at the end of a sentence is still a reference.
+`'` `?` `!` and the backtick) — a reference at the end of a sentence, or
+written as inline code, is still a reference.
 
 **R-076** `lint` · MUST — A local `doc: <local-id>` that matches no `id`, no
 alias, and no `defines:` family **is an error** — in 0.1 local references were

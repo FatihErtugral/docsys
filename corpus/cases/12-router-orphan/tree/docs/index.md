@@ -1,4 +1,4 @@
 # Docs
 
 - [[reference/linked|Linked]] -- Reachable page.
-- broken router line without link
+- [[reference/linked]] entry with a link but no title or sentence

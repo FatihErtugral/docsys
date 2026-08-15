@@ -502,7 +502,7 @@ fn check_doc_refs(tree: &DocTree, r: &mut Report) {
             }
         }
     }
-    const PUNCT: [char; 10] = ['.', ',', ';', ':', ')', ']', '"', '\'', '?', '!'];
+    const PUNCT: [char; 11] = ['.', ',', ';', ':', ')', ']', '"', '\'', '?', '!', '`'];
     let mut inspected = 0usize;
     for page in &tree.pages {
         for (line, text_line) in scannable_lines(&page.text) {
@@ -635,9 +635,11 @@ fn check_router_and_orphans(tree: &DocTree, r: &mut Report) {
         ));
         return;
     };
-    // R-035: router entry grammar. ` -- ` canonical; spaced em dash accepted.
+    // R-035: router entry grammar. Only lines that carry a wiki-link are
+    // entries (D-014); plain bullets are prose, and whether prose belongs on
+    // a router is judgment, not grammar.
     for (i, line) in router.text.lines().enumerate() {
-        if !line.starts_with("- ") {
+        if !line.starts_with("- ") || !line.contains("[[") {
             continue;
         }
         let ok = line.starts_with("- [[")
