@@ -161,24 +161,72 @@ the mapping, the tool copies the bytes.
 | `docsys rules --agents-md / --procedures` | Agent text generated from the embedded spec: a ~33-line always-loaded block, and the fifteen decision procedures. |
 | `docsys agents` | Install the hooks, `/doc-sync`, and the thin skill under `.claude/`. |
 
-## Try it in five minutes
+## Quick start
 
 ```sh
-cargo build --release          # zero dependencies, one static binary
-alias docsys=$PWD/target/release/docsys
-
-# greenfield
-mkdir -p demo && cd demo && git init -q
-docsys init --root docs
-docsys agents                          # hooks + skill under .claude/
-docsys rules --agents-md >> AGENTS.md  # the always-loaded block
-docsys lint --root docs                # green
-
-# brownfield (any repo with markdown anywhere)
-docsys migrate inventory --root <your-docs-dir> --repo . > plan.tsv
-#   … fill the TODO targets (this is the judgment step) …
-docsys migrate apply --plan plan.tsv --root <your-docs-dir> --repo .
+cargo install --path .    # zero dependencies → one static binary on your PATH
+docsys help
 ```
+
+### 1 · Feel it on a clean project (5 minutes)
+
+```sh
+mkdir demo && cd demo && git init -q
+docsys init --root docs      # skeleton: .docmeta.yml, router, journal, debt
+docsys lint --root docs      # green
+```
+
+Now break it on purpose and watch the severity doctrine work:
+
+```sh
+# a dangling wiki-link — silently wrong, so it BLOCKS
+echo "See [[reference/ghost|ghost]]" >> docs/index.md
+docsys lint --root docs      # ERROR R-071 · exit 1
+
+# a bare permanent page — reversible, so it only WARNS
+mkdir -p docs/reference && echo "naked page" > docs/reference/x.md
+docsys lint --root docs      # WARN R-050 (frontmatter) + WARN R-034 (orphan)
+```
+
+### 2 · The agent layer (where it becomes a system)
+
+```sh
+docsys agents                          # 4 warn-only hooks + /doc-sync + skill → .claude/
+docsys rules --agents-md >> AGENTS.md  # the always-loaded block (~33 lines)
+docsys rules --procedures | less       # the 15 authored decision procedures
+```
+
+Merge the printed hook snippet into `.claude/settings.json` by hand (it is a
+protected file — the tool deliberately never writes it). Then open an agent
+session in that directory and try the loop:
+
+- open with something ambiguous ("let's look at the timer") → the
+  session-intent hook asks for the work type, once
+- have it edit a `docs/reference/` page → `updated:` bumps itself
+- change code and try to commit without touching docs → the pre-commit hook
+  warns, naming what should have moved
+- type `/doc-sync` → a drift report over `docsys lint` + `docsys refs`
+
+### 3 · A real repository, safely (clone first)
+
+```sh
+git clone <your-repo> /tmp/pilot && cd /tmp/pilot
+docsys migrate inventory --root <docs-dir> --repo . > plan.tsv
+```
+
+Open `plan.tsv`: one evidence line per file (first heading, link counts,
+inbound references from README/CI/code) and a `TODO` target. Filling the
+targets is the judgment step — do it yourself, or hand it to an agent in that
+directory; classification is exactly what the P/R-031 procedure is for. Then:
+
+```sh
+docsys migrate apply --plan plan.tsv --root <docs-dir> --repo .
+```
+
+It moves files, injects frontmatter, rewrites links on both sides of the docs
+boundary (README included), reports what it could not map as RISK lines, and
+lints the result. Don't like it? `git checkout . && git clean -fd` — it was a
+clone; zero risk.
 
 ## What keeps it honest
 

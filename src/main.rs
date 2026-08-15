@@ -7,7 +7,7 @@ const USAGE: &str = "docsys — documentation system tool (spec: SPEC.md)
 Usage:
   docsys lint    [--root <dir>] [--json]
   docsys init    [--root <dir>] [--lang <code>]
-  docsys migrate inventory [--root <dir>]            # plan skeleton to stdout
+  docsys migrate inventory [--root <dir>] [--repo <dir>]   # plan skeleton to stdout
   docsys migrate apply --plan <file> [--root <dir>] [--lang <code>] [--repo <dir>]
   docsys refs    --repo <dir> [--root <dir>] [--json]
   docsys rules   --agents-md | --procedures [--max-lines <n>]
@@ -115,6 +115,10 @@ fn main() -> ExitCode {
         }
     };
     match (cmd, sub) {
+        ("help", _) | ("--help", _) | ("-h", _) => {
+            print!("{USAGE}");
+            return ExitCode::SUCCESS;
+        }
         ("lint", None) => run_lint(&opts),
         ("rules", None) => {
             if opts.procedures {
