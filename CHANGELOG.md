@@ -5,6 +5,36 @@ All notable changes to docsys are documented here. The format follows
 [SemVer](https://semver.org/). Release notes are extracted from this file
 by the release workflow — the tag's section becomes the GitHub release body.
 
+## [Unreleased]
+
+### Added
+
+- Audience modes (D-033): a page may declare `audience:`, the vocabulary is
+  the tree's own (`audiences:` in `.docmeta.yml`, the domains pattern), and an
+  undeclared page reads as `developer` — no migration, no guessing. `--audience`
+  on `export plan/product/feature` selects by declaration: a *named* page of
+  the wrong audience is refused, a `--follow`ed one becomes a named gap
+  warning, and a draft for an audience nobody writes for is an error naming
+  the whole-tree gap. The tool never writes and never re-audiences prose —
+  the modes select, the agent authors.
+- The `docsys-export` skill (installed by `agents`/`adopt`): turns "create the
+  end-user doc for X" into a procedure — discover with `export plan`, compose,
+  close gaps by authoring pages with approval, translate under R-122/R-123.
+  Without it the prompt lives in the user's head, the hand-maintained
+  knowledge D-022 exists to prevent.
+- `docsys fetch` — federation's first working slice (D-034): a consumer
+  declares its providers as one `consume_base:` template plus a list of names
+  (three hundred services, one line — or `<ns>=<location>` per service), where
+  a location is a filesystem path or a git URL with `#<subdir>`; fetch
+  shallow-clones git providers and materializes each provider's exported
+  pages under `.federation/<ns>/` (reconstructed frontmatter,
+  verbatim body, provenance sidecar; `internal: true` never crosses), and a
+  `@ns/<id>` map or feature entry now composes across repositories — two
+  repos sharing one feature produce one document. Foreign entries resolve
+  only against the verified local state: unfetched and tampered
+  materializations are refused by name, and every foreign stamp carries its
+  fetch date.
+
 ## [0.3.0] - 2026-08-16
 
 The knowledge-base profile is checked, not just recognized. Shaped by the first

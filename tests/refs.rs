@@ -59,12 +59,15 @@ fn code_refs_resolve_dangle_and_respect_scan_exclude() {
 fn agents_install_writes_assets_and_respects_existing() {
     let dir = tmp("agents").join(".claude");
     let done = docsys::agents::install(&dir, false).unwrap();
-    assert_eq!(done.written.len(), 6, "{:?}", done.written);
+    assert_eq!(done.written.len(), 7, "{:?}", done.written);
     // Second run without --force skips everything.
     let again = docsys::agents::install(&dir, false).unwrap();
-    assert_eq!(again.skipped.len(), 6);
+    assert_eq!(again.skipped.len(), 7);
     let skill = fs::read_to_string(dir.join("skills/docsys/SKILL.md")).unwrap();
     assert!(skill.contains("docsys rules --procedures"));
+    let export = fs::read_to_string(dir.join("skills/docsys-export/SKILL.md")).unwrap();
+    assert!(export.contains("--audience"));
+    assert!(export.contains("R-122/R-123"));
     let _ = fs::remove_dir_all(dir.parent().unwrap_or(&dir));
 }
 

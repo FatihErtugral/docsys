@@ -16,9 +16,10 @@ Usage:
   docsys agents  [--dir .claude] [--force]   # install hooks + skill + /doc-sync
   docsys graduate plan <work-file>  [--root <dir>]
   docsys graduate apply --plan <file> [--root <dir>] [--force]
-  docsys export plan    [--root <dir>]               # draft product map to stdout
-  docsys export product <map> [--root <dir>] [--out <file>] [--lang <code>]
-  docsys export feature <id> [<id>...] [--follow] [--title <t>] [--root <dir>] [--out <file>] [--lang <code>]
+  docsys export plan    [--root <dir>] [--audience <a>]   # draft product map to stdout
+  docsys export product <map> [--root <dir>] [--out <file>] [--lang <code>] [--audience <a>]
+  docsys export feature <id> [<id>...] [--follow] [--title <t>] [--root <dir>] [--out <file>] [--lang <code>] [--audience <a>]
+  docsys fetch   [--root <dir>]              # materialize consumed namespaces into .federation/
 
 Exit codes (the contract scripts and CI read):
   0  ok — clean, or warnings only (warnings inform; they never block)
@@ -33,6 +34,7 @@ struct Opts {
     lang_explicit: bool,
     title: Option<String>,
     follow: bool,
+    audience: Option<String>,
     plan: Option<PathBuf>,
     out: Option<PathBuf>,
     repo: Option<PathBuf>,
@@ -52,6 +54,7 @@ fn parse_opts(args: &[String]) -> Result<Opts, String> {
         lang_explicit: false,
         title: None,
         follow: false,
+        audience: None,
         plan: None,
         out: None,
         repo: None,
@@ -74,6 +77,7 @@ fn parse_opts(args: &[String]) -> Result<Opts, String> {
             "--out" => o.out = Some(PathBuf::from(it.next().ok_or("--out needs a value")?)),
             "--title" => o.title = Some(it.next().ok_or("--title needs a value")?.clone()),
             "--follow" => o.follow = true,
+            "--audience" => o.audience = Some(it.next().ok_or("--audience needs a value")?.clone()),
             "--repo" => o.repo = Some(PathBuf::from(it.next().ok_or("--repo needs a value")?)),
             "--dir" => o.dir = PathBuf::from(it.next().ok_or("--dir needs a value")?),
             "--force" => o.force = true,
@@ -244,23 +248,42 @@ fn main() -> ExitCode {
                 ExitCode::from(2)
             }
         }
-        ("export", Some("plan")) => match docsys::export::plan(&opts.root) {
-            Ok(p) => {
-                print!("{p}");
+        ("fetch", None) => match docsys::export::fetch(&opts.root) {
+            Ok(summary) => {
+                for s in &summary {
+                    println!("{s}");
+                }
                 ExitCode::SUCCESS
             }
             Err(e) => {
-                eprintln!("export plan: {e}");
+                eprintln!("fetch: {e}");
                 ExitCode::from(2)
             }
         },
+        ("export", Some("plan")) => {
+            match docsys::export::plan(&opts.root, opts.audience.as_deref()) {
+                Ok(p) => {
+                    print!("{p}");
+                    ExitCode::SUCCESS
+                }
+                Err(e) => {
+                    eprintln!("export plan: {e}");
+                    ExitCode::from(2)
+                }
+            }
+        }
         ("export", Some("product")) => {
             let Some(map) = opts.positional.first() else {
                 eprintln!("export product needs a <map> argument");
                 return ExitCode::from(2);
             };
             let want_lang = opts.lang_explicit.then_some(opts.lang.as_str());
-            match docsys::export::product(&opts.root, std::path::Path::new(map), want_lang) {
+            match docsys::export::product(
+                &opts.root,
+                std::path::Path::new(map),
+                want_lang,
+                opts.audience.as_deref(),
+            ) {
                 Ok(done) => emit_export(&done, opts.out.as_deref()),
                 Err(e) => {
                     eprintln!("export product: {e}");
@@ -280,6 +303,7 @@ fn main() -> ExitCode {
                 opts.follow,
                 opts.title.clone(),
                 want_lang,
+                opts.audience.as_deref(),
             ) {
                 Ok(done) => emit_export(&done, opts.out.as_deref()),
                 Err(e) => {

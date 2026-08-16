@@ -132,11 +132,14 @@ fn check_docmeta(tree: &DocTree, r: &mut Report) {
         ));
     }
     // R-161: unknown keys are reported, never rejected.
-    const KNOWN: [&str; 17] = [
+    const KNOWN: [&str; 20] = [
         "spec",
         "profile",
         "default_content_language",
         "domains",
+        "audiences",
+        "consume",
+        "consume_base",
         "journal_entry_max_lines",
         "list_labels",
         "stale_active_days",

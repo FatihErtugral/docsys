@@ -21,9 +21,11 @@
 //! The map (D-032) is plain markdown: H1 product name, intro prose, H2
 //! sections, and under each section R-035-shaped lines whose targets are
 //! `doc:` identifiers — `- [[<id>|<title>]] -- <sentence>`. A `@ns/<id>`
-//! entry is refused until federation consumption exists (the D-006 pattern:
-//! refuse, never half-run). The map lives outside the docs root: its targets
-//! are identifiers, not paths, and the link checks must not read them.
+//! entry composes from the namespace's local materialization under
+//! `.federation/` (`docsys fetch`, D-034) — never from a live provider; an
+//! unfetched or tampered materialization is refused by name. The map lives
+//! outside the docs root: its targets are identifiers, not paths, and the
+//! link checks must not read them.
 
 use crate::fm::Value;
 use crate::migrate::today;
@@ -118,6 +120,18 @@ fn summary_of(page: &Page) -> String {
         Some(i) => para[..=i].trim().to_string(),
         None => para,
     }
+}
+
+/// A page's declared audience; undeclared reads as `developer` (D-033) —
+/// every existing tree is developer documentation, so the default costs no
+/// migration and an audience-filtered export only ever includes a page that
+/// says who it is for.
+fn audience_of(page: &Page) -> &str {
+    page.fm
+        .as_ref()
+        .and_then(|f| f.fields.get("audience"))
+        .and_then(Value::as_str)
+        .unwrap_or("developer")
 }
 
 /// The page body with its leading H1 dropped (the title is re-set by the
@@ -236,6 +250,206 @@ fn index_pages(tree: &DocTree) -> (BTreeMap<&str, &Page>, BTreeMap<&str, &Page>)
     (by_id, flowing)
 }
 
+/// Load a foreign entry from its local materialization (R-136/R-148): the
+/// last verified fetch is what composes — never a live provider query. Both
+/// halves are checked: a missing sidecar and a body that no longer hashes to
+/// its provenance are refusals (R-137/R-147/R-149).
+fn load_foreign(tree: &DocTree, token: &str) -> Result<(Page, String), String> {
+    let Some((ns, id)) = token.trim_start_matches('@').split_once('/') else {
+        return Err(format!("`{token}` is not `@namespace/<id>`"));
+    };
+    let base = tree.root.join(".federation").join(ns);
+    let Ok(text) = std::fs::read_to_string(base.join(format!("{id}.md"))) else {
+        return Err(format!(
+            "`{token}`: not materialized — declare the provider in .docmeta.yml \
+             `consume: [{ns}=<path>]` and run `docsys fetch`"
+        ));
+    };
+    let Ok(side) = std::fs::read_to_string(base.join(format!("{id}.provenance.yml"))) else {
+        return Err(format!(
+            "`{token}`: materialized page has no provenance sidecar (R-149) — \
+             hand-placed content cannot masquerade as federated; re-run `docsys fetch`"
+        ));
+    };
+    let get = |k: &str| {
+        side.lines()
+            .find_map(|l| l.strip_prefix(k).and_then(|r| r.strip_prefix(": ")))
+            .unwrap_or("")
+            .trim()
+            .to_string()
+    };
+    let body = strip_frontmatter(&text).replace("\r\n", "\n");
+    let body = body.trim_matches('\n');
+    let got = format!("fnv:{:016x}", fnv(body.as_bytes()));
+    if get("hash") != got {
+        return Err(format!(
+            "`{token}`: body no longer matches its provenance hash — edited locally or \
+             half-fetched (R-137); re-run `docsys fetch`"
+        ));
+    }
+    let fm = crate::fm::parse(&text);
+    Ok((
+        Page {
+            rel: format!(".federation/{ns}/{id}.md"),
+            kind: Kind::Permanent,
+            text,
+            fm,
+        },
+        get("fetched"),
+    ))
+}
+
+fn is_git_url(loc: &str) -> bool {
+    loc.starts_with("git@")
+        || loc.starts_with("http://")
+        || loc.starts_with("https://")
+        || loc.starts_with("ssh://")
+        || loc.starts_with("file://")
+        || loc.ends_with(".git")
+}
+
+/// Shallow clone or update a provider checkout. The cache is never edited
+/// locally, so a hard reset to what the remote serves is always correct.
+fn git_sync(url: &str, cache: &Path) -> Result<(), String> {
+    use std::process::Command;
+    let run = |args: &[&str], cwd: Option<&Path>| -> Result<(), String> {
+        let mut c = Command::new("git");
+        if let Some(d) = cwd {
+            c.arg("-C").arg(d);
+        }
+        let out = c.args(args).output().map_err(|e| e.to_string())?;
+        if out.status.success() {
+            Ok(())
+        } else {
+            Err(format!(
+                "git {} failed for `{url}`: {}",
+                args.first().unwrap_or(&"?"),
+                String::from_utf8_lossy(&out.stderr).trim()
+            ))
+        }
+    };
+    if cache.join(".git").is_dir() {
+        run(&["fetch", "-q", "--depth", "1", "origin"], Some(cache))?;
+        run(&["reset", "-q", "--hard", "FETCH_HEAD"], Some(cache))
+    } else {
+        if let Some(parent) = cache.parent() {
+            std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+        }
+        run(
+            &["clone", "-q", "--depth", "1", url, &cache.to_string_lossy()],
+            None,
+        )
+    }
+}
+
+/// Materialize every consumed namespace under `.federation/` (filesystem
+/// transport, R-145's simplest conformant channel). The provider tree is read
+/// directly; each exported page lands as reconstructed frontmatter (R-136) +
+/// verbatim body, with a provenance sidecar (R-149). `internal: true` pages
+/// are never materialized (R-135).
+pub fn fetch(root: &Path) -> Result<Vec<String>, String> {
+    let tree = DocTree::load(root).map_err(|e| e.to_string())?;
+    if !tree.docmeta_present {
+        return Err(format!("`{}` has no .docmeta.yml", root.display()));
+    }
+    let entries = tree.docmeta_list("consume");
+    if entries.is_empty() {
+        return Err("nothing to fetch — declare providers in .docmeta.yml: a \
+             `consume_base:` template plus `consume: [<name>, …]`, or explicit \
+             `consume: [<namespace>=<location>, …]` (D-034)"
+            .to_string());
+    }
+    // At estate scale nobody maintains three hundred locations by hand
+    // (R-002): one template names them all, `{ns}` substituted per entry.
+    let base = tree.docmeta_str("consume_base");
+    let mut summary = Vec::new();
+    for entry in entries {
+        let (ns, loc) = match entry.split_once('=') {
+            Some((n, l)) => (n.trim(), l.trim().to_string()),
+            None => {
+                let Some(base) = base else {
+                    return Err(format!(
+                        "consume entry `{entry}` names no location and no `consume_base:` \
+                         template is declared"
+                    ));
+                };
+                (entry.trim(), base.replace("{ns}", entry.trim()))
+            }
+        };
+        // `<location>#<subdir>` — the docs root inside the repository.
+        let (loc, sub) = match loc.split_once('#') {
+            Some((l, s)) => (l.trim().to_string(), s.trim().to_string()),
+            None => (loc, String::new()),
+        };
+        let provider_root = if is_git_url(&loc) {
+            // The checkout cache lives under a dot-directory: the tree walk
+            // never reads it, only fetch does.
+            let cache = root.join(".federation").join(".checkouts").join(ns);
+            git_sync(&loc, &cache)?;
+            cache.join(if sub.is_empty() { "docs" } else { sub.as_str() })
+        } else {
+            let p = Path::new(&loc);
+            let base_dir = if p.is_absolute() {
+                p.to_path_buf()
+            } else {
+                root.join(p)
+            };
+            if sub.is_empty() {
+                base_dir
+            } else {
+                base_dir.join(&sub)
+            }
+        };
+        let provider = DocTree::load(&provider_root)
+            .map_err(|e| format!("{ns}: cannot read `{}`: {e}", provider_root.display()))?;
+        if !provider.docmeta_present {
+            return Err(format!(
+                "{ns}: `{}` has no .docmeta.yml — not a docsys tree",
+                provider_root.display()
+            ));
+        }
+        let dir = root.join(".federation").join(ns);
+        std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+        let mut count = 0usize;
+        for page in &provider.pages {
+            if page.kind != Kind::Permanent {
+                continue;
+            }
+            let Some(fm) = &page.fm else { continue };
+            let Some(id) = fm.fields.get("id").and_then(Value::as_str) else {
+                continue;
+            };
+            if fm.fields.get("internal").and_then(Value::as_str) == Some("true") {
+                continue; // R-135
+            }
+            let body = strip_frontmatter(&page.text).replace("\r\n", "\n");
+            let body = body.trim_matches('\n');
+            let mut head = String::from("---\n");
+            let _ = writeln!(head, "id: {id}");
+            for k in ["type", "updated", "lang", "audience"] {
+                if let Some(v) = fm.fields.get(k).and_then(Value::as_str) {
+                    let _ = writeln!(head, "{k}: {v}");
+                }
+            }
+            head.push_str("---\n\n");
+            std::fs::write(dir.join(format!("{id}.md")), format!("{head}{body}\n"))
+                .map_err(|e| e.to_string())?;
+            let sidecar = format!(
+                "namespace: {ns}\nid: {id}\nhash: fnv:{:016x}\nfetched: {}\n",
+                fnv(body.as_bytes()),
+                today()
+            );
+            std::fs::write(dir.join(format!("{id}.provenance.yml")), sidecar)
+                .map_err(|e| e.to_string())?;
+            count += 1;
+        }
+        summary.push(format!(
+            "{ns}: {count} page(s) materialized under .federation/{ns}/"
+        ));
+    }
+    Ok(summary)
+}
+
 /// The shared composer. Every entry must resolve to a permanent page;
 /// anything else is refused with the full list — a document with silently
 /// missing sections would be the lie R-151 forbids.
@@ -252,19 +466,49 @@ fn compose(
     intro: &str,
     sections: &[Section],
     want_lang: Option<&str>,
+    want_audience: Option<&str>,
 ) -> Result<ProductOutcome, String> {
     let (by_id, flowing) = index_pages(tree);
     let mut errors: Vec<String> = Vec::new();
     let mut warnings: Vec<String> = Vec::new();
+    // token → (materialized page, fetched date). Foreign entries compose from
+    // the last verified fetch, never a live query (R-136/R-148).
+    let mut foreign: BTreeMap<String, (Page, String)> = BTreeMap::new();
     for s in sections {
         for id in &s.entries {
             if id.starts_with('@') {
-                errors.push(format!(
-                    "`{id}`: federation consumption is not implemented — a foreign page \
-                     cannot be composed yet"
-                ));
-            } else if by_id.contains_key(id.as_str()) {
-                // resolves
+                if foreign.contains_key(id.as_str()) {
+                    continue;
+                }
+                match load_foreign(tree, id) {
+                    Ok(pf) => {
+                        if let Some(want) = want_audience {
+                            let aud = audience_of(&pf.0);
+                            if aud != want {
+                                errors.push(format!(
+                                    "`{id}` is a `{aud}` page — this document wants `{want}`; \
+                                     author a `{want}` page (agent work) or drop the entry"
+                                ));
+                            }
+                        }
+                        foreign.insert(id.clone(), pf);
+                    }
+                    Err(e) => errors.push(e),
+                }
+            } else if let Some(page) = by_id.get(id.as_str()) {
+                // Resolves. An explicitly named page of the wrong audience is
+                // refused, not skipped: a document for one reader with another
+                // reader's page silently inside is the half-compose R-151
+                // forbids.
+                if let Some(want) = want_audience {
+                    let aud = audience_of(page);
+                    if aud != want {
+                        errors.push(format!(
+                            "`{id}` is a `{aud}` page — this document wants `{want}`; \
+                             author a `{want}` page (agent work) or drop the entry"
+                        ));
+                    }
+                }
             } else if flowing.contains_key(id.as_str()) {
                 errors.push(format!(
                     "`{id}` is flowing work — distil it into a permanent page first (R-194)"
@@ -320,9 +564,22 @@ fn compose(
             let _ = writeln!(out, "\n## {}", s.title);
         }
         for id in &s.entries {
-            let Some(page) = by_id.get(id.as_str()) else {
-                continue; // unreachable: the resolve pass above refused already
-            };
+            let (page, fetched): (&Page, Option<&str>) =
+                if let Some((p, f)) = foreign.get(id.as_str()) {
+                    (p, Some(f.as_str()))
+                } else if let Some(p) = by_id.get(id.as_str()) {
+                    (p, None)
+                } else {
+                    continue; // unreachable: the resolve pass above refused already
+                };
+            let declared = tree.docmeta_list("audiences");
+            let aud = audience_of(page);
+            if !declared.is_empty() && aud != "developer" && !declared.iter().any(|a| a == aud) {
+                warnings.push(format!(
+                    "`{id}` declares audience `{aud}`, not in .docmeta.yml `audiences:` — \
+                     a misspelling would silently hide the page from its readers"
+                ));
+            }
             let internal = page
                 .fm
                 .as_ref()
@@ -365,9 +622,12 @@ fn compose(
                 .and_then(|f| f.fields.get("updated"))
                 .and_then(Value::as_str)
                 .unwrap_or("?");
+            let fetched_note = fetched
+                .map(|f| format!(" · fetched: {f}"))
+                .unwrap_or_default();
             let _ = writeln!(
                 out,
-                "\n<!-- source: doc: {id} · {} · fnv:{:016x} · updated: {updated} -->",
+                "\n<!-- source: doc: {id} · {} · fnv:{:016x} · updated: {updated}{fetched_note} -->",
                 page.rel,
                 fnv(body.as_bytes())
             );
@@ -397,6 +657,7 @@ pub fn product(
     root: &Path,
     map_path: &Path,
     want_lang: Option<&str>,
+    want_audience: Option<&str>,
 ) -> Result<ProductOutcome, String> {
     let map_text =
         std::fs::read_to_string(map_path).map_err(|e| format!("{}: {e}", map_path.display()))?;
@@ -405,13 +666,18 @@ pub fn product(
     if !tree.docmeta_present {
         return Err(format!("`{}` has no .docmeta.yml", root.display()));
     }
+    let note = match want_audience {
+        Some(a) => format!("map: {} · audience: {a}", map_path.display()),
+        None => format!("map: {}", map_path.display()),
+    };
     compose(
         &tree,
-        &format!("map: {}", map_path.display()),
+        &note,
         Some(title),
         &intro,
         &sections,
         want_lang,
+        want_audience,
     )
     .map_err(|e| format!("the map {e}"))
 }
@@ -427,12 +693,14 @@ pub fn feature(
     follow: bool,
     title: Option<String>,
     want_lang: Option<&str>,
+    want_audience: Option<&str>,
 ) -> Result<ProductOutcome, String> {
     let tree = DocTree::load(root).map_err(|e| e.to_string())?;
     if !tree.docmeta_present {
         return Err(format!("`{}` has no .docmeta.yml", root.display()));
     }
     let mut entries: Vec<String> = ids.to_vec();
+    let mut gaps: Vec<String> = Vec::new();
     if follow {
         let (by_id, _) = index_pages(&tree);
         for id in ids {
@@ -454,6 +722,18 @@ pub fn feature(
                 else {
                     continue;
                 };
+                // A followed page of another audience is a gap, not an error:
+                // the walk found related material this reader cannot use yet.
+                if let Some(want) = want_audience {
+                    let aud = audience_of(linked);
+                    if aud != want {
+                        gaps.push(format!(
+                            "gap: linked page `{lid}` is `{aud}` — no `{want}` counterpart \
+                             exists; authoring one is agent work"
+                        ));
+                        continue;
+                    }
+                }
                 if !entries.iter().any(|e| e == lid) {
                     entries.push(lid.to_string());
                 }
@@ -461,15 +741,21 @@ pub fn feature(
         }
     }
     let note = format!(
-        "ids: {}{}",
+        "ids: {}{}{}",
         ids.join(", "),
-        if follow { " · follow" } else { "" }
+        if follow { " · follow" } else { "" },
+        want_audience
+            .map(|a| format!(" · audience: {a}"))
+            .unwrap_or_default()
     );
     let sections = [Section {
         title: String::new(),
         entries,
     }];
-    compose(&tree, &note, title, "", &sections, want_lang).map_err(|e| format!("the slice {e}"))
+    let mut done = compose(&tree, &note, title, "", &sections, want_lang, want_audience)
+        .map_err(|e| format!("the slice {e}"))?;
+    done.warnings.extend(gaps);
+    Ok(done)
 }
 
 /// Write `output` to `path` only when the composed content differs from what
@@ -496,29 +782,99 @@ pub fn write_if_changed(path: &Path, output: &str) -> std::io::Result<bool> {
 /// A draft map from the tree's evidence: every permanent page, grouped by
 /// type, with its R-057 title and summary. A proposal — keeping, cutting and
 /// naming the sections is the judgment the tool never does (R-003).
-pub fn plan(root: &Path) -> Result<String, String> {
+pub fn plan(root: &Path, want_audience: Option<&str>) -> Result<String, String> {
     let tree = DocTree::load(root).map_err(|e| e.to_string())?;
     if !tree.docmeta_present {
         return Err(format!("`{}` has no .docmeta.yml", root.display()));
     }
-    let mut groups: BTreeMap<&str, Vec<&Page>> = BTreeMap::new();
+    // type → (identifier as it goes on the map, title, summary)
+    let mut groups: BTreeMap<String, Vec<(String, String, String)>> = BTreeMap::new();
+    let mut add = |page: &Page, id_on_map: String| {
+        if want_audience.is_some_and(|want| audience_of(page) != want) {
+            return;
+        }
+        let ty = page
+            .fm
+            .as_ref()
+            .and_then(|f| f.fields.get("type"))
+            .and_then(Value::as_str)
+            .unwrap_or("(untyped)")
+            .to_string();
+        groups
+            .entry(ty)
+            .or_default()
+            .push((id_on_map, title_of(page), summary_of(page)));
+    };
     for page in &tree.pages {
         if page.kind != Kind::Permanent {
             continue;
         }
-        let Some(fm) = &page.fm else { continue };
-        if fm.fields.get("id").and_then(Value::as_str).is_none() {
-            continue;
-        }
-        let ty = fm
-            .fields
-            .get("type")
+        let Some(id) = page
+            .fm
+            .as_ref()
+            .and_then(|f| f.fields.get("id"))
             .and_then(Value::as_str)
-            .unwrap_or("(untyped)");
-        groups.entry(ty).or_default().push(page);
+        else {
+            continue;
+        };
+        add(page, id.to_string());
+    }
+    // Fetched namespaces draft too: an estate repo owns no pages of its own,
+    // and its draft must still show everything the estate can compose.
+    let fed = tree.root.join(".federation");
+    if let Ok(entries) = std::fs::read_dir(&fed) {
+        let mut dirs: Vec<_> = entries.filter_map(Result::ok).map(|e| e.path()).collect();
+        dirs.sort();
+        for d in dirs {
+            let Some(ns) = d.file_name().and_then(|n| n.to_str()) else {
+                continue;
+            };
+            if !d.is_dir() || ns.starts_with('.') {
+                continue;
+            }
+            let Ok(files) = std::fs::read_dir(&d) else {
+                continue;
+            };
+            let mut files: Vec<_> = files.filter_map(Result::ok).map(|e| e.path()).collect();
+            files.sort();
+            for f in files {
+                if f.extension().is_none_or(|x| x != "md") {
+                    continue;
+                }
+                let Ok(text) = std::fs::read_to_string(&f) else {
+                    continue;
+                };
+                let fm = crate::fm::parse(&text);
+                let page = Page {
+                    rel: format!(".federation/{ns}"),
+                    kind: Kind::Permanent,
+                    text,
+                    fm,
+                };
+                let Some(id) = page
+                    .fm
+                    .as_ref()
+                    .and_then(|x| x.fields.get("id"))
+                    .and_then(Value::as_str)
+                else {
+                    continue;
+                };
+                let id_on_map = format!("@{ns}/{id}");
+                add(&page, id_on_map);
+            }
+        }
     }
     if groups.is_empty() {
-        return Err("no permanent pages with an id — nothing to draft from".to_string());
+        return Err(match want_audience {
+            // The whole-tree gap, named: the draft cannot propose pages that
+            // were never written.
+            Some(want) => format!(
+                "no permanent page declares `audience: {want}` — the pages do not exist \
+                 yet; authoring them is agent work (undeclared pages read as `developer`, \
+                 D-033)"
+            ),
+            None => "no permanent pages with an id — nothing to draft from".to_string(),
+        });
     }
     let mut out = String::new();
     out.push_str(
@@ -528,16 +884,10 @@ pub fn plan(root: &Path) -> Result<String, String> {
          Then: docsys export product <this-file> --root <docs root> -->\n\n",
     );
     out.push_str("# <product name>\n\n<product introduction — one or two sentences>\n");
-    for (ty, pages) in &groups {
+    for (ty, rows) in &groups {
         let _ = writeln!(out, "\n## {ty}");
-        for page in pages {
-            let id = page
-                .fm
-                .as_ref()
-                .and_then(|f| f.fields.get("id"))
-                .and_then(Value::as_str)
-                .unwrap_or("?");
-            let _ = writeln!(out, "- [[{id}|{}]] -- {}", title_of(page), summary_of(page));
+        for (id, title, summary) in rows {
+            let _ = writeln!(out, "- [[{id}|{title}]] -- {summary}");
         }
     }
     Ok(out)
