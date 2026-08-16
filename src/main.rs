@@ -380,7 +380,7 @@ fn main() -> ExitCode {
         ("agents", None) if opts.kb => {
             // The base is the docs root's parent when the root is the base
             // itself (a knowledge base is usually its own repository).
-            let base = if opts.root == PathBuf::from("docs") {
+            let base = if opts.root.as_path() == std::path::Path::new("docs") {
                 PathBuf::from(".")
             } else {
                 opts.root.clone()
