@@ -66,7 +66,17 @@ fn parse_inline_list(v: &str) -> Option<Vec<String>> {
     if inner.trim().is_empty() {
         return Some(Vec::new());
     }
-    Some(inner.split(',').map(strip_quotes).collect())
+    // A formatter leaves a trailing comma when it reflows a list; the empty
+    // slot after it is punctuation, not an item. Reading it as one turned a
+    // path-prefix exclusion into "exclude everything" — a check that inspects
+    // nothing (R-011 caught exactly this on a real tree).
+    Some(
+        inner
+            .split(',')
+            .map(strip_quotes)
+            .filter(|s| !s.is_empty())
+            .collect(),
+    )
 }
 
 /// Parse the frontmatter block of `text`. Returns `None` when the file does
@@ -80,6 +90,10 @@ pub fn parse(text: &str) -> Option<Frontmatter> {
 
     let mut fm = Frontmatter::default();
     let mut pending_list_key: Option<String> = None;
+    // A formatter (prettier and friends) reflows a long `key: [a, b, c]` across
+    // several lines; the value is the same value, so the parser follows it to
+    // the closing bracket instead of reading indented continuations as nesting.
+    let mut open_list: Option<(String, String)> = None;
 
     for (idx, line) in lines {
         if line == "---" {
@@ -95,8 +109,36 @@ pub fn parse(text: &str) -> Option<Frontmatter> {
         if line.trim_start().starts_with('#') {
             continue;
         }
+        if let Some((key, mut acc)) = open_list.take() {
+            acc.push(' ');
+            acc.push_str(line.trim());
+            if acc.contains(']') {
+                if let Some(items) = parse_inline_list(acc.trim()) {
+                    fm.fields.insert(key, Value::List(items));
+                } else {
+                    fm.problems
+                        .push(format!("line {}: unreadable inline list", idx + 1));
+                }
+            } else {
+                open_list = Some((key, acc));
+            }
+            continue;
+        }
         // Block-list item for the key on the previous line?
         if let Some(key) = pending_list_key.clone() {
+            // A formatter may push the opening bracket onto its own line.
+            if line.trim_start().starts_with('[') {
+                pending_list_key = None;
+                let acc = line.trim().to_string();
+                if acc.contains(']') {
+                    if let Some(items) = parse_inline_list(&acc) {
+                        fm.fields.insert(key, Value::List(items));
+                    }
+                } else {
+                    open_list = Some((key, acc));
+                }
+                continue;
+            }
             if let Some(item) = line.strip_prefix("  - ") {
                 let entry = fm
                     .fields
@@ -141,6 +183,8 @@ pub fn parse(text: &str) -> Option<Frontmatter> {
             fm.fields.insert(key.to_string(), Value::List(Vec::new()));
         } else if let Some(items) = parse_inline_list(rest) {
             fm.fields.insert(key.to_string(), Value::List(items));
+        } else if rest.starts_with('[') && !rest.contains(']') {
+            open_list = Some((key.to_string(), rest.to_string()));
         } else {
             // A comment after the value is not part of it.
             let val = match rest.split_once(" #") {

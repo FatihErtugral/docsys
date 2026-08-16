@@ -1,0 +1,8 @@
+spec: docsys/0.4
+profile: project
+default_content_language: en
+scan_exclude:
+  [
+    vendor/,
+    build/,
+  ]

@@ -5,6 +5,23 @@ All notable changes to docsys are documented here. The format follows
 [SemVer](https://semver.org/). Release notes are extracted from this file
 by the release workflow — the tag's section becomes the GitHub release body.
 
+## [0.2.3] - 2026-08-16
+
+A formatter ran over an adopted tree and the tool lost a field. Real projects
+run prettier; a checker that silently drops configuration when they do is worse
+than one that never read it.
+
+### Fixed
+
+- `.docmeta.yml` and frontmatter follow an inline list that a formatter
+  reflowed across lines, including the shape where the opening bracket lands on
+  its own line. A reflowed `scan_exclude` had been silently dropped, bringing
+  back four already-resolved findings.
+- A trailing comma leaves punctuation, not an item: the empty slot is skipped.
+  Read as an item it became an empty path prefix — "exclude everything" — and
+  the scan inspected zero files. R-011's dead-scan rule caught it on the real
+  tree, which is the whole reason that rule exists.
+
 ## [0.2.2] - 2026-08-16
 
 Warnings got the same treatment errors did: on a real tree, more than half of
