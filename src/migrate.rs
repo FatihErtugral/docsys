@@ -447,23 +447,60 @@ pub fn apply(
 
 /// `docsys init` — the greenfield skeleton (R-043: journal and debt only).
 pub fn init(root: &Path, lang: &str) -> Result<(), String> {
+    init_profile(root, lang, "project")
+}
+
+/// Greenfield skeleton for either profile. The `project` profile gets the
+/// work layer (journal, debt); the `knowledge-base` profile gets the record
+/// layer (`raw/inbox/`) and the wiki root — the two layouts R-020 names, so a
+/// personal knowledge base is one command to stand up, not a hand assembly.
+pub fn init_profile(root: &Path, lang: &str, profile: &str) -> Result<(), String> {
     if root.join(".docmeta.yml").exists() {
         return Err("already initialized (.docmeta.yml exists)".to_string());
     }
     let date = today();
-    fs::create_dir_all(root.join("work")).map_err(|e| e.to_string())?;
-    fs::write(
-        root.join(".docmeta.yml"),
-        format!("spec: docsys/0.4\nprofile: project\ndefault_content_language: {lang}\ncreated: {date}\n"),
-    )
-    .map_err(|e| e.to_string())?;
-    fs::write(root.join("index.md"), "# Documentation\n").map_err(|e| e.to_string())?;
-    fs::write(
-        root.join("work/journal.md"),
-        format!("# Journal\n\n## {date} - initialized\n- documentation tree created\n"),
-    )
-    .map_err(|e| e.to_string())?;
-    fs::write(root.join("work/debt.md"), "# Debt\n").map_err(|e| e.to_string())?;
+    let w = |rel: &str, text: String| fs::write(root.join(rel), text).map_err(|e| e.to_string());
+    match profile {
+        "project" => {
+            fs::create_dir_all(root.join("work")).map_err(|e| e.to_string())?;
+            w(
+                ".docmeta.yml",
+                format!("spec: docsys/0.4\nprofile: project\ndefault_content_language: {lang}\ncreated: {date}\n"),
+            )?;
+            w("index.md", "# Documentation\n".to_string())?;
+            w(
+                "work/journal.md",
+                format!("# Journal\n\n## {date} - initialized\n- documentation tree created\n"),
+            )?;
+            w("work/debt.md", "# Debt\n".to_string())?;
+        }
+        "knowledge-base" => {
+            fs::create_dir_all(root.join("raw/inbox")).map_err(|e| e.to_string())?;
+            fs::create_dir_all(root.join("wiki")).map_err(|e| e.to_string())?;
+            w(
+                ".docmeta.yml",
+                format!(
+                    "spec: docsys/0.4\nprofile: knowledge-base\ndefault_content_language: {lang}\n\
+                     created: {date}\n\n# Declare the subjects this base sorts into (R-026).\ndomains: []\n"
+                ),
+            )?;
+            w(
+                "wiki/index.md",
+                "# Knowledge base\n\n<!-- one router line per domain, appended as domains are added:\n\
+                 - [[<domain>/index|<Domain>]] -- <one sentence> -->\n".to_string(),
+            )?;
+            w(
+                "raw/inbox/.keep",
+                "New notes enter here; ingest moves them to raw/<domain>/ once processed.\n"
+                    .to_string(),
+            )?;
+        }
+        other => {
+            return Err(format!(
+                "`{other}` is not a profile (project | knowledge-base)"
+            ))
+        }
+    }
     Ok(())
 }
 

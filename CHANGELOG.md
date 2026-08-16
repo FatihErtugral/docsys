@@ -7,6 +7,17 @@ by the release workflow — the tag's section becomes the GitHub release body.
 
 ## [Unreleased]
 
+### Fixed
+
+- A wiki-link target containing `<`, `>`, `{` or `}` is a placeholder, not a
+  link (D-037) — R-073's rule for `doc:` references, applied to links. The
+  tool's own knowledge-base skeleton found this: its commented router example
+  failed the check it shipped with.
+- An indented code block (four-plus spaces or a tab, CommonMark's other fence)
+  is quoted material: reference and path scanning skips it, like a fenced
+  block or a blockquote (D-035). An explanation page teaching the `doc:`
+  citation form had its own indented example read as a dangling reference.
+
 ### Added
 
 - Audience modes (D-033): a page may declare `audience:`, the vocabulary is
@@ -22,6 +33,12 @@ by the release workflow — the tag's section becomes the GitHub release body.
   close gaps by authoring pages with approval, translate under R-122/R-123.
   Without it the prompt lives in the user's head, the hand-maintained
   knowledge D-022 exists to prevent.
+- A personal knowledge base stands up in two commands (D-036):
+  `docsys init --profile knowledge-base` writes the record layer, the wiki
+  root and a docmeta whose `domains:` the owner fills in, and
+  `docsys agents --kb` installs the base's four organs — capture, ingest,
+  audit, lookup — plus an `AGENTS.md` constitution written only when absent.
+  The skills carry judgment; every mechanical rule they name is the binary's.
 - `docsys fetch` — federation's first working slice (D-034): a consumer
   declares its providers as one `consume_base:` template plus a list of names
   (three hundred services, one line — or `<ns>=<location>` per service), where

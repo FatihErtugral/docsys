@@ -50,19 +50,41 @@ const R160: RuleId = RuleId("R-160");
 const R161: RuleId = RuleId("R-161");
 const R194: RuleId = RuleId("R-194");
 
-/// Fenced-code and blockquote lines are quoted material (R-074/R-075): path
-/// and reference scanning skips them. Returns the lines that participate.
+/// Fenced-code, blockquote, and indented-code lines are quoted material
+/// (R-074/R-075): path and reference scanning skips them. An indented code
+/// block is CommonMark's other spelling of a fence — four-plus spaces opening
+/// after a blank line — and a real knowledge base writes its examples that
+/// way too (D-035; found when an example citation in a pilot tree read as a
+/// dangling reference). Returns the lines that participate.
 fn scannable_lines(text: &str) -> Vec<(usize, &str)> {
     let mut out = Vec::new();
     let mut in_fence = false;
+    let mut prev_blank = true; // start of file opens an indented block too
+    let mut in_indented = false;
     for (i, line) in text.lines().enumerate() {
         let t = line.trim_start();
         if t.starts_with("```") || t.starts_with("~~~") {
             in_fence = !in_fence;
+            in_indented = false;
+            prev_blank = false;
             continue;
         }
         if in_fence || t.starts_with('>') {
+            prev_blank = t.is_empty();
             continue;
+        }
+        let indented = line.starts_with("    ") || line.starts_with('\t');
+        if indented && (prev_blank || in_indented) {
+            in_indented = true;
+            prev_blank = false;
+            continue;
+        }
+        if t.is_empty() {
+            // a blank line keeps an open indented block open (CommonMark)
+            prev_blank = true;
+        } else {
+            in_indented = false;
+            prev_blank = false;
         }
         out.push((i, line));
     }
@@ -857,7 +879,10 @@ pub(crate) fn wiki_links(text: &str) -> Vec<(usize, String)> {
             let Some(end) = after.find("]]") else { break };
             let inner = after.get(..end).unwrap_or("");
             let target = inner.split('|').next().unwrap_or("").trim();
-            if !target.is_empty() {
+            // R-073's placeholder rule, applied to links: a target containing
+            // `<`, `>`, `{` or `}` is metasyntactic — prose (or a generated
+            // skeleton) showing the link form, not a link to resolve.
+            if !target.is_empty() && !target.contains(['<', '>', '{', '}']) {
                 out.push((i, target.to_string()));
             }
             rest = after.get(end + 2..).unwrap_or("");

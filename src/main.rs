@@ -6,7 +6,7 @@ const USAGE: &str = "docsys — documentation system tool (spec: SPEC.md)
 
 Usage:
   docsys lint    [--root <dir>] [--json]
-  docsys init    [--root <dir>] [--lang <code>]
+  docsys init    [--root <dir>] [--lang <code>] [--profile project|knowledge-base]
   docsys migrate inventory [--root <dir>] [--repo <dir>]   # plan skeleton to stdout
   docsys migrate apply --plan <file> [--root <dir>] [--lang <code>] [--repo <dir>]
   docsys refs    --repo <dir> [--root <dir>] [--json]
@@ -14,6 +14,7 @@ Usage:
   docsys agents  --report [--dir .claude]    # existing layer + its shell calls
   docsys adopt   [--repo .] [--root docs] [--lang <code>]  # one-command adoption
   docsys agents  [--dir .claude] [--force]   # install hooks + skill + /doc-sync
+  docsys agents  --kb [--root <base>] [--dir .claude] [--force]  # knowledge-base layer
   docsys graduate plan <work-file>  [--root <dir>]
   docsys graduate apply --plan <file> [--root <dir>] [--force]
   docsys export plan    [--root <dir>] [--audience <a>]   # draft product map to stdout
@@ -35,6 +36,8 @@ struct Opts {
     title: Option<String>,
     follow: bool,
     audience: Option<String>,
+    profile: Option<String>,
+    kb: bool,
     plan: Option<PathBuf>,
     out: Option<PathBuf>,
     repo: Option<PathBuf>,
@@ -55,6 +58,8 @@ fn parse_opts(args: &[String]) -> Result<Opts, String> {
         title: None,
         follow: false,
         audience: None,
+        profile: None,
+        kb: false,
         plan: None,
         out: None,
         repo: None,
@@ -78,6 +83,8 @@ fn parse_opts(args: &[String]) -> Result<Opts, String> {
             "--title" => o.title = Some(it.next().ok_or("--title needs a value")?.clone()),
             "--follow" => o.follow = true,
             "--audience" => o.audience = Some(it.next().ok_or("--audience needs a value")?.clone()),
+            "--profile" => o.profile = Some(it.next().ok_or("--profile needs a value")?.clone()),
+            "--kb" => o.kb = true,
             "--repo" => o.repo = Some(PathBuf::from(it.next().ok_or("--repo needs a value")?)),
             "--dir" => o.dir = PathBuf::from(it.next().ok_or("--dir needs a value")?),
             "--force" => o.force = true,
@@ -370,6 +377,34 @@ fn main() -> ExitCode {
             println!("mechanical calls to docsys where they duplicate a command.");
             ExitCode::SUCCESS
         }
+        ("agents", None) if opts.kb => {
+            // The base is the docs root's parent when the root is the base
+            // itself (a knowledge base is usually its own repository).
+            let base = if opts.root == PathBuf::from("docs") {
+                PathBuf::from(".")
+            } else {
+                opts.root.clone()
+            };
+            match docsys::agents::install_kb(&opts.dir, &base, opts.force) {
+                Ok(done) => {
+                    for f in &done.written {
+                        println!("wrote   {f}");
+                    }
+                    for f in &done.skipped {
+                        println!("skipped {f} (exists; --force to overwrite)");
+                    }
+                    println!("\nthe base's four organs: capture · ingest · audit · lookup.");
+                    println!(
+                        "declare your subjects in .docmeta.yml `domains:` and start capturing."
+                    );
+                    ExitCode::SUCCESS
+                }
+                Err(e) => {
+                    eprintln!("agents --kb: {e}");
+                    ExitCode::from(2)
+                }
+            }
+        }
         ("agents", None) => match docsys::agents::install(&opts.dir, opts.force) {
             Ok(done) => {
                 for f in &done.written {
@@ -453,7 +488,11 @@ fn main() -> ExitCode {
                 ExitCode::SUCCESS
             }
         }
-        ("init", None) => match migrate::init(&opts.root, &opts.lang) {
+        ("init", None) => match migrate::init_profile(
+            &opts.root,
+            &opts.lang,
+            opts.profile.as_deref().unwrap_or("project"),
+        ) {
             Ok(()) => {
                 println!("initialized `{}`", opts.root.display());
                 ExitCode::SUCCESS

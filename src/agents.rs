@@ -223,9 +223,192 @@ Re-run the export afterwards: the per-page stamps changed only where content
 did, so only those sections needed the work.
 "#;
 
+// --- knowledge-base agent layer (`docsys agents --kb`) -----------------------
+// The four organs of a personal knowledge base: capture writes, ingest
+// distils, audit verifies independently, lookup answers. The binary enforces
+// the contract (ids, sources, verification records, raw immutability); these
+// carry the judgment. Field-shaped: every rule here was paid for by a real
+// base whose constitution predated the spec and matched it.
+
+const KB_CAPTURE: &str = r#"---
+name: kb-capture
+description: Save something into the knowledge base — "note this", "remember this", "add to my brain", "log this lesson". Writes to raw/inbox/ with zero classification; sorting is ingest's job.
+---
+
+# kb-capture — the write gate
+
+Capture costs nothing or it does not happen. Never classify here, never ask
+where it belongs, never open a wiki page.
+
+1. Write ONE file to `raw/inbox/<YYYY-MM-DD>-<short-kebab-slug>.md`.
+2. Content: the note in the user's own words, plus one line naming **why it is
+   worth keeping** — that line is what makes it distillable later. Add a
+   `suggested-domain:` line only if it is obvious; ingest decides.
+3. Confirm in one sentence. Do not run lint, do not touch `wiki/`.
+
+Never paraphrase away a specific: a number, a version, an error string, a
+command is the part that will be worth having.
+"#;
+
+const KB_INGEST: &str = r#"---
+name: kb-ingest
+description: Process the knowledge-base inbox — "process my inbox", "empty the inbox", "file these notes". Distils raw notes into wiki pages, archives the source, runs the gate.
+---
+
+# kb-ingest — raw becomes knowledge
+
+Distillation, not movement (R-092): the raw note is evidence and stays; the
+wiki page is authored. Full discipline is applied HERE, so capture can stay
+free.
+
+For each file in `raw/inbox/`:
+
+1. **Classify the domain** against `domains:` in `.docmeta.yml`. Fits none?
+   Leave the note in the inbox and record the proposal in
+   `wiki/open-questions.md` — never force a note into the nearest domain, and
+   never invent a domain for a single note.
+2. **Pick the type** — `reference` (facts, values), `howto` (steps),
+   `explanation` (why), `tutorial` (guided first run). Never mix types on one
+   page (R-031); if a page starts holding steps AND concepts, split it.
+3. **Author or update** `wiki/<domain>/<type>/<slug>.md` with frontmatter:
+   `id` (stable, kebab-case, never renamed), `type`, `domain`,
+   `verification: unverified`, `updated`, `sources: [raw/…]`. A page that
+   changes drops back to `unverified` — a verification describes content that
+   no longer exists otherwise.
+4. Open with one or two sentences that stand alone (R-032): a reader arrives
+   here from a search, not from the top of a chain.
+5. **Route it**: add the page to `wiki/<domain>/index.md`, and the domain to
+   `wiki/index.md` if new (R-035 grammar).
+6. **Archive the source**: move the note from `raw/inbox/` to
+   `raw/<domain>/` — same filename, bytes untouched (R-023), and every
+   `sources:` entry that pointed at the old path is rewritten (R-027).
+7. Gate: `docsys lint --root <base>` — finish clean or report what blocks.
+
+Never verify your own work (R-025) — that is kb-audit's job, in another
+session.
+"#;
+
+const KB_AUDIT: &str = r#"---
+name: kb-audit
+description: Independently verify knowledge-base pages against their sources — "audit my wiki", "verify these pages", "check the unverified pages". Records the audit or demotes the page.
+---
+
+# kb-audit — the independent eye
+
+R-025: the session that produced a page never verifies it. If you authored a
+page in this session, say so and stop — verification needs another session.
+
+For each `verification: unverified` page (or the ones named):
+
+1. Read the page and every file in its `sources:`.
+2. Judge faithfulness: is every claim supported? Any contradiction? A missing
+   or empty source is a failure, not a pass.
+3. **Faithful** → set `verification: verified` and record the audit (R-028):
+   `verified_by:` (who or which session) and `verified_rev:` (the base's
+   current revision). Without that record the claim is unauditable.
+4. **Not faithful** → leave/return it to `unverified` and append one line to
+   `wiki/open-questions.md` naming the specific discrepancy. Never edit the
+   page's claims to make them pass — that is authoring, and it would need
+   another audit.
+5. Gate: `docsys lint --root <base>`.
+
+Report page by page: verified, or demoted with the reason.
+"#;
+
+const KB_LOOKUP: &str = r#"---
+name: kb-lookup
+description: Answer from the knowledge base — "what do my notes say about X", "check my brain for X", "did I write anything about X". Read-only; answers with sources or says it is not there.
+---
+
+# kb-lookup — the read gate
+
+Read-only. Never write, never fix what you find; report gaps instead.
+
+1. `wiki/index.md` → the domain → `wiki/<domain>/index.md` → the page.
+2. Not routed? grep `wiki/` for tags and headings.
+3. Still nothing → **say it is not in the base.** Never answer from your own
+   knowledge while implying the base said it; offer to capture the question.
+4. Answer WITH the page path, and say plainly when the page is
+   `unverified` — an unaudited page may be wrong, and the reader decides how
+   much to lean on it.
+
+`raw/` is evidence, not an answer: quote it only to show where a page came
+from.
+"#;
+
+/// The knowledge base's constitution: the always-loaded contract, the part
+/// that is judgment rather than rule text (the mechanical half is `docsys
+/// rules --agents-md`, generated from the spec).
+const KB_AGENTS_MD: &str = r#"# Knowledge base — the contract
+
+A personal knowledge base: plain markdown and git, no database, no lock-in.
+`docsys` enforces the mechanics; this file carries what only people decide.
+
+## Layers
+
+- `raw/` — the record. `raw/inbox/` is where notes land; `raw/<domain>/` is
+  where processed sources are archived. **Content-immutable**: bytes are never
+  edited and nothing is deleted; relocation is the expected flow.
+- `wiki/` — distilled knowledge, `wiki/<domain>/<type>/`. The single source of
+  truth. Only ingest writes here.
+
+## The loop
+
+capture → `raw/inbox/` · ingest → a wiki page + archived source · audit →
+`verified` with a record · lookup → an answer with its source.
+
+Rules that are not mechanical:
+- Nothing is verified by the session that wrote it.
+- A changed page is `unverified` again.
+- A note that fits no domain stays in the inbox; a domain is proposed in
+  `wiki/open-questions.md` and earns its place only after several notes.
+- Never invent. "Not in the base" is a complete answer.
+
+## Gate
+
+`docsys lint --root .` — before any commit, after any change.
+"#;
+
 pub struct Installed {
     pub written: Vec<String>,
     pub skipped: Vec<String>,
+}
+
+/// The knowledge-base agent layer. Installed beside the base (`--kb`), never
+/// mixed with the project layer: a knowledge base has no code to gate, and a
+/// project has no inbox to ingest.
+pub fn install_kb(claude_dir: &Path, base_dir: &Path, force: bool) -> Result<Installed, String> {
+    let mut out = Installed {
+        written: Vec::new(),
+        skipped: Vec::new(),
+    };
+    for (rel, content) in [
+        ("skills/kb-capture/SKILL.md", KB_CAPTURE),
+        ("skills/kb-ingest/SKILL.md", KB_INGEST),
+        ("skills/kb-audit/SKILL.md", KB_AUDIT),
+        ("skills/kb-lookup/SKILL.md", KB_LOOKUP),
+    ] {
+        let path = claude_dir.join(rel);
+        if path.exists() && !force {
+            out.skipped.push(rel.to_string());
+            continue;
+        }
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+        }
+        fs::write(&path, content).map_err(|e| e.to_string())?;
+        out.written.push(rel.to_string());
+    }
+    // AGENTS.md is the owner's file: written only when absent (D-028's rule
+    // for protected files), never merged over.
+    let agents = base_dir.join("AGENTS.md");
+    if agents.exists() && !force {
+        out.skipped.push("AGENTS.md".to_string());
+    } else {
+        fs::write(&agents, KB_AGENTS_MD).map_err(|e| e.to_string())?;
+        out.written.push("AGENTS.md".to_string());
+    }
+    Ok(out)
 }
 
 pub fn install(claude_dir: &Path, force: bool) -> Result<Installed, String> {

@@ -151,3 +151,39 @@ fn adopt_and_graduate_refuse_the_profile_honestly() {
         "graduate must name distillation (R-092), not half-run"
     );
 }
+
+#[test]
+fn a_personal_base_stands_up_in_two_commands() {
+    let base = tmp("greenfield");
+    // 1. the tree
+    docsys::migrate::init_profile(&base, "en", "knowledge-base").unwrap();
+    assert!(base.join(".docmeta.yml").is_file());
+    assert!(base.join("wiki/index.md").is_file());
+    assert!(base.join("raw/inbox").is_dir());
+    // an empty base is a clean base — nothing to report, nothing pretended
+    let (report, outcome) = docsys::lint(&base);
+    assert!(report.findings.is_empty(), "{:?}", report.findings);
+    assert!(matches!(outcome, docsys::Outcome::Clean));
+    // 2. the agent layer
+    let claude = base.join(".claude");
+    let done = docsys::agents::install_kb(&claude, &base, false).unwrap();
+    assert_eq!(done.written.len(), 5, "{:?}", done.written);
+    for organ in ["kb-capture", "kb-ingest", "kb-audit", "kb-lookup"] {
+        assert!(claude.join(format!("skills/{organ}/SKILL.md")).is_file());
+    }
+    let constitution = fs::read_to_string(base.join("AGENTS.md")).unwrap();
+    assert!(constitution.contains("capture"), "{constitution}");
+    // the owner's AGENTS.md is never overwritten without --force
+    fs::write(base.join("AGENTS.md"), "my own words\n").unwrap();
+    let again = docsys::agents::install_kb(&claude, &base, false).unwrap();
+    assert!(again.written.is_empty(), "{:?}", again.written);
+    assert_eq!(
+        fs::read_to_string(base.join("AGENTS.md")).unwrap(),
+        "my own words\n"
+    );
+    // the project profile is unchanged by all this
+    let proj = tmp("greenfield-proj");
+    docsys::migrate::init_profile(&proj, "en", "project").unwrap();
+    assert!(proj.join("work/journal.md").is_file());
+    assert!(docsys::migrate::init_profile(&proj, "en", "nonsense").is_err());
+}
