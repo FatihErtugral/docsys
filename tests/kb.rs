@@ -1,0 +1,153 @@
+#![allow(clippy::panic, clippy::unwrap_used, clippy::expect_used)]
+// R-023 has no corpus case by design: content-immutability is observable only
+// against a git working tree (D-031), and corpus trees carry no repository.
+// These tests build one.
+
+use std::fs;
+use std::path::{Path, PathBuf};
+use std::process::Command;
+
+fn tmp(name: &str) -> PathBuf {
+    let dir = std::env::temp_dir().join(format!("docsys-kb-{name}-{}", std::process::id()));
+    let _ = fs::remove_dir_all(&dir);
+    let _ = fs::create_dir_all(&dir);
+    dir
+}
+
+fn git(dir: &Path, args: &[&str]) {
+    assert!(
+        Command::new("git")
+            .args(args)
+            .current_dir(dir)
+            .status()
+            .unwrap()
+            .success(),
+        "git {args:?} failed in {}",
+        dir.display()
+    );
+}
+
+/// A committed knowledge-base tree at `<repo>/kb` — the docs root sits below
+/// the repository root so the porcelain-prefix stripping is exercised too.
+fn build_kb(name: &str) -> (PathBuf, PathBuf) {
+    let repo = tmp(name);
+    git(&repo, &["init", "-q"]);
+    git(&repo, &["config", "user.email", "t@example.invalid"]);
+    git(&repo, &["config", "user.name", "t"]);
+    let root = repo.join("kb");
+    let w = |rel: &str, text: &str| {
+        let p = root.join(rel);
+        fs::create_dir_all(p.parent().unwrap()).unwrap();
+        fs::write(p, text).unwrap();
+    };
+    w(
+        ".docmeta.yml",
+        "spec: docsys/0.4\nprofile: knowledge-base\ndefault_content_language: en\ndomains: [coding]\n",
+    );
+    w(
+        "wiki/index.md",
+        "# wiki\n\n- [[coding/howto/sample|Sample]] -- A sample page.\n",
+    );
+    w(
+        "wiki/coding/howto/sample.md",
+        "---\nid: sample\ntype: howto\ndomain: coding\nverification: unverified\n\
+         updated: 2026-08-16\nsources: [raw/coding/source-note.md]\n---\n\n# Sample\n\n\
+         This page is a sample; it anchors the test tree.\n",
+    );
+    w(
+        "raw/coding/source-note.md",
+        "# Raw note\n\nSource content.\n",
+    );
+    w(
+        "raw/inbox/to-relocate.md",
+        "# Unsorted note\n\nWill move.\n",
+    );
+    git(&repo, &["add", "-A"]);
+    git(&repo, &["commit", "-q", "-m", "kb tree"]);
+    (repo, root)
+}
+
+fn r023_findings(root: &Path) -> Vec<(String, String)> {
+    let (report, _) = docsys::lint(root);
+    report
+        .findings
+        .iter()
+        .filter(|f| f.rule.0 == "R-023")
+        .map(|f| (f.file.clone(), f.subject.clone()))
+        .collect()
+}
+
+#[test]
+fn a_committed_kb_tree_lints_clean() {
+    let (_repo, root) = build_kb("clean");
+    let (report, outcome) = docsys::lint(&root);
+    assert!(
+        report.findings.is_empty(),
+        "expected a clean tree, got: {:?}",
+        report.findings
+    );
+    assert!(matches!(outcome, docsys::Outcome::Clean));
+}
+
+#[test]
+fn modifying_a_tracked_raw_record_is_an_error() {
+    let (_repo, root) = build_kb("modify");
+    let f = root.join("raw/coding/source-note.md");
+    let mut text = fs::read_to_string(&f).unwrap();
+    text.push_str("a line added after the fact\n");
+    fs::write(&f, text).unwrap();
+    let hits = r023_findings(&root);
+    assert_eq!(
+        hits,
+        vec![(
+            "raw/coding/source-note.md".to_string(),
+            "content".to_string()
+        )],
+        "modification must be reported as R-023"
+    );
+}
+
+#[test]
+fn relocating_a_raw_record_is_permitted() {
+    let (_repo, root) = build_kb("relocate");
+    // inbox → domain is R-023's expected flow: the bytes survive, the path moves.
+    fs::rename(
+        root.join("raw/inbox/to-relocate.md"),
+        root.join("raw/coding/to-relocate.md"),
+    )
+    .unwrap();
+    assert!(
+        r023_findings(&root).is_empty(),
+        "a relocation must not be read as a deletion"
+    );
+}
+
+#[test]
+fn deleting_a_raw_record_is_an_error() {
+    let (_repo, root) = build_kb("delete");
+    fs::remove_file(root.join("raw/inbox/to-relocate.md")).unwrap();
+    let hits = r023_findings(&root);
+    assert_eq!(
+        hits,
+        vec![(
+            "raw/inbox/to-relocate.md".to_string(),
+            "deleted".to_string()
+        )],
+        "deletion without relocation must be reported as R-023"
+    );
+}
+
+#[test]
+fn adopt_and_graduate_refuse_the_profile_honestly() {
+    let (repo, root) = build_kb("refuse");
+    let adopt = docsys::adopt::run(&repo, &root, "en");
+    assert!(
+        adopt.is_err() && adopt.unwrap_err().contains("knowledge-base"),
+        "adopt must refuse a knowledge-base tree by name"
+    );
+    let plan = docsys::graduate::plan(&root, "wiki/coding/howto/sample.md");
+    assert!(
+        plan.is_err() && plan.unwrap_err().contains("distillation"),
+        "graduate must name distillation (R-092), not half-run"
+    );
+}

@@ -1,0 +1,4 @@
+EXIT	1
+ERROR	R-059	wiki/coding/reference/broken-source.md	raw/coding/missing.md
+WARN	R-029	wiki/coding/howto/wrong-type.md	type
+WARN	R-071	raw/coding/2026-08-01-note.md	coding/reference/deleted-page

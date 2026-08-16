@@ -1,0 +1,5 @@
+EXIT	0
+WARN	R-024	wiki/coding/howto/invalid-value.md	verification
+WARN	R-024	wiki/coding/howto/missing-fields.md	domain,verification,sources
+WARN	R-026	wiki/coding/howto/undeclared-domain.md	domain
+WARN	R-028	wiki/coding/howto/verified-no-record.md	verified_by,verified_rev

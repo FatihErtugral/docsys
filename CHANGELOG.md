@@ -5,6 +5,64 @@ All notable changes to docsys are documented here. The format follows
 [SemVer](https://semver.org/). Release notes are extracted from this file
 by the release workflow — the tag's section becomes the GitHub release body.
 
+## [0.3.0] - 2026-08-16
+
+The knowledge-base profile is checked, not just recognized. Shaped by the first
+real knowledge base: a personal wiki whose constitution predated the spec and
+matches it — the tool met a tree that was already living the rules.
+
+### Added
+
+- `profile: knowledge-base` is fully linted (supersedes D-006's v0 narrowing).
+  The layout (`raw/` record layer, `wiki/<domain>/<type>/` pages, `wiki/index.md`
+  plus domain indexes as routers), the page contract (`domain`, `verification`,
+  `sources` — R-024), undeclared domains (R-026), and the directory's type
+  segment (R-029) are all checked; wiki-links resolve against the permanent
+  layer root, the field convention (D-030).
+- R-028's verification record has names: `verified_by:` and `verified_rev:`.
+  A `verified` page without them is reported — a verification nobody can audit
+  is a claim, not a record.
+- R-059: every `sources:` entry must resolve; a severed evidence trail is an
+  error — it is exactly the silent failure R-027 names.
+- R-023: `raw/` content-immutability is checked at the gate (D-031): uncommitted
+  modification or deletion of a tracked raw file is an error; relocation — the
+  basename reappearing under `raw/` — is the expected flow and passes. Outside
+  git the hook layer owns the promise.
+- The record layer never blocks (R-194, extended to the profile): a dangling
+  link or reference inside a raw note is reported, never an error, and the
+  path scan skips raw notes — they are quoted source material.
+- `scan_exclude` now excludes from the docs-side walk too: a template library
+  inside a knowledge base is tooling, not documentation.
+- `adopt` and `graduate` refuse a knowledge-base tree by name instead of
+  half-running: adoption is its own release; graduation there is distillation
+  (R-092), an authored rewrite no command may fake.
+- `export plan` / `export product` (D-032) — the product half of the founding
+  goal: a product-level document composed from the tree's permanent pages.
+  `plan` drafts a product map from the tree's evidence (R-057 titles and
+  summaries, grouped by type) — a proposal, never a decision; the map is plain
+  markdown (H1 name, H2 sections, router-shaped entries whose targets are
+  `doc:` identifiers). `product` is fully mechanical: bodies carried verbatim
+  with headings shifted (prose never rewritten), a source stamp per page
+  (identifier, file, drift hash, `updated`), and a hard refusal to
+  half-compose — a foreign, flowing, retired or unknown identifier fails the
+  run with the complete list. Foreign (`@ns/`) entries compose once federation
+  consumption exists. `--lang` states the document's intended content
+  language: pages whose declared language differs are warned by name, and a
+  mixed composition without a stated intent is warned once — the tool reads
+  declarations, determines no language, and translates nothing (R-120–R-123;
+  translation is agent work).
+- `export feature <id>…` — a slice of the tree with no map file: the named
+  identifiers, optionally widened one hop along their wiki-links (`--follow`).
+  One command exports one feature out of a large code base.
+- `--out` never rewrites an unchanged document: content is compared without
+  the dated header line, so a no-op regeneration leaves the file, its honest
+  generation date, and every downstream consumer (watchers, builds, a
+  translating agent) untouched. Regeneration itself stays stateless — a cache
+  is state, and state drifts (R-002); the per-page stamps are what let
+  downstream re-process only the sections whose hash moved.
+- `AGENTS.md` — the repository's own ground rules: English-only content, no
+  external project names, spec-first, corpus-locked.
+
 ## [0.2.3] - 2026-08-16
 
 A formatter ran over an adopted tree and the tool lost a field. Real projects

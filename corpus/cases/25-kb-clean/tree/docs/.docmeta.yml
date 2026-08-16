@@ -1,0 +1,5 @@
+spec: docsys/0.4
+profile: knowledge-base
+default_content_language: en
+domains: [coding, embedded]
+scan_exclude: [templates/]

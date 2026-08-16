@@ -131,6 +131,20 @@ fn ensure_git_gate(repo: &Path, root_rel: &str) -> &'static str {
 }
 
 pub fn run(repo: &Path, root: &Path, lang: &str) -> Result<AdoptOutcome, String> {
+    // A knowledge-base tree is lintable (0.3) but its adoption flow — id
+    // backfill, legacy-checker delegation — is its own release. Refusing
+    // beats half-adopting (the D-006 doctrine).
+    let dm = fs::read_to_string(root.join(".docmeta.yml")).unwrap_or_default();
+    if dm
+        .lines()
+        .any(|l| l.trim_start().starts_with("profile:") && l.contains("knowledge-base"))
+    {
+        return Err(
+            "this is a knowledge-base tree — lint and refs already understand it; \
+             `adopt` support for the profile lands with the knowledge-base adoption release"
+                .to_string(),
+        );
+    }
     let mut summary = Vec::new();
     let root_rel = root
         .strip_prefix(repo)

@@ -1,10 +1,11 @@
 //! docsys — reference implementation of the docsys specification (SPEC.md).
-//! v0 scope: `lint` over the `project` profile. Every implementation-defined
-//! choice is registered in corpus/DECISIONS.md (R-193).
+//! v0 scope: `lint` over both profiles (`project`, `knowledge-base`). Every
+//! implementation-defined choice is registered in corpus/DECISIONS.md (R-193).
 
 pub mod adopt;
 pub mod agents;
 pub mod checks;
+pub mod export;
 pub mod fm;
 pub mod graduate;
 pub mod migrate;

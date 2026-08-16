@@ -16,6 +16,9 @@ Usage:
   docsys agents  [--dir .claude] [--force]   # install hooks + skill + /doc-sync
   docsys graduate plan <work-file>  [--root <dir>]
   docsys graduate apply --plan <file> [--root <dir>] [--force]
+  docsys export plan    [--root <dir>]               # draft product map to stdout
+  docsys export product <map> [--root <dir>] [--out <file>] [--lang <code>]
+  docsys export feature <id> [<id>...] [--follow] [--title <t>] [--root <dir>] [--out <file>] [--lang <code>]
 
 Exit codes (the contract scripts and CI read):
   0  ok — clean, or warnings only (warnings inform; they never block)
@@ -27,7 +30,11 @@ struct Opts {
     root: PathBuf,
     json: bool,
     lang: String,
+    lang_explicit: bool,
+    title: Option<String>,
+    follow: bool,
     plan: Option<PathBuf>,
+    out: Option<PathBuf>,
     repo: Option<PathBuf>,
     dir: PathBuf,
     force: bool,
@@ -42,7 +49,11 @@ fn parse_opts(args: &[String]) -> Result<Opts, String> {
         root: PathBuf::from("docs"),
         json: false,
         lang: "en".to_string(),
+        lang_explicit: false,
+        title: None,
+        follow: false,
         plan: None,
+        out: None,
         repo: None,
         dir: PathBuf::from(".claude"),
         force: false,
@@ -55,8 +66,14 @@ fn parse_opts(args: &[String]) -> Result<Opts, String> {
     while let Some(a) = it.next() {
         match a.as_str() {
             "--root" => o.root = PathBuf::from(it.next().ok_or("--root needs a value")?),
-            "--lang" => o.lang = it.next().ok_or("--lang needs a value")?.clone(),
+            "--lang" => {
+                o.lang = it.next().ok_or("--lang needs a value")?.clone();
+                o.lang_explicit = true;
+            }
             "--plan" => o.plan = Some(PathBuf::from(it.next().ok_or("--plan needs a value")?)),
+            "--out" => o.out = Some(PathBuf::from(it.next().ok_or("--out needs a value")?)),
+            "--title" => o.title = Some(it.next().ok_or("--title needs a value")?.clone()),
+            "--follow" => o.follow = true,
             "--repo" => o.repo = Some(PathBuf::from(it.next().ok_or("--repo needs a value")?)),
             "--dir" => o.dir = PathBuf::from(it.next().ok_or("--dir needs a value")?),
             "--force" => o.force = true,
@@ -110,10 +127,39 @@ fn run_lint(o: &Opts) -> ExitCode {
     }
 }
 
+/// Print/write a composed export. An unchanged `--out` file is left
+/// untouched so nothing downstream re-triggers on a no-op.
+fn emit_export(done: &docsys::export::ProductOutcome, out: Option<&std::path::Path>) -> ExitCode {
+    for w in &done.warnings {
+        eprintln!("WARN {w}");
+    }
+    match out {
+        Some(path) => match docsys::export::write_if_changed(path, &done.output) {
+            Ok(true) => {
+                eprintln!("composed {} page(s) -> {}", done.pages, path.display());
+                ExitCode::SUCCESS
+            }
+            Ok(false) => {
+                eprintln!("unchanged — {} left untouched", path.display());
+                ExitCode::SUCCESS
+            }
+            Err(e) => {
+                eprintln!("export: {e}");
+                ExitCode::from(2)
+            }
+        },
+        None => {
+            print!("{}", done.output);
+            ExitCode::SUCCESS
+        }
+    }
+}
+
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let (cmd, sub, rest): (&str, Option<&str>, &[String]) = match args.split_first() {
-        Some((c, r)) if c == "migrate" || c == "graduate" => match r.split_first() {
+        Some((c, r)) if c == "migrate" || c == "graduate" || c == "export" => match r.split_first()
+        {
             Some((s, r2)) => (c.as_str(), Some(s.as_str()), r2),
             None => (c.as_str(), None, &[]),
         },
@@ -196,6 +242,50 @@ fn main() -> ExitCode {
             } else {
                 eprintln!("rules needs --agents-md or --procedures");
                 ExitCode::from(2)
+            }
+        }
+        ("export", Some("plan")) => match docsys::export::plan(&opts.root) {
+            Ok(p) => {
+                print!("{p}");
+                ExitCode::SUCCESS
+            }
+            Err(e) => {
+                eprintln!("export plan: {e}");
+                ExitCode::from(2)
+            }
+        },
+        ("export", Some("product")) => {
+            let Some(map) = opts.positional.first() else {
+                eprintln!("export product needs a <map> argument");
+                return ExitCode::from(2);
+            };
+            let want_lang = opts.lang_explicit.then_some(opts.lang.as_str());
+            match docsys::export::product(&opts.root, std::path::Path::new(map), want_lang) {
+                Ok(done) => emit_export(&done, opts.out.as_deref()),
+                Err(e) => {
+                    eprintln!("export product: {e}");
+                    ExitCode::from(2)
+                }
+            }
+        }
+        ("export", Some("feature")) => {
+            if opts.positional.is_empty() {
+                eprintln!("export feature needs at least one <id>");
+                return ExitCode::from(2);
+            }
+            let want_lang = opts.lang_explicit.then_some(opts.lang.as_str());
+            match docsys::export::feature(
+                &opts.root,
+                &opts.positional,
+                opts.follow,
+                opts.title.clone(),
+                want_lang,
+            ) {
+                Ok(done) => emit_export(&done, opts.out.as_deref()),
+                Err(e) => {
+                    eprintln!("export feature: {e}");
+                    ExitCode::from(2)
+                }
             }
         }
         ("graduate", Some("plan")) => {

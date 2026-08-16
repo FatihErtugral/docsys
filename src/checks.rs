@@ -4,7 +4,7 @@
 
 use crate::fm::Value;
 use crate::model::{is_iso_date, is_local_id, Finding, RuleId, VALID_STATUS, VALID_TYPES};
-use crate::tree::{DocTree, Kind};
+use crate::tree::{DocTree, Kind, Page, Profile};
 use std::collections::{BTreeMap, BTreeSet};
 
 pub struct Report {
@@ -17,6 +17,11 @@ pub struct Report {
 const R011: RuleId = RuleId("R-011");
 const R013: RuleId = RuleId("R-013");
 const R020: RuleId = RuleId("R-020");
+const R023: RuleId = RuleId("R-023");
+const R024: RuleId = RuleId("R-024");
+const R026: RuleId = RuleId("R-026");
+const R028: RuleId = RuleId("R-028");
+const R029: RuleId = RuleId("R-029");
 const R030: RuleId = RuleId("R-030");
 const R034: RuleId = RuleId("R-034");
 const R035: RuleId = RuleId("R-035");
@@ -27,6 +32,7 @@ const R054: RuleId = RuleId("R-054");
 const R055: RuleId = RuleId("R-055");
 const R056: RuleId = RuleId("R-056");
 const R058: RuleId = RuleId("R-058");
+const R059: RuleId = RuleId("R-059");
 const R060: RuleId = RuleId("R-060");
 const R061: RuleId = RuleId("R-061");
 const R070: RuleId = RuleId("R-070");
@@ -103,13 +109,7 @@ fn check_docmeta(tree: &DocTree, r: &mut Report) {
         )),
     }
     match tree.docmeta_str("profile") {
-        Some("project") => {}
-        Some("knowledge-base") => r.findings.push(Finding::warn(
-            R020,
-            "-",
-            "profile",
-            "knowledge-base profile is not implemented in v0 (D-006)".to_string(),
-        )),
+        Some("project") | Some("knowledge-base") => {}
         Some(v) => r.findings.push(Finding::warn(
             R020,
             "-",
@@ -132,10 +132,11 @@ fn check_docmeta(tree: &DocTree, r: &mut Report) {
         ));
     }
     // R-161: unknown keys are reported, never rejected.
-    const KNOWN: [&str; 16] = [
+    const KNOWN: [&str; 17] = [
         "spec",
         "profile",
         "default_content_language",
+        "domains",
         "journal_entry_max_lines",
         "list_labels",
         "stale_active_days",
@@ -258,8 +259,189 @@ fn check_permanent_frontmatter(tree: &DocTree, r: &mut Report) {
                 }
             }
         }
+        if tree.profile == Profile::KnowledgeBase {
+            kb_page_checks(tree, page, fm, r);
+        }
     }
     r.inspected.insert("permanent-frontmatter", inspected);
+}
+
+/// Knowledge-base page fields (§3.1). The shared trio (id/type/updated) is the
+/// caller's; this adds the profile's own contract: `domain`, `verification`
+/// with its R-028 record, `sources` presence, and the R-029 directory type.
+fn kb_page_checks(tree: &DocTree, page: &Page, fm: &crate::fm::Frontmatter, r: &mut Report) {
+    let get = |k: &str| fm.fields.get(k).and_then(Value::as_str);
+    let mut missing: Vec<&str> = Vec::new();
+    if get("domain").is_none() {
+        missing.push("domain");
+    }
+    if get("verification").is_none() {
+        missing.push("verification");
+    }
+    if !fm.fields.contains_key("sources") {
+        missing.push("sources");
+    }
+    if !missing.is_empty() {
+        r.findings.push(Finding::warn(
+            R024,
+            &page.rel,
+            &missing.join(","),
+            format!("missing knowledge-base field(s): {}", missing.join(", ")),
+        ));
+    }
+    if let Some(d) = get("domain") {
+        if !tree.docmeta_list("domains").iter().any(|x| x == d) {
+            r.findings.push(Finding::warn(
+                R026,
+                &page.rel,
+                "domain",
+                format!("domain `{d}` is not declared in .docmeta.yml `domains:`"),
+            ));
+        }
+    }
+    match get("verification") {
+        Some("unverified") | None => {}
+        Some("verified") => {
+            // R-028: a verification nobody can audit is a claim, not a record.
+            // D-030 names the fields.
+            let rec: Vec<&str> = ["verified_by", "verified_rev"]
+                .into_iter()
+                .filter(|k| get(k).is_none())
+                .collect();
+            if !rec.is_empty() {
+                r.findings.push(Finding::warn(
+                    R028,
+                    &page.rel,
+                    &rec.join(","),
+                    "verified without recording who verified and which source revision".to_string(),
+                ));
+            }
+        }
+        Some(v) => r.findings.push(Finding::warn(
+            R024,
+            &page.rel,
+            "verification",
+            format!("`{v}` is not unverified/verified"),
+        )),
+    }
+    // R-029: readers navigate this profile by directory; the segment must not
+    // contradict the page.
+    if let Some(t) = get("type") {
+        let dir_type = page.rel.split('/').nth(2).unwrap_or("");
+        if VALID_TYPES.contains(&t) && dir_type != t {
+            r.findings.push(Finding::warn(
+                R029,
+                &page.rel,
+                "type",
+                format!("page sits under `{dir_type}/` but declares `type: {t}`"),
+            ));
+        }
+    }
+}
+
+/// R-059: every `sources:` entry resolves. A severed evidence trail is the
+/// silent failure R-027 names, so a missing file blocks (§2.2).
+fn check_sources(tree: &DocTree, r: &mut Report) {
+    let mut inspected = 0usize;
+    for page in &tree.pages {
+        if page.kind != Kind::Permanent {
+            continue;
+        }
+        let Some(fm) = &page.fm else { continue };
+        let Some(srcs) = fm.fields.get("sources").and_then(Value::as_list) else {
+            continue;
+        };
+        for s in srcs {
+            if s.contains("://") {
+                continue; // URLs are out of scope (D-030)
+            }
+            inspected += 1;
+            if !tree.root.join(s).is_file() {
+                r.findings.push(Finding::err(
+                    R059,
+                    &page.rel,
+                    s,
+                    format!("sources entry `{s}` does not resolve — the evidence trail is severed"),
+                ));
+            }
+        }
+    }
+    r.inspected.insert("sources", inspected);
+}
+
+/// R-023: `raw/` is content-immutable. The git working tree is the only
+/// observable baseline (D-031): uncommitted modification or deletion of a
+/// tracked raw file is reported here — at the gate, before it becomes
+/// history. Relocation (the basename reappearing under `raw/`) is permitted
+/// and expected. Outside a git repository the hook layer owns the promise.
+fn check_raw_immutability(tree: &DocTree, r: &mut Report) {
+    use std::process::Command;
+    let raw_count = tree.pages.iter().filter(|p| p.kind == Kind::Raw).count();
+    r.inspected.insert("raw-immutable", raw_count);
+    let git = |args: &[&str]| {
+        Command::new("git")
+            .arg("-C")
+            .arg(&tree.root)
+            .args(args)
+            .output()
+            .ok()
+            .filter(|o| o.status.success())
+            .map(|o| String::from_utf8_lossy(&o.stdout).into_owned())
+    };
+    let Some(prefix) = git(&["rev-parse", "--show-prefix"]) else {
+        return;
+    };
+    let prefix = prefix.trim().to_string();
+    let Some(status) = git(&["status", "--porcelain=v1", "--no-renames", "--", "raw/"]) else {
+        return;
+    };
+    for line in status.lines() {
+        let (Some(xy), Some(path)) = (line.get(..2), line.get(3..)) else {
+            continue;
+        };
+        let path = path.trim().trim_matches('"');
+        let rel = path.strip_prefix(prefix.as_str()).unwrap_or(path);
+        // An added file is not yet a record; it stays mutable until it lands.
+        if !rel.starts_with("raw/") || xy == "??" || xy.contains('A') {
+            continue;
+        }
+        if xy.contains('M') || xy.contains('T') {
+            r.findings.push(Finding::err(
+                R023,
+                rel,
+                "content",
+                "bytes of an existing raw record changed — raw/ is content-immutable".to_string(),
+            ));
+        } else if xy.contains('D') {
+            let base = rel.rsplit('/').next().unwrap_or(rel);
+            if !basename_exists(&tree.root.join("raw"), base) {
+                r.findings.push(Finding::err(
+                    R023,
+                    rel,
+                    "deleted",
+                    "raw record deleted — relocation keeps the file; deletion loses the record"
+                        .to_string(),
+                ));
+            }
+        }
+    }
+}
+
+fn basename_exists(dir: &std::path::Path, name: &str) -> bool {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return false;
+    };
+    for e in entries.filter_map(Result::ok) {
+        let p = e.path();
+        if p.is_dir() {
+            if basename_exists(&p, name) {
+                return true;
+            }
+        } else if p.file_name().and_then(|n| n.to_str()) == Some(name) {
+            return true;
+        }
+    }
+    false
 }
 
 fn check_work(tree: &DocTree, r: &mut Report) {
@@ -661,7 +843,7 @@ fn permanent_ids(tree: &DocTree) -> BTreeSet<&str> {
 }
 
 /// Collect wiki-links `[[path]]` / `[[path|alias]]` from scannable lines.
-fn wiki_links(text: &str) -> Vec<(usize, String)> {
+pub(crate) fn wiki_links(text: &str) -> Vec<(usize, String)> {
     let mut out = Vec::new();
     for (i, line) in scannable_lines(text) {
         let mut rest = line;
@@ -681,12 +863,25 @@ fn wiki_links(text: &str) -> Vec<(usize, String)> {
     out
 }
 
+/// The path a wiki-link resolves against, per profile. In the knowledge-base
+/// profile links are written wiki/-relative — `[[<domain>/<type>/<page>]]` is
+/// the field convention (D-030) — so the permanent layer root is stripped;
+/// `raw/` files are evidence, not link targets, and resolve to nothing.
+pub(crate) fn link_path_of(tree: &DocTree, rel: &str) -> Option<String> {
+    match tree.profile {
+        Profile::Project => Some(rel.trim_end_matches(".md").to_string()),
+        Profile::KnowledgeBase => rel
+            .strip_prefix("wiki/")
+            .map(|s| s.trim_end_matches(".md").to_string()),
+    }
+}
+
 fn check_links(tree: &DocTree, r: &mut Report) {
     // Resolution set: relative page paths without extension (R-070 full paths).
     let paths: BTreeSet<String> = tree
         .pages
         .iter()
-        .map(|p| p.rel.trim_end_matches(".md").to_string())
+        .filter_map(|p| link_path_of(tree, &p.rel))
         .collect();
     let mut inspected = 0usize;
     for page in &tree.pages {
@@ -728,6 +923,18 @@ fn check_links(tree: &DocTree, r: &mut Report) {
                     "target moved to _archive/ — still resolves, reported as remaining interest"
                         .to_string(),
                 ));
+            } else if page.kind == Kind::Raw {
+                // A raw note is a record (R-023): its dangling link is
+                // reported, never blocked — the record cannot be edited.
+                r.findings.push(Finding::warn(
+                    R071,
+                    &page.rel,
+                    &target,
+                    format!(
+                        "line {}: dangling wiki-link in a raw record — the target moved on",
+                        line + 1
+                    ),
+                ));
             } else {
                 r.findings.push(Finding::err(
                     R071,
@@ -750,10 +957,16 @@ fn check_doc_refs(tree: &DocTree, r: &mut Report) {
             for token in doc_tokens_on_line(text_line) {
                 inspected += 1;
                 // R-194: the journal records moments; a dated entry citing what
-                // was true then is history, not a broken reference.
-                let historical = page.rel == "work/journal.md"
-                    || page.rel.starts_with("work/journal/")
-                    || page.rel.starts_with("_archive/");
+                // was true then is history, not a broken reference. In the
+                // knowledge-base profile the record layer is `raw/` (R-023).
+                let historical = match tree.profile {
+                    Profile::Project => {
+                        page.rel == "work/journal.md"
+                            || page.rel.starts_with("work/journal/")
+                            || page.rel.starts_with("_archive/")
+                    }
+                    Profile::KnowledgeBase => page.rel.starts_with("raw/"),
+                };
                 match resolve_doc_token(&idx, &token) {
                     Ok(Resolved::Permanent) => {}
                     Ok(Resolved::Graduated) if historical => {}
@@ -869,6 +1082,11 @@ fn occurs_as_token(body: &str, token: &str) -> bool {
 fn check_paths(tree: &DocTree, r: &mut Report) {
     let mut inspected = 0usize;
     for page in &tree.pages {
+        if page.kind == Kind::Raw {
+            // A raw note is quoted source material wholesale (D-030): the
+            // path scan skips it as it skips fenced and blockquoted lines.
+            continue;
+        }
         for (line, text_line) in scannable_lines(&page.text) {
             inspected += 1;
             let absolute = text_line.contains("](/home/")
@@ -946,37 +1164,47 @@ fn check_router_and_orphans(tree: &DocTree, r: &mut Report) {
     if permanent == 0 {
         return; // empty population passes (R-011)
     }
-    let Some(router) = tree.pages.iter().find(|p| p.kind == Kind::Router) else {
+    // The root router per profile (D-030): navigation in the knowledge-base
+    // profile starts at the permanent layer's own index.
+    let root_router = match tree.profile {
+        Profile::Project => "index.md",
+        Profile::KnowledgeBase => "wiki/index.md",
+    };
+    // R-035: router entry grammar, on every router — in the knowledge-base
+    // profile the domain indexes route too. Only lines that carry a wiki-link
+    // are entries (D-014); plain bullets are prose, and whether prose belongs
+    // on a router is judgment, not grammar.
+    for router in tree.pages.iter().filter(|p| p.kind == Kind::Router) {
+        for (i, line) in router.text.lines().enumerate() {
+            if !line.starts_with("- ") || !line.contains("[[") {
+                continue;
+            }
+            let ok = line.starts_with("- [[")
+                && line.contains("]]")
+                && line.contains('|')
+                && (line.contains(" -- ") || line.contains(" — "));
+            if !ok {
+                r.findings.push(Finding::warn(
+                    R035,
+                    &router.rel,
+                    &format!("line-{}", i + 1),
+                    "router line is not `- [[<path>|<title>]] -- <one sentence>`".to_string(),
+                ));
+            }
+        }
+    }
+    let Some(router) = tree.pages.iter().find(|p| p.rel == root_router) else {
         r.findings.push(Finding::warn(
             R034,
             "-",
-            "index.md",
+            root_router,
             "permanent pages exist but there is no root router".to_string(),
         ));
         return;
     };
-    // R-035: router entry grammar. Only lines that carry a wiki-link are
-    // entries (D-014); plain bullets are prose, and whether prose belongs on
-    // a router is judgment, not grammar.
-    for (i, line) in router.text.lines().enumerate() {
-        if !line.starts_with("- ") || !line.contains("[[") {
-            continue;
-        }
-        let ok = line.starts_with("- [[")
-            && line.contains("]]")
-            && line.contains('|')
-            && (line.contains(" -- ") || line.contains(" — "));
-        if !ok {
-            r.findings.push(Finding::warn(
-                R035,
-                &router.rel,
-                &format!("line-{}", i + 1),
-                "router line is not `- [[<path>|<title>]] -- <one sentence>`".to_string(),
-            ));
-        }
-    }
     // R-034: reachability = wiki-link edges from the router, transitively
-    // through any non-archived page (registered decision D-009).
+    // through any non-archived page (registered decision D-009); link paths
+    // resolve per profile (D-030).
     let mut reachable: BTreeSet<String> = BTreeSet::new();
     let mut queue: Vec<String> = wiki_links(&router.text)
         .into_iter()
@@ -989,7 +1217,7 @@ fn check_router_and_orphans(tree: &DocTree, r: &mut Report) {
         if let Some(page) = tree
             .pages
             .iter()
-            .find(|p| p.rel.trim_end_matches(".md") == t)
+            .find(|p| link_path_of(tree, &p.rel).as_deref() == Some(t.as_str()))
         {
             queue.extend(wiki_links(&page.text).into_iter().map(|(_, x)| x));
         }
@@ -998,7 +1226,7 @@ fn check_router_and_orphans(tree: &DocTree, r: &mut Report) {
         if page.kind != Kind::Permanent {
             continue;
         }
-        if !reachable.contains(page.rel.trim_end_matches(".md")) {
+        if link_path_of(tree, &page.rel).is_some_and(|p| !reachable.contains(&p)) {
             r.findings.push(Finding::warn(
                 R034,
                 &page.rel,
@@ -1243,6 +1471,10 @@ pub fn run(tree: &DocTree) -> Report {
     check_journal(tree, &mut r);
     check_list_grammars(tree, &mut r);
     check_templates(tree, &mut r);
+    if tree.profile == Profile::KnowledgeBase {
+        check_sources(tree, &mut r);
+        check_raw_immutability(tree, &mut r);
+    }
     if tree.pages.is_empty() {
         r.findings.push(Finding::warn(
             R011,
@@ -1256,17 +1488,21 @@ pub fn run(tree: &DocTree) -> Report {
         let in_layout = tree.pages.iter().any(|p| {
             matches!(
                 p.kind,
-                Kind::Permanent | Kind::Tracked | Kind::ListFile | Kind::Router
+                Kind::Permanent | Kind::Tracked | Kind::ListFile | Kind::Router | Kind::Raw
             )
         });
         if !in_layout {
             let n = tree.pages.len();
+            let layout = match tree.profile {
+                Profile::Project => "project",
+                Profile::KnowledgeBase => "knowledge-base",
+            };
             r.findings.push(Finding::warn(
                 RuleId("R-020"),
                 "-",
                 "layout",
                 format!(
-                    "{n} markdown file(s), none inside the project layout — \
+                    "{n} markdown file(s), none inside the {layout} layout — \
                      a brownfield tree; migration, not linting, is the next step"
                 ),
             ));

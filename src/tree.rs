@@ -9,18 +9,29 @@ use std::path::{Path, PathBuf};
 /// What a file is, per SPEC §4. Classification is by path, never by content.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Kind {
-    /// reference/ howto/ explanation/ tutorial/
+    /// reference/ howto/ explanation/ tutorial/ — or wiki/<domain>/<type>/
     Permanent,
     /// work/features/ work/postmortems/ work/research/ + declared categories
     Tracked,
     /// journal.md, debt.md, questions.md, journal slices
     ListFile,
-    /// docs/index.md
+    /// docs/index.md — or wiki/index.md and the domain indexes (D-030)
     Router,
     /// README.md — exempt (R-050)
     Readme,
+    /// knowledge-base `raw/` — the content-immutable record layer (R-023)
+    Raw,
     /// anything else outside reserved dirs
     Other,
+}
+
+/// The declared profile (R-020). A profile selects the layer names; everything
+/// else is shared. An unknown or missing value falls back to `project` so the
+/// shared checks still run (check_docmeta reports the declaration itself).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Profile {
+    Project,
+    KnowledgeBase,
 }
 
 #[derive(Debug)]
@@ -35,6 +46,7 @@ pub struct Page {
 #[derive(Debug)]
 pub struct DocTree {
     pub root: PathBuf,
+    pub profile: Profile,
     pub pages: Vec<Page>,
     /// Parsed `.docmeta.yml` fields (empty map when the file is absent).
     pub docmeta: BTreeMap<String, fm::Value>,
@@ -54,7 +66,24 @@ const CORE_TRACKED: [&str; 3] = ["features", "postmortems", "research"];
 
 const PERMANENT_DIRS: [&str; 4] = ["reference", "howto", "explanation", "tutorial"];
 
-fn classify(rel: &str, extra_tracked: &[String]) -> Kind {
+/// Knowledge-base layout (R-020 table): `raw/` is the flowing record layer;
+/// permanent pages live at `wiki/<domain>/<type>/`; navigation is
+/// `wiki/index.md` plus the domain indexes (registered decision D-030).
+fn classify_kb(rel: &str) -> Kind {
+    let parts: Vec<&str> = rel.split('/').collect();
+    match parts.as_slice() {
+        ["README.md"] => Kind::Readme,
+        ["raw", ..] => Kind::Raw,
+        ["wiki", "index.md"] | ["wiki", _, "index.md"] => Kind::Router,
+        ["wiki", _, ty, ..] if PERMANENT_DIRS.contains(ty) => Kind::Permanent,
+        _ => Kind::Other,
+    }
+}
+
+fn classify(rel: &str, extra_tracked: &[String], profile: Profile) -> Kind {
+    if profile == Profile::KnowledgeBase {
+        return classify_kb(rel);
+    }
     let mut parts = rel.split('/');
     let first = parts.next().unwrap_or("");
     match first {
@@ -134,6 +163,20 @@ impl DocTree {
             .map(<[String]>::to_vec)
             .unwrap_or_default();
 
+        let profile = match docmeta.get("profile").and_then(fm::Value::as_str) {
+            Some("knowledge-base") => Profile::KnowledgeBase,
+            _ => Profile::Project,
+        };
+
+        // R-077's `scan_exclude` is the owner's word on tooling and archived
+        // sub-projects; the docs-side walk honors it too (D-030) — a template
+        // library inside a knowledge base is not documentation to be linted.
+        let excludes: Vec<String> = docmeta
+            .get("scan_exclude")
+            .and_then(fm::Value::as_list)
+            .map(<[String]>::to_vec)
+            .unwrap_or_default();
+
         let tombstones = fs::read_to_string(root.join(".tombstones.yml"))
             .map(|t| parse_tombstones(&t))
             .unwrap_or_default();
@@ -143,9 +186,15 @@ impl DocTree {
 
         let mut pages = Vec::new();
         for path in files {
-            let text = fs::read_to_string(&path)?;
             let rel = rel_of(&path, root);
-            let kind = classify(&rel, &extra_tracked);
+            if excludes
+                .iter()
+                .any(|e| !e.is_empty() && rel.starts_with(e.as_str()))
+            {
+                continue;
+            }
+            let text = fs::read_to_string(&path)?;
+            let kind = classify(&rel, &extra_tracked, profile);
             let fm = fm::parse(&text);
             pages.push(Page {
                 rel,
@@ -157,6 +206,7 @@ impl DocTree {
 
         Ok(DocTree {
             root: root.to_path_buf(),
+            profile,
             pages,
             docmeta,
             docmeta_present,

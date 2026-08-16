@@ -162,7 +162,26 @@ pub fn blocks(text: &str) -> Vec<Block> {
     blocks_with(text, &canonical)
 }
 
+/// R-092: in the knowledge-base profile graduation is distillation — an
+/// authored rewrite of raw notes into a wiki page — not byte movement. A
+/// command that moved bytes there would fake the one step that is judgment.
+fn refuse_knowledge_base(root: &Path) -> Result<(), String> {
+    let dm = fs::read_to_string(root.join(".docmeta.yml")).unwrap_or_default();
+    if dm
+        .lines()
+        .any(|l| l.trim_start().starts_with("profile:") && l.contains("knowledge-base"))
+    {
+        return Err(
+            "knowledge-base graduation is distillation, not movement (R-092) — author the \
+             wiki page, list the raw notes in `sources:`; nothing is moved or removed"
+                .to_string(),
+        );
+    }
+    Ok(())
+}
+
 pub fn plan(root: &Path, source_rel: &str) -> Result<String, String> {
+    refuse_knowledge_base(root)?;
     let text = fs::read_to_string(root.join(source_rel)).map_err(|e| e.to_string())?;
     let bs = blocks_with(&text, &load_heading_map(root));
     if bs.is_empty() {
@@ -274,6 +293,7 @@ fn add_graduated_to(text: &str, ids: &[String]) -> String {
 }
 
 pub fn apply(root: &Path, plan_text: &str, force: bool) -> Result<Outcome, String> {
+    refuse_knowledge_base(root)?;
     // R-097: refuse a dirty tree unless forced (only when git is present).
     if !force {
         let dirty = std::process::Command::new("git")
