@@ -151,18 +151,82 @@ flowchart LR
 obey and became a guarantee the command enforces (R-090): the model selects
 the mapping, the tool copies the bytes.
 
+## Export — a document for a reader, out of a large tree
+
+A tree is written page by page; a reader wants one document. `export` composes
+one, mechanically: bodies are carried **verbatim** (heading levels shift, prose
+is never rewritten), every section carries a source stamp (identifier, file,
+content hash, date), and the run **refuses to half-compose** — a missing,
+flowing, retired or unfetched identifier fails with the complete list.
+
+```sh
+docsys export plan --root docs --audience end-user     # what exists for this reader
+docsys export feature subghz-listen subghz-record \
+  --audience end-user --lang tr --title "SubGHz Guide" \
+  --root docs --out guide.md                            # one feature, no map file
+```
+
+Two declarations make the same tree serve different readers, and the tool
+determines neither of them:
+
+- **`audience:`** on a page (the vocabulary is the tree's own `audiences:`;
+  undeclared reads as `developer`). A page of the wrong audience named on a map
+  is refused; one reached by `--follow` becomes a named gap — "no end-user
+  counterpart exists" is a work item, not a silent omission.
+- **`lang:`** per page. `--lang` states the document's intent and warns page by
+  page; the tool translates nothing — translation is agent work, and code
+  identifiers, product names and quotations keep their original form.
+
+The composer never writes prose. An end-user document exists when end-user
+pages exist — the `docsys-export` skill carries that procedure (discover the
+gap, author with approval, compose), so the workflow lives in the repository,
+not in someone's head.
+
+Regeneration is stateless — a cache is state, and state drifts — but an
+unchanged result never touches the output file, so nothing downstream
+re-triggers on a no-op.
+
+## Federation — one feature, several repositories
+
+A feature with a foot in three services should still read as one document. A
+consumer declares its providers; `fetch` materializes their exported pages
+locally; `@namespace/id` composes beside local identifiers.
+
+```yaml
+# docs/.docmeta.yml of the consuming (or a thin product) repository
+consume_base: "git@github.com:acme/{ns}.git#docs"   # one template…
+consume: [auth, billing, payments]                  # …and just names
+```
+
+```sh
+docsys export manifest --root docs --out manifest.docsys   # each provider publishes
+docsys fetch --root docs                                   # consumer materializes
+docsys export feature app-side @auth/token-ttl --root docs --out guide.md
+```
+
+The manifest is why this scales: an index of ids, hashes, titles and summaries
+— **no bodies** — so a refresh downloads what actually changed instead of
+cloning estates. On a real 66-page tree the manifest is 20 KB where the
+repository is 70 MB. Foreign pages compose only from the verified local state
+(never a live query); an unfetched or locally edited materialization is refused
+by name, `internal: true` pages never cross the boundary, and every foreign
+stamp carries its fetch date so a stale composition is visible.
+
 ## Commands
 
 | Command | What it does |
 |---|---|
 | `docsys adopt [--repo .] [--root docs]` | One-command integration: docmeta (or the full init skeleton on a fresh project), agent assets, `settings.json` when absent, AGENTS.md managed block, git pre-commit gate (warn-mode), and an `ADOPTION.md` report whose checklist carries every judgment call. Idempotent. |
-| `docsys lint [--root docs] [--json]` | Full tree validation: frontmatter, ids, links, journal discipline, templates, list grammars. Errors exit 1, warnings don't. |
-| `docsys init [--root docs]` | Greenfield skeleton: `.docmeta.yml`, router, journal, debt. |
+| `docsys lint [--root docs] [--json]` | Full tree validation: frontmatter, ids, links, journal discipline, templates, list grammars — both profiles. Errors exit 1, warnings don't. |
+| `docsys init [--root docs] [--profile …]` | Greenfield skeleton. `project`: router, journal, debt. `knowledge-base`: the record layer (`raw/inbox/`) and the wiki root. |
 | `docsys migrate inventory / apply` | Brownfield adoption: evidence-rich plan → approved mapping → mechanical move with link rewriting on both sides of the docs boundary. |
 | `docsys refs --repo .` | Validate every `doc: <id>` in the code base against the tree (typos stop being invisible). |
 | `docsys graduate plan / apply` | Byte-exact block movement from work files to the permanent layer. |
+| `docsys export plan / product / feature` | Compose a document from permanent pages: a draft map from the tree's own evidence, a whole product from an authored map, or one feature by identifier (`--follow` widens a hop). Bodies verbatim, source-stamped, `--audience` and `--lang` aware. |
+| `docsys export manifest` | Publish what this namespace exports — id, type, title, summary, content hash, no bodies. A few KB where a clone is megabytes. |
+| `docsys fetch` | Materialize consumed namespaces into `.federation/`: manifest first, unchanged pages skipped, provenance recorded. |
 | `docsys rules --agents-md / --procedures` | Agent text generated from the embedded spec: a ~33-line always-loaded block, and the fifteen decision procedures. |
-| `docsys agents` | Install the hooks, `/doc-sync`, and the thin skill under `.claude/`. |
+| `docsys agents [--kb]` | Install the agent layer: hooks + `/doc-sync` + the docsys and export skills for a project, or the four knowledge-base organs (capture · ingest · audit · lookup) with `--kb`. |
 
 ## Quick start
 
@@ -236,6 +300,30 @@ boundary (README included), reports what it could not map as RISK lines, and
 lints the result. Don't like it? `git checkout . && git clean -fd` — it was a
 clone; zero risk.
 
+### 4 · A personal knowledge base (the other profile)
+
+The same mechanics, a different layout: notes land with zero discipline, get
+distilled with full discipline, and every claim keeps its evidence.
+
+```sh
+mkdir brain && cd brain && git init -q
+docsys init --profile knowledge-base --root .   # raw/inbox/ + wiki/ + docmeta
+docsys agents --kb --root .                     # capture · ingest · audit · lookup
+$EDITOR .docmeta.yml                            # declare your domains:
+```
+
+Then work in natural language with an agent in that directory: *"note this"*
+lands in `raw/inbox/`; *"process my inbox"* distils each note into
+`wiki/<domain>/<type>/`, archives the source and routes the page; *"audit the
+wiki"* verifies pages against their sources **in another session** and records
+who verified what; *"what do my notes say about X"* answers with the page path
+— or says the base does not have it.
+
+What the binary guarantees underneath: `raw/` is content-immutable (an edited
+or deleted record is an error; relocation is the expected flow), every
+`sources:` entry must resolve, a `verified` page must record `verified_by:` and
+`verified_rev:`, and a page that changes drops back to `unverified`.
+
 ## What keeps it honest
 
 - **Severity is doctrine.** Warn by default; block only what is irreversible
@@ -251,8 +339,10 @@ clone; zero risk.
   fails a case as hard as a missing one, so the checker can't grow noisy.
 - **Every open decision has a home.** What the spec leaves to implementations
   is decided once, in [corpus/DECISIONS.md](corpus/DECISIONS.md), with the
-  reason (R-193) — 24 decisions and counting, several forced by pilot runs on
-  real repositories.
+  reason (R-193) — 38 decisions and counting, most of them forced by real
+  repositories: a formatter that reflowed a config field, a build tree that
+  turned 147 findings into 9,171, an example citation that failed the rule it
+  was teaching.
 
 ## Repository layout
 
@@ -262,16 +352,23 @@ src/                  the reference implementation (Rust, stdlib only)
 corpus/
 ├── DECISIONS.md      register of implementation-defined choices (R-193)
 └── cases/            conformance corpus: tree + exact expected findings
-tests/                behavior locks for migrate / refs / graduate / agents
+tests/                behavior locks for migrate · refs · graduate · agents ·
+                      knowledge base (git-observable) · export · federation
 ```
 
 ## Status
 
 Core (layout, identity, lifecycle, graduation, journal, freshness, agent
-layer) is implemented and piloted read-only against three real repositories.
-Federation (§13) is deliberately **experimental**: its rules bind nothing until
-a reference implementation and a second real estate exist — a complex system
-that works has to grow from a simple system that works.
+layer) is implemented and field-proven: a firmware repository adopted end to
+end, and a personal knowledge base whose constitution predated the spec and
+matched it. Both profiles — `project` and `knowledge-base` — are checked.
+
+Federation (§13) stays marked **experimental** in the spec, and the
+implementation now has its first working slice: manifests, `fetch` over
+filesystem paths and git URLs, and `@namespace/id` composition, proven between
+repositories on one machine. Consuming a provider over HTTP without a
+checkout, and the consumer-impact report for a retired identifier, are the
+next slices — the rules there bind nothing until a second real estate exists.
 
 ## License
 
