@@ -20,6 +20,7 @@ Usage:
   docsys export plan    [--root <dir>] [--audience <a>]   # draft product map to stdout
   docsys export product <map> [--root <dir>] [--out <file>] [--lang <code>] [--audience <a>]
   docsys export feature <id> [<id>...] [--follow] [--title <t>] [--root <dir>] [--out <file>] [--lang <code>] [--audience <a>]
+  docsys export manifest [--root <dir>] [--out <file>]   # what this namespace exports
   docsys fetch   [--root <dir>]              # materialize consumed namespaces into .federation/
 
 Exit codes (the contract scripts and CI read):
@@ -264,6 +265,32 @@ fn main() -> ExitCode {
             }
             Err(e) => {
                 eprintln!("fetch: {e}");
+                ExitCode::from(2)
+            }
+        },
+        ("export", Some("manifest")) => match docsys::export::manifest(&opts.root) {
+            Ok(text) => match &opts.out {
+                Some(path) => match docsys::export::write_if_changed(path, &text) {
+                    Ok(true) => {
+                        eprintln!("manifest -> {}", path.display());
+                        ExitCode::SUCCESS
+                    }
+                    Ok(false) => {
+                        eprintln!("unchanged — {} left untouched", path.display());
+                        ExitCode::SUCCESS
+                    }
+                    Err(e) => {
+                        eprintln!("export manifest: {e}");
+                        ExitCode::from(2)
+                    }
+                },
+                None => {
+                    print!("{text}");
+                    ExitCode::SUCCESS
+                }
+            },
+            Err(e) => {
+                eprintln!("export manifest: {e}");
                 ExitCode::from(2)
             }
         },

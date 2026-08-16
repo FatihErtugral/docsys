@@ -299,6 +299,113 @@ fn load_foreign(tree: &DocTree, token: &str) -> Result<(Page, String), String> {
     ))
 }
 
+/// The manifest (R-133): what this namespace exports, without the bodies
+/// (R-134 — title and summary are identity metadata, the deliberate
+/// exception). One small file per provider, so a consumer can ask "what
+/// changed?" without cloning anything (D-038). Line format, not JSON: the
+/// parser is the one already in this binary, and a hand-readable manifest is
+/// one people can diff in a review.
+pub fn manifest(root: &Path) -> Result<String, String> {
+    let tree = DocTree::load(root).map_err(|e| e.to_string())?;
+    if !tree.docmeta_present {
+        return Err(format!("`{}` has no .docmeta.yml", root.display()));
+    }
+    let ns = tree.docmeta_str("namespace").unwrap_or("").trim();
+    let mut out = String::new();
+    let _ = writeln!(out, "manifest: 1");
+    if !ns.is_empty() {
+        let _ = writeln!(out, "namespace: {ns}");
+    }
+    let _ = writeln!(
+        out,
+        "spec: {}",
+        tree.docmeta_str("spec").unwrap_or("docsys/0.4")
+    );
+    let _ = writeln!(out, "generated: {}", today());
+    let mut pages: Vec<&Page> = tree
+        .pages
+        .iter()
+        .filter(|p| p.kind == Kind::Permanent)
+        .collect();
+    pages.sort_by(|a, b| a.rel.cmp(&b.rel));
+    for page in pages {
+        let Some(fm) = &page.fm else { continue };
+        let Some(id) = fm.fields.get("id").and_then(Value::as_str) else {
+            continue;
+        };
+        if fm.fields.get("internal").and_then(Value::as_str) == Some("true") {
+            continue; // R-135: excluded from the manifest entirely
+        }
+        let field = |k: &str| fm.fields.get(k).and_then(Value::as_str).unwrap_or("");
+        let body = strip_frontmatter(&page.text).replace("\r\n", "\n");
+        let _ = writeln!(out, "\n- id: {id}");
+        let _ = writeln!(out, "  type: {}", field("type"));
+        let _ = writeln!(out, "  title: {}", title_of(page));
+        let _ = writeln!(out, "  summary: {}", summary_of(page));
+        let _ = writeln!(
+            out,
+            "  hash: fnv:{:016x}",
+            fnv(body.trim_matches('\n').as_bytes())
+        );
+        let _ = writeln!(out, "  updated: {}", field("updated"));
+        for k in ["lang", "audience", "owner"] {
+            let v = field(k);
+            if !v.is_empty() {
+                let _ = writeln!(out, "  {k}: {v}");
+            }
+        }
+        let _ = writeln!(out, "  path: {}", page.rel);
+    }
+    // R-133: retired identifiers travel too, or every tombstone would drop on
+    // the next export and break the deprecation window when it is needed.
+    for t in &tree.tombstones {
+        let _ = writeln!(out, "\n- id: {t}\n  state: withdrawn");
+    }
+    Ok(out)
+}
+
+/// One manifest entry, as a consumer reads it.
+struct ManifestEntry {
+    id: String,
+    hash: String,
+    path: String,
+    withdrawn: bool,
+}
+
+fn parse_manifest(text: &str) -> Result<(u32, Vec<ManifestEntry>), String> {
+    let mut version = None;
+    let mut entries: Vec<ManifestEntry> = Vec::new();
+    for line in text.lines() {
+        let t = line.trim();
+        if let Some(v) = t.strip_prefix("manifest: ") {
+            version = v.trim().parse::<u32>().ok();
+        } else if let Some(id) = t.strip_prefix("- id: ") {
+            entries.push(ManifestEntry {
+                id: id.trim().to_string(),
+                hash: String::new(),
+                path: String::new(),
+                withdrawn: false,
+            });
+        } else if let Some(last) = entries.last_mut() {
+            if let Some(h) = t.strip_prefix("hash: ") {
+                last.hash = h.trim().to_string();
+            } else if let Some(p) = t.strip_prefix("path: ") {
+                last.path = p.trim().to_string();
+            } else if t == "state: withdrawn" {
+                last.withdrawn = true;
+            }
+        }
+    }
+    let version = version.ok_or("not a docsys manifest (no `manifest:` version line)")?;
+    // R-182: an unimplemented MAJOR version is refused by name, never skipped.
+    if version != 1 {
+        return Err(format!(
+            "manifest format version {version} is not implemented by this build"
+        ));
+    }
+    Ok((version, entries))
+}
+
 fn is_git_url(loc: &str) -> bool {
     loc.starts_with("git@")
         || loc.starts_with("http://")
@@ -410,6 +517,24 @@ pub fn fetch(root: &Path) -> Result<Vec<String>, String> {
         }
         let dir = root.join(".federation").join(ns);
         std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+        // Manifest first (D-038): the provider's index answers "what changed?"
+        // before a single body is read. A provider that publishes none is
+        // still consumable — the tree itself is the index then.
+        let mut unchanged = 0usize;
+        let published: BTreeMap<String, String> =
+            std::fs::read_to_string(provider_root.join("manifest.docsys"))
+                .ok()
+                .map(|text| parse_manifest(&text))
+                .transpose()
+                .map_err(|e| format!("{ns}: {e}"))?
+                .map(|(_, entries)| {
+                    entries
+                        .into_iter()
+                        .filter(|e| !e.withdrawn)
+                        .map(|e| (e.id, e.hash))
+                        .collect()
+                })
+                .unwrap_or_default();
         let mut count = 0usize;
         for page in &provider.pages {
             if page.kind != Kind::Permanent {
@@ -424,6 +549,25 @@ pub fn fetch(root: &Path) -> Result<Vec<String>, String> {
             }
             let body = strip_frontmatter(&page.text).replace("\r\n", "\n");
             let body = body.trim_matches('\n');
+            // Nothing to do when the published hash equals what we hold: the
+            // file keeps its bytes and its fetch date, so nothing downstream
+            // re-triggers on an unchanged page (the write_if_changed rule,
+            // applied to materialization).
+            let held = std::fs::read_to_string(dir.join(format!("{id}.provenance.yml")))
+                .ok()
+                .and_then(|s| {
+                    s.lines()
+                        .find_map(|l| l.trim().strip_prefix("hash: ").map(str::to_string))
+                });
+            let publish_hash = published.get(id);
+            let current = format!("fnv:{:016x}", fnv(body.as_bytes()));
+            if let (Some(h), Some(p)) = (held.as_deref(), publish_hash) {
+                if h == p && h == current && dir.join(format!("{id}.md")).is_file() {
+                    unchanged += 1;
+                    count += 1;
+                    continue;
+                }
+            }
             let mut head = String::from("---\n");
             let _ = writeln!(head, "id: {id}");
             for k in ["type", "updated", "lang", "audience"] {
@@ -443,8 +587,15 @@ pub fn fetch(root: &Path) -> Result<Vec<String>, String> {
                 .map_err(|e| e.to_string())?;
             count += 1;
         }
+        let note = if published.is_empty() {
+            " (no manifest published — read from the tree)".to_string()
+        } else if unchanged > 0 {
+            format!(" ({unchanged} unchanged, skipped)")
+        } else {
+            String::new()
+        };
         summary.push(format!(
-            "{ns}: {count} page(s) materialized under .federation/{ns}/"
+            "{ns}: {count} page(s) under .federation/{ns}/{note}"
         ));
     }
     Ok(summary)

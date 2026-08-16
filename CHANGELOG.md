@@ -39,6 +39,12 @@ by the release workflow — the tag's section becomes the GitHub release body.
   `docsys agents --kb` installs the base's four organs — capture, ingest,
   audit, lookup — plus an `AGENTS.md` constitution written only when absent.
   The skills carry judgment; every mechanical rule they name is the binary's.
+- `docsys export manifest` — the namespace's index (D-038): what it exports,
+  with content hashes, no bodies. `fetch` reads it before any page and skips
+  what has not changed (bytes and fetch date preserved), so a three-hundred
+  service estate refreshes only what actually moved. Line grammar, versioned
+  independently of the spec; an unimplemented major version is refused by
+  name. A provider without a manifest stays consumable — the tree is the index.
 - `docsys fetch` — federation's first working slice (D-034): a consumer
   declares its providers as one `consume_base:` template plus a list of names
   (three hundred services, one line — or `<ns>=<location>` per service), where

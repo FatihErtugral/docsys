@@ -258,3 +258,69 @@ fn the_estate_draft_lists_fetched_pages() {
     // the local page drafts alongside the foreign one
     assert!(draft.contains("- [[app-side|"), "{draft}");
 }
+
+#[test]
+fn a_manifest_indexes_the_namespace_and_skips_unchanged_pages() {
+    let provider = build_provider("prov-man");
+    // the provider publishes its index beside its docs root
+    let text = docsys::export::manifest(&provider).unwrap();
+    assert!(text.starts_with("manifest: 1\n"), "{text}");
+    assert!(text.contains("- id: shared-feature"), "{text}");
+    assert!(text.contains("  hash: fnv:"), "{text}");
+    // R-134: bodies never travel — title and the one-sentence summary are
+    // identity metadata and the deliberate exception, so the Pairing section
+    // (real body) must be absent while the summary line is present.
+    assert!(text.contains("  summary: Press the button"), "{text}");
+    assert!(!text.contains("Hold both buttons"), "{text}");
+    // R-135: the internal page appears nowhere
+    assert!(!text.contains("secret-keys"), "{text}");
+    fs::write(provider.join("manifest.docsys"), &text).unwrap();
+
+    let consumer = build_consumer("cons-man", &provider);
+    let first = docsys::export::fetch(&consumer).unwrap();
+    assert!(first.iter().any(|s| s.contains("1 page")), "{first:?}");
+    let materialized = consumer.join(".federation/firmware/shared-feature.md");
+    let stamp = fs::metadata(&materialized).unwrap().modified().unwrap();
+
+    // second fetch, nothing changed upstream: the page is skipped, its bytes
+    // and its fetch date survive
+    let second = docsys::export::fetch(&consumer).unwrap();
+    assert!(
+        second.iter().any(|s| s.contains("unchanged, skipped")),
+        "{second:?}"
+    );
+    assert_eq!(
+        fs::metadata(&materialized).unwrap().modified().unwrap(),
+        stamp
+    );
+
+    // the provider edits the page and republishes: the change comes through
+    let page = provider.join("howto/shared-feature.md");
+    let edited = fs::read_to_string(&page)
+        .unwrap()
+        .replace("the device answers", "the device answers twice");
+    fs::write(&page, edited).unwrap();
+    fs::write(
+        provider.join("manifest.docsys"),
+        docsys::export::manifest(&provider).unwrap(),
+    )
+    .unwrap();
+    let third = docsys::export::fetch(&consumer).unwrap();
+    assert!(!third.iter().any(|s| s.contains("unchanged")), "{third:?}");
+    assert!(fs::read_to_string(&materialized)
+        .unwrap()
+        .contains("answers twice"));
+}
+
+#[test]
+fn an_unimplemented_manifest_major_is_refused_by_name() {
+    let provider = build_provider("prov-ver");
+    fs::write(
+        provider.join("manifest.docsys"),
+        "manifest: 99\nnamespace: firmware\n",
+    )
+    .unwrap();
+    let consumer = build_consumer("cons-ver", &provider);
+    let err = docsys::export::fetch(&consumer).unwrap_err();
+    assert!(err.contains("version 99"), "{err}");
+}
