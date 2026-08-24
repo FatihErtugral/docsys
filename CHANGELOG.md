@@ -23,6 +23,12 @@ by the release workflow — the tag's section becomes the GitHub release body.
 
 ### Added
 
+- The hook scripts are executed for real in the test suite (a payload grammar
+  mistake or a wrong exit code in bash is invisible to Rust unit tests), and
+  `ci/e2e.sh` runs every first-run flow from a clean box — adopt, doctor
+  (including the dead-gate detection), the ask-once gate, the two-command
+  knowledge base, two-git-provider federation, honest export refusal. CI runs
+  it on every platform; a container reproduces it anywhere.
 - `docsys doctor` — is the pipeline itself alive? Every hook checked for
   existing, executable, wired under the right event, and reachable; a git-gate
   block sitting below a top-level `exec`/`exit` is named as dead code; the
