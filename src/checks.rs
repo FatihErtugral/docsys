@@ -1360,13 +1360,33 @@ fn check_list_grammars(tree: &DocTree, r: &mut Report) {
             }
             let norm = line.replace(" — ", " -- ");
             let ok = if is_debt {
-                let base = norm.contains(&format!(" -- {}: ", label_of(tree, "deferred")))
-                    && norm.contains(&format!(" -- {}: ", label_of(tree, "repay when")));
+                // Debt lifecycle (D-039): a repaid debt LEAVES the file — the
+                // journal records the repayment, git records the history; a
+                // ledger of closed items is a second archive nobody reads.
                 if closed {
-                    base && norm.contains(&format!(" -- {}: ", label_of(tree, "resolved")))
-                } else {
-                    base
+                    r.findings.push(Finding::warn(
+                        R108,
+                        &page.rel,
+                        &format!("line-{}", i + 1),
+                        "a resolved debt item stays listed — delete it and record the \
+                         repayment as a journal line (D-039)"
+                            .to_string(),
+                    ));
                 }
+                // An open item carries its opening date, or its age cannot be
+                // measured — the staleness nobody could see (D-039).
+                if open && !is_iso_date(norm.get(6..16).unwrap_or("")) {
+                    r.findings.push(Finding::warn(
+                        R108,
+                        &page.rel,
+                        &format!("line-{}", i + 1),
+                        "open debt item has no opened date — its age cannot be measured \
+                         (`- [ ] YYYY-MM-DD <debt> -- …`, D-039)"
+                            .to_string(),
+                    ));
+                }
+                norm.contains(&format!(" -- {}: ", label_of(tree, "deferred")))
+                    && norm.contains(&format!(" -- {}: ", label_of(tree, "repay when")))
             } else {
                 let after = norm.get(6..).unwrap_or("");
                 let date_ok = is_iso_date(after.get(..10).unwrap_or(""));
@@ -1387,6 +1407,37 @@ fn check_list_grammars(tree: &DocTree, r: &mut Report) {
         }
     }
     r.inspected.insert("list-grammar", inspected);
+    // The dangling promise (D-039): a page routes the reader to work/debt as
+    // if open work waits there, while the file declares none. Found live: a
+    // journal entry pointed at the debt file for "what is still unproven",
+    // the file read "None open.", and a later session had to rediscover the
+    // gap from scratch.
+    if let Some(debt) = tree.pages.iter().find(|p| p.rel == "work/debt.md") {
+        let has_open = debt.text.lines().any(|l| l.starts_with("- [ ] "));
+        if !has_open {
+            let citers: Vec<&str> = tree
+                .pages
+                .iter()
+                .filter(|p| {
+                    p.rel != "work/debt.md"
+                        && wiki_links(&p.text).iter().any(|(_, t)| t == "work/debt")
+                })
+                .map(|p| p.rel.as_str())
+                .collect();
+            if !citers.is_empty() {
+                r.findings.push(Finding::warn(
+                    R108,
+                    "work/debt.md",
+                    "promise",
+                    format!(
+                        "cited from {} as holding open work, but declares no open item — \
+                         reconcile the ledger or the citation (D-039)",
+                        citers.join(", ")
+                    ),
+                ));
+            }
+        }
+    }
 }
 
 /// `headings: [Context=Bağlam, ...]` — canonical key → displayed heading.

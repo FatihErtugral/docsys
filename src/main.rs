@@ -22,6 +22,8 @@ Usage:
   docsys export feature <id> [<id>...] [--follow] [--title <t>] [--root <dir>] [--out <file>] [--lang <code>] [--audience <a>]
   docsys export manifest [--root <dir>] [--out <file>]   # what this namespace exports
   docsys fetch   [--root <dir>]              # materialize consumed namespaces into .federation/
+  docsys gate    [--repo .] [--root docs]    # commit-time question: lint + code-without-docs
+  docsys doctor  [--repo .] [--root docs] [--dir .claude]   # is the pipeline itself alive?
 
 Exit codes (the contract scripts and CI read):
   0  ok — clean, or warnings only (warnings inform; they never block)
@@ -254,6 +256,77 @@ fn main() -> ExitCode {
             } else {
                 eprintln!("rules needs --agents-md or --procedures");
                 ExitCode::from(2)
+            }
+        }
+        ("gate", None) => {
+            let repo = opts.repo.clone().unwrap_or_else(|| PathBuf::from("."));
+            let root = if opts.root.is_absolute() {
+                opts.root.clone()
+            } else {
+                repo.join(&opts.root)
+            };
+            match docsys::gate::run(&repo, &root) {
+                Ok((g, report)) => {
+                    for f in &report.findings {
+                        println!(
+                            "{} {} {} [{}] {}",
+                            f.severity.tag(),
+                            f.rule,
+                            f.file,
+                            f.subject,
+                            f.message
+                        );
+                    }
+                    if !g.code.is_empty() && g.docs == 0 {
+                        let head: Vec<&str> = g.code.iter().take(5).map(String::as_str).collect();
+                        let more = g.code.len().saturating_sub(head.len());
+                        let tail = if more > 0 {
+                            format!(" (+{more} more)")
+                        } else {
+                            String::new()
+                        };
+                        println!(
+                            "GATE {} changes with no docs change: {}{tail}",
+                            g.scope,
+                            head.join(", ")
+                        );
+                    }
+                    println!(
+                        "-- {} error(s), {} warning(s)",
+                        g.lint_errors, g.lint_warnings
+                    );
+                    if g.lint_errors > 0 {
+                        ExitCode::from(1)
+                    } else {
+                        ExitCode::SUCCESS
+                    }
+                }
+                Err(e) => {
+                    eprintln!("gate: {e}");
+                    ExitCode::from(2)
+                }
+            }
+        }
+        ("doctor", None) => {
+            let repo = opts.repo.clone().unwrap_or_else(|| PathBuf::from("."));
+            let root = if opts.root.is_absolute() {
+                opts.root.clone()
+            } else {
+                repo.join(&opts.root)
+            };
+            let d = docsys::doctor::run(&repo, &root, &opts.dir);
+            for l in &d.lines {
+                println!("{l}");
+            }
+            if d.failed > 0 {
+                println!(
+                    "-- {} check(s) FAILED — the pipeline is not alive",
+                    d.failed
+                );
+                ExitCode::from(1)
+            } else {
+                println!("-- pipeline alive");
+                ExitCode::SUCCESS
             }
         }
         ("fetch", None) => match docsys::export::fetch(&opts.root) {

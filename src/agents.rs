@@ -7,31 +7,45 @@
 use std::fs;
 use std::path::Path;
 
-/// Warn when the contract surface changes without a documentation change.
-/// The design decisions this carries came from the field (doc-hooks addon):
-/// warn-don't-block, contract-surface-only triggers, patterns reviewed
-/// together with the tree.
+/// The one channel that reliably reaches the model: a PreToolUse hook, where
+/// exit 2 stops the tool call and the model reads stderr. Field report: every
+/// warn-only channel (exit 0 stdout/stderr on PostToolUse/Stop) lands in the
+/// transcript, not the model — a fully broken pipeline and a healthy one were
+/// indistinguishable. Lint errors block outright (severity doctrine). The
+/// code-without-docs invariant ASKS ONCE: the first attempt stops with the
+/// question, re-running the same commit proceeds — a wall gets hooks disabled
+/// (R-150); a question does not.
 const PRE_COMMIT_DOCS: &str = r#"#!/usr/bin/env bash
-# pre-commit-docs.sh — WARNS when the contract surface changes with no docs
-# change staged. Never blocks (R-150). Adjust the surface patterns with the
-# tree: a hook that silently matches nothing is worse than none (R-011).
+# pre-commit-docs.sh — PreToolUse gate on `git commit` (docsys gate relayed).
 set -uo pipefail
 
+payload=$(cat)
+cmd=$(printf '%s' "$payload" | grep -oE '"command"[[:space:]]*:[[:space:]]*"[^"]*"' | head -1)
+case "$cmd" in *"git commit"*) ;; *) exit 0 ;; esac
+
 DOCS_ROOT="${DOCS_ROOT:-docs}"
-# Contract surface: public APIs, data models, build/config. EDIT PER PROJECT.
-SURFACE='\.h$|include/|schema|migrations/|Cargo\.toml$|package\.json$|CMakeLists\.txt$|pyproject\.toml$'
+command -v docsys >/dev/null || exit 0
+[ -n "${DOCSYS_SKIP:-}" ] && exit 0
 
-staged=$(git diff --cached --name-only)
-[ -z "$staged" ] && exit 0
-surface_hits=$(printf '%s\n' "$staged" | grep -E "$SURFACE" | grep -v "^$DOCS_ROOT/" || true)
-docs_hits=$(printf '%s\n' "$staged" | grep "^$DOCS_ROOT/" || true)
-
-if [ -n "$surface_hits" ] && [ -z "$docs_hits" ]; then
-  echo "docs: contract surface changed with no documentation change:" >&2
-  printf '  %s\n' $surface_hits >&2
-  echo "  → update the affected page under $DOCS_ROOT/ in this session (see AGENTS.md)" >&2
+out=$(docsys gate --repo . --root "$DOCS_ROOT" 2>&1); code=$?
+if [ "$code" -ne 0 ]; then
+  printf '%s\n' "$out" >&2
+  echo "docsys gate: lint errors block this commit — fix them first (DOCSYS_SKIP=1 to bypass once)" >&2
+  exit 2
 fi
-command -v docsys >/dev/null && docsys lint --root "$DOCS_ROOT" >&2 || true
+
+line=$(printf '%s\n' "$out" | grep '^GATE ' || true)
+if [ -n "$line" ]; then
+  key=$( (git rev-parse -q --verify HEAD 2>/dev/null; git diff --cached --name-only) | cksum | cut -d' ' -f1)
+  marker="${TMPDIR:-/tmp}/.docsys-gate-${key}"
+  if [ ! -f "$marker" ]; then
+    touch "$marker"
+    printf '%s\n' "$line" >&2
+    echo "code moves with no documentation change. If a contract moved, update the page (or add the journal line) and commit; if nothing user-visible moved, run the same commit again — this gate asks once." >&2
+    exit 2
+  fi
+  rm -f "$marker"
+fi
 exit 0
 "#;
 
@@ -451,6 +465,10 @@ pub const SETTINGS_SNIPPET: &str = r#"{
   "hooks": {
     "UserPromptSubmit": [
       { "hooks": [ { "type": "command", "command": ".claude/hooks/session-intent.sh" } ] }
+    ],
+    "PreToolUse": [
+      { "matcher": "Bash",
+        "hooks": [ { "type": "command", "command": ".claude/hooks/pre-commit-docs.sh" } ] }
     ],
     "PostToolUse": [
       { "matcher": "Write|Edit",

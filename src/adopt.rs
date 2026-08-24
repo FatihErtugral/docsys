@@ -101,13 +101,9 @@ fn ensure_git_gate(repo: &Path, root_rel: &str) -> &'static str {
     if existing.contains(GATE_MARKER) {
         return "kept";
     }
-    let mut text = if existing.is_empty() {
-        String::from("#!/usr/bin/env bash\nset -uo pipefail\n")
-    } else {
-        existing
-    };
+    let mut block = String::new();
     let _ = write!(
-        text,
+        block,
         "\n# --- {GATE_MARKER} ---------------------------------------------\n\
          # Warn-mode until the adoption debt is triaged; then remove `|| true`.\n\
          # One-off skip: DOCSYS_SKIP=1 git commit ...\n\
@@ -116,6 +112,28 @@ fn ensure_git_gate(repo: &Path, root_rel: &str) -> &'static str {
          \x20 docsys refs --repo . --root {root_rel} || true\n\
          fi\n"
     );
+    // The block goes right below the shebang, never at the end: an existing
+    // hook usually ends in `exec` or `exit`, and a block appended below either
+    // is dead code that looks installed — found live, twice (doctor's check).
+    let text = if existing.is_empty() {
+        format!("#!/usr/bin/env bash\nset -uo pipefail\n{block}")
+    } else {
+        let mut lines: Vec<&str> = existing.lines().collect();
+        let mut at = 0usize;
+        if lines.first().is_some_and(|l| l.starts_with("#!")) {
+            at = 1;
+            if lines
+                .get(1)
+                .is_some_and(|l| l.trim_start().starts_with("set "))
+            {
+                at = 2;
+            }
+        }
+        lines.insert(at, &block);
+        let mut t = lines.join("\n");
+        t.push('\n');
+        t
+    };
     if fs::create_dir_all(hook.parent().unwrap_or(repo)).is_err() {
         return "failed";
     }

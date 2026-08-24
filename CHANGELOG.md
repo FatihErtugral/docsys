@@ -9,6 +9,9 @@ by the release workflow — the tag's section becomes the GitHub release body.
 
 ### Fixed
 
+- `adopt` writes the git gate right below the shebang, never at the end of an
+  existing hook — a block appended below `exec` or `exit` is dead code that
+  looks installed, found live twice in one day (D-040's check).
 - A wiki-link target containing `<`, `>`, `{` or `}` is a placeholder, not a
   link (D-037) — R-073's rule for `doc:` references, applied to links. The
   tool's own knowledge-base skeleton found this: its commented router example
@@ -20,6 +23,24 @@ by the release workflow — the tag's section becomes the GitHub release body.
 
 ### Added
 
+- `docsys doctor` — is the pipeline itself alive? Every hook checked for
+  existing, executable, wired under the right event, and reachable; a git-gate
+  block sitting below a top-level `exec`/`exit` is named as dead code; the
+  channel semantics (what actually reaches the model) are stated so nobody
+  rediscovers them (D-040). Born from a field report where five mechanisms
+  had failed silently and nothing could tell.
+- `docsys gate` — the commit-time question, computed by the binary: lint
+  findings plus "changes outside the docs root with none inside" (staged, or
+  the working tree when nothing is staged yet). The rewritten
+  `pre-commit-docs.sh` relays it on the one channel that reliably reaches the
+  model (PreToolUse, exit 2): lint errors block outright; the
+  code-without-docs question asks ONCE — re-running the same commit proceeds.
+  The settings snippet now wires it.
+- The debt lifecycle (D-039): an open item carries its opening date (undated
+  is reported — age must be measurable); a repaid item LEAVES the file (a
+  lingering `- [x]` line is reported — the journal records the repayment); a
+  page routing readers to `work/debt` while it declares no open item is
+  reported (the dangling promise, found live).
 - Audience modes (D-033): a page may declare `audience:`, the vocabulary is
   the tree's own (`audiences:` in `.docmeta.yml`, the domains pattern), and an
   undeclared page reads as `developer` — no migration, no guessing. `--audience`

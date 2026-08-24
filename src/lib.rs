@@ -5,8 +5,10 @@
 pub mod adopt;
 pub mod agents;
 pub mod checks;
+pub mod doctor;
 pub mod export;
 pub mod fm;
+pub mod gate;
 pub mod graduate;
 pub mod migrate;
 pub mod model;
