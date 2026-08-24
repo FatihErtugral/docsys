@@ -5,6 +5,17 @@ All notable changes to docsys are documented here. The format follows
 [SemVer](https://semver.org/). Release notes are extracted from this file
 by the release workflow — the tag's section becomes the GitHub release body.
 
+## [Unreleased]
+
+### Fixed
+
+- `doctor` and `adopt` ask git where the hooks live (`git config --get
+  core.hooksPath`) instead of parsing the config file's text — a hooksPath
+  set in another scope or spelled in another case sent doctor to the wrong
+  directory, reporting a missing gate while the real one sat dead elsewhere
+  (found live, from a field log). The regression test writes the exact
+  lowercase-key config that was missed.
+
 ## [0.4.0] - 2026-08-24
 
 ### Fixed

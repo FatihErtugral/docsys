@@ -120,3 +120,34 @@ fn gate_computes_the_code_without_docs_invariant() {
     assert_eq!(g.docs, 1);
     assert!(!g.code.is_empty());
 }
+
+#[test]
+fn hookspath_is_read_from_git_not_from_config_text() {
+    // The field log: doctor pointed at .git/hooks while the gate lived under
+    // .githooks — the config carried the key in a spelling the text parser
+    // did not match. git itself reads any casing and any scope; the tool must
+    // ask git. The lowercase key below is exactly the shape that was missed.
+    let (repo, docs) = repo_with_tree("hookspath");
+    fs::create_dir_all(repo.join(".githooks")).unwrap();
+    let mut cfg = fs::read_to_string(repo.join(".git/config")).unwrap();
+    cfg.push_str("[core]\n\thookspath = .githooks\n");
+    fs::write(repo.join(".git/config"), cfg).unwrap();
+    fs::write(
+        repo.join(".githooks/pre-commit"),
+        "#!/usr/bin/env bash\ndocsys lint --root docs || true\n",
+    )
+    .unwrap();
+    let d = docsys::doctor::run(&repo, &docs, &repo.join(".claude"));
+    let all = d.lines.join("\n");
+    assert!(all.contains(".githooks/pre-commit gate reachable"), "{all}");
+    assert!(!all.contains("no pre-commit hook"), "{all}");
+    // adopt resolves the same way: the gate must land in .githooks, and the
+    // marker check must see it (no duplicate under .git/hooks).
+    docsys::adopt::run(&repo, &docs, "en").unwrap();
+    assert!(
+        !repo.join(".git/hooks/pre-commit").exists(),
+        "adopt wrote the gate to the wrong hooks dir"
+    );
+    let hook = fs::read_to_string(repo.join(".githooks/pre-commit")).unwrap();
+    assert!(hook.contains("docsys documentation gate"), "{hook}");
+}

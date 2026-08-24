@@ -80,11 +80,17 @@ fn ensure_git_gate(repo: &Path, root_rel: &str) -> &'static str {
     // (the project's own convention; we also set hooksPath so the gate fires
     // on a fresh clone, exactly what the project's own setup step would do)
     // → .git/hooks as the last resort.
-    let config = fs::read_to_string(repo.join(".git/config")).unwrap_or_default();
-    let configured = config.lines().find_map(|l| {
-        let l = l.trim();
-        l.strip_prefix("hooksPath = ").map(str::to_string)
-    });
+    // git itself answers — a config-file text parse misses another scope or
+    // another casing of the key (found live, from a field log).
+    let configured = std::process::Command::new("git")
+        .arg("-C")
+        .arg(repo)
+        .args(["config", "--get", "core.hooksPath"])
+        .output()
+        .ok()
+        .filter(|o| o.status.success())
+        .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+        .filter(|s| !s.is_empty());
     let hooks_dir = match configured {
         Some(d) => d,
         None if repo.join(".githooks").is_dir() => {

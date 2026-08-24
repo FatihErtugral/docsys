@@ -133,11 +133,19 @@ pub fn run(repo: &Path, root: &Path, claude_dir: &Path) -> Diagnosis {
         }
     }
 
-    // 3. The git gate exists AND is reachable.
-    let config = fs::read_to_string(repo.join(".git/config")).unwrap_or_default();
-    let hooks_dir = config
-        .lines()
-        .find_map(|l| l.trim().strip_prefix("hooksPath = ").map(str::to_string))
+    // 3. The git gate exists AND is reachable. git itself answers where hooks
+    // live — parsing the config file missed a hooksPath set in another scope
+    // or spelled in another case, and doctor pointed at the wrong directory
+    // (found live, from a field log).
+    let hooks_dir = std::process::Command::new("git")
+        .arg("-C")
+        .arg(repo)
+        .args(["config", "--get", "core.hooksPath"])
+        .output()
+        .ok()
+        .filter(|o| o.status.success())
+        .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+        .filter(|s| !s.is_empty())
         .unwrap_or_else(|| ".git/hooks".to_string());
     let hook_path = repo.join(&hooks_dir).join("pre-commit");
     match fs::read_to_string(&hook_path) {
