@@ -5,6 +5,20 @@ All notable changes to docsys are documented here. The format follows
 [SemVer](https://semver.org/). Release notes are extracted from this file
 by the release workflow — the tag's section becomes the GitHub release body.
 
+## [0.4.6] - 2026-08-26
+
+### Fixed
+
+- A documentation page with a non-ASCII name is a documentation change. git
+  quoted such paths (`"docs/g\303\274..."`) and no docs-root prefix matched,
+  so `docsys gate` and the stop reminder read the change as code — a tree
+  named in its own language could never answer the commit-time question.
+  Git output compared against paths is read with `core.quotePath=false`; the
+  hooks match the docs root with a shell pattern, not a regex (D-048).
+- The PreToolUse hook read the command out of the payload up to the first
+  quote, escaped or not: `printf "x" > y && git commit` was never gated.
+  Executed-hook tests lock all three.
+
 ## [0.4.5] - 2026-08-26
 
 ### Fixed
