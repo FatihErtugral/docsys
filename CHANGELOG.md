@@ -5,6 +5,20 @@ All notable changes to docsys are documented here. The format follows
 [SemVer](https://semver.org/). Release notes are extracted from this file
 by the release workflow — the tag's section becomes the GitHub release body.
 
+## [0.4.7] - 2026-08-26
+
+### Fixed
+
+- The pre-commit refusal says that the whole Bash call was blocked — a
+  `git add` in it did not run — and asks for the same command from the
+  start. A retry that dropped its `git add` while the tree still holds
+  unstaged changes is stopped once more ("did your `git add` run?"); a
+  commit that was bare from the start is never second-guessed. Found live:
+  a commit whose message described all the work landed with six deletions
+  as its content (D-049).
+- The generated AGENTS block carries the general sentence: what landed is
+  `git show HEAD:<file>`, not the tree.
+
 ## [0.4.6] - 2026-08-26
 
 ### Fixed
