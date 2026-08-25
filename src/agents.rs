@@ -32,7 +32,7 @@ command -v docsys >/dev/null || exit 0
 out=$(docsys gate --repo . --root "$DOCS_ROOT" 2>&1); code=$?
 if [ "$code" -ne 0 ]; then
   printf '%s\n' "$out" >&2
-  echo "docsys gate: lint errors block this commit — fix them first (DOCSYS_SKIP=1 to bypass once)" >&2
+  echo "docsys gate: lint errors block this commit — fix them first (DOCSYS_SKIP=1 to bypass once). This whole Bash call was blocked, any \`git add\` in it included." >&2
   exit 2
 fi
 
@@ -51,10 +51,21 @@ if [ -n "$line" ]; then
   mkdir -p "$dir" 2>/dev/null
   find "$dir" -type f ! -name "$head.*" -delete 2>/dev/null
   marker="$dir/$head.$key"
+  adds=0; case "$cmd" in *"git add"*) adds=1 ;; esac
   if [ ! -f "$marker" ]; then
-    touch "$marker"
+    printf 'add=%s\n' "$adds" > "$marker"
     printf '%s\n' "$line" >&2
     echo "code moves with no documentation change. If a contract moved, update the page (or add the journal line) and commit; if nothing user-visible moved, run the same commit again — this gate asks once." >&2
+    echo "This whole Bash call was blocked — a \`git add\` in it did not run either. Re-run the SAME command from the start, \`add\` included." >&2
+    exit 2
+  fi
+  # The retry dropped the `git add` the blocked call carried, and the tree
+  # still holds unstaged changes: the commit about to land is not the work
+  # described (found live — a commit whose message told the whole story and
+  # whose content was six deletions). Asked once, like the question itself.
+  if [ "$adds" = 0 ] && grep -q '^add=1' "$marker" 2>/dev/null && [ -n "$(git diff --name-only)" ] && [ ! -f "$marker.retry" ]; then
+    touch "$marker.retry"
+    echo "docsys gate: the blocked call ran \`git add\`; this retry does not, and the working tree still has unstaged changes — did your \`git add\` run? Re-run the original command from the start, or stage explicitly. (asked once)" >&2
     exit 2
   fi
 fi

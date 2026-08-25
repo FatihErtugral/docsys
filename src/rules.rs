@@ -108,7 +108,9 @@ pub fn agents_md() -> String {
          - `docsys lint` before every commit; errors block, warnings accumulate\n\
          - `docsys refs --repo .` when code references documentation\n\
          - code cites documentation as `doc: <id>` — never a path; the id is the\n\
-           contract, the filename is cosmetic\n\n\
+           contract, the filename is cosmetic\n\
+         - a blocked Bash call is blocked whole: `git add … && git commit` re-runs\n\
+           from the `add`; what landed is `git show HEAD:<file>`, not the tree\n\n\
          Judgment stays with you, but inside these rules:\n"
     );
     for (id, sentence) in &rules {

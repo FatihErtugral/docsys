@@ -252,8 +252,11 @@ fn ask_once_holds_when_staging_happens_inside_the_command() {
     fs::write(repo.join("main.rs"), "fn main() { run() }\n").unwrap();
     let (code, err) = run_hook(&repo, add_and_commit_payload(), &[]);
     assert_eq!(code, 2, "{err}");
-    let (code, _) = run_hook(&repo, commit_payload(), &[]); // commits nothing
-    assert_eq!(code, 0);
+    // a bare retry that dropped the add is stopped once more (D-049) — and
+    // that stop must not consume the answer to the original question
+    let (code, err) = run_hook(&repo, commit_payload(), &[]);
+    assert_eq!(code, 2, "{err}");
+    assert!(err.contains("did your `git add` run"), "{err}");
     let (code, err) = run_hook(&repo, add_and_commit_payload(), &[]);
     assert_eq!(
         code, 0,
@@ -326,4 +329,45 @@ fn an_escaped_quote_before_git_commit_is_still_gated() {
         code, 2,
         "the gate skipped a commit hidden behind an escaped quote: {err}"
     );
+}
+
+#[test]
+fn a_retry_that_dropped_its_git_add_is_stopped_once() {
+    // Live sequence: `git add -A && git commit` blocked whole (the add never
+    // ran); the agent retried a bare `git commit`; what landed was the stale
+    // index — six deletions under a message describing all the work.
+    let repo = build_repo("dropped-add");
+    fs::write(repo.join("main.rs"), "fn main() {}\n").unwrap();
+    git(&repo, &["add", "-A"]);
+    git(&repo, &["commit", "-q", "-m", "code lands"]);
+    fs::write(repo.join("main.rs"), "fn main() { run() }\n").unwrap();
+    let (code, err) = run_hook(&repo, add_and_commit_payload(), &[]);
+    assert_eq!(code, 2, "{err}");
+    assert!(err.contains("whole Bash call was blocked"), "{err}");
+    // bare retry, tree still unstaged: stopped once, with the question
+    let (code, err) = run_hook(&repo, commit_payload(), &[]);
+    assert_eq!(code, 2, "{err}");
+    assert!(err.contains("did your `git add` run"), "{err}");
+    // the same bare retry again: asked once, now proceeds
+    let (code, err) = run_hook(&repo, commit_payload(), &[]);
+    assert_eq!(code, 0, "{err}");
+    // the right retry — the original command, add included — passes at once
+    let repo = build_repo("dropped-add-right");
+    fs::write(repo.join("main.rs"), "fn main() {}\n").unwrap();
+    git(&repo, &["add", "-A"]);
+    git(&repo, &["commit", "-q", "-m", "code lands"]);
+    fs::write(repo.join("main.rs"), "fn main() { run() }\n").unwrap();
+    let (code, _) = run_hook(&repo, add_and_commit_payload(), &[]);
+    assert_eq!(code, 2);
+    let (code, err) = run_hook(&repo, add_and_commit_payload(), &[]);
+    assert_eq!(code, 0, "{err}");
+    // and a bare commit that was bare from the start is never second-guessed
+    let repo = build_repo("bare-from-start");
+    fs::write(repo.join("main.rs"), "fn main() {}\n").unwrap();
+    git(&repo, &["add", "main.rs"]);
+    fs::write(repo.join("main.rs"), "fn main() { later() }\n").unwrap(); // unstaged on top
+    let (code, _) = run_hook(&repo, commit_payload(), &[]);
+    assert_eq!(code, 2);
+    let (code, err) = run_hook(&repo, commit_payload(), &[]);
+    assert_eq!(code, 0, "{err}");
 }
