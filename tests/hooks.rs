@@ -371,3 +371,25 @@ fn a_retry_that_dropped_its_git_add_is_stopped_once() {
     let (code, err) = run_hook(&repo, commit_payload(), &[]);
     assert_eq!(code, 0, "{err}");
 }
+
+#[test]
+fn git_commit_inside_a_heredoc_body_is_not_a_commit() {
+    let repo = build_repo("heredoc");
+    fs::write(repo.join("main.rs"), "fn main() {}\n").unwrap();
+    git(&repo, &["add", "main.rs"]);
+    // a rule text written through a heredoc quotes the words — no commit here
+    let payload = r#"{"tool_name":"Bash","tool_input":{"command":"cat > rules.md <<'EOF'\n# Rules\n\nRun `git commit` only after docs.\nEOF\necho done"}}"#;
+    let (code, err) = run_hook(&repo, payload, &[]);
+    assert_eq!(code, 0, "gated a call that commits nothing: {err}");
+    // the heredoc LINE is a command: a commit fed its message from a heredoc is gated
+    let payload = r#"{"tool_name":"Bash","tool_input":{"command":"git commit -q -F - <<'MSG'\nfix: something\n\nbody\nMSG\ngit push"}}"#;
+    let (code, err) = run_hook(&repo, payload, &[]);
+    assert_eq!(code, 2, "{err}");
+    // and a commit AFTER a heredoc on a later line is gated too
+    let repo = build_repo("heredoc-after");
+    fs::write(repo.join("main.rs"), "fn main() {}\n").unwrap();
+    git(&repo, &["add", "main.rs"]);
+    let payload = r#"{"tool_name":"Bash","tool_input":{"command":"cat > /tmp/m <<'EOF'\nmsg\nEOF\ngit commit -F /tmp/m"}}"#;
+    let (code, err) = run_hook(&repo, payload, &[]);
+    assert_eq!(code, 2, "{err}");
+}

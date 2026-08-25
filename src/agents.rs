@@ -23,7 +23,16 @@ payload=$(cat)
 # the JSON string may carry escaped quotes before `git commit`
 # (printf "x" > y && git commit …) — stop at an unescaped quote only
 cmd=$(printf '%s' "$payload" | grep -oE '"command"[[:space:]]*:[[:space:]]*"([^"\\]|\\.)*"' | head -1)
-case "$cmd" in *"git commit"*) ;; *) exit 0 ;; esac
+# Match on command lines only: a heredoc BODY (a rule text, a commit message
+# quoting the words) is not a command. The JSON carries newlines as \n; open
+# them, then drop every line between `<<WORD` and its terminator. The heredoc
+# line itself stays — `git commit -F - <<'MSG'` is a commit.
+lines=$(printf '%s' "$cmd" | awk '{gsub(/\\n/,"\n")}1' | awk '
+  skip { if ($0 == term) skip = 0; next }
+  { if (match($0, /<<-?[ \t]*["'"'"']?[A-Za-z_][A-Za-z0-9_]*/)) {
+      term = substr($0, RSTART, RLENGTH); sub(/^<<-?[ \t]*["'"'"']?/, "", term); skip = 1 }
+    print }')
+case "$lines" in *"git commit"*) ;; *) exit 0 ;; esac
 
 DOCS_ROOT="${DOCS_ROOT:-docs}"
 command -v docsys >/dev/null || exit 0
