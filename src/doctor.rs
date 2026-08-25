@@ -102,6 +102,12 @@ pub fn run(repo: &Path, root: &Path, claude_dir: &Path) -> Diagnosis {
             ),
         );
     }
+    for (rel, found) in crate::agents::stale_hooks(claude_dir) {
+        d.lines.push(format!(
+            "info {rel} template {found}, binary {} — `docsys agents --force` refreshes it",
+            crate::agents::TEMPLATE_VERSION
+        ));
+    }
     for (rel, want_event) in HOOKS {
         let path = claude_dir.join(rel);
         let exists = path.is_file();

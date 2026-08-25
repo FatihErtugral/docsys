@@ -468,6 +468,11 @@ pub fn install(claude_dir: &Path, force: bool) -> Result<Installed, String> {
         if let Some(parent) = path.parent() {
             fs::create_dir_all(parent).map_err(|e| e.to_string())?;
         }
+        let content = if executable {
+            stamp(content)
+        } else {
+            content.to_string()
+        };
         fs::write(&path, content).map_err(|e| e.to_string())?;
         #[cfg(unix)]
         if executable {
@@ -588,3 +593,46 @@ fn collect_files(dir: &Path, out: &mut Vec<std::path::PathBuf>) {
         }
     }
 }
+
+/// The version line written into every hook, right under the shebang, so a
+/// tree can tell "behind the binary" from "hand-written" (D-047).
+pub const TEMPLATE_VERSION: &str = env!("CARGO_PKG_VERSION");
+
+fn stamp(content: &str) -> String {
+    match content.split_once('\n') {
+        Some((shebang, rest)) if shebang.starts_with("#!") => {
+            format!("{shebang}\n# docsys-template: {TEMPLATE_VERSION}\n{rest}")
+        }
+        _ => format!("# docsys-template: {TEMPLATE_VERSION}\n{content}"),
+    }
+}
+
+/// The template version a hook on disk carries; `None` for a hook written
+/// before stamping or by hand.
+pub fn template_version(path: &Path) -> Option<String> {
+    let text = fs::read_to_string(path).ok()?;
+    text.lines()
+        .take(3)
+        .find_map(|l| l.strip_prefix("# docsys-template:"))
+        .map(|v| v.trim().to_string())
+}
+
+/// Hooks whose template is not the binary's: (relative path, version found).
+pub fn stale_hooks(claude_dir: &Path) -> Vec<(String, String)> {
+    HOOK_FILES
+        .iter()
+        .filter(|rel| claude_dir.join(rel).is_file())
+        .filter_map(|rel| {
+            let found =
+                template_version(&claude_dir.join(rel)).unwrap_or_else(|| "unversioned".into());
+            (found != TEMPLATE_VERSION).then(|| (rel.to_string(), found))
+        })
+        .collect()
+}
+
+pub const HOOK_FILES: [&str; 4] = [
+    "hooks/pre-commit-docs.sh",
+    "hooks/stop-docs-reminder.sh",
+    "hooks/post-edit-updated.sh",
+    "hooks/session-intent.sh",
+];
