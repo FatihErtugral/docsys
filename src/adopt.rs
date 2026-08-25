@@ -188,6 +188,18 @@ pub fn run(repo: &Path, root: &Path, lang: &str) -> Result<AdoptOutcome, String>
         installed.written.len(),
         installed.skipped.len()
     ));
+    // Kept hooks may be behind the binary's templates — adopt never
+    // overwrites, so it must at least say so (D-047).
+    let stale = agents::stale_hooks(&claude);
+    if !stale.is_empty() {
+        let list: Vec<String> = stale.iter().map(|(r, v)| format!("{r}: {v}")).collect();
+        summary.push(format!(
+            "hooks: {} template(s) behind {} ({}) — run `docsys agents --force`",
+            stale.len(),
+            agents::TEMPLATE_VERSION,
+            list.join(", ")
+        ));
+    }
 
     // 2b · settings.json: created only when absent — an existing file may carry
     // MCP servers, permissions, deny lists; merging those is judgment, so it
@@ -273,11 +285,49 @@ pub fn run(repo: &Path, root: &Path, lang: &str) -> Result<AdoptOutcome, String>
         md.push_str("\n```\n");
     }
 
+    // The report is regenerated, but a leading comment block on the existing
+    // file is the owner's — a privacy classifier's marker, a review note —
+    // and survives the rewrite (D-046).
     let report_path = repo.join("ADOPTION.md");
-    fs::write(&report_path, md).map_err(|e| e.to_string())?;
+    let header = preserved_header(&fs::read_to_string(&report_path).unwrap_or_default());
+    fs::write(&report_path, format!("{header}{md}")).map_err(|e| e.to_string())?;
 
     Ok(AdoptOutcome {
         report_path: report_path.to_string_lossy().to_string(),
         summary,
     })
+}
+
+/// The leading HTML-comment block of a generated file (with the blank lines
+/// inside it), ending with a newline; empty when the file does not start with
+/// a comment. Everything after the block is generator territory.
+pub fn preserved_header(existing: &str) -> String {
+    let mut out = String::new();
+    let mut in_comment = false;
+    for line in existing.lines() {
+        let t = line.trim();
+        if in_comment {
+            out.push_str(line);
+            out.push('\n');
+            if t.contains("-->") {
+                in_comment = false;
+            }
+            continue;
+        }
+        if t.starts_with("<!--") {
+            out.push_str(line);
+            out.push('\n');
+            in_comment = !t.contains("-->");
+        } else if t.is_empty() && !out.is_empty() {
+            out.push('\n');
+        } else {
+            break;
+        }
+    }
+    if out.trim().is_empty() {
+        String::new()
+    } else {
+        // the block, then one blank line before the generated body
+        format!("{}\n\n", out.trim_end())
+    }
 }

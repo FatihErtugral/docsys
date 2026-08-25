@@ -134,3 +134,82 @@ fn docmeta_upgrade_prepends_missing_keys_and_keeps_owner_lines() {
     );
     let _ = fs::remove_dir_all(&repo);
 }
+
+#[test]
+fn adopt_keeps_the_owners_comment_header_on_the_report() {
+    let repo = tmp("header");
+    git_init(&repo);
+    let docs = repo.join("docs");
+    docsys::adopt::run(&repo, &docs, "en").unwrap();
+    let report = repo.join("ADOPTION.md");
+    let body = fs::read_to_string(&report).unwrap();
+    fs::write(
+        &report,
+        format!(
+            "<!-- restricted-context:public -->\n<!-- reviewed:\n     2026-08-26 -->\n\n{body}"
+        ),
+    )
+    .unwrap();
+    docsys::adopt::run(&repo, &docs, "en").unwrap();
+    let again = fs::read_to_string(&report).unwrap();
+    assert!(again.starts_with("<!-- restricted-context:public -->\n<!-- reviewed:\n     2026-08-26 -->\n\n# docsys adoption report"), "{again}");
+    assert_eq!(again.matches("# docsys adoption report").count(), 1);
+}
+
+#[test]
+fn adopt_names_hooks_behind_the_binary_template() {
+    let repo = tmp("stale");
+    git_init(&repo);
+    let docs = repo.join("docs");
+    docsys::adopt::run(&repo, &docs, "en").unwrap();
+    let hook = repo.join(".claude/hooks/stop-docs-reminder.sh");
+    let text = fs::read_to_string(&hook).unwrap();
+    assert!(
+        text.lines()
+            .nth(1)
+            .unwrap()
+            .starts_with("# docsys-template: "),
+        "{text}"
+    );
+    // an older stamp, and a hook with none at all
+    fs::write(
+        &hook,
+        text.replace(docsys::agents::TEMPLATE_VERSION, "0.4.4"),
+    )
+    .unwrap();
+    let pre = repo.join(".claude/hooks/pre-commit-docs.sh");
+    let old = fs::read_to_string(&pre)
+        .unwrap()
+        .lines()
+        .filter(|l| !l.starts_with("# docsys-template"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    fs::write(&pre, old).unwrap();
+    let out = docsys::adopt::run(&repo, &docs, "en").unwrap();
+    let line = out
+        .summary
+        .iter()
+        .find(|l| l.starts_with("hooks:"))
+        .expect("staleness line");
+    assert!(line.contains("2 template(s) behind"), "{line}");
+    assert!(line.contains("stop-docs-reminder.sh: 0.4.4"), "{line}");
+    assert!(line.contains("pre-commit-docs.sh: unversioned"), "{line}");
+    assert!(line.contains("agents --force"), "{line}");
+    // doctor says the same, as information, not failure
+    let d = docsys::doctor::run(&repo, &docs, &repo.join(".claude"));
+    assert!(
+        d.lines
+            .iter()
+            .any(|l| l.starts_with("info hooks/stop-docs-reminder.sh template 0.4.4")),
+        "{:?}",
+        d.lines
+    );
+    // --force refreshes, and the line is gone
+    docsys::agents::install(&repo.join(".claude"), true).unwrap();
+    let out = docsys::adopt::run(&repo, &docs, "en").unwrap();
+    assert!(
+        !out.summary.iter().any(|l| l.starts_with("hooks:")),
+        "{:?}",
+        out.summary
+    );
+}
