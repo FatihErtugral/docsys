@@ -40,3 +40,6 @@ gates start in warn mode and harden when the debt reaches zero.
 - Every published release bumps `Cargo.toml` **and** `Cargo.lock`, and adds a
   CHANGELOG section — the release workflow turns that section into the
   release notes.
+- **Force pushes and branch deletions are forbidden in this repository — permanently, no exceptions (2026-08-26).**
+  No `--force`, `--force-with-lease`, `+ref`, `--delete`, `--no-verify`; `.githooks/pre-push` rejects
+  non-fast-forward updates. A wrong commit is reverted, history is never rewritten.

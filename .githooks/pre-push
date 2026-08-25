@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+# pre-push: force pushes and branch deletions are forbidden in every repo of this ecosystem
+# (user rule, 2026-08-26 — an empty-tree commit was pushed once; a force push would have made it unrecoverable).
+z=0000000000000000000000000000000000000000
+while read -r lref lsha rref rsha; do
+  if [ "$lsha" = "$z" ]; then echo "pre-push: REJECTED — deleting $rref is forbidden"; exit 1; fi
+  [ "$rsha" = "$z" ] && continue
+  if ! git cat-file -e "$rsha" 2>/dev/null; then echo "pre-push: REJECTED — remote $rref ($rsha) is unknown locally; run 'git fetch' first"; exit 1; fi
+  if ! git merge-base --is-ancestor "$rsha" "$lsha"; then
+    echo "pre-push: REJECTED — non-fast-forward push to $rref. Force push is forbidden in every repo (user rule 2026-08-26). Fetch, merge/rebase locally, push again."; exit 1
+  fi
+done
+exit 0

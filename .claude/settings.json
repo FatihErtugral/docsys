@@ -1,0 +1,21 @@
+{
+  "permissions": {
+    "deny": [
+      "Bash(git push --force*)",
+      "Bash(git push -f*)",
+      "Bash(git push --force-with-lease*)",
+      "Bash(git push --force-if-includes*)",
+      "Bash(git push --no-verify*)",
+      "Bash(git push --delete*)",
+      "Bash(git push -d *)",
+      "Bash(git push --mirror*)",
+      "Bash(git push * --force*)",
+      "Bash(git push * -f*)",
+      "Bash(git push * --no-verify*)",
+      "Bash(git push * --delete*)",
+      "Bash(git push * +*)",
+      "Bash(git push * :*)",
+      "Bash(git config core.hooksPath*)"
+    ]
+  }
+}
