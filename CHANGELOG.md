@@ -5,6 +5,17 @@ All notable changes to docsys are documented here. The format follows
 [SemVer](https://semver.org/). Release notes are extracted from this file
 by the release workflow — the tag's section becomes the GitHub release body.
 
+## [0.4.3] - 2026-08-26
+
+### Fixed
+
+- A wiki-link with a `#fragment` (`[[reference/x#section]]`) no longer reads
+  as a dangling link when the page exists. R-070 now states the link form: a
+  link addresses a page, never a heading; the page part resolves and the
+  fragment is a warning naming the alias form `[[path|Title § Section]]`.
+  An unresolved page part stays the R-071 error. Corpus case `32-link-fragment`
+  (D-042).
+
 ## [0.4.2] - 2026-08-26
 
 ### Fixed
