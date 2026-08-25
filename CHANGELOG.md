@@ -5,6 +5,14 @@ All notable changes to docsys are documented here. The format follows
 [SemVer](https://semver.org/). Release notes are extracted from this file
 by the release workflow — the tag's section becomes the GitHub release body.
 
+## [0.4.10] - 2026-08-26
+
+### Fixed
+
+- The PreToolUse commit gate no longer fires on the words `git commit`
+  inside a heredoc body (a rule text, a quoted message): heredoc bodies are
+  dropped before matching, the heredoc line itself still counts (D-050).
+
 ## [0.4.9] - 2026-08-26
 
 ### Fixed
