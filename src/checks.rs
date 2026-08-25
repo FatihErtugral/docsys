@@ -913,8 +913,16 @@ fn check_links(tree: &DocTree, r: &mut Report) {
         .collect();
     let mut inspected = 0usize;
     for page in &tree.pages {
-        for (line, target) in wiki_links(&page.text) {
+        for (line, link) in wiki_links(&page.text) {
             inspected += 1;
+            // A link addresses a page, never a heading (R-070): the fragment
+            // is split off, the page part resolves, and the fragment itself
+            // is reported — before this, a `#section` made a real page read
+            // as dangling and the reader went looking for a page that existed.
+            let (target, fragment) = match link.split_once('#') {
+                Some((t, f)) => (t.trim().to_string(), Some(f)),
+                None => (link.clone(), None),
+            };
             // A root-level page's full path is its bare name (R-070).
             let root_level = paths.contains(target.as_str());
             if !target.contains('/') && !root_level && page.kind != Kind::Router {
@@ -942,12 +950,24 @@ fn check_links(tree: &DocTree, r: &mut Report) {
                 .join(format!("{target}.md"))
                 .exists();
             if paths.contains(&target) || explicit_archive {
-                // resolves
+                // resolves — and a fragment on a resolved page is the finding
+                if fragment.is_some() {
+                    r.findings.push(Finding::warn(
+                        R070,
+                        &page.rel,
+                        &link,
+                        format!(
+                            "line {}: `#fragment` — a link addresses a page, not a heading; \
+                             name the section in the alias: [[{target}|Title § Section]]",
+                            line + 1
+                        ),
+                    ));
+                }
             } else if archived {
                 r.findings.push(Finding::warn(
                     R071,
                     &page.rel,
-                    &target,
+                    &link,
                     "target moved to _archive/ — still resolves, reported as remaining interest"
                         .to_string(),
                 ));
@@ -957,7 +977,7 @@ fn check_links(tree: &DocTree, r: &mut Report) {
                 r.findings.push(Finding::warn(
                     R071,
                     &page.rel,
-                    &target,
+                    &link,
                     format!(
                         "line {}: dangling wiki-link in a raw record — the target moved on",
                         line + 1
@@ -967,7 +987,7 @@ fn check_links(tree: &DocTree, r: &mut Report) {
                 r.findings.push(Finding::err(
                     R071,
                     &page.rel,
-                    &target,
+                    &link,
                     format!("line {}: dangling wiki-link", line + 1),
                 ));
             }

@@ -652,7 +652,10 @@ path from the documentation root: `[[reference/token-ttl]]` or
 `[[reference/token-ttl|alias]]`. Short-name links are invalid. A page that lives
 at the root has no directory in its path, so `[[roadmap]]` for `roadmap.md` is
 already the full path, not a short name — a bare name is a violation only when
-no root-level page answers to it.
+no root-level page answers to it. A link addresses a page, never a heading: a
+`#fragment` on the target is not resolved and **is reported** — the section is
+named in the alias (`[[reference/token-ttl|Token TTL § Renewal]]`), where a
+retitled heading costs a stale label, not a broken link.
 
 > Known tension: R-062 declares filenames cosmetic, yet this rule makes the path
 > a contract between documents. An identifier-based link form is deferred; see
