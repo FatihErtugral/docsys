@@ -5,6 +5,24 @@ All notable changes to docsys are documented here. The format follows
 [SemVer](https://semver.org/). Release notes are extracted from this file
 by the release workflow — the tag's section becomes the GitHub release body.
 
+## [0.4.5] - 2026-08-26
+
+### Fixed
+
+- `scan_exclude` entries spelled `spec/`, `./spec`, or `spec/**` now exclude
+  the directory `spec` (they silently excluded nothing); matching is on a
+  path-component boundary. An entry the prefix form cannot express (glob
+  syntax, `..`) is reported under R-077, naming the entry (D-045). Corpus
+  case `33-scan-exclude-form`.
+- `adopt` keeps the owner's leading comment block on `ADOPTION.md` — a
+  privacy marker placed by hand no longer disappears on the next run (D-046).
+
+### Added
+
+- Hooks carry `# docsys-template: <version>`; `adopt` and `doctor` name the
+  hooks behind the binary's templates and point at `docsys agents --force`
+  (D-047).
+
 ## [0.4.4] - 2026-08-26
 
 ### Fixed
