@@ -5,6 +5,18 @@ All notable changes to docsys are documented here. The format follows
 [SemVer](https://semver.org/). Release notes are extracted from this file
 by the release workflow — the tag's section becomes the GitHub release body.
 
+## [0.4.9] - 2026-08-26
+
+### Fixed
+
+- The dangling-promise finding on `work/debt.md` (D-039) now states the
+  open-item grammar it expects — a tree kept its debt as a Markdown table
+  and could not tell what the checker wanted (R-152).
+
+## [0.4.8] - 2026-08-26
+
+Version bump only — tagged before its change landed; the change is 0.4.9.
+
 ## [0.4.7] - 2026-08-26
 
 ### Fixed

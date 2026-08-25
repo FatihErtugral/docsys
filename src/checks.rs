@@ -1466,8 +1466,10 @@ fn check_list_grammars(tree: &DocTree, r: &mut Report) {
                     "work/debt.md",
                     "promise",
                     format!(
-                        "cited from {} as holding open work, but declares no open item — \
-                         reconcile the ledger or the citation (D-039)",
+                        "cited from {} as holding open work, but declares no open item — an \
+                         open item is a line `- [ ] YYYY-MM-DD <debt> -- deferred: <reason> \
+                         -- repay when: <trigger>` (a table or prose is not one); add the \
+                         item or drop the citation (D-039)",
                         citers.join(", ")
                     ),
                 ));
