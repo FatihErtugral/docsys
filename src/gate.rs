@@ -38,9 +38,13 @@ pub fn run(repo: &Path, root: &Path) -> Result<(GateOutcome, crate::checks::Repo
         .map(|p| p.to_string_lossy().replace('\\', "/"))
         .unwrap_or_default();
     let changed = |args: &[&str]| -> Vec<String> {
+        // core.quotePath=false: a non-ASCII page name arrives as itself, not
+        // as "docs/g\303\274..." — which no docs-root prefix would match, so a
+        // real docs change read as a code change (found with a Turkish name).
         Command::new("git")
             .arg("-C")
             .arg(repo)
+            .args(["-c", "core.quotePath=false"])
             .args(args)
             .output()
             .ok()

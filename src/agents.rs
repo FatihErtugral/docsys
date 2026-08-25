@@ -20,7 +20,9 @@ const PRE_COMMIT_DOCS: &str = r#"#!/usr/bin/env bash
 set -uo pipefail
 
 payload=$(cat)
-cmd=$(printf '%s' "$payload" | grep -oE '"command"[[:space:]]*:[[:space:]]*"[^"]*"' | head -1)
+# the JSON string may carry escaped quotes before `git commit`
+# (printf "x" > y && git commit …) — stop at an unescaped quote only
+cmd=$(printf '%s' "$payload" | grep -oE '"command"[[:space:]]*:[[:space:]]*"([^"\\]|\\.)*"' | head -1)
 case "$cmd" in *"git commit"*) ;; *) exit 0 ;; esac
 
 DOCS_ROOT="${DOCS_ROOT:-docs}"
@@ -66,17 +68,26 @@ exit 0
 const STOP_DOCS_REMINDER: &str = r#"#!/usr/bin/env bash
 # stop-docs-reminder.sh — end-of-turn nudge; warns, never blocks (R-150).
 # Scope: working tree + commits ahead of the upstream (@{u}..HEAD). Without an
-# upstream only the tree is read.
+# upstream only the tree is read. Paths are read unquoted (core.quotePath=false)
+# so a page with a non-ASCII name is still a docs change.
 set -uo pipefail
-DOCS_ROOT="${DOCS_ROOT:-docs}"
+DOCS_ROOT="${DOCS_ROOT:-docs}"; DOCS_ROOT="${DOCS_ROOT%/}"
 # porcelain: strip the two status columns; a rename reports its NEW path
-tree=$(git status --porcelain 2>/dev/null | sed 's/^...//; s/.* -> //')
-ahead=$(git diff --name-only '@{u}..HEAD' 2>/dev/null || true)
-changed=$(printf '%s\n%s\n' "$tree" "$ahead" | sed '/^$/d' | sort -u)
-[ -z "$changed" ] && exit 0
-code=$(printf '%s\n' "$changed" | grep -v "^$DOCS_ROOT/" | grep -vE '\.(md)$' || true)
-docs=$(printf '%s\n' "$changed" | grep "^$DOCS_ROOT/" || true)
-if [ -n "$code" ] && [ -z "$docs" ]; then
+tree=$(git -c core.quotePath=false status --porcelain 2>/dev/null | sed 's/^...//; s/.* -> //')
+ahead=$(git -c core.quotePath=false diff --name-only '@{u}..HEAD' 2>/dev/null || true)
+code=0; docs=0
+while IFS= read -r f; do
+  [ -z "$f" ] && continue
+  case "$f" in
+    "$DOCS_ROOT"/*) docs=1 ;;
+    *.md) ;;
+    *) code=1 ;;
+  esac
+done <<CHANGED
+$tree
+$ahead
+CHANGED
+if [ "$code" = 1 ] && [ "$docs" = 0 ]; then
   where="this session"
   [ -n "$ahead" ] && where="this session (including commits not yet pushed)"
   echo "docs: $where changed code but no documentation — if a contract" >&2
@@ -92,7 +103,7 @@ const POST_EDIT_UPDATED: &str = r#"#!/usr/bin/env bash
 set -uo pipefail
 DOCS_ROOT="${DOCS_ROOT:-docs}"
 payload=$(cat)
-file=$(printf '%s' "$payload" | grep -oE '"file_path"[[:space:]]*:[[:space:]]*"[^"]+"' | head -1 | sed 's/.*:[[:space:]]*"//; s/"$//')
+file=$(printf '%s' "$payload" | grep -oE '"file_path"[[:space:]]*:[[:space:]]*"([^"\\]|\\.)+"' | head -1 | sed 's/^"file_path"[[:space:]]*:[[:space:]]*"//; s/"$//')
 case "$file" in
   *"$DOCS_ROOT"/_archive/*|*"$DOCS_ROOT"/_templates/*) exit 0 ;;
   *"$DOCS_ROOT"/*.md) ;;

@@ -275,3 +275,55 @@ fn ask_once_holds_when_staging_happens_inside_the_command() {
         1
     );
 }
+
+/// A valid reference page under a non-ASCII name — the only thing the test
+/// needs from it is to be a docs change that lint accepts.
+fn non_ascii_page(repo: &Path) {
+    fs::create_dir_all(repo.join("docs/reference")).unwrap();
+    fs::write(
+        repo.join("docs/reference/kılavuz.md"),
+        "---\nid: kilavuz\ntype: reference\nupdated: 2026-08-26\n---\n\
+         This page describes the guide; read it when the guide changes.\n",
+    )
+    .unwrap();
+    let index = repo.join("docs/index.md");
+    let mut text = fs::read_to_string(&index).unwrap();
+    text.push_str("- [[reference/kılavuz|Guide]] -- The guide.\n");
+    fs::write(&index, text).unwrap();
+}
+
+#[test]
+fn a_non_ascii_docs_page_answers_the_question() {
+    // git quotes such a path as "docs/k\304\261lavuz.md" unless told not to,
+    // and a quoted path matches no docs-root prefix: the docs change read as
+    // a code change and the gate asked anyway.
+    let repo = build_repo("nonascii");
+    fs::write(repo.join("çekirdek.rs"), "fn main() {}\n").unwrap();
+    non_ascii_page(&repo);
+    git(&repo, &["add", "-A"]);
+    let (code, err) = run_hook(&repo, commit_payload(), &[]);
+    assert_eq!(code, 0, "{err}");
+    assert!(!err.contains("GATE "), "{err}");
+    // the stop reminder reads the same paths
+    let (_, err) = run_stop(&repo);
+    assert!(err.is_empty(), "{err}");
+    // and a non-ASCII CODE path alone still speaks
+    git(&repo, &["commit", "-q", "-m", "both"]);
+    fs::write(repo.join("çekirdek.rs"), "fn main() { run() }\n").unwrap();
+    let (_, err) = run_stop(&repo);
+    assert!(err.contains("no documentation"), "{err}");
+}
+
+#[test]
+fn an_escaped_quote_before_git_commit_is_still_gated() {
+    let repo = build_repo("escaped-quote");
+    fs::write(repo.join("main.rs"), "fn main() {}\n").unwrap();
+    git(&repo, &["add", "main.rs"]);
+    let payload =
+        r#"{"tool_name":"Bash","tool_input":{"command":"printf \"x\" > y && git commit -m z"}}"#;
+    let (code, err) = run_hook(&repo, payload, &[]);
+    assert_eq!(
+        code, 2,
+        "the gate skipped a commit hidden behind an escaped quote: {err}"
+    );
+}
