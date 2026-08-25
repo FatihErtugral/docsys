@@ -39,6 +39,7 @@ const R070: RuleId = RuleId("R-070");
 const R071: RuleId = RuleId("R-071");
 const R073: RuleId = RuleId("R-073");
 const R076: RuleId = RuleId("R-076");
+const R077: RuleId = RuleId("R-077");
 const R080: RuleId = RuleId("R-080");
 const R081: RuleId = RuleId("R-081");
 const R075: RuleId = RuleId("R-075");
@@ -176,6 +177,21 @@ fn check_docmeta(tree: &DocTree, r: &mut Report) {
         "deprecation_window",
         "headings",
     ];
+    // R-077: an exclusion the prefix form cannot express excludes nothing —
+    // say so, or the findings it was meant to remove keep arriving unexplained.
+    for entry in tree.docmeta_list("scan_exclude") {
+        if let Err(bad) = crate::tree::scan_prefix(entry) {
+            r.findings.push(Finding::warn(
+                R077,
+                "-",
+                &bad,
+                format!(
+                    "`scan_exclude` entry `{bad}` is not a path prefix — entries name a \
+                     directory from the scan root (`spec`, `tooling/`); this one excludes nothing"
+                ),
+            ));
+        }
+    }
     for key in tree.docmeta.keys() {
         if !KNOWN.contains(&key.as_str()) {
             r.findings.push(Finding::warn(

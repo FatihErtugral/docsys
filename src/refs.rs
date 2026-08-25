@@ -25,7 +25,11 @@ pub fn run(repo: &Path, tree: &DocTree) -> Report {
     let idx = checks::build_index(tree);
     // R-077: the tree declares its scan scope; `scan_exclude` prefixes are the
     // owner's word on what is out of bounds (archived sub-projects, tooling).
-    let excludes: Vec<String> = tree.docmeta_list("scan_exclude").to_vec();
+    let excludes: Vec<String> = tree
+        .docmeta_list("scan_exclude")
+        .iter()
+        .filter_map(|e| crate::tree::scan_prefix(e).ok())
+        .collect();
     let mut files_scanned = 0usize;
     let mut tokens = 0usize;
 
@@ -39,10 +43,7 @@ pub fn run(repo: &Path, tree: &DocTree) -> Report {
             .unwrap_or(&file)
             .to_string_lossy()
             .replace('\\', "/");
-        if excludes
-            .iter()
-            .any(|p| frel.starts_with(p.trim_end_matches('/')))
-        {
+        if excludes.iter().any(|p| crate::tree::under_prefix(&frel, p)) {
             files_scanned -= 1;
             continue;
         }

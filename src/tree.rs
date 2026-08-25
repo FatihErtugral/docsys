@@ -174,7 +174,7 @@ impl DocTree {
         let excludes: Vec<String> = docmeta
             .get("scan_exclude")
             .and_then(fm::Value::as_list)
-            .map(<[String]>::to_vec)
+            .map(|l| l.iter().filter_map(|e| scan_prefix(e).ok()).collect())
             .unwrap_or_default();
 
         let tombstones = fs::read_to_string(root.join(".tombstones.yml"))
@@ -225,4 +225,38 @@ impl DocTree {
             .and_then(fm::Value::as_list)
             .unwrap_or(&[])
     }
+}
+
+/// The path prefix a `scan_exclude` entry names (R-077). The common spellings
+/// of "this directory" — `spec`, `spec/`, `./spec`, `spec/**` — all reduce to
+/// `spec`; what the prefix form cannot express (glob syntax, `..`) is `Err`
+/// carrying the entry, so the caller can report it instead of ignoring it.
+pub fn scan_prefix(entry: &str) -> Result<String, String> {
+    let mut e = entry.trim();
+    while let Some(rest) = e.strip_prefix("./") {
+        e = rest;
+    }
+    loop {
+        let t = e.trim_end_matches('/');
+        let t = t.strip_suffix("/**").unwrap_or(t);
+        if t.len() == e.len() {
+            break;
+        }
+        e = t;
+    }
+    if e.is_empty()
+        || e.contains(['*', '?', '['])
+        || e == ".."
+        || e.starts_with("../")
+        || e.contains("/../")
+    {
+        return Err(entry.to_string());
+    }
+    Ok(e.to_string())
+}
+
+/// Component-boundary prefix test: `spec` excludes `spec` and `spec/x`, never
+/// `specification.md`.
+pub fn under_prefix(path: &str, prefix: &str) -> bool {
+    path == prefix || path.starts_with(&format!("{prefix}/"))
 }

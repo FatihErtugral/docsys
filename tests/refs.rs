@@ -181,3 +181,18 @@ fn the_repo_walk_asks_git_and_honors_gitignore() {
     assert!(!names.iter().any(|n| n.starts_with("docs/")), "{names:?}");
     let _ = fs::remove_dir_all(&repo);
 }
+
+#[test]
+fn scan_exclude_spellings_reduce_to_a_prefix_and_globs_are_named() {
+    use docsys::tree::{scan_prefix, under_prefix};
+    for e in ["spec", "spec/", "./spec", "./spec/", "spec/**", "./spec/**"] {
+        assert_eq!(scan_prefix(e).as_deref(), Ok("spec"), "{e}");
+    }
+    assert_eq!(scan_prefix("tools/vendor/").as_deref(), Ok("tools/vendor"));
+    for e in ["**/spec/**", "../spec", "spec/*.md", "", "./"] {
+        assert!(scan_prefix(e).is_err(), "{e}");
+    }
+    assert!(under_prefix("spec/a.md", "spec"));
+    assert!(under_prefix("spec", "spec"));
+    assert!(!under_prefix("specification.md", "spec"));
+}

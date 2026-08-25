@@ -780,7 +780,12 @@ identifiers; a *broken* escaping link remains an error.
 **R-077** `lint` · MUST — A tree declares the scan scope in `.docmeta.yml`.
 Defaults: every UTF-8 text file tracked by version control, excluding paths
 ignored by version control and excluding `.federation/`. An implementation MUST
-NOT restrict scanning to a hardcoded set of file extensions.
+NOT restrict scanning to a hardcoded set of file extensions. A `scan_exclude`
+entry is a path prefix from the scan root, matched on a path-component boundary
+(`spec`, `tooling/`, `./spec/**` all name the directory `spec`); an entry the
+prefix form cannot express — glob syntax, a parent-directory step — **is
+reported**: an exclusion that silently excludes nothing is worse than one
+rejected, because the findings it was meant to remove keep arriving unexplained.
 
 > Rationale: a reference in a Helm chart or a build file is as real as one in
 > source code. An implementation scanning only its own language's files silently

@@ -1,0 +1,3 @@
+EXIT	0
+WARN	R-077	-	**/vendor/**
+WARN	R-077	-	../shared
