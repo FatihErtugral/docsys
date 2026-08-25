@@ -5,6 +5,17 @@ All notable changes to docsys are documented here. The format follows
 [SemVer](https://semver.org/). Release notes are extracted from this file
 by the release workflow — the tag's section becomes the GitHub release body.
 
+## [0.4.4] - 2026-08-26
+
+### Fixed
+
+- The pre-commit question is asked once per (HEAD, change set) for real. The
+  marker used to be consumed by any passing attempt — and an agent's
+  `git add … && git commit` stages after the hook ran, so a bare `git commit`
+  in between passed, committed nothing, and the next attempt was asked again
+  (found live). The marker now lives under `<git-dir>/docsys-gate/` until
+  HEAD moves, and keys on the working tree when nothing is staged (D-043).
+
 ## [0.4.3] - 2026-08-26
 
 ### Fixed
