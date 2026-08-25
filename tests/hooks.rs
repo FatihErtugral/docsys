@@ -68,6 +68,12 @@ fn commit_payload() -> &'static str {
     r#"{"tool_name":"Bash","tool_input":{"command":"git commit -m x"}}"#
 }
 
+/// The agent's habitual shape: staging happens INSIDE the command, i.e. after
+/// this PreToolUse hook has already run against an empty index.
+fn add_and_commit_payload() -> &'static str {
+    r#"{"tool_name":"Bash","tool_input":{"command":"git add -u src && git commit -q -m x"}}"#
+}
+
 fn build_repo(name: &str) -> PathBuf {
     let repo = tmp(name);
     git(&repo, &["init", "-q"]);
@@ -228,4 +234,44 @@ fn stop_reminder_reads_the_new_path_of_a_rename() {
     git(&repo, &["mv", "main.rs", "docs/main.rs"]);
     let (_, err) = run_stop(&repo);
     assert!(err.is_empty(), "{err}");
+}
+
+#[test]
+fn ask_once_holds_when_staging_happens_inside_the_command() {
+    // Live sequence that broke: ask → a pass that committed nothing (bare
+    // `git commit`, index empty) consumed the marker → the real attempt asked
+    // again. The marker now lives until HEAD moves.
+    let repo = build_repo("askonce-inline");
+    // tracked files, modified in place — the live shape (an untracked file
+    // is invisible to the working-tree fallback, which reads `git diff`)
+    fs::write(repo.join("main.rs"), "fn main() {}\n").unwrap();
+    fs::write(repo.join("lib.rs"), "pub fn f() {}\n").unwrap();
+    fs::write(repo.join("more.rs"), "pub fn g() {}\n").unwrap();
+    git(&repo, &["add", "-A"]);
+    git(&repo, &["commit", "-q", "-m", "code lands"]);
+    fs::write(repo.join("main.rs"), "fn main() { run() }\n").unwrap();
+    let (code, err) = run_hook(&repo, add_and_commit_payload(), &[]);
+    assert_eq!(code, 2, "{err}");
+    let (code, _) = run_hook(&repo, commit_payload(), &[]); // commits nothing
+    assert_eq!(code, 0);
+    let (code, err) = run_hook(&repo, add_and_commit_payload(), &[]);
+    assert_eq!(
+        code, 0,
+        "asked a second time for the same change set: {err}"
+    );
+    // a DIFFERENT unstaged change set under the same HEAD is a new question
+    fs::write(repo.join("lib.rs"), "pub fn f() -> u8 { 1 }\n").unwrap();
+    let (code, _) = run_hook(&repo, add_and_commit_payload(), &[]);
+    assert_eq!(code, 2);
+    // the commit lands, HEAD moves: the next change is asked afresh, and the
+    // old markers are gone
+    git(&repo, &["add", "-A"]);
+    git(&repo, &["commit", "-q", "-m", "code"]);
+    fs::write(repo.join("more.rs"), "pub fn g() -> u8 { 2 }\n").unwrap();
+    let (code, _) = run_hook(&repo, add_and_commit_payload(), &[]);
+    assert_eq!(code, 2);
+    assert_eq!(
+        fs::read_dir(repo.join(".git/docsys-gate")).unwrap().count(),
+        1
+    );
 }

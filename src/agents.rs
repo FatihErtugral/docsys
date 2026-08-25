@@ -36,15 +36,25 @@ fi
 
 line=$(printf '%s\n' "$out" | grep '^GATE ' || true)
 if [ -n "$line" ]; then
-  key=$( (git rev-parse -q --verify HEAD 2>/dev/null; git diff --cached --name-only) | cksum | cut -d' ' -f1)
-  marker="${TMPDIR:-/tmp}/.docsys-gate-${key}"
+  # The question is asked once per (HEAD, change set). The marker lives under
+  # the git dir and stays until HEAD moves — a passing attempt must NOT consume
+  # it: `git add … && git commit` stages inside the command, after this hook
+  # ran, so a pass can still commit nothing, and the next attempt would have
+  # been asked again (found live). The set is the staged files, or the working
+  # tree when nothing is staged yet — the same scope the gate itself answered.
+  head=$(git rev-parse -q --verify HEAD 2>/dev/null || echo none)
+  set_=$(git diff --cached --name-only); [ -z "$set_" ] && set_=$(git diff --name-only)
+  key=$(printf '%s\n%s\n' "$head" "$set_" | cksum | cut -d' ' -f1)
+  dir="$(git rev-parse --git-dir 2>/dev/null || echo "${TMPDIR:-/tmp}")/docsys-gate"
+  mkdir -p "$dir" 2>/dev/null
+  find "$dir" -type f ! -name "$head.*" -delete 2>/dev/null
+  marker="$dir/$head.$key"
   if [ ! -f "$marker" ]; then
     touch "$marker"
     printf '%s\n' "$line" >&2
     echo "code moves with no documentation change. If a contract moved, update the page (or add the journal line) and commit; if nothing user-visible moved, run the same commit again — this gate asks once." >&2
     exit 2
   fi
-  rm -f "$marker"
 fi
 exit 0
 "#;
