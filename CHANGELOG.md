@@ -5,6 +5,19 @@ All notable changes to docsys are documented here. The format follows
 [SemVer](https://semver.org/). Release notes are extracted from this file
 by the release workflow — the tag's section becomes the GitHub release body.
 
+## [0.4.2] - 2026-08-26
+
+### Fixed
+
+- The Stop reminder (`stop-docs-reminder.sh`) now reads the commits ahead of
+  the upstream (`@{u}..HEAD`) as well as the working tree. A session that
+  commits as it goes left a clean tree at every turn end, and the reminder
+  stayed silent through a whole session of code-only commits (found live).
+  It still warns and never blocks (D-041).
+- The same hook reads the NEW path of a rename; `awk '{print $2}'` read the
+  old side and could count a code move as a docs change. Both are locked by
+  executed-hook tests.
+
 ## [0.4.1] - 2026-08-24
 
 ### Fixed
