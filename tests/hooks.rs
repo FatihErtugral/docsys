@@ -151,3 +151,81 @@ fn docsys_skip_bypasses_once() {
     let (code, _) = run_hook(&repo, commit_payload(), &[("DOCSYS_SKIP", "1")]);
     assert_eq!(code, 0);
 }
+
+/// Run the installed Stop hook; returns its stderr (it never blocks).
+fn run_stop(repo: &Path) -> (i32, String) {
+    let out = Command::new("bash")
+        .arg(repo.join(".claude/hooks/stop-docs-reminder.sh"))
+        .current_dir(repo)
+        .stdin(std::process::Stdio::null())
+        .output()
+        .unwrap();
+    (
+        out.status.code().unwrap_or(-1),
+        String::from_utf8_lossy(&out.stderr).into_owned(),
+    )
+}
+
+/// Give the repo an upstream so `@{u}..HEAD` resolves, with everything pushed.
+fn with_upstream(repo: &Path) {
+    let remote = repo.parent().unwrap().join(format!(
+        "{}.remote.git",
+        repo.file_name().unwrap().to_string_lossy()
+    ));
+    let _ = fs::remove_dir_all(&remote);
+    git(repo, &["init", "-q", "--bare", remote.to_str().unwrap()]);
+    git(repo, &["remote", "add", "origin", remote.to_str().unwrap()]);
+    git(repo, &["push", "-q", "-u", "origin", "HEAD"]);
+}
+
+#[test]
+fn stop_reminder_is_silent_on_a_clean_pushed_repo() {
+    let repo = build_repo("stop-clean");
+    with_upstream(&repo);
+    let (code, err) = run_stop(&repo);
+    assert_eq!(code, 0);
+    assert!(err.is_empty(), "{err}");
+}
+
+#[test]
+fn stop_reminder_sees_code_committed_but_not_pushed() {
+    let repo = build_repo("stop-ahead");
+    with_upstream(&repo);
+    fs::write(repo.join("main.rs"), "fn main() {}\n").unwrap();
+    git(&repo, &["add", "main.rs"]);
+    git(&repo, &["commit", "-q", "-m", "code only"]);
+    // tree is clean — the old reminder saw nothing here
+    let (code, err) = run_stop(&repo);
+    assert_eq!(code, 0, "warns, never blocks");
+    assert!(err.contains("no documentation"), "{err}");
+    assert!(err.contains("not yet pushed"), "{err}");
+    // a docs commit in the same unpushed range answers it
+    fs::write(
+        repo.join("docs/work/journal.md"),
+        "# Journal\n\n## 2026-08-16 - initialized\n- documentation tree created\n\n\
+         ## 2026-08-16 - main added\n- entry point landed\n",
+    )
+    .unwrap();
+    git(&repo, &["add", "-A"]);
+    git(&repo, &["commit", "-q", "-m", "docs"]);
+    let (_, err) = run_stop(&repo);
+    assert!(err.is_empty(), "{err}");
+}
+
+#[test]
+fn stop_reminder_reads_the_new_path_of_a_rename() {
+    let repo = build_repo("stop-rename");
+    // a docs page renamed to a code path: the old `awk '{print $2}'` read the
+    // OLD side ("docs/…") and counted a code move as a docs change
+    git(&repo, &["mv", "docs/index.md", "notes.txt"]);
+    let (_, err) = run_stop(&repo);
+    assert!(err.contains("no documentation"), "{err}");
+    // and the reverse: code renamed INTO docs is a docs change, not a code one
+    let repo = build_repo("stop-rename-in");
+    fs::write(repo.join("main.rs"), "fn main() {}\n").unwrap();
+    git(&repo, &["add", "main.rs"]);
+    git(&repo, &["commit", "-q", "-m", "code"]);
+    git(&repo, &["mv", "main.rs", "docs/main.rs"]);
+    let (_, err) = run_stop(&repo);
+    assert!(err.is_empty(), "{err}");
+}

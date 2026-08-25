@@ -49,17 +49,27 @@ fi
 exit 0
 "#;
 
-/// End-of-turn reminder: code moved, docs did not.
+/// End-of-turn reminder: code moved, docs did not. Reads the working tree
+/// AND the commits not yet pushed: an agent that commits as it goes leaves a
+/// clean tree, and a reminder that read only the tree stayed silent through a
+/// whole session of code-only commits (D-041).
 const STOP_DOCS_REMINDER: &str = r#"#!/usr/bin/env bash
 # stop-docs-reminder.sh — end-of-turn nudge; warns, never blocks (R-150).
+# Scope: working tree + commits ahead of the upstream (@{u}..HEAD). Without an
+# upstream only the tree is read.
 set -uo pipefail
 DOCS_ROOT="${DOCS_ROOT:-docs}"
-dirty=$(git status --porcelain 2>/dev/null | awk '{print $2}')
-[ -z "$dirty" ] && exit 0
-code=$(printf '%s\n' "$dirty" | grep -v "^$DOCS_ROOT/" | grep -vE '\.(md)$' || true)
-docs=$(printf '%s\n' "$dirty" | grep "^$DOCS_ROOT/" || true)
+# porcelain: strip the two status columns; a rename reports its NEW path
+tree=$(git status --porcelain 2>/dev/null | sed 's/^...//; s/.* -> //')
+ahead=$(git diff --name-only '@{u}..HEAD' 2>/dev/null || true)
+changed=$(printf '%s\n%s\n' "$tree" "$ahead" | sed '/^$/d' | sort -u)
+[ -z "$changed" ] && exit 0
+code=$(printf '%s\n' "$changed" | grep -v "^$DOCS_ROOT/" | grep -vE '\.(md)$' || true)
+docs=$(printf '%s\n' "$changed" | grep "^$DOCS_ROOT/" || true)
 if [ -n "$code" ] && [ -z "$docs" ]; then
-  echo "docs: this session changed code but no documentation — if a contract" >&2
+  where="this session"
+  [ -n "$ahead" ] && where="this session (including commits not yet pushed)"
+  echo "docs: $where changed code but no documentation — if a contract" >&2
   echo "moved, the page moves in the SAME session; at minimum add the journal line." >&2
 fi
 exit 0
