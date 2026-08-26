@@ -268,8 +268,12 @@ fn main() -> ExitCode {
             } else {
                 repo.join(&opts.root)
             };
+            // The payload comes on stdin from the agent harness. `stop` needs
+            // none, and a human at a terminal must not be left waiting for EOF.
             let mut payload = String::new();
-            let _ = std::io::Read::read_to_string(&mut std::io::stdin(), &mut payload);
+            if event != "stop" && !std::io::IsTerminal::is_terminal(&std::io::stdin()) {
+                let _ = std::io::Read::read_to_string(&mut std::io::stdin(), &mut payload);
+            }
             let reply = match event {
                 "pre-tool-use" => docsys::hook::pre_tool_use(
                     &repo,

@@ -5,6 +5,14 @@ All notable changes to docsys are documented here. The format follows
 [SemVer](https://semver.org/). Release notes are extracted from this file
 by the release workflow — the tag's section becomes the GitHub release body.
 
+## [0.5.1] - 2026-08-26
+
+### Fixed
+
+- `docsys hook stop` no longer reads stdin (it has no payload), and the
+  other events skip it when stdin is a terminal — running a hook by hand
+  no longer waits for EOF.
+
 ## [0.5.0] - 2026-08-26
 
 ### Changed
