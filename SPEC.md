@@ -691,7 +691,10 @@ metasyntactic placeholder, not a reference: prose that documents the citation fo
 (`doc: <id>`) writes one, and so does a code template that renders the citation
 (`doc: {doc_id}`); reading either as an identifier makes documentation about the
 convention fail the convention — this specification's own generated agent text
-does exactly that. Otherwise the token following `doc:` is read up to
+does exactly that. A consequence: this rule's counter-example cannot be
+written literally — a page saying "do not write `doc: @real/name`" has written a
+reference — so prose shows only the placeholder form, or puts the literal in a
+fenced block or a `>` quotation, which are not scanned. Otherwise the token following `doc:` is read up to
 the first whitespace, then stripped of trailing punctuation (`.` `,` `;` `:` `)` `]` `"`
 `'` `?` `!` and the backtick) — a reference at the end of a sentence, or
 written as inline code, is still a reference. A reference opened inside an

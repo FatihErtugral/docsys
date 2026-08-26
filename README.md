@@ -267,7 +267,9 @@ docsys adopt                           # assets + settings.json + AGENTS.md bloc
 docsys rules --procedures | less       # the 15 authored decision procedures
 ```
 
-`adopt` writes `.claude/settings.json` only when the file does not exist — an
+Scope note: `docsys lint` reads the documentation root only; `.claude/rules/*.md`,
+`AGENTS.md` and code are the province of `docsys refs --repo .`, which checks the
+`doc:` references they carry. `adopt` writes `.claude/settings.json` only when the file does not exist — an
 existing one may carry MCP servers and permission lists, so the merge snippet
 lands on the `ADOPTION.md` checklist instead of being clobbered. Then open an
 agent session in that directory and try the loop:

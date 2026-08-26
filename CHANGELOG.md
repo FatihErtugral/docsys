@@ -5,6 +5,17 @@ All notable changes to docsys are documented here. The format follows
 [SemVer](https://semver.org/). Release notes are extracted from this file
 by the release workflow — the tag's section becomes the GitHub release body.
 
+## [0.4.11] - 2026-08-26
+
+### Changed
+
+- R-073 states its own consequence: the rule's counter-example cannot be
+  written literally; prose shows the placeholder form or uses a fenced block
+  or a `>` quotation. Corpus case `34-quoted-references` locks that a `>`
+  quotation is not scanned (fences: `07-doc-refs`; indented code: `29`).
+- README names the scope split: `lint` reads the docs root, `refs --repo .`
+  reads rules files, AGENTS.md and code.
+
 ## [0.4.10] - 2026-08-26
 
 ### Fixed
