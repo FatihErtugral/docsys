@@ -195,3 +195,59 @@ pub fn run(repo: &Path, root: &Path, claude_dir: &Path) -> Diagnosis {
     );
     d
 }
+#[cfg(test)]
+#[allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::indexing_slicing
+)]
+mod tests {
+    use super::*;
+
+    const SETTINGS: &str = r#"{
+  "hooks": {
+    "UserPromptSubmit": [ { "hooks": [ { "command": ".claude/hooks/session-intent.sh" } ] } ],
+    "PreToolUse": [ { "matcher": "Bash", "hooks": [ { "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/pre-commit-docs.sh\"" } ] } ],
+    "Stop": [ { "hooks": [ { "command": ".claude/hooks/stop-docs-reminder.sh" } ] } ]
+  }
+}"#;
+
+    #[test]
+    fn event_of_is_the_nearest_event_key_before_the_script() {
+        assert_eq!(
+            event_of(SETTINGS, "session-intent.sh"),
+            Some("UserPromptSubmit")
+        );
+        assert_eq!(event_of(SETTINGS, "pre-commit-docs.sh"), Some("PreToolUse"));
+        assert_eq!(event_of(SETTINGS, "stop-docs-reminder.sh"), Some("Stop"));
+        assert_eq!(event_of(SETTINGS, "post-edit-updated.sh"), None);
+        assert_eq!(event_of("", "x.sh"), None);
+        // a script mentioned before any event key has no event
+        assert_eq!(event_of("x.sh then \"Stop\"", "x.sh"), None);
+    }
+
+    #[test]
+    fn dead_above_flags_only_a_top_level_exec_or_exit_before_the_marker() {
+        let m = "docsys documentation gate";
+        assert!(dead_above(
+            "#!/bin/bash\nexec other-hook \"$@\"\n# docsys documentation gate\n",
+            m
+        ));
+        assert!(dead_above("exit 0\n# docsys documentation gate\n", m));
+        assert!(dead_above("exit\n# docsys documentation gate\n", m));
+        assert!(!dead_above(
+            "if x; then\n  exec y\nfi\n# docsys documentation gate\n",
+            m
+        ));
+        assert!(
+            !dead_above("# docsys documentation gate\nexec y\n", m),
+            "below the marker is fine"
+        );
+        assert!(
+            !dead_above("exit 1\n# docsys documentation gate\n", m),
+            "exit 1 is a failure path, not a pass-through"
+        );
+        assert!(!dead_above("", m));
+    }
+}

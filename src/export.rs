@@ -1043,3 +1043,99 @@ pub fn plan(root: &Path, want_audience: Option<&str>) -> Result<String, String> 
     }
     Ok(out)
 }
+#[cfg(test)]
+#[allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::indexing_slicing
+)]
+mod tests {
+    use super::*;
+
+    fn fail<T>(r: Result<T, String>) -> String {
+        match r {
+            Err(e) => e,
+            Ok(_) => panic!("expected an error"),
+        }
+    }
+
+    #[test]
+    fn frontmatter_is_stripped_only_when_closed() {
+        assert_eq!(strip_frontmatter("---\na: 1\n---\nbody\n"), "body\n");
+        assert_eq!(strip_frontmatter("body\n"), "body\n");
+        assert_eq!(strip_frontmatter("---\na: 1\nbody\n"), "---\na: 1\nbody\n");
+    }
+
+    #[test]
+    fn shifted_body_drops_the_h1_shifts_headings_and_leaves_fences_alone() {
+        let src =
+            "---\nid: a\n---\n# Title\n\nintro\n\n## Two\n```\n# not a heading\n```\n###### Six\n";
+        assert_eq!(
+            shifted_body(src, 1),
+            "intro\n\n### Two\n```\n# not a heading\n```\n###### Six"
+        );
+        assert_eq!(shifted_body("# A\n# B\n", 2), "### B");
+        assert_eq!(shifted_body("text only\n\n", 3), "text only");
+    }
+
+    #[test]
+    fn a_map_has_a_title_an_intro_and_sectioned_entries() {
+        let (title, intro, secs) = parse_map("<!-- c -->\n# Product\nline one\nline two\n## First\n- [[ref-a|A]] -- a\n- [[ref-b]]\n## Empty\n").unwrap();
+        assert_eq!(title, "Product");
+        assert_eq!(intro, "line one\nline two");
+        assert_eq!(secs.len(), 2);
+        assert_eq!(secs[0].title, "First");
+        assert_eq!(secs[0].entries, vec!["ref-a", "ref-b"]);
+        assert!(secs[1].entries.is_empty());
+    }
+
+    #[test]
+    fn map_refusals_are_named() {
+        assert!(
+            fail(parse_map("- [[x]]\n")).contains("no `# <product name>`")
+                || fail(parse_map("- [[x]]\n")).contains("before the first")
+        );
+        assert!(fail(parse_map("# P\n- [[x]]\n")).contains("before the first `##` section"));
+        assert!(fail(parse_map("# P\n## S\n- [[ |x]]\n")).contains("no identifier"));
+        assert!(fail(parse_map("# P\n## S\nprose\n")).contains("names no pages"));
+    }
+
+    #[test]
+    fn manifest_v1_parses_and_other_majors_are_refused_by_name() {
+        let text = "manifest: 1\nexports:\n  - id: a\n    hash: h1\n    path: reference/a.md\n  - id: b\n    state: withdrawn\n";
+        let (v, entries) = parse_manifest(text).unwrap();
+        assert_eq!(v, 1);
+        assert_eq!(entries.len(), 2);
+        assert_eq!(
+            (
+                entries[0].id.as_str(),
+                entries[0].hash.as_str(),
+                entries[0].path.as_str(),
+                entries[0].withdrawn
+            ),
+            ("a", "h1", "reference/a.md", false)
+        );
+        assert!(entries[1].withdrawn);
+        assert!(fail(parse_manifest("manifest: 2\n")).contains("version 2 is not implemented"));
+        assert!(fail(parse_manifest("exports: []\n")).contains("no `manifest:`"));
+        assert!(parse_manifest("manifest: x\n").is_err());
+    }
+
+    #[test]
+    fn git_urls_by_shape() {
+        for u in [
+            "git@host:o/r.git",
+            "https://h/o/r",
+            "http://h/r",
+            "ssh://h/r",
+            "file:///p/r",
+            "/local/path/r.git",
+        ] {
+            assert!(is_git_url(u), "{u}");
+        }
+        for u in ["/local/path", "../sibling/docs", "docs"] {
+            assert!(!is_git_url(u), "{u}");
+        }
+    }
+}

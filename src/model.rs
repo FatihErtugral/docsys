@@ -150,3 +150,61 @@ mod tests {
         assert!(!is_iso_date("yesterday"));
     }
 }
+#[cfg(test)]
+#[allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::indexing_slicing
+)]
+mod tests_more {
+    use super::*;
+
+    #[test]
+    fn local_id_edges() {
+        for ok in ["a", "a1", "a-b", "a-b-c", "0-9"] {
+            assert!(is_local_id(ok), "{ok}");
+        }
+        for bad in [
+            "", "-a", "a-", "a--b", "A", "a_b", "a b", "ä", "a/b", "@ns/a",
+        ] {
+            assert!(!is_local_id(bad), "{bad}");
+        }
+    }
+
+    #[test]
+    fn iso_date_edges() {
+        for ok in ["2026-08-26", "2000-01-01", "1999-12-31"] {
+            assert!(is_iso_date(ok), "{ok}");
+        }
+        for bad in [
+            "2026-8-26",
+            "2026-13-01",
+            "2026-00-10",
+            "2026-01-32",
+            "2026-01-00",
+            "26-08-26",
+            "2026/08/26",
+            "2026-08-26T00:00",
+            "abcd-ef-gh",
+            "",
+        ] {
+            assert!(!is_iso_date(bad), "{bad}");
+        }
+    }
+
+    #[test]
+    fn severity_tags_and_finding_identity() {
+        assert_eq!(Severity::Error.tag(), "ERROR");
+        assert_eq!(Severity::Warn.tag(), "WARN");
+        let f = Finding::warn(RuleId("R-001"), "a.md", "subj", "msg".into());
+        assert_eq!(
+            (f.rule.0, f.file.as_str(), f.subject.as_str(), f.severity),
+            ("R-001", "a.md", "subj", Severity::Warn)
+        );
+        assert_eq!(
+            Finding::err(RuleId("R-001"), "a.md", "subj", "m".into()).severity,
+            Severity::Error
+        );
+    }
+}

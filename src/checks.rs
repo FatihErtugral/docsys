@@ -1744,3 +1744,31 @@ mod tests {
         let _ = fs::remove_dir_all(&root);
     }
 }
+#[cfg(test)]
+#[allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::indexing_slicing
+)]
+mod tests_more {
+    use super::*;
+
+    #[test]
+    fn token_occurrence_respects_word_boundaries_and_ignores_citations() {
+        assert!(occurs_as_token("the ERR_TIMEOUT case", "ERR_TIMEOUT"));
+        assert!(!occurs_as_token("ERR_TIMEOUTS", "ERR_TIMEOUT"));
+        assert!(!occurs_as_token("x-ERR_TIMEOUT", "ERR_TIMEOUT"));
+        assert!(
+            !occurs_as_token("see doc: err-a", "err-a"),
+            "a citation proves nothing"
+        );
+        assert!(!occurs_as_token("see `doc: err-a`", "err-a"));
+        assert!(occurs_as_token(
+            "err-a is defined here; doc: err-a cites it",
+            "err-a"
+        ));
+        assert!(!occurs_as_token("", "x"));
+        assert!(occurs_as_token("x", "x"));
+    }
+}

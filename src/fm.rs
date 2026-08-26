@@ -240,3 +240,113 @@ mod tests {
         assert!(!fm.problems.is_empty());
     }
 }
+#[cfg(test)]
+#[allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::indexing_slicing
+)]
+mod tests_more {
+    use super::*;
+
+    fn fm(text: &str) -> Frontmatter {
+        parse(text).expect("opens with ---")
+    }
+    fn s(f: &Frontmatter, k: &str) -> String {
+        f.fields[k].as_str().unwrap().to_string()
+    }
+    fn l(f: &Frontmatter, k: &str) -> Vec<String> {
+        f.fields[k].as_list().unwrap().to_vec()
+    }
+
+    #[test]
+    fn quotes_are_stripped_from_scalars_and_list_items() {
+        let f = fm("---\na: \"x y\"\nb: 'z'\nc: [\"p\", 'q', r]\nd: \"unbalanced'\n---\n");
+        assert_eq!(s(&f, "a"), "x y");
+        assert_eq!(s(&f, "b"), "z");
+        assert_eq!(l(&f, "c"), vec!["p", "q", "r"]);
+        assert_eq!(s(&f, "d"), "\"unbalanced'");
+        assert!(f.problems.is_empty());
+    }
+
+    #[test]
+    fn a_value_may_contain_a_colon_and_a_trailing_comment_is_dropped() {
+        let f = fm("---\ntitle: a: b # note\nurl: http://x/y\n---\n");
+        assert_eq!(s(&f, "title"), "a: b");
+        assert_eq!(s(&f, "url"), "http://x/y");
+    }
+
+    #[test]
+    fn lists_inline_block_reflowed_and_empty() {
+        let f = fm("---\ni: [a, b,]\nb:\n  - one\n  - \"two\"\nr:\n  [\n    x,\n    y,\n  ]\ne: []\nn:\n---\n");
+        assert_eq!(l(&f, "i"), vec!["a", "b"]);
+        assert_eq!(l(&f, "b"), vec!["one", "two"]);
+        assert_eq!(l(&f, "r"), vec!["x", "y"]);
+        assert!(l(&f, "e").is_empty());
+        assert!(l(&f, "n").is_empty(), "a bare `key:` is an empty list");
+        assert!(f.problems.is_empty(), "{:?}", f.problems);
+    }
+
+    #[test]
+    fn a_reflowed_inline_list_may_open_on_the_key_line() {
+        let f = fm("---\nk: [a,\n  b, c]\n---\n");
+        assert_eq!(l(&f, "k"), vec!["a", "b", "c"]);
+    }
+
+    #[test]
+    fn whole_line_comments_and_blank_lines_are_skipped() {
+        let f = fm("---\n# leading comment\na: 1\n\n  # indented comment\nb: 2\n---\nbody");
+        assert_eq!(s(&f, "a"), "1");
+        assert_eq!(s(&f, "b"), "2");
+        assert_eq!(f.body_start, 7);
+        assert!(f.problems.is_empty());
+    }
+
+    #[test]
+    fn problems_are_named_with_their_line_numbers() {
+        let f = fm("---\na: 1\na: 2\nBad-Key: x\nno colon here\nnested:\n  child: 1\n---\n");
+        let p = f.problems.join("\n");
+        assert!(p.contains("line 3: duplicate key `a`"), "{p}");
+        assert!(
+            p.contains("line 4: key `Bad-Key` is not a structural token"),
+            "{p}"
+        );
+        assert!(p.contains("line 5: not a `key: value` line"), "{p}");
+        assert!(
+            p.contains("line 7: nesting beyond the registered subset"),
+            "{p}"
+        );
+        assert_eq!(
+            s(&f, "a"),
+            "1",
+            "the first value wins, the duplicate is a finding"
+        );
+    }
+
+    #[test]
+    fn an_unclosed_block_is_a_problem_not_a_guess() {
+        let f = fm("---\na: 1\n");
+        assert_eq!(f.problems, vec!["frontmatter never closed with `---`"]);
+        assert_eq!(s(&f, "a"), "1");
+    }
+
+    #[test]
+    fn only_an_exact_opening_fence_counts() {
+        assert!(parse("--- \na: 1\n---\n").is_none());
+        assert!(parse("\n---\na: 1\n---\n").is_none());
+        assert!(parse("----\n").is_none());
+        assert!(parse("---\n---\n").is_some());
+    }
+
+    #[test]
+    fn keys_are_structural_tokens() {
+        assert!(is_key("a"));
+        assert!(is_key("a_b9"));
+        assert!(!is_key("A"));
+        assert!(!is_key("9a"));
+        assert!(!is_key("a-b"));
+        assert!(!is_key(""));
+        assert!(!is_key("ä"));
+    }
+}

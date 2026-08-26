@@ -316,3 +316,76 @@ mod tests {
         assert!(!under_prefix("a/bc", "a/b"));
     }
 }
+#[cfg(test)]
+#[allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::indexing_slicing
+)]
+mod tests_more {
+    use super::*;
+
+    #[test]
+    fn project_layout_classification() {
+        let extra = vec!["experiments".to_string()];
+        let c = |rel: &str| classify(rel, &extra, Profile::Project);
+        assert_eq!(c("index.md"), Kind::Router);
+        assert_eq!(c("README.md"), Kind::Readme);
+        for d in ["reference", "howto", "explanation", "tutorial"] {
+            assert_eq!(c(&format!("{d}/x.md")), Kind::Permanent, "{d}");
+        }
+        assert_eq!(c("work/journal.md"), Kind::ListFile);
+        assert_eq!(c("work/debt.md"), Kind::ListFile);
+        assert_eq!(c("work/questions.md"), Kind::ListFile);
+        assert_eq!(c("work/journal/2026-08-01.md"), Kind::ListFile);
+        assert_eq!(c("work/features/x.md"), Kind::Tracked);
+        assert_eq!(c("work/postmortems/x.md"), Kind::Tracked);
+        assert_eq!(c("work/research/x.md"), Kind::Tracked);
+        assert_eq!(
+            c("work/experiments/x.md"),
+            Kind::Tracked,
+            "declared category"
+        );
+        assert_eq!(c("work/notes/x.md"), Kind::Other);
+        assert_eq!(c("roadmap.md"), Kind::Other);
+        assert_eq!(
+            c("other/index.md"),
+            Kind::Other,
+            "only the root router routes"
+        );
+    }
+
+    #[test]
+    fn knowledge_base_layout_classification() {
+        let c = |rel: &str| classify(rel, &[], Profile::KnowledgeBase);
+        assert_eq!(c("README.md"), Kind::Readme);
+        assert_eq!(c("raw/inbox/n.md"), Kind::Raw);
+        assert_eq!(c("wiki/index.md"), Kind::Router);
+        assert_eq!(c("wiki/net/index.md"), Kind::Router);
+        assert_eq!(c("wiki/net/reference/x.md"), Kind::Permanent);
+        assert_eq!(c("wiki/net/notes/x.md"), Kind::Other);
+        assert_eq!(
+            c("index.md"),
+            Kind::Other,
+            "project router is not a kb router"
+        );
+    }
+
+    #[test]
+    fn tombstones_are_the_id_lines_only() {
+        let t = parse_tombstones("- id: old-one\n  date: 2026-01-01\n  superseded_by: new-one\n- id: old-two\n# comment\n");
+        assert_eq!(t, vec!["old-one", "old-two"]);
+        assert!(parse_tombstones("").is_empty());
+    }
+
+    #[test]
+    fn rel_of_is_root_relative_with_forward_slashes() {
+        let root = Path::new("/r/docs");
+        assert_eq!(rel_of(Path::new("/r/docs/a/b.md"), root), "a/b.md");
+        assert_eq!(
+            rel_of(Path::new("/elsewhere/x.md"), root),
+            "/elsewhere/x.md"
+        );
+    }
+}

@@ -474,3 +474,58 @@ pub fn apply(root: &Path, plan_text: &str, force: bool) -> Result<Outcome, Strin
     fs::write(&source_path, new_source).map_err(|e| e.to_string())?;
     Ok(out)
 }
+#[cfg(test)]
+#[allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::indexing_slicing
+)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn fnv_is_stable_and_sensitive() {
+        assert_eq!(fnv(b"abc"), fnv(b"abc"));
+        assert_ne!(fnv(b"abc"), fnv(b"abd"));
+        assert_ne!(fnv(b""), fnv(b"a"));
+    }
+
+    #[test]
+    fn heading_levels() {
+        assert_eq!(heading_level("# a"), Some(1));
+        assert_eq!(heading_level("### a"), Some(3));
+        assert_eq!(heading_level("#nospace"), None);
+        assert_eq!(heading_level("text # a"), None);
+        assert_eq!(heading_level(""), None);
+    }
+
+    #[test]
+    fn graduated_to_is_added_or_merged_inside_the_frontmatter() {
+        let ids = vec!["ref-a".to_string(), "ref-b".to_string()];
+        assert_eq!(
+            add_graduated_to("no frontmatter\n", &ids),
+            "no frontmatter\n"
+        );
+        assert_eq!(
+            add_graduated_to("---\nid: x\n---\nbody\n", &[]),
+            "---\nid: x\n---\nbody\n"
+        );
+        let added = add_graduated_to("---\nid: x\n---\nbody\n", &ids);
+        let close = added.lines().skip(1).position(|l| l == "---").unwrap() + 1;
+        let fm: Vec<&str> = added.lines().take(close).collect();
+        let line = fm
+            .iter()
+            .find(|l| l.starts_with("graduated_to:"))
+            .expect("added inside the block");
+        assert!(line.contains("ref-a") && line.contains("ref-b"), "{line}");
+        assert!(added.ends_with("body\n"));
+        let merged = add_graduated_to(&added, &["ref-c".to_string()]);
+        let line = merged
+            .lines()
+            .find(|l| l.starts_with("graduated_to:"))
+            .unwrap();
+        assert!(line.contains("ref-a") && line.contains("ref-c"), "{line}");
+        assert_eq!(merged.matches("graduated_to:").count(), 1);
+    }
+}

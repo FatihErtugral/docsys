@@ -712,3 +712,81 @@ mod tests {
         assert_eq!(relative_link("reference/a.md", "reference/b.md"), "b.md");
     }
 }
+#[cfg(test)]
+#[allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::indexing_slicing
+)]
+mod tests_more {
+    use super::*;
+
+    #[test]
+    fn markdown_links_are_reduced_to_their_text() {
+        assert_eq!(
+            strip_md_links("see [the page](x/y.md) and [more](z)."),
+            "see the page and more."
+        );
+        assert_eq!(strip_md_links("no links"), "no links");
+        assert_eq!(strip_md_links("[broken"), "[broken");
+        assert_eq!(strip_md_links("[a](b"), "[a](b");
+    }
+
+    #[test]
+    fn first_heading_prefers_h1_then_h2() {
+        assert_eq!(first_heading("intro\n## Two\n# One\n"), "One");
+        assert_eq!(first_heading("## Two  \ntext"), "Two");
+        assert_eq!(first_heading("no heading"), "");
+        assert_eq!(first_heading("#NotAHeading\n"), "");
+    }
+
+    #[test]
+    fn link_targets_skip_http_and_pure_anchors_and_drop_fragments() {
+        let got = md_link_targets_line("[a](x.md) [b](http://h) [c](#top) [d](y.md#sec) [e](../z)");
+        assert_eq!(got, vec!["x.md", "y.md", "../z"]);
+        assert!(md_link_targets_line("plain").is_empty());
+        assert!(md_link_targets_line("[open](never closed").is_empty());
+    }
+
+    #[test]
+    fn resolution_follows_dots_and_refuses_to_escape() {
+        assert_eq!(resolve("a/b/c.md", "d.md").as_deref(), Some("a/b/d.md"));
+        assert_eq!(resolve("a/b/c.md", "./d.md").as_deref(), Some("a/b/d.md"));
+        assert_eq!(resolve("a/b/c.md", "../d.md").as_deref(), Some("a/d.md"));
+        assert_eq!(resolve("a/b/c.md", "../../d.md").as_deref(), Some("d.md"));
+        assert_eq!(resolve("a/b/c.md", "../../../d.md"), None);
+        assert_eq!(resolve("c.md", "../x.md"), None);
+        assert_eq!(
+            resolve_with_escape("c.md", "../../x.md"),
+            (2, "x.md".to_string())
+        );
+        assert_eq!(
+            resolve_with_escape("a/c.md", "../x.md"),
+            (0, "x.md".to_string())
+        );
+    }
+
+    #[test]
+    fn relative_links_between_root_relative_paths() {
+        assert_eq!(relative_link("a/b.md", "a/c.md"), "c.md");
+        assert_eq!(relative_link("a/b.md", "a/d/c.md"), "d/c.md");
+        assert_eq!(relative_link("a/b.md", "c.md"), "../c.md");
+        assert_eq!(relative_link("a/x/b.md", "c/d.md"), "../../c/d.md");
+        assert_eq!(relative_link("b.md", "c.md"), "c.md");
+    }
+
+    #[test]
+    fn ids_from_filenames_are_kebab_case() {
+        assert_eq!(id_from_filename("AppManifests.md"), "app-manifests");
+        assert_eq!(id_from_filename("README.md"), "readme");
+        assert_eq!(id_from_filename("already-kebab.md"), "already-kebab");
+    }
+
+    #[test]
+    fn today_is_an_iso_date() {
+        let t = today();
+        assert!(crate::model::is_iso_date(&t), "{t}");
+        assert!(t.starts_with("20"), "{t}");
+    }
+}

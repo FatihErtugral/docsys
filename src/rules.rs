@@ -198,3 +198,39 @@ mod tests {
         );
     }
 }
+#[cfg(test)]
+#[allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::indexing_slicing
+)]
+mod tests_more {
+    use super::*;
+
+    #[test]
+    fn a_spec_section_is_cut_at_the_next_heading_of_its_level() {
+        let s = section("## 19. Open questions").expect("section exists in SPEC");
+        assert!(s.contains("Identifier-based document links"), "{s}");
+        assert!(section("## no such heading").is_none());
+        let sub = section("### 14.3 The authored procedures").unwrap();
+        assert!(!sub.contains("\n## "), "stops before the next H2");
+    }
+
+    #[test]
+    fn first_sentence_is_cut_at_the_first_boundary() {
+        assert_eq!(first_sentence("One two.  Three\nfour."), "One two.");
+        assert_eq!(first_sentence("No boundary here"), "No boundary here");
+        assert_eq!(first_sentence("v1.2 is fine. Next"), "v1.2 is fine.");
+        assert_eq!(first_sentence("  spaced\n  out  "), "spaced out");
+    }
+
+    #[test]
+    fn the_budget_has_a_floor_and_a_ceiling() {
+        let (lines, max) = check_budget(200).unwrap();
+        assert!(lines <= max);
+        let err = check_budget(1).unwrap_err();
+        assert!(err.contains("below the floor"), "{err}");
+        assert!(procedures().unwrap().starts_with("# Decision procedures"));
+    }
+}
