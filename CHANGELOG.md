@@ -5,6 +5,18 @@ All notable changes to docsys are documented here. The format follows
 [SemVer](https://semver.org/). Release notes are extracted from this file
 by the release workflow — the tag's section becomes the GitHub release body.
 
+## [0.5.0] - 2026-08-26
+
+### Changed
+
+- The agent hooks decide in the binary. `docsys hook pre-tool-use | stop |
+  post-tool-use | user-prompt-submit` reads the Claude Code payload with a
+  real JSON parser and carries every rule the shell scripts used to carry
+  (ask-once marker, dropped-`git add` retry, heredoc-aware command
+  detection, unquoted git paths, `updated:` bump, routing text). The four
+  installed scripts are one-line relays; run `docsys agents --force` to
+  receive them (D-051). Behavior is unchanged; the unit-test surface is not.
+
 ## [0.4.12] - 2026-08-26
 
 ### Fixed

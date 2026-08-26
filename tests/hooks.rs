@@ -160,9 +160,16 @@ fn docsys_skip_bypasses_once() {
 
 /// Run the installed Stop hook; returns its stderr (it never blocks).
 fn run_stop(repo: &Path) -> (i32, String) {
+    let bin = PathBuf::from(env!("CARGO_BIN_EXE_docsys"));
+    let path = format!(
+        "{}:{}",
+        bin.parent().unwrap().display(),
+        std::env::var("PATH").unwrap_or_default()
+    );
     let out = Command::new("bash")
         .arg(repo.join(".claude/hooks/stop-docs-reminder.sh"))
         .current_dir(repo)
+        .env("PATH", path)
         .stdin(std::process::Stdio::null())
         .output()
         .unwrap();

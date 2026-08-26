@@ -24,6 +24,8 @@ Usage:
   docsys fetch   [--root <dir>]              # materialize consumed namespaces into .federation/
   docsys gate    [--repo .] [--root docs]    # commit-time question: lint + code-without-docs
   docsys doctor  [--repo .] [--root docs] [--dir .claude]   # is the pipeline itself alive?
+  docsys hook    pre-tool-use|stop|post-tool-use|user-prompt-submit [--repo .] [--root docs]
+                                             # agent-hook logic; the installed scripts relay to it
 
 Exit codes (the contract scripts and CI read):
   0  ok — clean, or warnings only (warnings inform; they never block)
@@ -172,11 +174,12 @@ fn emit_export(done: &docsys::export::ProductOutcome, out: Option<&std::path::Pa
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let (cmd, sub, rest): (&str, Option<&str>, &[String]) = match args.split_first() {
-        Some((c, r)) if c == "migrate" || c == "graduate" || c == "export" => match r.split_first()
-        {
-            Some((s, r2)) => (c.as_str(), Some(s.as_str()), r2),
-            None => (c.as_str(), None, &[]),
-        },
+        Some((c, r)) if c == "migrate" || c == "graduate" || c == "export" || c == "hook" => {
+            match r.split_first() {
+                Some((s, r2)) => (c.as_str(), Some(s.as_str()), r2),
+                None => (c.as_str(), None, &[]),
+            }
+        }
         Some((c, r)) => (c.as_str(), None, r),
         None => ("", None, &[]),
     };
@@ -257,6 +260,36 @@ fn main() -> ExitCode {
                 eprintln!("rules needs --agents-md or --procedures");
                 ExitCode::from(2)
             }
+        }
+        ("hook", Some(event)) => {
+            let repo = opts.repo.clone().unwrap_or_else(|| PathBuf::from("."));
+            let root = if opts.root.is_absolute() {
+                opts.root.clone()
+            } else {
+                repo.join(&opts.root)
+            };
+            let mut payload = String::new();
+            let _ = std::io::Read::read_to_string(&mut std::io::stdin(), &mut payload);
+            let reply = match event {
+                "pre-tool-use" => docsys::hook::pre_tool_use(
+                    &repo,
+                    &root,
+                    &payload,
+                    std::env::var_os("DOCSYS_SKIP").is_some_and(|v| !v.is_empty()),
+                ),
+                "stop" => docsys::hook::stop(&repo, &root),
+                "post-tool-use" => {
+                    docsys::hook::post_tool_use(&repo, &root, &payload, &migrate::today())
+                }
+                "user-prompt-submit" => docsys::hook::user_prompt_submit(&payload),
+                other => {
+                    eprintln!("hook: unknown event `{other}` (pre-tool-use | stop | post-tool-use | user-prompt-submit)");
+                    return ExitCode::from(2);
+                }
+            };
+            print!("{}", reply.stdout);
+            eprint!("{}", reply.stderr);
+            ExitCode::from(reply.code)
         }
         ("gate", None) => {
             let repo = opts.repo.clone().unwrap_or_else(|| PathBuf::from("."));

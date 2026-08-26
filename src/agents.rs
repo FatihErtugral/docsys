@@ -16,70 +16,11 @@ use std::path::Path;
 /// question, re-running the same commit proceeds — a wall gets hooks disabled
 /// (R-150); a question does not.
 const PRE_COMMIT_DOCS: &str = r#"#!/usr/bin/env bash
-# pre-commit-docs.sh — PreToolUse gate on `git commit` (docsys gate relayed).
-set -uo pipefail
-
-payload=$(cat)
-# the JSON string may carry escaped quotes before `git commit`
-# (printf "x" > y && git commit …) — stop at an unescaped quote only
-cmd=$(printf '%s' "$payload" | grep -oE '"command"[[:space:]]*:[[:space:]]*"([^"\\]|\\.)*"' | head -1)
-# Match on command lines only: a heredoc BODY (a rule text, a commit message
-# quoting the words) is not a command. The JSON carries newlines as \n; open
-# them, then drop every line between `<<WORD` and its terminator. The heredoc
-# line itself stays — `git commit -F - <<'MSG'` is a commit.
-lines=$(printf '%s' "$cmd" | awk '{gsub(/\\n/,"\n"); gsub(/\\t/,"\t")}1' | awk '
-  skip { t = $0; if (dash) sub(/^\t+/, "", t); if (t == term) skip = 0; next }
-  { if (match($0, /<<-?[ \t]*["'"'"']?[A-Za-z_][A-Za-z0-9_]*/)) {
-      term = substr($0, RSTART, RLENGTH); dash = (term ~ /^<<-/)
-      sub(/^<<-?[ \t]*["'"'"']?/, "", term); skip = 1 }
-    print }')
-case "$lines" in *"git commit"*) ;; *) exit 0 ;; esac
-
-DOCS_ROOT="${DOCS_ROOT:-docs}"
+# pre-commit-docs.sh — PreToolUse gate on `git commit`; the decision is made
+# by `docsys hook pre-tool-use` (D-051): lint errors block, the code-without-docs
+# question is asked once per change set. DOCSYS_SKIP=1 bypasses once.
 command -v docsys >/dev/null || exit 0
-[ -n "${DOCSYS_SKIP:-}" ] && exit 0
-
-out=$(docsys gate --repo . --root "$DOCS_ROOT" 2>&1); code=$?
-if [ "$code" -ne 0 ]; then
-  printf '%s\n' "$out" >&2
-  echo "docsys gate: lint errors block this commit — fix them first (DOCSYS_SKIP=1 to bypass once). This whole Bash call was blocked, any \`git add\` in it included." >&2
-  exit 2
-fi
-
-line=$(printf '%s\n' "$out" | grep '^GATE ' || true)
-if [ -n "$line" ]; then
-  # The question is asked once per (HEAD, change set). The marker lives under
-  # the git dir and stays until HEAD moves — a passing attempt must NOT consume
-  # it: `git add … && git commit` stages inside the command, after this hook
-  # ran, so a pass can still commit nothing, and the next attempt would have
-  # been asked again (found live). The set is the staged files, or the working
-  # tree when nothing is staged yet — the same scope the gate itself answered.
-  head=$(git rev-parse -q --verify HEAD 2>/dev/null || echo none)
-  set_=$(git diff --cached --name-only); [ -z "$set_" ] && set_=$(git diff --name-only)
-  key=$(printf '%s\n%s\n' "$head" "$set_" | cksum | cut -d' ' -f1)
-  dir="$(git rev-parse --git-dir 2>/dev/null || echo "${TMPDIR:-/tmp}")/docsys-gate"
-  mkdir -p "$dir" 2>/dev/null
-  find "$dir" -type f ! -name "$head.*" -delete 2>/dev/null
-  marker="$dir/$head.$key"
-  adds=0; case "$cmd" in *"git add"*) adds=1 ;; esac
-  if [ ! -f "$marker" ]; then
-    printf 'add=%s\n' "$adds" > "$marker"
-    printf '%s\n' "$line" >&2
-    echo "code moves with no documentation change. If a contract moved, update the page (or add the journal line) and commit; if nothing user-visible moved, run the same commit again — this gate asks once." >&2
-    echo "This whole Bash call was blocked — a \`git add\` in it did not run either. Re-run the SAME command from the start, \`add\` included." >&2
-    exit 2
-  fi
-  # The retry dropped the `git add` the blocked call carried, and the tree
-  # still holds unstaged changes: the commit about to land is not the work
-  # described (found live — a commit whose message told the whole story and
-  # whose content was six deletions). Asked once, like the question itself.
-  if [ "$adds" = 0 ] && grep -q '^add=1' "$marker" 2>/dev/null && [ -n "$(git diff --name-only)" ] && [ ! -f "$marker.retry" ]; then
-    touch "$marker.retry"
-    echo "docsys gate: the blocked call ran \`git add\`; this retry does not, and the working tree still has unstaged changes — did your \`git add\` run? Re-run the original command from the start, or stage explicitly. (asked once)" >&2
-    exit 2
-  fi
-fi
-exit 0
+exec docsys hook pre-tool-use --root "${DOCS_ROOT:-docs}"
 "#;
 
 /// End-of-turn reminder: code moved, docs did not. Reads the working tree
@@ -88,82 +29,26 @@ exit 0
 /// whole session of code-only commits (D-041).
 const STOP_DOCS_REMINDER: &str = r#"#!/usr/bin/env bash
 # stop-docs-reminder.sh — end-of-turn nudge; warns, never blocks (R-150).
-# Scope: working tree + commits ahead of the upstream (@{u}..HEAD). Without an
-# upstream only the tree is read. Paths are read unquoted (core.quotePath=false)
-# so a page with a non-ASCII name is still a docs change.
-set -uo pipefail
-DOCS_ROOT="${DOCS_ROOT:-docs}"; DOCS_ROOT="${DOCS_ROOT%/}"
-# porcelain: strip the two status columns; a rename reports its NEW path
-tree=$(git -c core.quotePath=false status --porcelain 2>/dev/null | sed 's/^...//; s/.* -> //')
-ahead=$(git -c core.quotePath=false diff --name-only '@{u}..HEAD' 2>/dev/null || true)
-code=0; docs=0
-while IFS= read -r f; do
-  [ -z "$f" ] && continue
-  case "$f" in
-    "$DOCS_ROOT"/*) docs=1 ;;
-    *.md) ;;
-    *) code=1 ;;
-  esac
-done <<CHANGED
-$tree
-$ahead
-CHANGED
-if [ "$code" = 1 ] && [ "$docs" = 0 ]; then
-  where="this session"
-  [ -n "$ahead" ] && where="this session (including commits not yet pushed)"
-  echo "docs: $where changed code but no documentation — if a contract" >&2
-  echo "moved, the page moves in the SAME session; at minimum add the journal line." >&2
-fi
-exit 0
+# Reads the working tree and the commits not yet pushed (`docsys hook stop`).
+command -v docsys >/dev/null || exit 0
+exec docsys hook stop --root "${DOCS_ROOT:-docs}"
 "#;
 
 /// Keep `updated:` honest after a docs edit (R-052: maintained by tooling).
 const POST_EDIT_UPDATED: &str = r#"#!/usr/bin/env bash
-# post-edit-updated.sh — bump `updated:` on the edited docs page (R-052).
-# Reads the edited path from the hook payload on stdin (Claude Code PostToolUse).
-set -uo pipefail
-DOCS_ROOT="${DOCS_ROOT:-docs}"
-payload=$(cat)
-file=$(printf '%s' "$payload" | grep -oE '"file_path"[[:space:]]*:[[:space:]]*"([^"\\]|\\.)+"' | head -1 | sed 's/^"file_path"[[:space:]]*:[[:space:]]*"//; s/"$//')
-case "$file" in
-  *"$DOCS_ROOT"/_archive/*|*"$DOCS_ROOT"/_templates/*) exit 0 ;;
-  *"$DOCS_ROOT"/*.md) ;;
-  *) exit 0 ;;
-esac
-today=$(date +%F)
-if grep -q '^updated:' "$file" 2>/dev/null; then
-  sed -i "s/^updated:.*/updated: $today/" "$file"
-fi
-exit 0
+# post-edit-updated.sh — bump `updated:` on the edited docs page (R-052),
+# via `docsys hook post-tool-use` (reads the PostToolUse payload on stdin).
+command -v docsys >/dev/null || exit 0
+exec docsys hook post-tool-use --root "${DOCS_ROOT:-docs}"
 "#;
 
 /// Route documentation by work type, once per session, asking only when the
 /// intent is genuinely ambiguous (a survey every session becomes noise).
 const SESSION_INTENT: &str = r#"#!/usr/bin/env bash
-# session-intent.sh — UserPromptSubmit hook; fires once per session.
-set -euo pipefail
-payload="$(cat)"
-session_id="$(printf '%s' "$payload" | grep -oE '"session_id"[[:space:]]*:[[:space:]]*"[^"]+"' | head -1 | sed 's/.*"\([^"]*\)"$/\1/')"
-marker="${TMPDIR:-/tmp}/.docsys-intent-${session_id:-unknown}"
-[ -f "$marker" ] && exit 0
-touch "$marker"
-cat <<'EOF'
-<session-doc-routing>
-First turn. Classify the work type before anything else. If the message makes
-it clear, state it in one line and proceed — ask only when genuinely ambiguous
-(feature / bug / refactor / idea-note).
-
-Routing: feature needing a design decision → work/features/ (status: draft);
-bug → root cause first: wrong line = journal line, wrong assumption = invariant
-in reference/ or a postmortem (test: can it recur?); refactor touching a public
-surface → reference/ updated, and always record WHY; idea → journal or roadmap
-line, never the permanent layer before it becomes a decision.
-
-Contract-surface changes update their documentation in the SAME session.
-End of session: journal line (≤5 lines, links not content). Gate: docsys lint.
-Judgment calls follow the procedures: docsys rules --procedures.
-</session-doc-routing>
-EOF
+# session-intent.sh — UserPromptSubmit hook; the routing text once per
+# session, from `docsys hook user-prompt-submit`.
+command -v docsys >/dev/null || exit 0
+exec docsys hook user-prompt-submit
 "#;
 
 const DOC_SYNC: &str = r#"---
@@ -746,7 +631,9 @@ mod tests {
         assert_eq!(fs::read_to_string(&hook).unwrap(), "custom\n");
         let forced = install(&dir, true).unwrap();
         assert_eq!(forced.written.len(), 7);
-        assert!(fs::read_to_string(&hook).unwrap().contains("docsys gate"));
+        assert!(fs::read_to_string(&hook)
+            .unwrap()
+            .contains("docsys hook pre-tool-use"));
         let _ = fs::remove_dir_all(&dir);
     }
 
