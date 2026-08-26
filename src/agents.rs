@@ -27,10 +27,11 @@ cmd=$(printf '%s' "$payload" | grep -oE '"command"[[:space:]]*:[[:space:]]*"([^"
 # quoting the words) is not a command. The JSON carries newlines as \n; open
 # them, then drop every line between `<<WORD` and its terminator. The heredoc
 # line itself stays — `git commit -F - <<'MSG'` is a commit.
-lines=$(printf '%s' "$cmd" | awk '{gsub(/\\n/,"\n")}1' | awk '
-  skip { if ($0 == term) skip = 0; next }
+lines=$(printf '%s' "$cmd" | awk '{gsub(/\\n/,"\n"); gsub(/\\t/,"\t")}1' | awk '
+  skip { t = $0; if (dash) sub(/^\t+/, "", t); if (t == term) skip = 0; next }
   { if (match($0, /<<-?[ \t]*["'"'"']?[A-Za-z_][A-Za-z0-9_]*/)) {
-      term = substr($0, RSTART, RLENGTH); sub(/^<<-?[ \t]*["'"'"']?/, "", term); skip = 1 }
+      term = substr($0, RSTART, RLENGTH); dash = (term ~ /^<<-/)
+      sub(/^<<-?[ \t]*["'"'"']?/, "", term); skip = 1 }
     print }')
 case "$lines" in *"git commit"*) ;; *) exit 0 ;; esac
 
@@ -667,3 +668,107 @@ pub const HOOK_FILES: [&str; 4] = [
     "hooks/post-edit-updated.sh",
     "hooks/session-intent.sh",
 ];
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn stamp_goes_under_the_shebang_or_first() {
+        let s = stamp("#!/usr/bin/env bash\nset -u\n");
+        let mut lines = s.lines();
+        assert_eq!(lines.next(), Some("#!/usr/bin/env bash"));
+        assert_eq!(
+            lines.next(),
+            Some(format!("# docsys-template: {TEMPLATE_VERSION}").as_str())
+        );
+        assert_eq!(lines.next(), Some("set -u"));
+        assert!(stamp("echo x\n").starts_with("# docsys-template: "));
+    }
+
+    #[test]
+    fn every_hook_template_is_stamped_and_parseable() {
+        let dir = std::env::temp_dir().join(format!("docsys-stamp-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        install(&dir, false).unwrap();
+        for rel in HOOK_FILES {
+            let p = dir.join(rel);
+            assert_eq!(
+                template_version(&p).as_deref(),
+                Some(TEMPLATE_VERSION),
+                "{rel}"
+            );
+        }
+        assert!(stale_hooks(&dir).is_empty());
+        // an older stamp and a missing stamp are both named
+        let hook = dir.join("hooks/session-intent.sh");
+        fs::write(
+            &hook,
+            "#!/usr/bin/env bash\n# docsys-template: 0.0.1\nexit 0\n",
+        )
+        .unwrap();
+        fs::write(
+            dir.join("hooks/stop-docs-reminder.sh"),
+            "#!/usr/bin/env bash\nexit 0\n",
+        )
+        .unwrap();
+        let stale = stale_hooks(&dir);
+        assert!(
+            stale.contains(&("hooks/session-intent.sh".into(), "0.0.1".into())),
+            "{stale:?}"
+        );
+        assert!(
+            stale.contains(&("hooks/stop-docs-reminder.sh".into(), "unversioned".into())),
+            "{stale:?}"
+        );
+        assert_eq!(stale.len(), 2);
+        // stamp only within the first three lines — a mention deeper in a
+        // script is not a stamp
+        fs::write(
+            &hook,
+            "#!/usr/bin/env bash\nset -u\necho\n# docsys-template: 9.9.9\n",
+        )
+        .unwrap();
+        assert_eq!(template_version(&hook), None);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn force_rewrites_and_plain_install_keeps() {
+        let dir = std::env::temp_dir().join(format!("docsys-force-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        install(&dir, false).unwrap();
+        let hook = dir.join("hooks/pre-commit-docs.sh");
+        fs::write(&hook, "custom\n").unwrap();
+        let kept = install(&dir, false).unwrap();
+        assert_eq!(kept.written.len(), 0);
+        assert_eq!(fs::read_to_string(&hook).unwrap(), "custom\n");
+        let forced = install(&dir, true).unwrap();
+        assert_eq!(forced.written.len(), 7);
+        assert!(fs::read_to_string(&hook).unwrap().contains("docsys gate"));
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn hook_templates_are_valid_bash() {
+        for (name, src) in [
+            ("pre-commit", PRE_COMMIT_DOCS),
+            ("stop", STOP_DOCS_REMINDER),
+            ("post-edit", POST_EDIT_UPDATED),
+            ("session-intent", SESSION_INTENT),
+        ] {
+            let p =
+                std::env::temp_dir().join(format!("docsys-bash-n-{name}-{}", std::process::id()));
+            fs::write(&p, src).unwrap();
+            let ok = std::process::Command::new("bash")
+                .arg("-n")
+                .arg(&p)
+                .status()
+                .unwrap()
+                .success();
+            let _ = fs::remove_file(&p);
+            assert!(ok, "{name} does not parse");
+        }
+    }
+}

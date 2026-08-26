@@ -331,3 +331,48 @@ pub fn preserved_header(existing: &str) -> String {
         format!("{}\n\n", out.trim_end())
     }
 }
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+mod tests {
+    use super::preserved_header;
+
+    #[test]
+    fn no_header_when_the_file_does_not_start_with_a_comment() {
+        assert_eq!(preserved_header(""), "");
+        assert_eq!(
+            preserved_header("# docsys adoption report\n<!-- late -->\n"),
+            ""
+        );
+        assert_eq!(preserved_header("\n\n# report\n"), "");
+    }
+
+    #[test]
+    fn one_line_comment_is_kept_with_one_blank_line_after_it() {
+        let h = preserved_header("<!-- restricted-context:public -->\n# report\nbody\n");
+        assert_eq!(h, "<!-- restricted-context:public -->\n\n");
+    }
+
+    #[test]
+    fn multi_line_and_stacked_comments_are_kept_whole() {
+        let src = "<!-- a -->\n<!-- reviewed:\n     2026-08-26 -->\n\n<!-- b -->\n\n# report\n";
+        let h = preserved_header(src);
+        assert_eq!(
+            h,
+            "<!-- a -->\n<!-- reviewed:\n     2026-08-26 -->\n\n<!-- b -->\n\n"
+        );
+        // idempotent: header of (header + body) is the header
+        assert_eq!(preserved_header(&format!("{h}# report\n")), h);
+    }
+
+    #[test]
+    fn leading_whitespace_on_the_comment_line_is_tolerated() {
+        assert_eq!(preserved_header("  <!-- x -->\ntext"), "  <!-- x -->\n\n");
+    }
+
+    #[test]
+    fn an_unterminated_comment_swallows_to_end_of_file() {
+        let h = preserved_header("<!-- open\nstill\n");
+        assert_eq!(h, "<!-- open\nstill\n\n");
+    }
+}

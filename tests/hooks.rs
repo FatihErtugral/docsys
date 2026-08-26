@@ -393,3 +393,73 @@ fn git_commit_inside_a_heredoc_body_is_not_a_commit() {
     let (code, err) = run_hook(&repo, payload, &[]);
     assert_eq!(code, 2, "{err}");
 }
+
+/// Table: payload → does the gate treat it as a commit? Measured by the ask
+/// (exit 2) against a fresh marker dir each time; non-commits exit 0 before
+/// the gate runs at all.
+#[test]
+fn command_matcher_table() {
+    let repo = build_repo("matcher-table");
+    fs::write(repo.join("main.rs"), "fn main() {}\n").unwrap();
+    git(&repo, &["add", "main.rs"]);
+    let cases: &[(&str, bool)] = &[
+        (r#"{"tool_input":{"command":"git commit -m x"}}"#, true),
+        (r#"{"tool_input":{"command":"git   commit -m x"}}"#, false), // not our spelling — git itself rejects it
+        (
+            r#"{"tool_input":{"command":"git add -A && git commit -m x"}}"#,
+            true,
+        ),
+        (
+            r#"{"tool_input":{"command":"printf \"x\" > y && git commit -m z"}}"#,
+            true,
+        ),
+        (
+            r#"{"tool_input":{"command":"echo 'it''s' && git commit -m \"q \\\"x\\\"\""}}"#,
+            true,
+        ),
+        (
+            r#"{"tool_input":{"command":"git commit -q -F - <<'MSG'\nbody\nMSG"}}"#,
+            true,
+        ),
+        (
+            r#"{"tool_input":{"command":"cat <<'EOF'\nrun git commit later\nEOF"}}"#,
+            false,
+        ),
+        (
+            r#"{"tool_input":{"command":"cat <<EOF\ngit commit\nEOF\ngit commit -m real"}}"#,
+            true,
+        ),
+        (
+            r#"{"tool_input":{"command":"cat <<-\tEOF\n\tgit commit\n\tEOF"}}"#,
+            false,
+        ),
+        (
+            r#"{"tool_input":{"command":"git status && git log --oneline -3"}}"#,
+            false,
+        ),
+        (
+            r#"{"tool_input":{"command":"grep -rn 'git commit' docs/"}}"#,
+            true,
+        ), // quoted on a command line: cheap false positive, by design
+        (
+            r#"{"tool_input":{"command":"gitk && git-commit-graph"}}"#,
+            false,
+        ),
+        (
+            r#"{"tool_input":{"command":"echo çekirdek && git commit -m \"günlük\""}}"#,
+            true,
+        ),
+        (
+            r#"{"tool_input":{"command":"ls"},"other":"git commit"}"#,
+            false,
+        ),
+        (r#"not json at all"#, false),
+        (r#""#, false),
+    ];
+    for (payload, is_commit) in cases {
+        let _ = fs::remove_dir_all(repo.join(".git/docsys-gate"));
+        let (code, err) = run_hook(&repo, payload, &[]);
+        let expected = if *is_commit { 2 } else { 0 };
+        assert_eq!(code, expected, "payload {payload:?}: {err}");
+    }
+}

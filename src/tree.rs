@@ -260,3 +260,59 @@ pub fn scan_prefix(entry: &str) -> Result<String, String> {
 pub fn under_prefix(path: &str, prefix: &str) -> bool {
     path == prefix || path.starts_with(&format!("{prefix}/"))
 }
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+mod tests {
+    use super::{scan_prefix, under_prefix};
+
+    #[test]
+    fn spellings_of_this_directory_reduce_to_one_prefix() {
+        for e in [
+            "spec",
+            "spec/",
+            "./spec",
+            "./spec/",
+            "spec/**",
+            "./spec/**",
+            "spec/**/",
+            " spec ",
+        ] {
+            assert_eq!(scan_prefix(e).as_deref(), Ok("spec"), "{e:?}");
+        }
+        assert_eq!(scan_prefix("a/b/").as_deref(), Ok("a/b"));
+        assert_eq!(scan_prefix("a/b/**").as_deref(), Ok("a/b"));
+        assert_eq!(
+            scan_prefix("kaynak/çekirdek").as_deref(),
+            Ok("kaynak/çekirdek")
+        );
+    }
+
+    #[test]
+    fn what_a_prefix_cannot_express_comes_back_as_the_entry() {
+        for e in [
+            "**/spec/**",
+            "spec/*.md",
+            "sp?c",
+            "[ab]",
+            "../x",
+            "a/../b",
+            "..",
+            "",
+            "./",
+            "/**",
+        ] {
+            assert_eq!(scan_prefix(e), Err(e.to_string()), "{e:?}");
+        }
+    }
+
+    #[test]
+    fn prefix_matches_on_a_component_boundary() {
+        assert!(under_prefix("spec", "spec"));
+        assert!(under_prefix("spec/x/y.md", "spec"));
+        assert!(!under_prefix("specification.md", "spec"));
+        assert!(!under_prefix("a/spec/x", "spec"));
+        assert!(under_prefix("a/b/c", "a/b"));
+        assert!(!under_prefix("a/bc", "a/b"));
+    }
+}

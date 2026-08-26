@@ -5,6 +5,22 @@ All notable changes to docsys are documented here. The format follows
 [SemVer](https://semver.org/). Release notes are extracted from this file
 by the release workflow — the tag's section becomes the GitHub release body.
 
+## [0.4.12] - 2026-08-26
+
+### Fixed
+
+- The commit gate's heredoc skipping now handles `<<-` (tab-indented
+  terminator) and opens the payload's `\t` escapes — found by the new
+  table-driven matcher test, not in the field.
+
+### Added
+
+- Unit tests for the code that lived only under end-to-end tests:
+  `preserved_header`, hook stamping and staleness, `scan_prefix` /
+  `under_prefix`, wiki-link fragments, R-073 token rules, scannable lines,
+  the gate's unquoted-path reading, and a sixteen-row payload table for the
+  PreToolUse command matcher. Every hook template is parsed with `bash -n`.
+
 ## [0.4.11] - 2026-08-26
 
 ### Changed

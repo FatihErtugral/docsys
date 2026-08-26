@@ -84,3 +84,55 @@ pub fn run(repo: &Path, root: &Path) -> Result<(GateOutcome, crate::checks::Repo
         report,
     ))
 }
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+mod tests {
+    use std::fs;
+    use std::path::Path;
+    use std::process::Command;
+
+    fn git(dir: &Path, args: &[&str]) {
+        assert!(Command::new("git")
+            .args(args)
+            .current_dir(dir)
+            .status()
+            .unwrap()
+            .success());
+    }
+
+    #[test]
+    fn a_non_ascii_docs_page_is_a_docs_change_and_a_non_ascii_source_is_code() {
+        let repo = std::env::temp_dir().join(format!("docsys-gate-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&repo);
+        fs::create_dir_all(&repo).unwrap();
+        git(&repo, &["init", "-q"]);
+        git(&repo, &["config", "user.email", "t@example.invalid"]);
+        git(&repo, &["config", "user.name", "t"]);
+        // quotePath ON explicitly — the default the field hit
+        git(&repo, &["config", "core.quotePath", "true"]);
+        let docs = repo.join("docs");
+        crate::migrate::init_profile(&docs, "tr", "project").unwrap();
+        git(&repo, &["add", "-A"]);
+        git(&repo, &["commit", "-q", "-m", "init"]);
+        fs::create_dir_all(docs.join("reference")).unwrap();
+        fs::write(docs.join("reference/kılavuz.md"), "---\nid: kilavuz\ntype: reference\nupdated: 2026-08-26\n---\nThis page describes the guide; read it when the guide changes.\n").unwrap();
+        fs::write(repo.join("çekirdek.rs"), "fn main() {}\n").unwrap();
+        git(&repo, &["add", "-A"]);
+        let (g, _) = super::run(&repo, &docs).unwrap();
+        assert_eq!(g.scope, "staged");
+        assert_eq!(g.docs, 1, "the Turkish-named page must count as docs");
+        assert_eq!(
+            g.code,
+            vec!["çekirdek.rs".to_string()],
+            "unquoted, as itself"
+        );
+        // nothing staged: the working tree answers, same rules
+        git(&repo, &["commit", "-q", "-m", "both"]);
+        fs::write(repo.join("çekirdek.rs"), "fn main() { run() }\n").unwrap();
+        let (g, _) = super::run(&repo, &docs).unwrap();
+        assert_eq!(g.scope, "working tree");
+        assert_eq!((g.docs, g.code.len()), (0, 1));
+        let _ = fs::remove_dir_all(&repo);
+    }
+}

@@ -1629,3 +1629,118 @@ pub fn run(tree: &DocTree) -> Report {
     r.findings.dedup();
     r
 }
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+mod tests {
+    use super::*;
+    use std::fs;
+
+    #[test]
+    fn wiki_links_keep_the_fragment_and_drop_placeholders() {
+        let text =
+            "See [[reference/x#section]] and [[reference/y|Alias]] and [[<path>|<title>]].\n\
+                    [[reference/z]]";
+        let got: Vec<String> = wiki_links(text).into_iter().map(|(_, t)| t).collect();
+        assert_eq!(
+            got,
+            vec!["reference/x#section", "reference/y", "reference/z"]
+        );
+    }
+
+    #[test]
+    fn doc_tokens_follow_r073() {
+        // placeholder forms are prose, whichever namespace they carry
+        assert!(
+            doc_tokens_on_line("write doc: <id> or doc: @<ns>/<id> or doc: {doc_id}").is_empty()
+        );
+        // a real foreign reference is a token
+        assert_eq!(
+            doc_tokens_on_line("see doc: @firmware/wire-protocol."),
+            vec!["@firmware/wire-protocol"]
+        );
+        // inline code is still a reference, and the span ends at the backtick
+        assert_eq!(
+            doc_tokens_on_line("`doc: token-ttl`'nin süresi"),
+            vec!["token-ttl"]
+        );
+        assert_eq!(
+            doc_tokens_on_line("(doc: a) and doc: b, then doc: c"),
+            vec!["a", "b", "c"]
+        );
+        // glued into a word it is not a reference
+        assert!(doc_tokens_on_line("xdoc: nope").is_empty());
+    }
+
+    #[test]
+    fn foreign_tokens_are_foreign_before_anything_else() {
+        let idx = ResolutionIndex {
+            ids: BTreeSet::new(),
+            flowing: BTreeSet::new(),
+            graduated: BTreeSet::new(),
+            graduated_signposted: BTreeSet::new(),
+            archived: BTreeSet::new(),
+            families: Vec::new(),
+            tombstones: Vec::new(),
+        };
+        assert!(matches!(
+            resolve_doc_token(&idx, "@ns/id"),
+            Err(DocRefFail::Foreign)
+        ));
+        assert!(matches!(
+            resolve_doc_token(&idx, "Bad Grammar"),
+            Err(DocRefFail::BadGrammar)
+        ));
+        assert!(matches!(
+            resolve_doc_token(&idx, "missing-id"),
+            Err(DocRefFail::Dangling)
+        ));
+    }
+
+    #[test]
+    fn scannable_lines_skip_fences_quotes_and_indented_code() {
+        let text = "a\n```\nb\n```\n> c\nd\n\n    e\nf\n";
+        let got: Vec<&str> = scannable_lines(text).into_iter().map(|(_, l)| l).collect();
+        assert_eq!(got, vec!["a", "d", "", "f"]);
+    }
+
+    #[test]
+    fn a_fragment_on_a_real_page_warns_and_on_a_missing_page_errors() {
+        let root = std::env::temp_dir().join(format!("docsys-frag-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        fs::create_dir_all(root.join("reference")).unwrap();
+        fs::write(
+            root.join(".docmeta.yml"),
+            "spec: docsys/0.4\nprofile: project\ndefault_content_language: en\n",
+        )
+        .unwrap();
+        fs::write(
+            root.join("index.md"),
+            "# Docs\n\n- [[reference/a|A]] -- a.\n",
+        )
+        .unwrap();
+        fs::write(root.join("reference/a.md"), "---\nid: a\ntype: reference\nupdated: 2026-08-26\n---\nThis page is a; read it now.\n\n[[reference/a#top]] [[reference/ghost#x]] [[reference/a|A § Top]]\n").unwrap();
+        let (report, _) = crate::lint(&root);
+        let mut found: Vec<(String, String, String)> = report
+            .findings
+            .iter()
+            .filter(|f| f.rule.0 == "R-070" || f.rule.0 == "R-071")
+            .map(|f| {
+                (
+                    f.rule.0.to_string(),
+                    f.severity.tag().to_string(),
+                    f.subject.clone(),
+                )
+            })
+            .collect();
+        found.sort();
+        assert_eq!(
+            found,
+            vec![
+                ("R-070".into(), "WARN".into(), "reference/a#top".into()),
+                ("R-071".into(), "ERROR".into(), "reference/ghost#x".into()),
+            ]
+        );
+        let _ = fs::remove_dir_all(&root);
+    }
+}
