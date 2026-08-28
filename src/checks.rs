@@ -1378,10 +1378,44 @@ fn check_list_grammars(tree: &DocTree, r: &mut Report) {
         if !(page.kind == Kind::ListFile && (is_debt || is_q)) {
             continue;
         }
+        // The ledger holds items only (D-039, D-052): once the first item has
+        // appeared, a heading or a paragraph is not a debt — it is a closed
+        // debt kept as prose, a lesson that belongs in a postmortem, or an
+        // open debt written without its line. Found live: a ledger whose
+        // "closed" sections were 14% of the file, invisible to every check
+        // that read only the checkbox lines. One finding per run of lines.
+        let mut seen_item = false;
+        let mut in_prose = false;
         for (i, line) in page.text.lines().enumerate() {
             if !line.starts_with("- [") {
+                if is_debt && seen_item {
+                    let t = line.trim();
+                    let benign = t.is_empty()
+                        || t.starts_with("<!--")
+                        || line.starts_with(' ')
+                        || line.starts_with('\t');
+                    if !benign && !in_prose {
+                        in_prose = true;
+                        r.findings.push(Finding::err(
+                            R108,
+                            &page.rel,
+                            &format!("line-{}", i + 1),
+                            format!(
+                                "line {}: not an item — a ledger holds items only: a closed debt \
+                                 leaves the file (the journal line records the repayment), a \
+                                 lesson goes to work/postmortems/, an open debt is a dated \
+                                 `- [ ] ` line (D-039)",
+                                i + 1
+                            ),
+                        ));
+                    }
+                    // blank lines, comments and continuations neither open nor
+                    // close a run — only the next item does
+                }
                 continue;
             }
+            seen_item = true;
+            in_prose = false;
             inspected += 1;
             let closed = line.starts_with("- [x] ");
             let open = line.starts_with("- [ ] ");
@@ -1770,5 +1804,71 @@ mod tests_more {
         ));
         assert!(!occurs_as_token("", "x"));
         assert!(occurs_as_token("x", "x"));
+    }
+}
+
+#[cfg(test)]
+#[allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::indexing_slicing
+)]
+mod tests_ledger {
+    use std::fs;
+
+    fn lint_debt(body: &str) -> Vec<(String, String)> {
+        let root = std::env::temp_dir().join(format!(
+            "docsys-ledger-{}-{}",
+            std::process::id(),
+            body.len()
+        ));
+        let _ = fs::remove_dir_all(&root);
+        fs::create_dir_all(root.join("work")).unwrap();
+        fs::write(
+            root.join(".docmeta.yml"),
+            "spec: docsys/0.4\nprofile: project\ndefault_content_language: en\n",
+        )
+        .unwrap();
+        fs::write(root.join("index.md"), "# Docs\n").unwrap();
+        fs::write(root.join("work/journal.md"), "# Journal\n").unwrap();
+        fs::write(root.join("work/debt.md"), body).unwrap();
+        let (report, _) = crate::lint(&root);
+        let _ = fs::remove_dir_all(&root);
+        report
+            .findings
+            .iter()
+            .filter(|f| f.file == "work/debt.md" && f.rule.0 == "R-108")
+            .map(|f| (f.severity.tag().to_string(), f.subject.clone()))
+            .collect()
+    }
+
+    #[test]
+    fn preamble_items_comments_and_continuations_are_a_clean_ledger() {
+        let body = "# Debt\n\nA repaid debt leaves the file.\n\n- [ ] 2026-08-01 first -- deferred: r -- repay when: t\n<!-- note -->\n- [ ] 2026-08-02 second -- deferred: r --\n  repay when: t\n\n";
+        let got = lint_debt(body);
+        // the wrapped second item fails its grammar (a warning), nothing is prose
+        assert!(got.iter().all(|(sev, _)| sev == "WARN"), "{got:?}");
+    }
+
+    #[test]
+    fn a_heading_or_paragraph_after_the_first_item_is_one_error_per_run() {
+        let body = "# Debt\n\n- [ ] 2026-08-01 first -- deferred: r -- repay when: t\n\n## Closed\n\nThe cache debt was repaid on 2026-08-10 by\nmoving the index to sqlite.\n\n- [ ] 2026-08-11 second -- deferred: r -- repay when: t\n\n## Open but written as a heading\nstill open, measured twice.\n";
+        let got = lint_debt(body);
+        let mut errors: Vec<&str> = got
+            .iter()
+            .filter(|(s, _)| s == "ERROR")
+            .map(|(_, subj)| subj.as_str())
+            .collect();
+        errors.sort_unstable();
+        assert_eq!(errors, vec!["line-12", "line-5"], "{got:?}");
+    }
+
+    #[test]
+    fn a_ledger_with_only_a_preamble_or_only_items_has_no_prose_error() {
+        assert!(lint_debt("# Debt\n\nNone open.\n")
+            .iter()
+            .all(|(s, _)| s != "ERROR"));
+        assert!(lint_debt("# Debt\n\n- [ ] 2026-08-01 a -- deferred: r -- repay when: t\n- [ ] 2026-08-02 b -- deferred: r -- repay when: t\n").is_empty());
     }
 }

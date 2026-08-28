@@ -392,6 +392,15 @@ other two use `- [ ]` for open and `- [x]` for closed entries:
 | `questions.md` open | `- [ ] YYYY-MM-DD <question>` optionally ` -- <context or link>` |
 | `questions.md` closed | `- [x] YYYY-MM-DD <question> -- answered: <link or one line>` |
 
+`debt.md` holds items only: a heading or a paragraph after its first item **is
+an error**. It is always one of three things written in the wrong form — a
+closed debt kept as prose (it leaves the file; the journal line records the
+repayment), a lesson (it goes to `work/postmortems/`), or an open debt without
+its line (it becomes a dated `- [ ]` item). Prose before the first item is the
+file's own preamble and is free. Blocking is R-151's criterion met exactly: a
+ledger that reads as a list while its content lives in prose is silently wrong,
+and the fix is one deletion or one move.
+
 The field labels above are canonical, not literal: `.docmeta.yml` MAY declare
 `list_labels: [deferred=<local form>, repay when=<local form>, resolved=<local
 form>, answered=<local form>]`, exactly as `headings` does for template sections

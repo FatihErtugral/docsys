@@ -5,6 +5,17 @@ All notable changes to docsys are documented here. The format follows
 [SemVer](https://semver.org/). Release notes are extracted from this file
 by the release workflow — the tag's section becomes the GitHub release body.
 
+## [0.5.2] - 2026-08-29
+
+### Changed
+
+- `work/debt.md` holds items only: a heading or paragraph after the first
+  item is an **error** (one per run of lines) — a closed debt kept as prose,
+  a lesson, or an open debt without its line. Preamble, comments, blank
+  lines and indented continuations are free. Found on a pilot ledger where
+  14% of the file was prose "closed" sections no check could see (D-052).
+  Corpus case `35-debt-ledger-prose`.
+
 ## [0.5.1] - 2026-08-26
 
 ### Fixed
