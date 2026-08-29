@@ -387,11 +387,12 @@ other two use `- [ ]` for open and `- [x]` for closed entries:
 
 | File | Item grammar |
 |---|---|
-| `debt.md` open | `- [ ] <debt> -- deferred: <reason> -- repay when: <trigger>` |
-| `debt.md` closed | `- [x] <debt> -- deferred: <reason> -- repay when: <trigger> -- resolved: <note or link>` |
+| `debt.md` open | `- [ ] YYYY-MM-DD <debt> -- deferred: <reason> -- repay when: <trigger>` |
+| `debt.md` closed | `- [x] YYYY-MM-DD <debt> -- deferred: <reason> -- repay when: <trigger> -- resolved: <note or link>` |
 | `questions.md` open | `- [ ] YYYY-MM-DD <question>` optionally ` -- <context or link>` |
 | `questions.md` closed | `- [x] YYYY-MM-DD <question> -- answered: <link or one line>` |
 
+An open item carries its opening date so its age can be measured (D-039).
 `debt.md` holds items only: a heading or a paragraph after its first item **is
 an error**. It is always one of three things written in the wrong form — a
 closed debt kept as prose (it leaves the file; the journal line records the
@@ -1849,7 +1850,13 @@ produce another round of contradictions.
 ### Other gaps
 
 - Brownfield ingestion: which signals in version-control history are worth
-  turning into documentation, and which are noise
+  turning into documentation, and which are noise. First slice taken by the
+  implementation (D-053, D-054): `seed plan` inventories features and, for a
+  named feature, the history and code that carry it — as evidence for a
+  conversation, never as prose; the language-free signals (tags, births,
+  scopes, reverts, citations, comment blocks) are read, the word-based ones
+  need a declared vocabulary, and the noise (merge and mega commits, vendored
+  trees, a delete-and-restore pair) is excluded by rule
 - Whether `tutorial` earns its place in the `project` profile
 - Graph export format for feature-to-code-to-documentation relations
 - Whether `verification` should extend to the `project` profile

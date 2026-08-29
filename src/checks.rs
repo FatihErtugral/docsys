@@ -46,6 +46,7 @@ const R075: RuleId = RuleId("R-075");
 const R100: RuleId = RuleId("R-100");
 const R101: RuleId = RuleId("R-101");
 const R103: RuleId = RuleId("R-103");
+const R104: RuleId = RuleId("R-104");
 const R108: RuleId = RuleId("R-108");
 const R160: RuleId = RuleId("R-160");
 const R161: RuleId = RuleId("R-161");
@@ -1322,6 +1323,9 @@ fn check_journal(tree: &DocTree, r: &mut Report) {
             .and_then(|v| v.parse::<usize>().ok())
             .unwrap_or(5);
         let mut entry_start: Option<(usize, usize)> = None; // (line, body_len)
+                                                            // R-104: newest first. A retrospective entry is inserted at its own
+                                                            // date, never appended — one finding per out-of-order entry.
+        let mut prev_date: Option<String> = None;
         let flush = |r: &mut Report, e: Option<(usize, usize)>| {
             if let Some((line, body)) = e {
                 if body > budget {
@@ -1357,6 +1361,21 @@ fn check_journal(tree: &DocTree, r: &mut Report) {
                         &format!("entry-{}", i + 1),
                         "entry heading is not `## YYYY-MM-DD - title`".to_string(),
                     ));
+                } else {
+                    if let Some(prev) = &prev_date {
+                        if date > prev.as_str() {
+                            r.findings.push(Finding::warn(
+                                R104,
+                                &page.rel,
+                                &format!("entry-{}", i + 1),
+                                format!(
+                                    "entry dated {date} sits below {prev} — entries are newest \
+                                     first; a retrospective entry is inserted at its own date"
+                                ),
+                            ));
+                        }
+                    }
+                    prev_date = Some(date.to_string());
                 }
                 entry_start = Some((i, 0));
             } else if let Some((_, ref mut body)) = entry_start {

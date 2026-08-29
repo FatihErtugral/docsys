@@ -473,6 +473,7 @@ pub fn init_profile(root: &Path, lang: &str, profile: &str) -> Result<(), String
                 format!("# Journal\n\n## {date} - initialized\n- documentation tree created\n"),
             )?;
             w("work/debt.md", "# Debt\n".to_string())?;
+            scaffold_list_files_and_templates(root)?;
         }
         "knowledge-base" => {
             fs::create_dir_all(root.join("raw/inbox")).map_err(|e| e.to_string())?;
@@ -790,3 +791,62 @@ mod tests_more {
         assert!(t.starts_with("20"), "{t}");
     }
 }
+
+/// The tracked-work templates R-048 promises "installed into `_templates/` at
+/// initialization", and the `questions.md` list file R-108 names as the sink
+/// for open unknowns. Written only when absent — an owner's edited template
+/// or an existing ledger is never touched. Returns what was written.
+pub fn scaffold_list_files_and_templates(root: &Path) -> Result<Vec<&'static str>, String> {
+    let mut written = Vec::new();
+    let q = root.join("work/questions.md");
+    if !q.exists() {
+        fs::create_dir_all(root.join("work")).map_err(|e| e.to_string())?;
+        fs::write(&q, "# Questions\n").map_err(|e| e.to_string())?;
+        written.push("work/questions.md");
+    }
+    let dir = root.join("_templates");
+    fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    for (name, category, sections) in TEMPLATES {
+        let path = dir.join(name);
+        if path.exists() {
+            continue;
+        }
+        let mut text = format!(
+            "---\nid: <id>\nstatus: draft\nupdated: <YYYY-MM-DD>\n---\n\
+             <!-- {category}: copy to work/{category}/<id>.md; the headings are the R-048 \
+             template — a section with nothing to say stays empty, never filled for \
+             completeness -->\n"
+        );
+        for h in sections {
+            text.push_str(&format!("\n## {h}\n"));
+        }
+        fs::write(&path, text).map_err(|e| e.to_string())?;
+        written.push(name);
+    }
+    Ok(written)
+}
+
+/// The three core tracked-work categories and their R-048 section headings —
+/// the same list `checks::check_templates` requires, in canonical form.
+pub const TEMPLATES: [(&str, &str, [&str; 4]); 3] = [
+    (
+        "feature.md",
+        "features",
+        [
+            "Context",
+            "Decision",
+            "Contract surface",
+            "Rejected alternatives",
+        ],
+    ),
+    (
+        "postmortem.md",
+        "postmortems",
+        ["What happened", "Root cause", "Recurrence", "Lesson"],
+    ),
+    (
+        "research.md",
+        "research",
+        ["Question", "Tried", "Learned", "Why no decision"],
+    ),
+];

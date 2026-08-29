@@ -24,6 +24,8 @@ Usage:
   docsys fetch   [--root <dir>]              # materialize consumed namespaces into .federation/
   docsys gate    [--repo .] [--root docs]    # commit-time question: lint + code-without-docs
   docsys doctor  [--repo .] [--root docs] [--dir .claude]   # is the pipeline itself alive?
+  docsys seed    plan [--target <feature>] [--since <date>] [--repo .] [--root docs]
+                                             # brownfield: feature inventory, or one feature's history as evidence
   docsys hook    pre-tool-use|stop|post-tool-use|user-prompt-submit [--repo .] [--root docs]
                                              # agent-hook logic; the installed scripts relay to it
 
@@ -48,6 +50,8 @@ struct Opts {
     repo: Option<PathBuf>,
     dir: PathBuf,
     force: bool,
+    target: Option<String>,
+    since: Option<String>,
     agents_md: bool,
     procedures: bool,
     max_lines: usize,
@@ -70,6 +74,8 @@ fn parse_opts(args: &[String]) -> Result<Opts, String> {
         repo: None,
         dir: PathBuf::from(".claude"),
         force: false,
+        target: None,
+        since: None,
         agents_md: false,
         procedures: false,
         max_lines: 200,
@@ -93,6 +99,8 @@ fn parse_opts(args: &[String]) -> Result<Opts, String> {
             "--repo" => o.repo = Some(PathBuf::from(it.next().ok_or("--repo needs a value")?)),
             "--dir" => o.dir = PathBuf::from(it.next().ok_or("--dir needs a value")?),
             "--force" => o.force = true,
+            "--target" => o.target = Some(it.next().ok_or("--target needs a value")?.clone()),
+            "--since" => o.since = Some(it.next().ok_or("--since needs a value")?.clone()),
             "--agents-md" => o.agents_md = true,
             "--write" => o.plan = Some(PathBuf::from(it.next().ok_or("--write needs a value")?)),
             "--report" => o.procedures = true, // reuse: agents --report
@@ -174,7 +182,9 @@ fn emit_export(done: &docsys::export::ProductOutcome, out: Option<&std::path::Pa
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let (cmd, sub, rest): (&str, Option<&str>, &[String]) = match args.split_first() {
-        Some((c, r)) if c == "migrate" || c == "graduate" || c == "export" || c == "hook" => {
+        Some((c, r))
+            if c == "migrate" || c == "graduate" || c == "export" || c == "hook" || c == "seed" =>
+        {
             match r.split_first() {
                 Some((s, r2)) => (c.as_str(), Some(s.as_str()), r2),
                 None => (c.as_str(), None, &[]),
@@ -259,6 +269,28 @@ fn main() -> ExitCode {
             } else {
                 eprintln!("rules needs --agents-md or --procedures");
                 ExitCode::from(2)
+            }
+        }
+        ("seed", Some("plan")) => {
+            let repo = opts.repo.clone().unwrap_or_else(|| PathBuf::from("."));
+            let root = if opts.root.is_absolute() {
+                opts.root.clone()
+            } else {
+                repo.join(&opts.root)
+            };
+            let o = docsys::seed::Options {
+                target: opts.target.clone(),
+                since: opts.since.clone(),
+            };
+            match docsys::seed::plan(&repo, &root, &o) {
+                Ok(text) => {
+                    print!("{text}");
+                    ExitCode::SUCCESS
+                }
+                Err(e) => {
+                    eprintln!("seed: {e}");
+                    ExitCode::from(1)
+                }
             }
         }
         ("hook", Some(event)) => {

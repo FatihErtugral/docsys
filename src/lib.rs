@@ -15,6 +15,7 @@ pub mod migrate;
 pub mod model;
 pub mod refs;
 pub mod rules;
+pub mod seed;
 pub mod tree;
 
 use model::Severity;

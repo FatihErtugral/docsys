@@ -179,6 +179,12 @@ pub fn run(repo: &Path, root: &Path, lang: &str) -> Result<AdoptOutcome, String>
     // 1 · configuration
     let dm = ensure_docmeta(root, lang)?;
     summary.push(format!(".docmeta.yml: {dm}"));
+    // 1b · the promised skeleton pieces an adopted tree usually lacks
+    // (R-048 templates, the questions ledger) — written only when absent.
+    let scaffolded = crate::migrate::scaffold_list_files_and_templates(root)?;
+    if !scaffolded.is_empty() {
+        summary.push(format!("scaffold: {} written", scaffolded.join(", ")));
+    }
 
     // 2 · agent layer (never-colliding names; existing files skipped)
     let claude = repo.join(".claude");

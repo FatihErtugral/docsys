@@ -5,6 +5,28 @@ All notable changes to docsys are documented here. The format follows
 [SemVer](https://semver.org/). Release notes are extracted from this file
 by the release workflow — the tag's section becomes the GitHub release body.
 
+## [0.6.0] - 2026-08-29
+
+### Added
+
+- `docsys seed plan [--target <feature>] [--since <date>]` — brownfield
+  seeding, first slice. Without a target: the feature inventory (commit
+  scopes, package manifests, feature directories) with span, size and
+  whether a page already covers each one. With a target: one feature's
+  history as evidence — commits with bodies, files by touch count and the
+  other scopes they serve, birth by `--diff-filter=A`, manifests, `doc:`
+  citations, the code's own comment blocks verbatim, tags in the span.
+  A covered feature is refused by name; nothing is ever written (D-053).
+  Hygiene by rule: merges, mega commits, delete-and-restore pairs, vendored
+  and restricted paths (D-054).
+- `init` and `adopt` write the R-048 templates into `_templates/` and
+  `work/questions.md`, when absent (D-055).
+- R-104 is checked: a journal entry below an older one is reported.
+
+### Changed
+
+- R-108's item table shows the opening date the lint already required.
+
 ## [0.5.2] - 2026-08-29
 
 ### Changed

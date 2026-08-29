@@ -284,6 +284,21 @@ agent session in that directory and try the loop:
   warns, naming what should have moved
 - type `/doc-sync` → a drift report over `docsys lint` + `docsys refs`
 
+### 2b · A project with no documentation at all — seeding
+
+```sh
+docsys adopt                                   # skeleton, hooks, templates, questions ledger
+docsys seed plan --repo . --root docs           # feature inventory: what history names, what is covered
+docsys seed plan --repo . --root docs --target weather   # one feature's history as evidence
+```
+
+The plan is evidence, never prose: commits with their bodies, files by touch
+count, the birth date, manifests, `doc:` citations, the code's own comment
+blocks verbatim. An agent presents it to the builder — plain questions, one at
+a time, nothing written until confirmed — and what the builder adds is what
+history cannot say: why, what is still open, what comes next. A feature a page
+already covers is refused by name; from there the hooks keep it current.
+
 ### 3 · A real repository, safely (clone first)
 
 ```sh
