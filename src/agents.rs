@@ -63,9 +63,12 @@ and wait for approval. Commit nothing.
 
 1. Mechanical pass: `docsys lint --root docs` and `docsys refs --repo .` —
    include both outputs (one line each if green).
-2. Drift suspects: `git log --oneline -20`; for each commit touching the
-   contract surface, check `git show --stat <sha> -- docs/` — did the docs
-   move with it? Name the page that should have changed.
+2. Drift suspects: `docsys seed plan --repo . --root docs --since <date of
+   the newest journal entry>` — every feature history touched since, with
+   its coverage. For each covered feature with commits, `git show --stat
+   <sha> -- docs/`: did its page move with the code? Name the page that
+   should have changed. An uncovered feature with commits is a seeding
+   candidate, not drift.
 3. Graduation debt: `grep -rl '^status: done' docs/work/` — for each, what
    still-true knowledge exists nowhere permanent? Say concretely which section
    goes to which page (the R-049 table decides).
@@ -479,6 +482,15 @@ question that creates a conflict. The bank:
 If an answer conflicts with the evidence, show the evidence (`file:line`,
 the test, the commit) and keep the question open until it is clear. An
 answer the builder cannot give becomes a `question` row, dated today.
+
+## 3b · Your own notes are questions, never text
+
+If this machine holds agent memory for the repository (Claude Code keeps
+`memory/*.md` under `~/.claude/projects/<repo-slug>/`), run the plan with
+`--memory <that dir>`: each note's name and description becomes one line
+of evidence and ONE question — "my notes say X; is it still true, and where
+should it live?" The builder's answer is the source; the note is not. Never
+paste a note into the tree.
 
 ## 4 · Approve, then land (tool)
 

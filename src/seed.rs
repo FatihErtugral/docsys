@@ -29,6 +29,10 @@ use std::process::Command;
 pub struct Options {
     pub target: Option<String>,
     pub since: Option<String>,
+    /// A directory of agent memory notes (`*.md` with `name`/`description`
+    /// frontmatter). Only those two fields are read — a note is a question
+    /// to ask, never text to copy (D-062).
+    pub memory: Option<std::path::PathBuf>,
 }
 
 /// Files above this count in one commit make it a tree-wide operation
@@ -510,7 +514,63 @@ fn header(repo: &Path, commits: &[Commit], opts: &Options) -> String {
             unknown.join(", ")
         ));
     }
+    if let Some(dir) = &opts.memory {
+        for (name, kind, desc) in memory_notes(dir) {
+            s.push_str(&format!(
+                "# memory {name} · {kind} · {desc} — ask: still true, and where should it live?\n"
+            ));
+        }
+    }
     s
+}
+
+/// Agent memory notes as leads: (name, type, description) from each note's
+/// frontmatter, nothing from its body.
+pub fn memory_notes(dir: &Path) -> Vec<(String, String, String)> {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return Vec::new();
+    };
+    let mut notes = Vec::new();
+    let mut paths: Vec<std::path::PathBuf> =
+        entries.filter_map(|e| e.ok().map(|e| e.path())).collect();
+    paths.sort();
+    for p in paths {
+        if p.extension().is_none_or(|x| x != "md")
+            || p.file_name().is_some_and(|n| n == "MEMORY.md")
+        {
+            continue;
+        }
+        let Ok(text) = std::fs::read_to_string(&p) else {
+            continue;
+        };
+        let Some(fm) = crate::fm::parse(&text) else {
+            continue;
+        };
+        let name = fm
+            .fields
+            .get("name")
+            .and_then(crate::fm::Value::as_str)
+            .unwrap_or("")
+            .to_string();
+        let desc = fm
+            .fields
+            .get("description")
+            .and_then(crate::fm::Value::as_str)
+            .unwrap_or("")
+            .to_string();
+        // `metadata:` nests (D-002 problem) — read the type line directly
+        let kind = text
+            .lines()
+            .skip(1)
+            .take_while(|l| *l != "---")
+            .find_map(|l| l.trim().strip_prefix("type:"))
+            .map(|t| t.trim().to_string())
+            .unwrap_or_default();
+        if !name.is_empty() || !desc.is_empty() {
+            notes.push((name, kind, desc));
+        }
+    }
+    notes
 }
 
 pub fn inventory(repo: &Path, root: &Path, opts: &Options) -> Result<String, String> {

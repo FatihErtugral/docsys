@@ -24,7 +24,7 @@ Usage:
   docsys fetch   [--root <dir>]              # materialize consumed namespaces into .federation/
   docsys gate    [--repo .] [--root docs]    # commit-time question: lint + code-without-docs
   docsys doctor  [--repo .] [--root docs] [--dir .claude]   # is the pipeline itself alive?
-  docsys seed    plan [--target <feature>] [--since <date>] [--repo .] [--root docs]
+  docsys seed    plan [--target <feature>] [--since <date>] [--memory <dir>] [--repo .] [--root docs]
                                              # brownfield: feature inventory, or one feature's history as evidence
   docsys seed    gaps [--since <date>] [--repo .] [--root docs]      # the inventory as JSON, for /docsys-interview
   docsys seed    apply --plan <file> [--repo .] [--root docs] [--force]  # land the approved rows under work/
@@ -54,6 +54,7 @@ struct Opts {
     force: bool,
     target: Option<String>,
     since: Option<String>,
+    memory: Option<PathBuf>,
     agents_md: bool,
     procedures: bool,
     max_lines: usize,
@@ -78,6 +79,7 @@ fn parse_opts(args: &[String]) -> Result<Opts, String> {
         force: false,
         target: None,
         since: None,
+        memory: None,
         agents_md: false,
         procedures: false,
         max_lines: 200,
@@ -103,6 +105,9 @@ fn parse_opts(args: &[String]) -> Result<Opts, String> {
             "--force" => o.force = true,
             "--target" => o.target = Some(it.next().ok_or("--target needs a value")?.clone()),
             "--since" => o.since = Some(it.next().ok_or("--since needs a value")?.clone()),
+            "--memory" => {
+                o.memory = Some(PathBuf::from(it.next().ok_or("--memory needs a value")?))
+            }
             "--agents-md" => o.agents_md = true,
             "--write" => o.plan = Some(PathBuf::from(it.next().ok_or("--write needs a value")?)),
             "--report" => o.procedures = true, // reuse: agents --report
@@ -286,6 +291,7 @@ fn main() -> ExitCode {
             let o = docsys::seed::Options {
                 target: opts.target.clone(),
                 since: opts.since.clone(),
+                memory: opts.memory.clone(),
             };
             match docsys::seed::plan(&repo, &root, &o) {
                 Ok(text) => {
@@ -308,6 +314,7 @@ fn main() -> ExitCode {
             let o = docsys::seed::Options {
                 target: None,
                 since: opts.since.clone(),
+                memory: None,
             };
             match docsys::seed::gaps_json(&repo, &root, &o) {
                 Ok(text) => {

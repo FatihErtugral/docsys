@@ -5,6 +5,23 @@ All notable changes to docsys are documented here. The format follows
 [SemVer](https://semver.org/). Release notes are extracted from this file
 by the release workflow — the tag's section becomes the GitHub release body.
 
+## [0.8.0] - 2026-08-29
+
+### Added
+
+- Evidence locators in `sources:` — `git:<sha>`, `tag:<ref>`,
+  `git:<sha>:<path>[@L<a>-L<b>]` — parsed and resolved by one module
+  against the repository the tree lives in. R-059 now checks every page
+  that declares sources in both profiles: an error on a knowledge base's
+  permanent pages, a warning on a project's seeded work files (D-061).
+- `docsys seed plan --memory <dir>` — agent memory notes as questions:
+  name and description only, never the body (D-062).
+
+### Changed
+
+- `/docsys-sync` reads drift through `docsys seed plan --since`; `/docsys-seed`
+  gains the memory step.
+
 ## [0.7.0] - 2026-08-29
 
 ### Added

@@ -386,22 +386,62 @@ fn kb_page_checks(tree: &DocTree, page: &Page, fm: &crate::fm::Frontmatter, r: &
 /// silent failure R-027 names, so a missing file blocks (§2.2).
 fn check_sources(tree: &DocTree, r: &mut Report) {
     let mut inspected = 0usize;
+    // Version-control locators resolve against the repository the tree lives
+    // in (D-061); looked up once, only if a page names one.
+    let mut repo: Option<Option<std::path::PathBuf>> = None;
     for page in &tree.pages {
-        if page.kind != Kind::Permanent {
+        // knowledge base: the wiki's permanent pages (R-024); project: any
+        // page that declares sources — a seeded work file most of all
+        let in_scope = match tree.profile {
+            Profile::KnowledgeBase => page.kind == Kind::Permanent,
+            Profile::Project => matches!(page.kind, Kind::Permanent | Kind::Tracked),
+        };
+        if !in_scope {
             continue;
         }
         let Some(fm) = &page.fm else { continue };
         let Some(srcs) = fm.fields.get("sources").and_then(Value::as_list) else {
             continue;
         };
+        // a severed trail is an error where the doctrine already applies (the
+        // knowledge base's verified pages) and a report elsewhere: seeded
+        // evidence that moved must be seen, not block the tree
+        let finding = |file: &str, subject: &str, msg: String| match tree.profile {
+            Profile::KnowledgeBase => Finding::err(R059, file, subject, msg),
+            Profile::Project => Finding::warn(R059, file, subject, msg),
+        };
         for s in srcs {
             if s.contains("://") {
                 continue; // URLs are out of scope (D-030)
             }
             inspected += 1;
-            if !tree.root.join(s).is_file() {
-                r.findings.push(Finding::err(
-                    R059,
+            if let Some(loc) = crate::locator::parse(s) {
+                let repo = repo.get_or_insert_with(|| crate::locator::repo_of(&tree.root));
+                match repo {
+                    None => r.findings.push(finding(
+                        &page.rel,
+                        s,
+                        format!("sources entry `{s}` names version-control evidence, but the tree is not in a git repository"),
+                    )),
+                    Some(repo) => {
+                        if let Err(why) = crate::locator::resolve(repo, &loc) {
+                            r.findings.push(finding(
+                                &page.rel,
+                                s,
+                                format!("sources entry `{s}` does not resolve — {why}"),
+                            ));
+                        }
+                    }
+                }
+                continue;
+            }
+            let in_tree = tree.root.join(s).is_file();
+            let in_repo = repo
+                .get_or_insert_with(|| crate::locator::repo_of(&tree.root))
+                .as_ref()
+                .is_some_and(|rp| rp.join(s).is_file());
+            if !in_tree && !(tree.profile == Profile::Project && in_repo) {
+                r.findings.push(finding(
                     &page.rel,
                     s,
                     format!("sources entry `{s}` does not resolve — the evidence trail is severed"),
@@ -1642,8 +1682,8 @@ pub fn run(tree: &DocTree) -> Report {
     check_journal(tree, &mut r);
     check_list_grammars(tree, &mut r);
     check_templates(tree, &mut r);
+    check_sources(tree, &mut r);
     if tree.profile == Profile::KnowledgeBase {
-        check_sources(tree, &mut r);
         check_raw_immutability(tree, &mut r);
     }
     if tree.pages.is_empty() {

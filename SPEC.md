@@ -252,7 +252,12 @@ who arrives that way.
 **R-059** `lint` · MUST — Every `sources:` entry MUST resolve. R-071 covers only
 wiki-links, so without this a manual move or deletion under `raw/` severs a
 verified page's evidence trail with nothing reporting it — including when R-027's
-command path was bypassed entirely.
+command path was bypassed entirely. An entry may name version-control
+evidence — `git:<sha>`, `tag:<ref>`, `git:<sha>:<path>[@L<a>-L<b>]` — resolved
+against the repository the tree lives in. Where the verification doctrine
+applies (a knowledge base's permanent pages) a severed entry **is an error**;
+on any other page that declares sources (a seeded work file) it **is
+reported**: evidence that moved must be seen, not block the tree.
 
 ---
 

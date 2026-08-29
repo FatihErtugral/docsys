@@ -11,6 +11,7 @@ pub mod fm;
 pub mod gate;
 pub mod graduate;
 pub mod hook;
+pub mod locator;
 pub mod migrate;
 pub mod model;
 pub mod refs;

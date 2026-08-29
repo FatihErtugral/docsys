@@ -100,6 +100,7 @@ fn plan(repo: &Path, target: Option<&str>) -> Result<String, String> {
         &docsys::seed::Options {
             target: target.map(str::to_string),
             since: None,
+            memory: None,
         },
     )
 }
@@ -232,6 +233,7 @@ fn gaps_json_lists_features_with_coverage() {
         &docsys::seed::Options {
             target: None,
             since: None,
+            memory: None,
         },
     )
     .unwrap();
@@ -407,4 +409,76 @@ fn apply_refuses_a_dirty_tree_a_stale_pin_and_a_page_it_did_not_seed() {
     git(&repo, &["commit", "-q", "-m", "chore: plan 4"]);
     let err = docsys::seed::apply(&repo, &docs, &plan_path, false).unwrap_err();
     assert!(err.contains("`research` row must come first"), "{err}");
+}
+
+#[test]
+fn git_locators_in_sources_are_checked_by_lint_as_warnings() {
+    let repo = build("locators");
+    let docs = repo.join("docs");
+    let sha = String::from_utf8(
+        Command::new("git")
+            .args(["rev-parse", "--short", "HEAD"])
+            .current_dir(&repo)
+            .output()
+            .unwrap()
+            .stdout,
+    )
+    .unwrap();
+    let sha = sha.trim().to_string();
+    fs::create_dir_all(docs.join("work/research")).unwrap();
+    write(
+        &repo,
+        "docs/work/research/probe.md",
+        &format!("---\nid: probe\nstatus: active\nupdated: 2026-08-29\nsources: [git:{sha}, git:0000000, git:{sha}:apps/weather/app.toml@L1-L2, git:{sha}:nope.txt, tag:v9]\n---\nThis page probes locators; read it in the test.\n\n## Question\n\n## Tried\n\n## Learned\n\n## Why no decision\n"),
+    );
+    let (report, _) = docsys::lint(&docs);
+    let r059: Vec<(String, String)> = report
+        .findings
+        .iter()
+        .filter(|f| f.rule.0 == "R-059")
+        .map(|f| (f.severity.tag().to_string(), f.subject.clone()))
+        .collect();
+    assert_eq!(r059.len(), 3, "{r059:?}");
+    assert!(
+        r059.iter().all(|(s, _)| s == "WARN"),
+        "project profile reports, never blocks: {r059:?}"
+    );
+    let subjects: Vec<&str> = r059.iter().map(|(_, s)| s.as_str()).collect();
+    assert!(subjects.contains(&"git:0000000"), "{subjects:?}");
+    assert!(
+        subjects.contains(&format!("git:{sha}:nope.txt").as_str()),
+        "{subjects:?}"
+    );
+    assert!(subjects.contains(&"tag:v9"), "{subjects:?}");
+    assert_eq!(lint_errors(&docs), 0);
+}
+
+#[test]
+fn memory_notes_become_evidence_lines_without_their_bodies() {
+    let repo = build("memory");
+    let mem = repo
+        .parent()
+        .unwrap()
+        .join(format!("docsys-seed-memdir-{}", std::process::id()));
+    let _ = fs::remove_dir_all(&mem);
+    fs::create_dir_all(&mem).unwrap();
+    fs::write(mem.join("MEMORY.md"), "- index line\n").unwrap();
+    fs::write(
+        mem.join("weather-offline.md"),
+        "---\nname: weather-offline\ndescription: offline reading was a requirement, not a fallback\nmetadata:\n  type: project\n---\n\nSECRET BODY that must never be printed.\n",
+    )
+    .unwrap();
+    let out = docsys::seed::plan(
+        &repo,
+        &repo.join("docs"),
+        &docsys::seed::Options {
+            target: None,
+            since: None,
+            memory: Some(mem.clone()),
+        },
+    )
+    .unwrap();
+    assert!(out.contains("# memory weather-offline · project · offline reading was a requirement, not a fallback — ask: still true, and where should it live?"), "{out}");
+    assert!(!out.contains("SECRET BODY"), "{out}");
+    let _ = fs::remove_dir_all(&mem);
 }
