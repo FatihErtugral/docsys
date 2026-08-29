@@ -10,7 +10,7 @@ Nothing lives in two places, nothing goes stale silently, and nothing blocks
 your commit unless the damage would be irreversible or silently wrong.
 
 Built spec-first: every behavior traces to a numbered rule in [SPEC.md](SPEC.md)
-(133 normative rules, survived six adversarial audit rounds by six independent
+(147 normative rules, survived six adversarial audit rounds by six independent
 models), every implementation-defined choice is registered in
 [corpus/DECISIONS.md](corpus/DECISIONS.md), and the conformance corpus keeps the
 binary from drifting looser *or* noisier than the rules.
@@ -43,7 +43,7 @@ flowchart LR
 
     F ==>|"graduate — byte-exact,<br/>never rewritten"| PERM
     CODE -->|"doc: &lt;id&gt;<br/>never a path"| PERM
-    PERM -.->|"verifies: hash pin<br/>code drift = loud"| CODE
+    PERM -.->|"verifies: hash pin<br/>(spec §11 — not yet in the binary)"| CODE
     HOW -->|"compile<br/>(mature only)"| SKILL
 ```
 
@@ -113,27 +113,32 @@ two pre-existing violations the old tree already had.
 
 ## The session loop (agent layer)
 
-`docsys agents` installs four warn-only hooks and a thin skill; `docsys rules`
-generates the agent-facing text **from the embedded spec** — there is no
-hand-maintained rules copy to drift (R-155).
+`docsys agents` installs four hooks, three commands (`/docsys-sync`,
+`/docsys-seed`, `/docsys-interview`) and two skills. The hooks are two-line
+relays: every decision is made by `docsys hook <event>` in the binary — a real
+JSON parser for the payload, heredoc-aware command detection, git paths read
+unquoted — and pinned by unit tests (D-051). `docsys rules` generates the
+agent-facing text **from the embedded spec**; there is no hand-maintained rules
+copy to drift (R-155).
 
 ```mermaid
 flowchart LR
     S([session starts]) --> SI["session-intent hook<br/>classify work type once"]
     SI --> WORK["agent works<br/>judgment via docsys rules --procedures"]
     WORK -- "edits docs page" --> PU["post-edit hook<br/>bumps updated:"]
-    WORK -- "commit" --> PC["pre-commit hook<br/>contract surface changed,<br/>docs didn't? → WARN + lint"]
-    WORK -- "turn ends" --> ST["stop hook<br/>code moved, docs didn't? → remind"]
-    PC --> GATE{"docsys lint"}
-    GATE -- "errors" --> FIX[fix in the same session]
-    GATE -- "clean/warnings" --> DONE([commit])
+    WORK -- "commit" --> PC["pre-commit hook<br/>docsys gate"]
+    WORK -- "turn ends" --> ST["stop hook<br/>code moved, docs didn't?<br/>(tree + unpushed commits) → remind"]
+    PC -- "lint errors" --> BLOCK[BLOCKED — fix first]
+    PC -- "code moved, docs didn't" --> ASK["asks ONCE — the same<br/>commit again proceeds"]
+    PC -- "docs moved too" --> DONE([commit])
 ```
 
-Hooks **warn and never block** — hard blocking gets hooks disabled entirely,
-which removes the protection completely (R-150, a field lesson). Blocking is
-reserved for the two outcomes that earn it: irreversible, or silently wrong
-(R-151) — a dangling reference blocks, because an agent that cannot resolve a
-reference invents an answer.
+One channel blocks — the pre-commit hook, where exit 2 stops the call and the
+model reads the reason: lint **errors** block outright, and the
+code-without-docs question **asks once** (the marker lives until HEAD moves,
+so a retry that dropped its `git add` is caught, not waved through). The other
+hooks warn and never block: a wall gets hooks disabled, a question does not
+(R-150, R-151, D-040, D-043, D-049).
 
 ## Graduation — the heart
 
@@ -230,7 +235,9 @@ stamp carries its fetch date so a stale composition is visible.
 | `docsys export manifest` | Publish what this namespace exports — id, type, title, summary, content hash, no bodies. A few KB where a clone is megabytes. |
 | `docsys fetch` | Materialize consumed namespaces into `.federation/`: manifest first, unchanged pages skipped, provenance recorded. |
 | `docsys rules --agents-md / --procedures` | Agent text generated from the embedded spec: a ~33-line always-loaded block, and the fifteen decision procedures. |
-| `docsys agents [--kb]` | Install the agent layer: hooks + `/doc-sync` + the docsys and export skills for a project, or the four knowledge-base organs (capture · ingest · audit · lookup) with `--kb`. |
+| `docsys agents [--kb] [--force]` | Install the agent layer: four relay hooks + `/docsys-sync`, `/docsys-seed`, `/docsys-interview` + the docsys and export skills for a project, or the four knowledge-base organs (capture · ingest · audit · lookup) with `--kb`. Hooks carry their template version; `--force` refreshes them. |
+| `docsys hook pre-tool-use\|stop\|post-tool-use\|user-prompt-submit` | The hook logic itself, reading the agent harness payload on stdin (D-051). |
+| `docsys gate` · `docsys doctor` | The commit-time question the binary computes (lint + code-without-docs), and the liveness check: every hook present, executable, wired under the right event, up to date (D-040, D-047). |
 
 ## Quick start
 
@@ -248,7 +255,7 @@ on your PATH.
 
 ```sh
 mkdir demo && cd demo && git init -q
-docsys init --root docs      # skeleton: .docmeta.yml, router, journal, debt
+docsys init --root docs      # skeleton: .docmeta.yml, router, journal, debt, questions, _templates/
 docsys lint --root docs      # green
 ```
 
@@ -285,8 +292,12 @@ agent session in that directory and try the loop:
   session-intent hook asks for the work type, once
 - have it edit a `docs/reference/` page → `updated:` bumps itself
 - change code and try to commit without touching docs → the pre-commit hook
-  warns, naming what should have moved
-- type `/doc-sync` → a drift report over `docsys lint` + `docsys refs`
+  asks once, naming what moved; the same commit again proceeds
+- type `/docsys-sync` → a drift report over `docsys lint`, `docsys refs` and
+  `docsys seed plan --since`
+- a pre-commit gate of your own that wants a marker in every generated file?
+  declare it once — `generated_preamble: "<!-- … -->"` in `.docmeta.yml` — and
+  every file docsys writes opens with it (D-056)
 
 ### 2b · A project with no documentation at all — seeding
 
@@ -307,6 +318,24 @@ builder's answers, dated journal entries, a postmortem quoting its commit,
 debt and question items). `/docsys-interview` runs it feature by feature,
 resumable. A feature a page already covers is refused by name; from there the
 hooks keep it current.
+
+### 2c · Capture and navigation
+
+```sh
+docsys journal add "Wire format settled; details on the page" --link reference/wire
+docsys debt close 3 --note "measured twice, held"     # item leaves the ledger, journal records it
+docsys page new feature dark-mode                      # from _templates/feature.md
+docsys backlinks token-ttl --repo .                    # pages and code pointing at a page
+docsys mentions                                        # prose naming a page without a link
+docsys graph --format jsoncanvas --repo . > docs/map.canvas
+docsys adopt --obsidian                                # the docs root as an Obsidian vault
+```
+
+Opening the tree in Obsidian works as-is with three settings `adopt --obsidian`
+writes (absolute link format, `_archive/` and `.federation/` ignored,
+`_templates/` as the templates folder). Two caveats: `aliases:` means retired
+identifiers here and autocomplete names there; and keep the Linter plugin's
+`yaml-timestamp` off — it fights `updated:` (D-065).
 
 ### 3 · A real repository, safely (clone first)
 
@@ -368,7 +397,7 @@ or deleted record is an error; relocation is the expected flow), every
   fails a case as hard as a missing one, so the checker can't grow noisy.
 - **Every open decision has a home.** What the spec leaves to implementations
   is decided once, in [corpus/DECISIONS.md](corpus/DECISIONS.md), with the
-  reason (R-193) — 38 decisions and counting, most of them forced by real
+  reason (R-193) — 65 decisions and counting, most of them forced by real
   repositories: a formatter that reflowed a config field, a build tree that
   turned 147 findings into 9,171, an example citation that failed the rule it
   was teaching.
@@ -376,21 +405,31 @@ or deleted record is an error; relocation is the expected flow), every
 ## Repository layout
 
 ```
-SPEC.md               the specification — 133 normative rules + experimental §13
+SPEC.md               the specification — 147 normative rules + experimental §13
 src/                  the reference implementation (Rust, stdlib only)
 corpus/
 ├── DECISIONS.md      register of implementation-defined choices (R-193)
 └── cases/            conformance corpus: tree + exact expected findings
-tests/                behavior locks for migrate · refs · graduate · agents ·
+tests/                behavior locks for migrate · refs · graduate · adopt ·
+                      doctor · hooks (executed for real) · seed · graph ·
                       knowledge base (git-observable) · export · federation
 ```
 
 ## Status
 
-Core (layout, identity, lifecycle, graduation, journal, freshness, agent
-layer) is implemented and field-proven: a firmware repository adopted end to
-end, and a personal knowledge base whose constitution predated the spec and
-matched it. Both profiles — `project` and `knowledge-base` — are checked.
+Core (layout, identity, lifecycle, graduation, journal, agent layer) is
+implemented and field-proven: four repositories adopted end to end — the hook
+layer hardened by a day of live reports, one per release from 0.4.2 to 0.5.1 —
+and a personal knowledge base whose constitution predated the spec and matched
+it. Both profiles — `project` and `knowledge-base` — are checked.
+
+Brownfield seeding (0.6–0.8) reads a project's history and the code's own
+comment blocks as evidence for a conversation with the builder, lands only what
+was confirmed, and refuses a feature a page already covers. Capture commands and
+derived navigation (0.9) make the right single-file write the cheap one and
+give the tree backlinks, unlinked mentions and a graph. Not yet in the binary:
+`verifies:` code-region pins (§11) and the history-derived freshness rules
+(R-085, R-106) — the spec text exists, the checks do not.
 
 Federation (§13) stays marked **experimental** in the spec, and the
 implementation now has its first working slice: manifests, `fetch` over
