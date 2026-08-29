@@ -315,3 +315,44 @@ fn adopt_never_deletes_what_the_owner_wrote_in_the_report() {
         out.summary
     );
 }
+
+#[test]
+fn adopt_obsidian_writes_the_vault_settings_and_a_stale_work_view_once() {
+    let repo = tmp("obsidian");
+    git_init(&repo);
+    let docs = repo.join("docs");
+    docsys::adopt::run(&repo, &docs, "en").unwrap();
+    let written = docsys::adopt::obsidian(&docs).unwrap();
+    assert_eq!(
+        written,
+        vec![
+            ".obsidian/app.json",
+            ".obsidian/templates.json",
+            "_templates/stale-work.base"
+        ]
+    );
+    let app = fs::read_to_string(docs.join(".obsidian/app.json")).unwrap();
+    assert!(
+        app.contains("\"newLinkFormat\": \"absolute\"") && app.contains("_archive/"),
+        "{app}"
+    );
+    assert!(fs::read_to_string(docs.join(".obsidian/templates.json"))
+        .unwrap()
+        .contains("_templates"));
+    let base = fs::read_to_string(docs.join("_templates/stale-work.base")).unwrap();
+    assert!(
+        base.contains("status == \"active\"") && base.contains("direction: ASC"),
+        "{base}"
+    );
+    // second run touches nothing; the tree still lints clean (dot-dirs and _templates are not pages)
+    assert!(docsys::adopt::obsidian(&docs).unwrap().is_empty());
+    let (report, _) = docsys::lint(&docs);
+    assert_eq!(
+        report
+            .findings
+            .iter()
+            .filter(|f| f.severity == docsys::model::Severity::Error)
+            .count(),
+        0
+    );
+}

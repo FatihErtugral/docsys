@@ -1244,14 +1244,15 @@ pub fn parse_plan(text: &str) -> Result<Plan, String> {
 }
 
 /// Insert a dated entry into a journal, newest first (R-104): before the
-/// first entry older than it, after the preamble; appended when none is.
+/// first entry dated the same day or older — the latest write of a day goes
+/// on top — after the preamble; appended when none is.
 pub fn insert_journal_entry(journal: &str, date: &str, entry: &str) -> String {
     let lines: Vec<&str> = journal.lines().collect();
     let mut at = None;
     for (i, l) in lines.iter().enumerate() {
         if let Some(rest) = l.strip_prefix("## ") {
             let d = rest.get(..10).unwrap_or("");
-            if crate::model::is_iso_date(d) && d < date {
+            if crate::model::is_iso_date(d) && d <= date {
                 at = Some(i);
                 break;
             }
@@ -1560,8 +1561,11 @@ mod tests_apply {
         assert!(out.trim_end().ends_with("- git: x"));
         let out = insert_journal_entry(j, "2026-08-20", "## 2026-08-20 - same day\n- git: y");
         let heads: Vec<&str> = out.lines().filter(|l| l.starts_with("## ")).collect();
-        assert_eq!(heads[0], "## 2026-08-20 - new");
-        assert_eq!(heads[1], "## 2026-08-20 - same day");
+        assert_eq!(
+            heads[0], "## 2026-08-20 - same day",
+            "the latest write of a day goes on top"
+        );
+        assert_eq!(heads[1], "## 2026-08-20 - new");
         let out = insert_journal_entry(
             "# Journal\n",
             "2026-01-01",

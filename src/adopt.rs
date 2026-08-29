@@ -406,6 +406,40 @@ pub fn managed_report_with(
     )
 }
 
+/// `adopt --obsidian` (D-065): the three settings that let a docs root open
+/// as an Obsidian vault without breaking a docsys rule — absolute link
+/// format (R-070's full paths), `_archive/` and `.federation/` out of
+/// search and graph, `_templates/` as the templates folder — plus one
+/// `.base` view for stale work. Written only when absent.
+pub fn obsidian(root: &Path) -> Result<Vec<String>, String> {
+    let mut written = Vec::new();
+    let dir = root.join(".obsidian");
+    fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    let files: [(&str, &str); 3] = [
+        (
+            ".obsidian/app.json",
+            "{\n  \"newLinkFormat\": \"absolute\",\n  \"useMarkdownLinks\": false,\n  \"userIgnoreFilters\": [\"_archive/\", \".federation/\"],\n  \"showUnsupportedFiles\": true\n}\n",
+        ),
+        (".obsidian/templates.json", "{\n  \"folder\": \"_templates\"\n}\n"),
+        (
+            "_templates/stale-work.base",
+            "# Obsidian Bases view (1.9+): open work, oldest `updated` first — the\n# stale-work dashboard R-085 describes. Move or copy it anywhere in the vault.\nfilters:\n  and:\n    - file.inFolder(\"work\")\n    - status == \"active\"\nviews:\n  - type: table\n    name: Stale work\n    order:\n      - file.name\n      - status\n      - updated\n    sort:\n      - property: updated\n        direction: ASC\n",
+        ),
+    ];
+    for (rel, text) in files {
+        let path = root.join(rel);
+        if path.exists() {
+            continue;
+        }
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+        }
+        fs::write(&path, text).map_err(|e| e.to_string())?;
+        written.push(rel);
+    }
+    Ok(written.into_iter().map(str::to_string).collect())
+}
+
 #[cfg(test)]
 #[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 mod tests {

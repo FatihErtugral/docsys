@@ -58,6 +58,11 @@ const R194: RuleId = RuleId("R-194");
 /// after a blank line — and a real knowledge base writes its examples that
 /// way too (D-035; found when an example citation in a pilot tree read as a
 /// dangling reference). Returns the lines that participate.
+/// `scannable_lines`, for the derived-navigation commands.
+pub fn scannable_lines_pub(text: &str) -> Vec<(usize, &str)> {
+    scannable_lines(text)
+}
+
 fn scannable_lines(text: &str) -> Vec<(usize, &str)> {
     let mut out = Vec::new();
     let mut in_fence = false;

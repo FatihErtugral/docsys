@@ -28,6 +28,13 @@ Usage:
                                              # brownfield: feature inventory, or one feature's history as evidence
   docsys seed    gaps [--since <date>] [--repo .] [--root docs]      # the inventory as JSON, for /docsys-interview
   docsys seed    apply --plan <file> [--repo .] [--root docs] [--force]  # land the approved rows under work/
+  docsys debt    close <n> [--note <line>] [--root docs]   # repaid: item leaves the ledger, journal records it
+  docsys journal add <text…> [--title <t>] [--date <d>] [--link <path>] [--root docs]
+  docsys page    new <category|type> <id> [--title <t>] [--root docs]   # from _templates/, or a permanent skeleton
+  docsys backlinks <path|id> [--repo .] [--root docs]      # pages (and code) pointing at a page
+  docsys mentions [<path|id>] [--root docs]                 # prose naming a page without a link
+  docsys graph   [--format dot|json|jsoncanvas] [--repo .] [--root docs]
+  docsys adopt   --obsidian …                # + .obsidian settings and a stale-work .base view
   docsys hook    pre-tool-use|stop|post-tool-use|user-prompt-submit [--repo .] [--root docs]
                                              # agent-hook logic; the installed scripts relay to it
 
@@ -55,6 +62,11 @@ struct Opts {
     target: Option<String>,
     since: Option<String>,
     memory: Option<PathBuf>,
+    note: Option<String>,
+    date: Option<String>,
+    link: Option<String>,
+    format: Option<String>,
+    obsidian: bool,
     agents_md: bool,
     procedures: bool,
     max_lines: usize,
@@ -80,6 +92,11 @@ fn parse_opts(args: &[String]) -> Result<Opts, String> {
         target: None,
         since: None,
         memory: None,
+        note: None,
+        date: None,
+        link: None,
+        format: None,
+        obsidian: false,
         agents_md: false,
         procedures: false,
         max_lines: 200,
@@ -108,6 +125,11 @@ fn parse_opts(args: &[String]) -> Result<Opts, String> {
             "--memory" => {
                 o.memory = Some(PathBuf::from(it.next().ok_or("--memory needs a value")?))
             }
+            "--note" => o.note = Some(it.next().ok_or("--note needs a value")?.clone()),
+            "--date" => o.date = Some(it.next().ok_or("--date needs a value")?.clone()),
+            "--link" => o.link = Some(it.next().ok_or("--link needs a value")?.clone()),
+            "--format" => o.format = Some(it.next().ok_or("--format needs a value")?.clone()),
+            "--obsidian" => o.obsidian = true,
             "--agents-md" => o.agents_md = true,
             "--write" => o.plan = Some(PathBuf::from(it.next().ok_or("--write needs a value")?)),
             "--report" => o.procedures = true, // reuse: agents --report
@@ -190,7 +212,14 @@ fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let (cmd, sub, rest): (&str, Option<&str>, &[String]) = match args.split_first() {
         Some((c, r))
-            if c == "migrate" || c == "graduate" || c == "export" || c == "hook" || c == "seed" =>
+            if c == "migrate"
+                || c == "graduate"
+                || c == "export"
+                || c == "hook"
+                || c == "seed"
+                || c == "debt"
+                || c == "journal"
+                || c == "page" =>
         {
             match r.split_first() {
                 Some((s, r2)) => (c.as_str(), Some(s.as_str()), r2),
@@ -221,6 +250,16 @@ fn main() -> ExitCode {
             } else {
                 repo.join(&opts.root)
             };
+            if opts.obsidian {
+                match docsys::adopt::obsidian(&root) {
+                    Ok(w) if w.is_empty() => println!("obsidian: already configured"),
+                    Ok(w) => println!("obsidian: {} written", w.join(", ")),
+                    Err(e) => {
+                        eprintln!("adopt --obsidian: {e}");
+                        return ExitCode::from(2);
+                    }
+                }
+            }
             match docsys::adopt::run(&repo, &root, &opts.lang) {
                 Ok(done) => {
                     for s in &done.summary {
@@ -300,6 +339,91 @@ fn main() -> ExitCode {
                 }
                 Err(e) => {
                     eprintln!("seed: {e}");
+                    ExitCode::from(1)
+                }
+            }
+        }
+        ("debt", Some("close")) => {
+            let Some(n) = opts
+                .positional
+                .first()
+                .and_then(|p| p.parse::<usize>().ok())
+            else {
+                eprintln!("debt close needs the item number: `docsys debt close <n>`");
+                return ExitCode::from(2);
+            };
+            match docsys::capture::debt_close(&opts.root, n, opts.note.as_deref()) {
+                Ok(msg) => {
+                    println!("{msg}");
+                    ExitCode::SUCCESS
+                }
+                Err(e) => {
+                    eprintln!("debt close: {e}");
+                    ExitCode::from(1)
+                }
+            }
+        }
+        ("journal", Some("add")) => {
+            let text = opts.positional.join(" ");
+            match docsys::capture::journal_add(
+                &opts.root,
+                &text,
+                opts.title.as_deref(),
+                opts.date.as_deref(),
+                opts.link.as_deref(),
+            ) {
+                Ok(msg) => {
+                    println!("{msg}");
+                    ExitCode::SUCCESS
+                }
+                Err(e) => {
+                    eprintln!("journal add: {e}");
+                    ExitCode::from(1)
+                }
+            }
+        }
+        ("page", Some("new")) => {
+            let (Some(kind), Some(id)) = (opts.positional.first(), opts.positional.get(1)) else {
+                eprintln!("page new needs a kind and an id: `docsys page new <feature|postmortem|research|reference|howto|explanation|tutorial> <id>`");
+                return ExitCode::from(2);
+            };
+            match docsys::capture::page_new(&opts.root, kind, id, opts.title.as_deref()) {
+                Ok(msg) => {
+                    println!("{msg}");
+                    ExitCode::SUCCESS
+                }
+                Err(e) => {
+                    eprintln!("page new: {e}");
+                    ExitCode::from(1)
+                }
+            }
+        }
+        ("backlinks", None) | ("mentions", None) | ("graph", None) => {
+            let tree = match docsys::tree::DocTree::load(&opts.root) {
+                Ok(t) => t,
+                Err(e) => {
+                    eprintln!("{cmd}: {e}");
+                    return ExitCode::from(2);
+                }
+            };
+            let repo = opts.repo.as_deref();
+            let result = match cmd {
+                "backlinks" => match opts.positional.first() {
+                    Some(w) => docsys::graph::backlinks(&tree, repo, w),
+                    None => Err("backlinks needs a page path or id".to_string()),
+                },
+                "mentions" => {
+                    docsys::graph::mentions(&tree, opts.positional.first().map(String::as_str))
+                }
+                _ => docsys::graph::render(&tree, repo, opts.format.as_deref().unwrap_or("dot")),
+            };
+            match result {
+                Ok(text) => {
+                    print!("{text}");
+                    ExitCode::SUCCESS
+                }
+                Err(e) => {
+                    eprintln!("{cmd}: {e}");
                     ExitCode::from(1)
                 }
             }

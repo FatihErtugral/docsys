@@ -5,6 +5,27 @@ All notable changes to docsys are documented here. The format follows
 [SemVer](https://semver.org/). Release notes are extracted from this file
 by the release workflow — the tag's section becomes the GitHub release body.
 
+## [0.9.0] - 2026-08-29
+
+### Added
+
+- Capture commands (D-063): `debt close <n> [--note]` — the item leaves the
+  ledger and a journal entry records the repayment; `journal add <text>
+  [--title] [--date] [--link]` — an entry at its date; `page new
+  <category|type> <id>` — a work file from `_templates/` or a permanent
+  page skeleton with the opening left to the author.
+- Derived navigation (D-064): `backlinks <path|id> [--repo]`, `mentions
+  [<page>]` (prose naming a page without a link, with the link to add),
+  `graph --format dot|json|jsoncanvas [--repo]` (links, graduation, code
+  citations; JSON Canvas laid out in columns).
+- `adopt --obsidian` (D-065): `.obsidian/app.json` (absolute links,
+  `_archive/` and `.federation/` ignored), `templates.json` (`_templates/`),
+  and a `stale-work.base` view — the docs root as a vault.
+
+### Changed
+
+- Same-day journal entries: the latest write goes on top.
+
 ## [0.8.0] - 2026-08-29
 
 ### Added

@@ -217,6 +217,10 @@ stamp carries its fetch date so a stale composition is visible.
 | Command | What it does |
 |---|---|
 | `docsys adopt [--repo .] [--root docs]` | One-command integration: docmeta (or the full init skeleton on a fresh project), agent assets, `settings.json` when absent, AGENTS.md managed block, git pre-commit gate (warn-mode), and an `ADOPTION.md` report whose checklist carries every judgment call. Idempotent. |
+| `docsys seed plan [--target <feature>]` · `docsys seed apply --plan <file>` · `docsys seed gaps` | Brownfield seeding: evidence from history and code, refused when a page covers the feature; the approved rows land under `work/` as tokens and verbatim quotations (D-053, D-058). |
+| `docsys debt close <n>` · `docsys journal add <text>` · `docsys page new <kind> <id>` | Capture, mechanical: a repaid debt leaves the ledger with its journal line; an entry at its date; a page from its template (D-063). |
+| `docsys backlinks <page>` · `docsys mentions [<page>]` · `docsys graph --format dot\|json\|jsoncanvas` | Derived navigation, never written into a page: who points at a page (code included), who names it without linking, the whole map (D-064). |
+| `docsys adopt --obsidian` | The docs root as an Obsidian vault: absolute links, `_archive/` ignored, `_templates/` as templates, a `stale-work.base` view (D-065). Caveats: `aliases:` means retired ids here; keep Linter's `yaml-timestamp` off. |
 | `docsys lint [--root docs] [--json]` | Full tree validation: frontmatter, ids, links, journal discipline, templates, list grammars — both profiles. Errors exit 1, warnings don't. |
 | `docsys init [--root docs] [--profile …]` | Greenfield skeleton. `project`: router, journal, debt. `knowledge-base`: the record layer (`raw/inbox/`) and the wiki root. |
 | `docsys migrate inventory / apply` | Brownfield adoption: evidence-rich plan → approved mapping → mechanical move with link rewriting on both sides of the docs boundary. |

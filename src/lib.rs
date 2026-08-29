@@ -4,12 +4,14 @@
 
 pub mod adopt;
 pub mod agents;
+pub mod capture;
 pub mod checks;
 pub mod doctor;
 pub mod export;
 pub mod fm;
 pub mod gate;
 pub mod graduate;
+pub mod graph;
 pub mod hook;
 pub mod locator;
 pub mod migrate;

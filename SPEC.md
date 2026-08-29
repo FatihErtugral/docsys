@@ -1864,7 +1864,10 @@ produce another round of contradictions.
   need a declared vocabulary, and the noise (merge and mega commits, vendored
   trees, a delete-and-restore pair) is excluded by rule
 - Whether `tutorial` earns its place in the `project` profile
-- Graph export format for feature-to-code-to-documentation relations
+- Graph export format for feature-to-code-to-documentation relations —
+  first slice taken by the implementation (D-064): `graph` exports
+  page→page links, graduation and code→page citations as DOT, JSON or JSON
+  Canvas; the cross-tree case waits on federation
 - Whether `verification` should extend to the `project` profile
 - Epic status aggregation when legs disagree
 - Generated API references: linked from the router, or addressed by identifier
