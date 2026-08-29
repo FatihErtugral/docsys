@@ -5,6 +5,28 @@ All notable changes to docsys are documented here. The format follows
 [SemVer](https://semver.org/). Release notes are extracted from this file
 by the release workflow — the tag's section becomes the GitHub release body.
 
+## [0.7.0] - 2026-08-29
+
+### Added
+
+- `docsys seed apply --plan <file>` — lands the rows the seeding
+  conversation produced, under `work/` only, as tokens and verbatim
+  quotations: `research` (a reserved, seeded research page), `answer` (the
+  builder's words, attributed and dated), `journal` (a retrospective entry
+  at its own date with its `git:` provenance line), `postmortem` (a
+  commit's own account), `debt`, `question`. Refuses a dirty tree, a stale
+  HEAD pin, a TODO row and a page it did not seed; idempotent (D-058).
+- `docsys seed gaps` — the feature inventory as JSON.
+- `/docsys-seed <feature>` and `/docsys-interview` — the seeding
+  conversation as installed commands: research by the tool, plain questions
+  by the agent, nothing written before the builder's word (D-059).
+
+### Fixed
+
+- `generated_preamble:` is also written as the first line inside the
+  `docsys:adoption` and `docsys:rules` managed blocks, so a gate reading
+  the staged diff finds it on every regeneration (D-060).
+
 ## [0.6.1] - 2026-08-29
 
 ### Added

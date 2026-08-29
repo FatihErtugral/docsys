@@ -294,10 +294,15 @@ docsys seed plan --repo . --root docs --target weather   # one feature's history
 
 The plan is evidence, never prose: commits with their bodies, files by touch
 count, the birth date, manifests, `doc:` citations, the code's own comment
-blocks verbatim. An agent presents it to the builder — plain questions, one at
-a time, nothing written until confirmed — and what the builder adds is what
-history cannot say: why, what is still open, what comes next. A feature a page
-already covers is refused by name; from there the hooks keep it current.
+blocks verbatim. `/docsys-seed <feature>` presents it to the builder — plain
+questions, one at a time, nothing written until confirmed — and what the
+builder adds is what history cannot say: why, what is still open, what comes
+next. `docsys seed apply --plan SEED.tsv` then lands the approved rows under
+`work/` as tokens and verbatim quotations (a reserved research page, the
+builder's answers, dated journal entries, a postmortem quoting its commit,
+debt and question items). `/docsys-interview` runs it feature by feature,
+resumable. A feature a page already covers is refused by name; from there the
+hooks keep it current.
 
 ### 3 · A real repository, safely (clone first)
 

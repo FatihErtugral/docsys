@@ -150,7 +150,17 @@ const BLOCK_END: &str = "<!-- docsys:rules:end -->";
 /// Write/update the generated block inside a managed marker region of `path`.
 /// Owner prose outside the markers is never touched; re-runs are idempotent.
 pub fn write_agents_block(path: &std::path::Path) -> Result<&'static str, String> {
-    let block = format!("{BLOCK_BEGIN}\n{}{BLOCK_END}\n", agents_md());
+    write_agents_block_with(path, "")
+}
+
+/// `write_agents_block`, with the owner's generated-file preamble (D-056) as
+/// the first line INSIDE the block — a gate that reads the staged diff must
+/// find it in every regeneration, not only at the top of the file.
+pub fn write_agents_block_with(
+    path: &std::path::Path,
+    preamble: &str,
+) -> Result<&'static str, String> {
+    let block = format!("{BLOCK_BEGIN}\n{preamble}{}{BLOCK_END}\n", agents_md());
     let existing = std::fs::read_to_string(path).ok();
     let new_text = match existing {
         None => block.clone(),

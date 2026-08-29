@@ -373,12 +373,14 @@ pub fn install_with_preamble(
     force: bool,
     preamble: &str,
 ) -> Result<Installed, String> {
-    let files: [(&str, &str, bool); 7] = [
+    let files: [(&str, &str, bool); 9] = [
         ("hooks/pre-commit-docs.sh", PRE_COMMIT_DOCS, true),
         ("hooks/stop-docs-reminder.sh", STOP_DOCS_REMINDER, true),
         ("hooks/post-edit-updated.sh", POST_EDIT_UPDATED, true),
         ("hooks/session-intent.sh", SESSION_INTENT, true),
         ("commands/docsys-sync.md", DOC_SYNC, false),
+        ("commands/docsys-seed.md", DOCSYS_SEED, false),
+        ("commands/docsys-interview.md", DOCSYS_INTERVIEW, false),
         ("skills/docsys/SKILL.md", SKILL_MD, false),
         ("skills/docsys-export/SKILL.md", EXPORT_SKILL, false),
     ];
@@ -431,6 +433,96 @@ pub const SETTINGS_SNIPPET: &str = r#"{
     ]
   }
 }"#;
+
+/// The seeding conversation, as a command: research by the tool, plain
+/// questions by the agent, nothing written before the builder's word.
+const DOCSYS_SEED: &str = r#"---
+description: Seed documentation for one feature of an existing project — research in git, ask the builder plainly, write only what was confirmed
+allowed-tools: Bash(docsys *), Bash(git log:*), Bash(git show:*), Bash(git status:*), Read, Grep, Glob, Write, Edit
+---
+
+# /docsys-seed <feature> — seed one feature
+
+For a project whose documentation does not exist. The tool does the
+research; you present it; the builder confirms, corrects and adds what
+history cannot say. **Nothing is written before the builder says so.**
+
+## 1 · Research (tool)
+
+`docsys seed plan --repo . --root docs --target <feature>` — commits with
+their bodies, files by touch count and the other features they serve, the
+birth, manifests, `doc:` citations, the code's own comment blocks, tags.
+If it is refused ("already covered by …"), stop: that page is the system's
+now; drift goes through `/docsys-sync`, not through seeding.
+If it says nothing names the feature, ask ONE question: where does it live
+(a path, a scope, a symbol)? Then run it again with what you learned.
+
+## 2 · Present ("what I found")
+
+One block, in the tree's language (`default_content_language`), every line
+carrying its evidence (`path:line`, `sha`): what the feature does, how it is
+built, when it was born and moved, what broke and was fixed, what the
+manifests declare, what the code's comments say about WHY. Derive; do not
+ask what the code already answers.
+
+## 3 · Ask — at most four questions, one at a time
+
+Plain, single-meaning, answerable in a sentence, never a metaphor, never a
+question that creates a conflict. The bank:
+
+- Is this summary right? What is wrong or missing?
+- <a specific fact the code cannot settle — a requirement vs a fallback, a
+  product decision, an audience>
+- <what the builder does with it that the code does not show>
+- What is next for it — or is it finished and not to be touched?
+
+If an answer conflicts with the evidence, show the evidence (`file:line`,
+the test, the commit) and keep the question open until it is clear. An
+answer the builder cannot give becomes a `question` row, dated today.
+
+## 4 · Approve, then land (tool)
+
+Write the rows the conversation produced into a plan file OUTSIDE `docs/`
+(`SEED.tsv`), show it, and wait for the explicit word. Then:
+`docsys seed apply --plan SEED.tsv --repo . --root docs`.
+Rows (TAB-separated; `docsys seed plan` prints the grammar): `research
+<feature> <shas>` reserves the feature; `answer <feature> <who> <text>`
+records the builder's words verbatim; `journal <date> <sha> <title>`
+back-fills chronology at its own date; `postmortem <slug> <sha>` quotes an
+incident's commit; `debt` and `question` add dated items.
+Everything lands under `work/`. The permanent page comes later, through
+graduation, when the builder confirms.
+
+Never write prose of your own into the tree. Never mark anything done.
+"#;
+
+/// Rounds of the seeding interview across features — resumable, evidence
+/// first, never a question git already answers.
+const DOCSYS_INTERVIEW: &str = r#"---
+description: Run the seeding interview across a project's undocumented features, one feature per round, resumable
+allowed-tools: Bash(docsys *), Bash(git log:*), Bash(git show:*), Read, Grep, Glob, Write, Edit
+---
+
+# /docsys-interview — the seeding survey, round by round
+
+`docsys seed gaps --repo . --root docs` lists every candidate feature with
+its size, span and coverage. Uncovered features are the survey; covered
+ones are the system's and are never asked about.
+
+Each round is one feature, run exactly as `/docsys-seed <feature>`: research
+by the tool, one "what I found" block, at most four plain questions, then
+the builder's word before anything lands. Order: the largest uncovered
+feature by commit count first, unless the builder names one. Stop when
+the builder says stop; the next session resumes from `docsys seed gaps` —
+what landed is reserved (`work/research/<feature>.md`, active) and will not
+be asked again.
+
+Rules that never bend: derive what history and code can say; ask only what
+they cannot; a question is plain and single-meaning; a conflicting answer
+is talked through, not recorded; nothing is written before approval; the
+builder's words land verbatim, attributed and dated; the permanent layer is
+never written here.
+"#;
 
 /// Adoption report: what agent layer already exists, and which shell commands
 /// it invokes. Detection is mechanical; deciding what to delegate to docsys is
@@ -640,7 +732,7 @@ mod tests {
         assert_eq!(kept.written.len(), 0);
         assert_eq!(fs::read_to_string(&hook).unwrap(), "custom\n");
         let forced = install(&dir, true).unwrap();
-        assert_eq!(forced.written.len(), 7);
+        assert_eq!(forced.written.len(), 9);
         assert!(fs::read_to_string(&hook)
             .unwrap()
             .contains("docsys hook pre-tool-use"));

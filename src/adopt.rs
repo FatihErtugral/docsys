@@ -224,7 +224,10 @@ pub fn run(repo: &Path, root: &Path, lang: &str) -> Result<AdoptOutcome, String>
     }
 
     // 3 · AGENTS.md managed block (idempotent)
-    rules::write_agents_block(&repo.join("AGENTS.md"))?;
+    rules::write_agents_block_with(
+        &repo.join("AGENTS.md"),
+        &crate::migrate::generated_preamble(root),
+    )?;
     summary.push("AGENTS.md: managed block written".to_string());
 
     // 4 · git pre-commit gate (warn-mode)
@@ -297,11 +300,11 @@ pub fn run(repo: &Path, root: &Path, lang: &str) -> Result<AdoptOutcome, String>
     // and survives the rewrite (D-046).
     let report_path = repo.join("ADOPTION.md");
     let existing = fs::read_to_string(&report_path).unwrap_or_default();
-    let (text, note) = managed_report(&existing, &md);
+    let pre = crate::migrate::generated_preamble(root);
+    let (text, note) = managed_report_with(&existing, &md, &pre);
     if let Some(n) = note {
         summary.push(n);
     }
-    let pre = crate::migrate::generated_preamble(root);
     fs::write(&report_path, crate::migrate::with_preamble(&text, &pre))
         .map_err(|e| e.to_string())?;
 
@@ -354,7 +357,20 @@ pub const REPORT_END: &str = "<!-- docsys:adoption:end -->";
 /// below the new block rather than overwritten: nothing authored is lost,
 /// and the note names what to trim. Returns the new text and a summary note.
 pub fn managed_report(existing: &str, report: &str) -> (String, Option<String>) {
-    let block = format!("{REPORT_BEGIN}\n{}\n{REPORT_END}\n", report.trim_end());
+    managed_report_with(existing, report, "")
+}
+
+/// `managed_report`, with the owner's preamble (D-056) as the first line
+/// inside the block, so every regeneration's diff carries it.
+pub fn managed_report_with(
+    existing: &str,
+    report: &str,
+    preamble: &str,
+) -> (String, Option<String>) {
+    let block = format!(
+        "{REPORT_BEGIN}\n{preamble}{}\n{REPORT_END}\n",
+        report.trim_end()
+    );
     if existing.is_empty() {
         return (block, None);
     }

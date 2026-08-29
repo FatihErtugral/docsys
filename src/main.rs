@@ -26,6 +26,8 @@ Usage:
   docsys doctor  [--repo .] [--root docs] [--dir .claude]   # is the pipeline itself alive?
   docsys seed    plan [--target <feature>] [--since <date>] [--repo .] [--root docs]
                                              # brownfield: feature inventory, or one feature's history as evidence
+  docsys seed    gaps [--since <date>] [--repo .] [--root docs]      # the inventory as JSON, for /docsys-interview
+  docsys seed    apply --plan <file> [--repo .] [--root docs] [--force]  # land the approved rows under work/
   docsys hook    pre-tool-use|stop|post-tool-use|user-prompt-submit [--repo .] [--root docs]
                                              # agent-hook logic; the installed scripts relay to it
 
@@ -244,7 +246,10 @@ fn main() -> ExitCode {
                 match docsys::rules::check_budget(opts.max_lines) {
                     Ok(_) => {
                         if let Some(target) = &opts.plan {
-                            match docsys::rules::write_agents_block(target) {
+                            match docsys::rules::write_agents_block_with(
+                                target,
+                                &docsys::migrate::generated_preamble(&opts.root),
+                            ) {
                                 Ok(_) => {
                                     println!(
                                         "managed block written to {} (idempotent)",
@@ -289,6 +294,52 @@ fn main() -> ExitCode {
                 }
                 Err(e) => {
                     eprintln!("seed: {e}");
+                    ExitCode::from(1)
+                }
+            }
+        }
+        ("seed", Some("gaps")) => {
+            let repo = opts.repo.clone().unwrap_or_else(|| PathBuf::from("."));
+            let root = if opts.root.is_absolute() {
+                opts.root.clone()
+            } else {
+                repo.join(&opts.root)
+            };
+            let o = docsys::seed::Options {
+                target: None,
+                since: opts.since.clone(),
+            };
+            match docsys::seed::gaps_json(&repo, &root, &o) {
+                Ok(text) => {
+                    print!("{text}");
+                    ExitCode::SUCCESS
+                }
+                Err(e) => {
+                    eprintln!("seed: {e}");
+                    ExitCode::from(1)
+                }
+            }
+        }
+        ("seed", Some("apply")) => {
+            let repo = opts.repo.clone().unwrap_or_else(|| PathBuf::from("."));
+            let root = if opts.root.is_absolute() {
+                opts.root.clone()
+            } else {
+                repo.join(&opts.root)
+            };
+            let Some(plan) = opts.plan.clone() else {
+                eprintln!("seed apply needs --plan <file>");
+                return ExitCode::from(2);
+            };
+            match docsys::seed::apply(&repo, &root, &plan, opts.force) {
+                Ok(done) => {
+                    for d in done {
+                        println!("{d}");
+                    }
+                    ExitCode::SUCCESS
+                }
+                Err(e) => {
+                    eprintln!("seed apply: {e}");
                     ExitCode::from(1)
                 }
             }

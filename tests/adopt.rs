@@ -230,15 +230,15 @@ fn every_generated_markdown_file_opens_with_the_declared_preamble() {
     let _ = fs::remove_dir_all(docs.join("_templates"));
     let _ = fs::remove_file(docs.join("work/questions.md"));
     docsys::adopt::run(&repo, &docs, "en").unwrap();
+    let marker = "<!-- restricted-context:public -->";
     for rel in [
-        "ADOPTION.md",
         "docs/work/questions.md",
         "docs/_templates/feature.md",
         ".claude/commands/docsys-sync.md",
+        ".claude/commands/docsys-seed.md",
         ".claude/skills/docsys/SKILL.md",
     ] {
         let text = fs::read_to_string(repo.join(rel)).unwrap();
-        let marker = "<!-- restricted-context:public -->";
         assert!(text.contains(marker), "{rel} lacks the preamble: {text}");
         assert_eq!(text.matches(marker).count(), 1, "{rel} carries it twice");
         if text.starts_with("---\n") {
@@ -251,6 +251,20 @@ fn every_generated_markdown_file_opens_with_the_declared_preamble() {
             assert!(text.starts_with(marker), "{rel}: preamble must be first");
         }
     }
+    // managed blocks carry it INSIDE, so every regeneration's diff has it
+    let report = fs::read_to_string(repo.join("ADOPTION.md")).unwrap();
+    assert!(
+        report.contains(&format!("{}\n{marker}\n", docsys::adopt::REPORT_BEGIN)),
+        "{report}"
+    );
+    assert_eq!(report.matches(marker).count(), 1, "{report}");
+    let agents = fs::read_to_string(repo.join("AGENTS.md")).unwrap();
+    assert!(
+        agents.contains(&format!(
+            "<!-- docsys:rules:begin — generated, do not edit inside -->\n{marker}\n"
+        )),
+        "{agents}"
+    );
     // hooks never
     let hook = fs::read_to_string(repo.join(".claude/hooks/pre-commit-docs.sh")).unwrap();
     assert!(!hook.contains("restricted-context"));

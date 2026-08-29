@@ -1,4 +1,9 @@
-#![allow(clippy::panic, clippy::unwrap_used, clippy::expect_used)]
+#![allow(
+    clippy::panic,
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::indexing_slicing
+)]
 // `docsys seed plan` against a synthetic repository: inventory, target
 // research, coverage refusal, and the hygiene rules (mega commit, vendored
 // path, excluded store).
@@ -207,4 +212,199 @@ fn an_active_research_file_reserves_the_feature() {
     );
     let err = plan(&repo, Some("weather")).unwrap_err();
     assert!(err.contains("active research (reserved)"), "{err}");
+}
+
+fn lint_errors(root: &Path) -> usize {
+    let (report, _) = docsys::lint(root);
+    report
+        .findings
+        .iter()
+        .filter(|f| f.severity == docsys::model::Severity::Error)
+        .count()
+}
+
+#[test]
+fn gaps_json_lists_features_with_coverage() {
+    let repo = build("gaps");
+    let json = docsys::seed::gaps_json(
+        &repo,
+        &repo.join("docs"),
+        &docsys::seed::Options {
+            target: None,
+            since: None,
+        },
+    )
+    .unwrap();
+    assert!(json.starts_with("{\"head\": "), "{json}");
+    assert!(json.contains("\"feature\": \"weather\""), "{json}");
+    assert!(json.contains("\"covered_by\": null"), "{json}");
+    assert!(
+        json.contains("\"covered_by\": \"reference/market.md\""),
+        "{json}"
+    );
+    assert!(json.contains("\"how\": \"page id\""), "{json}");
+}
+
+#[test]
+fn apply_lands_the_approved_rows_under_work_and_is_idempotent() {
+    let repo = build("apply");
+    let docs = repo.join("docs");
+    let sha = String::from_utf8(
+        Command::new("git")
+            .args(["log", "--format=%h", "--grep=first screen"])
+            .current_dir(&repo)
+            .output()
+            .unwrap()
+            .stdout,
+    )
+    .unwrap();
+    let sha = sha.trim().to_string();
+    let head = String::from_utf8(
+        Command::new("git")
+            .args(["rev-parse", "--short", "HEAD"])
+            .current_dir(&repo)
+            .output()
+            .unwrap()
+            .stdout,
+    )
+    .unwrap();
+    let plan = repo.join("SEED.tsv");
+    fs::write(
+        &plan,
+        format!(
+            "# docsys seed plan\n# head: {}\nresearch\tweather\t{sha}\nanswer\tweather\tthe builder\tOffline reading is a requirement:\\nthe device is used where there is no network.\njournal\t2026-08-02\t{sha}\tweather screen born\npostmortem\tcaps-stale\t{sha}\ndebt\t2026-08-29\tgeocoder attribution missing -- deferred: no OSM yet -- repay when: OSM ships\nquestion\t2026-08-29\tIs the 7-day strip a product decision?\n",
+            head.trim()
+        ),
+    )
+    .unwrap();
+    git(&repo, &["add", "-A"]);
+    git(&repo, &["commit", "-q", "-m", "chore: plan"]);
+    let done = docsys::seed::apply(&repo, &docs, &plan, false).unwrap();
+    assert!(
+        done.iter().any(|d| d.contains("work/research/weather.md")),
+        "{done:?}"
+    );
+    let research = fs::read_to_string(docs.join("work/research/weather.md")).unwrap();
+    assert!(
+        research.contains("id: weather\nstatus: active\n"),
+        "{research}"
+    );
+    assert!(research.contains("seeded: true"), "{research}");
+    assert!(research.contains("covers: [scope:weather]"), "{research}");
+    assert!(
+        research.contains(&format!("sources: [git:{sha}]")),
+        "{research}"
+    );
+    assert!(research.contains("## Learned\n\n> Offline reading is a requirement:\n> the device is used where there is no network.\n> — the builder, "), "{research}");
+    let journal = fs::read_to_string(docs.join("work/journal.md")).unwrap();
+    assert!(
+        journal.contains(&format!(
+            "## 2026-08-02 - weather screen born\n- git: {sha}"
+        )),
+        "{journal}"
+    );
+    let heads: Vec<&str> = journal.lines().filter(|l| l.starts_with("## ")).collect();
+    assert!(
+        heads.len() >= 2 && heads[1].starts_with("## 2026-08-02"),
+        "newest first: {heads:?}"
+    );
+    let pm = fs::read_to_string(docs.join("work/postmortems/caps-stale.md")).unwrap();
+    assert!(
+        pm.contains("## What happened\n\n> feat(weather): first screen\n"),
+        "{pm}"
+    );
+    assert!(
+        pm.contains("> because the generic feed viewer could not walk a series\n"),
+        "{pm}"
+    );
+    assert!(pm.contains(&format!("> — git:{sha}")), "{pm}");
+    let debt = fs::read_to_string(docs.join("work/debt.md")).unwrap();
+    assert!(debt.contains("- [ ] 2026-08-29 geocoder attribution missing -- deferred: no OSM yet -- repay when: OSM ships"), "{debt}");
+    let q = fs::read_to_string(docs.join("work/questions.md")).unwrap();
+    assert!(
+        q.contains("- [ ] 2026-08-29 Is the 7-day strip a product decision?"),
+        "{q}"
+    );
+    // the seeded tree lints with no errors — seeding never makes a tree red
+    assert_eq!(lint_errors(&docs), 0);
+    // nothing outside work/ moved
+    assert!(!docs.join("reference/weather.md").exists());
+    // the feature is now reserved
+    let err = plan_for(&repo, "weather").unwrap_err();
+    assert!(
+        err.contains("already covered by work/research/weather.md"),
+        "{err}"
+    );
+    // idempotent: a second apply changes nothing
+    git(&repo, &["add", "-A"]);
+    git(&repo, &["commit", "-q", "-m", "docs: seeded"]);
+    let before: Vec<String> = [
+        "work/research/weather.md",
+        "work/journal.md",
+        "work/postmortems/caps-stale.md",
+        "work/debt.md",
+        "work/questions.md",
+    ]
+    .iter()
+    .map(|r| fs::read_to_string(docs.join(r)).unwrap())
+    .collect();
+    let again = docsys::seed::apply(&repo, &docs, &plan, false).unwrap();
+    assert!(again.iter().all(|d| d.contains("already")), "{again:?}");
+    let after: Vec<String> = [
+        "work/research/weather.md",
+        "work/journal.md",
+        "work/postmortems/caps-stale.md",
+        "work/debt.md",
+        "work/questions.md",
+    ]
+    .iter()
+    .map(|r| fs::read_to_string(docs.join(r)).unwrap())
+    .collect();
+    assert_eq!(before, after);
+}
+
+fn plan_for(repo: &Path, target: &str) -> Result<String, String> {
+    plan(repo, Some(target))
+}
+
+#[test]
+fn apply_refuses_a_dirty_tree_a_stale_pin_and_a_page_it_did_not_seed() {
+    let repo = build("refuse");
+    let docs = repo.join("docs");
+    let plan_path = repo.join("SEED.tsv");
+    fs::write(&plan_path, "research\tweather\t-\n").unwrap();
+    // dirty: a source file changed — the untracked plan alone would be fine
+    fs::write(repo.join("apps/market/Market.cpp"), "int market = 2;\n").unwrap();
+    let err = docsys::seed::apply(&repo, &docs, &plan_path, false).unwrap_err();
+    assert!(err.contains("dirty"), "{err}");
+    git(&repo, &["add", "-A"]);
+    git(&repo, &["commit", "-q", "-m", "chore: plan"]);
+    // stale pin
+    fs::write(&plan_path, "# head: 0000000\nresearch\tweather\t-\n").unwrap();
+    git(&repo, &["add", "-A"]);
+    git(&repo, &["commit", "-q", "-m", "chore: plan 2"]);
+    let err = docsys::seed::apply(&repo, &docs, &plan_path, false).unwrap_err();
+    assert!(err.contains("re-plan"), "{err}");
+    // somebody's research page, not seeded: never touched
+    fs::create_dir_all(docs.join("work/research")).unwrap();
+    fs::write(
+        docs.join("work/research/weather.md"),
+        "---\nid: weather\nstatus: active\nupdated: 2026-08-29\n---\nmine\n",
+    )
+    .unwrap();
+    fs::write(&plan_path, "research\tweather\t-\n").unwrap();
+    git(&repo, &["add", "-A"]);
+    git(&repo, &["commit", "-q", "-m", "chore: plan 3"]);
+    let err = docsys::seed::apply(&repo, &docs, &plan_path, false).unwrap_err();
+    assert!(err.contains("was not seeded by the tool"), "{err}");
+    assert_eq!(
+        fs::read_to_string(docs.join("work/research/weather.md")).unwrap(),
+        "---\nid: weather\nstatus: active\nupdated: 2026-08-29\n---\nmine\n"
+    );
+    // an answer without its research row
+    fs::write(&plan_path, "answer\tmarket\tx\ty\n").unwrap();
+    git(&repo, &["add", "-A"]);
+    git(&repo, &["commit", "-q", "-m", "chore: plan 4"]);
+    let err = docsys::seed::apply(&repo, &docs, &plan_path, false).unwrap_err();
+    assert!(err.contains("`research` row must come first"), "{err}");
 }

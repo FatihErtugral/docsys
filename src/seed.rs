@@ -958,3 +958,561 @@ mod tests {
         assert_eq!(got[1].0, 10);
     }
 }
+
+// ───────────────────────────── gaps (machine-readable, for the interview)
+
+fn json_str(s: &str) -> String {
+    let mut out = String::from("\"");
+    for c in s.chars() {
+        match c {
+            '"' => out.push_str("\\\""),
+            '\\' => out.push_str("\\\\"),
+            '\n' => out.push_str("\\n"),
+            '\t' => out.push_str("\\t"),
+            '\r' => out.push_str("\\r"),
+            c if (c as u32) < 0x20 => out.push_str(&format!("\\u{:04x}", c as u32)),
+            c => out.push(c),
+        }
+    }
+    out.push('"');
+    out
+}
+
+/// The inventory as JSON — one object per candidate feature with its
+/// evidence counts and coverage — for the interview command to pick from.
+pub fn gaps_json(repo: &Path, root: &Path, opts: &Options) -> Result<String, String> {
+    let tree = DocTree::load(root).map_err(|e| e.to_string())?;
+    let commits = load_commits(repo, opts.since.as_deref());
+    if commits.is_empty() {
+        return Err("no history to read — is this a git repository with commits?".into());
+    }
+    let head = git(repo, &["rev-parse", "--short", "HEAD"])
+        .into_iter()
+        .next()
+        .unwrap_or_else(|| "none".into());
+    let cands = candidates(repo, &commits);
+    let mut items = Vec::new();
+    for cand in cands.values() {
+        let mine: Vec<&Commit> = commits
+            .iter()
+            .filter(|c| c.excluded.is_none())
+            .filter(|c| {
+                c.scope.as_deref().is_some_and(|s| fold(s) == cand.name)
+                    || cand.paths.iter().any(|p| {
+                        c.files
+                            .iter()
+                            .any(|(_, f)| f == p || f.starts_with(&format!("{p}/")))
+                    })
+            })
+            .collect();
+        let fixes = mine.iter().filter(|c| is_fix(c)).count();
+        let (first, last) = span(&mine);
+        let paths: Vec<String> = cand.paths.iter().cloned().collect();
+        let cov = coverage(&tree, &cand.name, &paths);
+        let kinds: Vec<String> = cand.kinds.iter().map(|k| json_str(k)).collect();
+        let path_list: Vec<String> = paths.iter().map(|p| json_str(p)).collect();
+        items.push(format!(
+            "  {{\"feature\": {}, \"found_by\": [{}], \"paths\": [{}], \"commits\": {}, \"fixes\": {}, \"first\": {}, \"last\": {}, \"covered_by\": {}, \"how\": {}}}",
+            json_str(&cand.name),
+            kinds.join(", "),
+            path_list.join(", "),
+            mine.len(),
+            fixes,
+            json_str(&first),
+            json_str(&last),
+            cov.as_ref().map_or("null".to_string(), |c| json_str(&c.page)),
+            cov.as_ref().map_or("null".to_string(), |c| json_str(c.how)),
+        ));
+    }
+    Ok(format!(
+        "{{\"head\": {}, \"commits\": {}, \"features\": [\n{}\n]}}\n",
+        json_str(&head),
+        commits.len(),
+        items.join(",\n")
+    ))
+}
+
+// ───────────────────────────── apply (after the builder's approval)
+
+/// One approved row of a seed plan. TAB-separated; `#` lines are evidence
+/// and are skipped. Kinds and their columns:
+///
+/// * `journal <date> <sha> <title>` — a retrospective entry at its own date
+///   (R-104) whose body is the provenance line `- git: <sha>`
+/// * `research <feature> <sha,...|->` — `work/research/<feature>.md`,
+///   `status: active`, `covers: [scope:<feature>]`, `sources:` from the shas,
+///   the R-048 headings, empty
+/// * `answer <feature> <who> <text>` — the builder's words, verbatim, as a
+///   blockquote under `## Learned` of that research file (`\n` in the text
+///   is a line break — a row is one line)
+/// * `postmortem <slug> <sha>` — `work/postmortems/<slug>.md` quoting the
+///   commit subject and body verbatim under `## What happened`
+/// * `debt <date> <text>` — a dated open item in `work/debt.md` (the text
+///   carries `-- deferred: … -- repay when: …`)
+/// * `question <date> <text>` — a dated open item in `work/questions.md`
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Row {
+    Journal {
+        date: String,
+        sha: String,
+        title: String,
+    },
+    Research {
+        feature: String,
+        shas: Vec<String>,
+    },
+    Answer {
+        feature: String,
+        who: String,
+        text: String,
+    },
+    Postmortem {
+        slug: String,
+        sha: String,
+    },
+    Debt {
+        date: String,
+        text: String,
+    },
+    Question {
+        date: String,
+        text: String,
+    },
+}
+
+#[derive(Debug)]
+pub struct Plan {
+    pub head: Option<String>,
+    pub rows: Vec<Row>,
+}
+
+pub fn parse_plan(text: &str) -> Result<Plan, String> {
+    let mut head = None;
+    let mut rows = Vec::new();
+    for (i, line) in text.lines().enumerate() {
+        let n = i + 1;
+        if let Some(h) = line.strip_prefix("# head:") {
+            head = Some(h.trim().to_string());
+            continue;
+        }
+        if line.trim().is_empty() || line.starts_with('#') {
+            continue;
+        }
+        let cols: Vec<&str> = line.split('\t').collect();
+        let col = |k: usize| cols.get(k).map(|s| s.trim()).unwrap_or("");
+        if cols.iter().any(|c| c.trim() == "TODO") {
+            return Err(format!("line {n}: a TODO row — fill it or delete it"));
+        }
+        let row = match col(0) {
+            "journal" => {
+                if !crate::model::is_iso_date(col(1)) || col(2).is_empty() || col(3).is_empty() {
+                    return Err(format!(
+                        "line {n}: journal rows are `journal\\t<YYYY-MM-DD>\\t<sha>\\t<title>`"
+                    ));
+                }
+                Row::Journal {
+                    date: col(1).into(),
+                    sha: col(2).into(),
+                    title: col(3).into(),
+                }
+            }
+            "research" => {
+                let feature = fold(col(1));
+                if feature.is_empty() {
+                    return Err(format!(
+                        "line {n}: research rows are `research\\t<feature>\\t<sha,...|->`"
+                    ));
+                }
+                let shas = col(2)
+                    .split(',')
+                    .map(str::trim)
+                    .filter(|s| !s.is_empty() && *s != "-")
+                    .map(String::from)
+                    .collect();
+                Row::Research { feature, shas }
+            }
+            "answer" => {
+                let feature = fold(col(1));
+                if feature.is_empty() || col(2).is_empty() || col(3).is_empty() {
+                    return Err(format!(
+                        "line {n}: answer rows are `answer\\t<feature>\\t<who>\\t<text>`"
+                    ));
+                }
+                Row::Answer {
+                    feature,
+                    who: col(2).into(),
+                    text: col(3).replace("\\n", "\n"),
+                }
+            }
+            "postmortem" => {
+                let slug = fold(col(1));
+                if slug.is_empty() || col(2).is_empty() {
+                    return Err(format!(
+                        "line {n}: postmortem rows are `postmortem\\t<slug>\\t<sha>`"
+                    ));
+                }
+                Row::Postmortem {
+                    slug,
+                    sha: col(2).into(),
+                }
+            }
+            "debt" | "question" => {
+                if !crate::model::is_iso_date(col(1)) || col(2).is_empty() {
+                    return Err(format!(
+                        "line {n}: {} rows are `{}\\t<YYYY-MM-DD>\\t<text>`",
+                        col(0),
+                        col(0)
+                    ));
+                }
+                if col(0) == "debt" {
+                    Row::Debt {
+                        date: col(1).into(),
+                        text: col(2).into(),
+                    }
+                } else {
+                    Row::Question {
+                        date: col(1).into(),
+                        text: col(2).into(),
+                    }
+                }
+            }
+            other => return Err(format!("line {n}: unknown row kind `{other}`")),
+        };
+        rows.push(row);
+    }
+    Ok(Plan { head, rows })
+}
+
+/// Insert a dated entry into a journal, newest first (R-104): before the
+/// first entry older than it, after the preamble; appended when none is.
+pub fn insert_journal_entry(journal: &str, date: &str, entry: &str) -> String {
+    let lines: Vec<&str> = journal.lines().collect();
+    let mut at = None;
+    for (i, l) in lines.iter().enumerate() {
+        if let Some(rest) = l.strip_prefix("## ") {
+            let d = rest.get(..10).unwrap_or("");
+            if crate::model::is_iso_date(d) && d < date {
+                at = Some(i);
+                break;
+            }
+        }
+    }
+    let mut out = String::new();
+    match at {
+        Some(i) => {
+            for l in lines.iter().take(i) {
+                out.push_str(l);
+                out.push('\n');
+            }
+            out = out.trim_end_matches('\n').to_string();
+            out.push_str("\n\n");
+            out.push_str(entry.trim_end());
+            out.push_str("\n\n");
+            for l in lines.iter().skip(i) {
+                out.push_str(l);
+                out.push('\n');
+            }
+        }
+        None => {
+            out.push_str(journal.trim_end_matches('\n'));
+            out.push_str("\n\n");
+            out.push_str(entry.trim_end());
+            out.push('\n');
+        }
+    }
+    out
+}
+
+const SEEDED: &str = "seeded: true";
+
+fn frontmatter_line(text: &str, key: &str) -> Option<String> {
+    let rest = text.strip_prefix("---\n")?;
+    let end = rest.find("\n---\n")?;
+    rest.get(..end)?
+        .lines()
+        .find(|l| l.starts_with(&format!("{key}:")))
+        .map(str::to_string)
+}
+
+/// Land the approved plan (D-058). Writes only under `work/` and the list
+/// files; refuses a dirty tree, a stale HEAD pin, a TODO row and a file the
+/// tool did not seed. Idempotent: every write carries a token it checks first.
+pub fn apply(
+    repo: &Path,
+    root: &Path,
+    plan_path: &Path,
+    force: bool,
+) -> Result<Vec<String>, String> {
+    let text =
+        std::fs::read_to_string(plan_path).map_err(|e| format!("{}: {e}", plan_path.display()))?;
+    let plan = parse_plan(&text)?;
+    if !force {
+        // The plan itself may be the one dirty file: it is the input, not a
+        // second authoritative copy of anything (R-097's concern).
+        let plan_rel = plan_path
+            .canonicalize()
+            .ok()
+            .zip(repo.canonicalize().ok())
+            .and_then(|(p, r)| {
+                p.strip_prefix(&r)
+                    .ok()
+                    .map(|x| x.to_string_lossy().replace('\\', "/"))
+            })
+            .unwrap_or_default();
+        let dirty: Vec<String> = git(repo, &["status", "--porcelain"])
+            .into_iter()
+            .filter(|l| l.get(3..).map(str::trim) != Some(plan_rel.as_str()))
+            .collect();
+        if !dirty.is_empty() {
+            return Err(
+                "working tree is dirty — commit or stash first, or pass --force (R-097)".into(),
+            );
+        }
+    }
+    let head = git(repo, &["rev-parse", "--short", "HEAD"])
+        .into_iter()
+        .next()
+        .unwrap_or_default();
+    if let Some(pin) = plan.head.as_deref().filter(|p| !p.is_empty()) {
+        // The evidence has moved when the pinned commit is no longer behind
+        // HEAD — a rebase, a reset. Commits on top (the plan's own) are fine.
+        let ancestor = Command::new("git")
+            .arg("-C")
+            .arg(repo)
+            .args(["merge-base", "--is-ancestor", pin, "HEAD"])
+            .status()
+            .map(|s| s.success())
+            .unwrap_or(false);
+        if !ancestor {
+            return Err(format!(
+                "plan was made at {pin}, which is not behind HEAD {head} — re-plan (the evidence may have moved)"
+            ));
+        }
+    }
+    let today = crate::migrate::today();
+    let pre = crate::migrate::generated_preamble(root);
+    let mut done = Vec::new();
+    let commit_text = |sha: &str| -> Result<(String, String), String> {
+        let lines = git(repo, &["show", "-s", "--format=%s%n%b", sha]);
+        if lines.is_empty() {
+            return Err(format!("`{sha}` does not resolve to a commit"));
+        }
+        let subject = lines.first().cloned().unwrap_or_default();
+        let body = lines
+            .iter()
+            .skip(1)
+            .map(String::as_str)
+            .collect::<Vec<_>>()
+            .join("\n");
+        Ok((subject, body.trim().to_string()))
+    };
+    for row in &plan.rows {
+        match row {
+            Row::Journal { date, sha, title } => {
+                let path = root.join("work/journal.md");
+                let journal =
+                    std::fs::read_to_string(&path).unwrap_or_else(|_| "# Journal\n".into());
+                let token = format!("- git: {sha}");
+                if journal.contains(&token) {
+                    done.push(format!("journal: {sha} already present"));
+                    continue;
+                }
+                let entry = format!("## {date} - {title}\n{token}");
+                std::fs::write(&path, insert_journal_entry(&journal, date, &entry))
+                    .map_err(|e| e.to_string())?;
+                done.push(format!("journal: {date} — {title} ({sha})"));
+            }
+            Row::Research { feature, shas } => {
+                let dir = root.join("work/research");
+                std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+                let path = dir.join(format!("{feature}.md"));
+                if path.exists() {
+                    let existing = std::fs::read_to_string(&path).unwrap_or_default();
+                    if frontmatter_line(&existing, "seeded").is_none() {
+                        return Err(format!("work/research/{feature}.md exists and was not seeded by the tool — it is somebody's page; add answers to it by hand or pick another name"));
+                    }
+                    done.push(format!("research: {feature} already seeded"));
+                    continue;
+                }
+                let sources: Vec<String> = shas.iter().map(|s| format!("git:{s}")).collect();
+                let mut text = format!(
+                    "---\nid: {feature}\nstatus: active\nupdated: {today}\n{SEEDED}\ncovers: [scope:{feature}]\nsources: [{}]\n---\nThis page holds what the builder said about `{feature}` during seeding, verbatim; read it before writing the permanent page.\n",
+                    sources.join(", ")
+                );
+                for h in ["Question", "Tried", "Learned", "Why no decision"] {
+                    text.push_str(&format!("\n## {h}\n"));
+                }
+                std::fs::write(&path, crate::migrate::with_preamble(&text, &pre))
+                    .map_err(|e| e.to_string())?;
+                done.push(format!(
+                    "research: work/research/{feature}.md (active, reserved)"
+                ));
+            }
+            Row::Answer {
+                feature,
+                who,
+                text: answer,
+            } => {
+                let path = root.join(format!("work/research/{feature}.md"));
+                let existing = std::fs::read_to_string(&path).map_err(|_| format!("answer for `{feature}` but work/research/{feature}.md does not exist — a `research` row must come first"))?;
+                let quote: String = answer
+                    .lines()
+                    .map(|l| format!("> {l}"))
+                    .collect::<Vec<_>>()
+                    .join("\n");
+                let block = format!("{quote}\n> — {who}, {today}\n");
+                if existing.contains(&quote) {
+                    done.push(format!("answer: already recorded in {feature}"));
+                    continue;
+                }
+                let marker = "\n## Learned\n";
+                let new = match existing.find(marker) {
+                    Some(pos) => {
+                        let (a, b) = existing.split_at(pos + marker.len());
+                        // append after whatever is already under Learned, before the next heading
+                        let next = b.find("\n## ").map_or(b.len(), |i| i + 1);
+                        let (under, rest) = b.split_at(next);
+                        let under = under.trim_end_matches('\n');
+                        if under.is_empty() {
+                            format!("{a}\n{block}\n{rest}")
+                        } else {
+                            format!("{a}{under}\n\n{block}\n{rest}")
+                        }
+                    }
+                    None => format!("{existing}\n## Learned\n\n{block}"),
+                };
+                std::fs::write(&path, new).map_err(|e| e.to_string())?;
+                done.push(format!("answer: {feature} ← {who}"));
+            }
+            Row::Postmortem { slug, sha } => {
+                let dir = root.join("work/postmortems");
+                std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+                let path = dir.join(format!("{slug}.md"));
+                if path.exists() {
+                    done.push(format!("postmortem: {slug} already exists — left alone"));
+                    continue;
+                }
+                let (subject, body) = commit_text(sha)?;
+                let mut quote = format!("> {subject}\n");
+                for l in body.lines() {
+                    quote.push_str(&format!("> {l}\n"));
+                }
+                quote.push_str(&format!("> — git:{sha}\n"));
+                let text = format!(
+                    "---\nid: {slug}\nstatus: draft\nupdated: {today}\n{SEEDED}\nsources: [git:{sha}]\n---\nThis page holds a commit's own account of an incident, verbatim; the builder fills the rest.\n\n## What happened\n\n{quote}\n## Root cause\n\n## Recurrence\n\n## Lesson\n"
+                );
+                std::fs::write(&path, crate::migrate::with_preamble(&text, &pre))
+                    .map_err(|e| e.to_string())?;
+                done.push(format!("postmortem: work/postmortems/{slug}.md ({sha})"));
+            }
+            Row::Debt { date, text: item } | Row::Question { date, text: item } => {
+                let (file, title) = if matches!(row, Row::Debt { .. }) {
+                    ("work/debt.md", "# Debt\n")
+                } else {
+                    ("work/questions.md", "# Questions\n")
+                };
+                let path = root.join(file);
+                let existing = std::fs::read_to_string(&path).unwrap_or_else(|_| title.to_string());
+                let line = format!("- [ ] {date} {item}");
+                if existing.lines().any(|l| l.trim() == line) {
+                    done.push(format!("{file}: item already present"));
+                    continue;
+                }
+                let mut new = existing.trim_end_matches('\n').to_string();
+                new.push('\n');
+                if !new.ends_with("\n\n") && !new.lines().last().unwrap_or("").starts_with("- [") {
+                    new.push('\n');
+                }
+                new.push_str(&line);
+                new.push('\n');
+                std::fs::write(&path, new).map_err(|e| e.to_string())?;
+                done.push(format!(
+                    "{file}: {date} {}",
+                    item.chars().take(60).collect::<String>()
+                ));
+            }
+        }
+    }
+    Ok(done)
+}
+
+#[cfg(test)]
+#[allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::indexing_slicing
+)]
+mod tests_apply {
+    use super::*;
+
+    #[test]
+    fn rows_parse_and_todo_or_unknown_refuse() {
+        let p = parse_plan("# head: abc123\n# evidence\njournal\t2026-08-01\tdeadbee\tfirst screen\nresearch\tWeather\tdeadbee,cafe\nanswer\tweather\towner\tit is a requirement\npostmortem\tcaps-stale\tdeadbee\ndebt\t2026-08-02\tx -- deferred: y -- repay when: z\nquestion\t2026-08-03\twhy?\n").unwrap();
+        assert_eq!(p.head.as_deref(), Some("abc123"));
+        assert_eq!(p.rows.len(), 6);
+        assert_eq!(
+            p.rows[1],
+            Row::Research {
+                feature: "weather".into(),
+                shas: vec!["deadbee".into(), "cafe".into()]
+            }
+        );
+        assert!(matches!(&p.rows[2], Row::Answer { who, .. } if who == "owner"));
+        assert!(parse_plan("journal\t2026-08-01\tTODO\tx\n")
+            .unwrap_err()
+            .contains("TODO"));
+        assert!(parse_plan("bogus\tx\n")
+            .unwrap_err()
+            .contains("unknown row kind"));
+        assert!(parse_plan("journal\tnot-a-date\tsha\tt\n")
+            .unwrap_err()
+            .contains("journal rows"));
+        assert!(parse_plan("research\t-\t-\n")
+            .unwrap_err()
+            .contains("research rows"));
+        assert!(parse_plan("debt\t2026-01-01\t\n")
+            .unwrap_err()
+            .contains("debt rows"));
+        assert!(
+            parse_plan("research\tx\t-\n").unwrap().rows[0]
+                == Row::Research {
+                    feature: "x".into(),
+                    shas: vec![]
+                }
+        );
+    }
+
+    #[test]
+    fn journal_entries_land_newest_first() {
+        let j = "# Journal\n\n## 2026-08-20 - new\n- a\n\n## 2026-08-01 - old\n- b\n";
+        let out = insert_journal_entry(j, "2026-08-10", "## 2026-08-10 - mid\n- git: abc");
+        let heads: Vec<&str> = out.lines().filter(|l| l.starts_with("## ")).collect();
+        assert_eq!(
+            heads,
+            vec![
+                "## 2026-08-20 - new",
+                "## 2026-08-10 - mid",
+                "## 2026-08-01 - old"
+            ]
+        );
+        let out = insert_journal_entry(j, "2026-07-01", "## 2026-07-01 - oldest\n- git: x");
+        assert!(out.trim_end().ends_with("- git: x"));
+        let out = insert_journal_entry(j, "2026-08-20", "## 2026-08-20 - same day\n- git: y");
+        let heads: Vec<&str> = out.lines().filter(|l| l.starts_with("## ")).collect();
+        assert_eq!(heads[0], "## 2026-08-20 - new");
+        assert_eq!(heads[1], "## 2026-08-20 - same day");
+        let out = insert_journal_entry(
+            "# Journal\n",
+            "2026-01-01",
+            "## 2026-01-01 - only\n- git: z",
+        );
+        assert_eq!(out, "# Journal\n\n## 2026-01-01 - only\n- git: z\n");
+    }
+
+    #[test]
+    fn json_strings_escape() {
+        assert_eq!(json_str("a\"b\\c\nd"), "\"a\\\"b\\\\c\\nd\"");
+        assert_eq!(json_str("çekirdek"), "\"çekirdek\"");
+    }
+}
