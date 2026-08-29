@@ -459,7 +459,14 @@ pub fn init_profile(root: &Path, lang: &str, profile: &str) -> Result<(), String
         return Err("already initialized (.docmeta.yml exists)".to_string());
     }
     let date = today();
-    let w = |rel: &str, text: String| fs::write(root.join(rel), text).map_err(|e| e.to_string());
+    let w = |rel: &str, text: String| {
+        let text = if rel.ends_with(".md") {
+            with_preamble(&text, &generated_preamble(root))
+        } else {
+            text
+        };
+        fs::write(root.join(rel), text).map_err(|e| e.to_string())
+    };
     match profile {
         "project" => {
             fs::create_dir_all(root.join("work")).map_err(|e| e.to_string())?;
@@ -798,10 +805,11 @@ mod tests_more {
 /// or an existing ledger is never touched. Returns what was written.
 pub fn scaffold_list_files_and_templates(root: &Path) -> Result<Vec<&'static str>, String> {
     let mut written = Vec::new();
+    let pre = generated_preamble(root);
     let q = root.join("work/questions.md");
     if !q.exists() {
         fs::create_dir_all(root.join("work")).map_err(|e| e.to_string())?;
-        fs::write(&q, "# Questions\n").map_err(|e| e.to_string())?;
+        fs::write(&q, with_preamble("# Questions\n", &pre)).map_err(|e| e.to_string())?;
         written.push("work/questions.md");
     }
     let dir = root.join("_templates");
@@ -820,7 +828,7 @@ pub fn scaffold_list_files_and_templates(root: &Path) -> Result<Vec<&'static str
         for h in sections {
             text.push_str(&format!("\n## {h}\n"));
         }
-        fs::write(&path, text).map_err(|e| e.to_string())?;
+        fs::write(&path, with_preamble(&text, &pre)).map_err(|e| e.to_string())?;
         written.push(name);
     }
     Ok(written)
@@ -850,3 +858,101 @@ pub const TEMPLATES: [(&str, &str, [&str; 4]); 3] = [
         ["Question", "Tried", "Learned", "Why no decision"],
     ),
 ];
+
+/// The owner's verbatim line(s) every file the tool GENERATES opens with
+/// (after the frontmatter when there is one) — `generated_preamble:` in
+/// `.docmeta.yml` (D-056). Field need: a pre-commit privacy gate that wants a
+/// marker comment in every `.md` diff; put by hand, the marker vanished at
+/// the next generation. Empty when undeclared; the tool then changes nothing.
+pub fn generated_preamble(root: &Path) -> String {
+    let text = fs::read_to_string(root.join(".docmeta.yml")).unwrap_or_default();
+    let framed = format!("---\n{text}---\n");
+    let Some(fm) = crate::fm::parse(&framed) else {
+        return String::new();
+    };
+    match fm.fields.get("generated_preamble") {
+        Some(crate::fm::Value::Str(s)) if !s.trim().is_empty() => format!("{}\n", s.trim()),
+        Some(crate::fm::Value::List(l)) => {
+            let lines: Vec<&str> = l
+                .iter()
+                .map(|x| x.trim())
+                .filter(|x| !x.is_empty())
+                .collect();
+            if lines.is_empty() {
+                String::new()
+            } else {
+                format!("{}\n", lines.join("\n"))
+            }
+        }
+        _ => String::new(),
+    }
+}
+
+/// `content` with the preamble inserted: after a closed frontmatter block,
+/// else first. Unchanged when the preamble is empty or already present.
+pub fn with_preamble(content: &str, preamble: &str) -> String {
+    if preamble.is_empty() || content.contains(preamble.trim_end()) {
+        return content.to_string();
+    }
+    if let Some(rest) = content.strip_prefix("---\n") {
+        if let Some(end) = rest.find("\n---\n") {
+            let (head, tail) = content.split_at(4 + end + 5);
+            return format!("{head}{preamble}{tail}");
+        }
+    }
+    format!("{preamble}{content}")
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+mod tests_preamble {
+    use super::*;
+
+    #[test]
+    fn preamble_goes_after_frontmatter_or_first_and_never_twice() {
+        let p = "<!-- restricted-context:public -->\n";
+        assert_eq!(
+            with_preamble("# Debt\n", p),
+            "<!-- restricted-context:public -->\n# Debt\n"
+        );
+        assert_eq!(
+            with_preamble("---\nid: a\n---\nbody\n", p),
+            "---\nid: a\n---\n<!-- restricted-context:public -->\nbody\n"
+        );
+        assert_eq!(with_preamble("# Debt\n", ""), "# Debt\n");
+        let once = with_preamble("# Debt\n", p);
+        assert_eq!(with_preamble(&once, p), once);
+        // an unclosed frontmatter is not a frontmatter: the preamble goes first
+        assert_eq!(
+            with_preamble("---\nid: a\nbody\n", p),
+            "<!-- restricted-context:public -->\n---\nid: a\nbody\n"
+        );
+    }
+
+    #[test]
+    fn preamble_is_read_from_docmeta_as_string_or_list() {
+        let root = std::env::temp_dir().join(format!("docsys-preamble-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        fs::create_dir_all(&root).unwrap();
+        assert_eq!(generated_preamble(&root), "");
+        fs::write(
+            root.join(".docmeta.yml"),
+            "spec: docsys/0.4\ngenerated_preamble: \"<!-- a -->\"\n",
+        )
+        .unwrap();
+        assert_eq!(generated_preamble(&root), "<!-- a -->\n");
+        fs::write(
+            root.join(".docmeta.yml"),
+            "spec: docsys/0.4\ngenerated_preamble:\n  - \"<!-- a -->\"\n  - \"<!-- b -->\"\n",
+        )
+        .unwrap();
+        assert_eq!(generated_preamble(&root), "<!-- a -->\n<!-- b -->\n");
+        fs::write(
+            root.join(".docmeta.yml"),
+            "spec: docsys/0.4\ngenerated_preamble: []\n",
+        )
+        .unwrap();
+        assert_eq!(generated_preamble(&root), "");
+        let _ = fs::remove_dir_all(&root);
+    }
+}

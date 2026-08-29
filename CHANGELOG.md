@@ -5,6 +5,24 @@ All notable changes to docsys are documented here. The format follows
 [SemVer](https://semver.org/). Release notes are extracted from this file
 by the release workflow — the tag's section becomes the GitHub release body.
 
+## [0.6.1] - 2026-08-29
+
+### Added
+
+- `generated_preamble:` in `.docmeta.yml` — verbatim line(s) written at the
+  top of every markdown file docsys generates (`ADOPTION.md`, templates,
+  list files, agent commands and skills), after the frontmatter when there
+  is one; never into a hook, never twice, nothing when absent. A privacy
+  gate that wants its marker in every generated file no longer fights the
+  generator (D-056).
+
+### Fixed
+
+- `adopt` no longer deletes what the owner wrote in `ADOPTION.md`. The
+  report lives in a `docsys:adoption:begin/end` managed block and only that
+  block is regenerated; a report from before the markers is kept verbatim
+  below the block with a note (R-045, D-057). Found on three trees.
+
 ## [0.6.0] - 2026-08-29
 
 ### Added

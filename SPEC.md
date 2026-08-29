@@ -1646,6 +1646,7 @@ epics: []                        # declared epic labels (R-058)
 domains: []                      # knowledge-base profile only (R-026)
 
 scan_exclude: []                 # added to version-control ignores (R-077)
+generated_preamble: []           # verbatim line(s) every generated file opens with (D-056)
 postmortem_threshold: "4h"       # R-087
 stale_active_days: 90            # R-085
 deprecation_window: 180          # days, R-067

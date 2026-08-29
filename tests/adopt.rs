@@ -152,7 +152,10 @@ fn adopt_keeps_the_owners_comment_header_on_the_report() {
     .unwrap();
     docsys::adopt::run(&repo, &docs, "en").unwrap();
     let again = fs::read_to_string(&report).unwrap();
-    assert!(again.starts_with("<!-- restricted-context:public -->\n<!-- reviewed:\n     2026-08-26 -->\n\n# docsys adoption report"), "{again}");
+    assert!(
+        again.starts_with("<!-- restricted-context:public -->\n<!-- reviewed:\n     2026-08-26 -->\n\n<!-- docsys:adoption:begin"),
+        "{again}"
+    );
     assert_eq!(again.matches("# docsys adoption report").count(), 1);
 }
 
@@ -209,6 +212,91 @@ fn adopt_names_hooks_behind_the_binary_template() {
     let out = docsys::adopt::run(&repo, &docs, "en").unwrap();
     assert!(
         !out.summary.iter().any(|l| l.starts_with("hooks:")),
+        "{:?}",
+        out.summary
+    );
+}
+
+#[test]
+fn every_generated_markdown_file_opens_with_the_declared_preamble() {
+    let repo = tmp("preamble");
+    git_init(&repo);
+    let docs = repo.join("docs");
+    docsys::migrate::init_profile(&docs, "en", "project").unwrap();
+    let mut dm = fs::read_to_string(docs.join(".docmeta.yml")).unwrap();
+    dm.push_str("generated_preamble: \"<!-- restricted-context:public -->\"\n");
+    fs::write(docs.join(".docmeta.yml"), dm).unwrap();
+    // the tree existed before the key: templates and the ledger come from adopt's scaffold
+    let _ = fs::remove_dir_all(docs.join("_templates"));
+    let _ = fs::remove_file(docs.join("work/questions.md"));
+    docsys::adopt::run(&repo, &docs, "en").unwrap();
+    for rel in [
+        "ADOPTION.md",
+        "docs/work/questions.md",
+        "docs/_templates/feature.md",
+        ".claude/commands/docsys-sync.md",
+        ".claude/skills/docsys/SKILL.md",
+    ] {
+        let text = fs::read_to_string(repo.join(rel)).unwrap();
+        let marker = "<!-- restricted-context:public -->";
+        assert!(text.contains(marker), "{rel} lacks the preamble: {text}");
+        assert_eq!(text.matches(marker).count(), 1, "{rel} carries it twice");
+        if text.starts_with("---\n") {
+            let after_fm = text.split("\n---\n").nth(1).unwrap();
+            assert!(
+                after_fm.starts_with(marker),
+                "{rel}: preamble must follow the frontmatter"
+            );
+        } else {
+            assert!(text.starts_with(marker), "{rel}: preamble must be first");
+        }
+    }
+    // hooks never
+    let hook = fs::read_to_string(repo.join(".claude/hooks/pre-commit-docs.sh")).unwrap();
+    assert!(!hook.contains("restricted-context"));
+    // regeneration keeps exactly one
+    docsys::adopt::run(&repo, &docs, "en").unwrap();
+    let report = fs::read_to_string(repo.join("ADOPTION.md")).unwrap();
+    assert_eq!(
+        report.matches("<!-- restricted-context:public -->").count(),
+        1,
+        "{report}"
+    );
+}
+
+#[test]
+fn adopt_never_deletes_what_the_owner_wrote_in_the_report() {
+    let repo = tmp("authored");
+    git_init(&repo);
+    let docs = repo.join("docs");
+    docsys::adopt::run(&repo, &docs, "en").unwrap();
+    let report = repo.join("ADOPTION.md");
+    let mut text = fs::read_to_string(&report).unwrap();
+    text.push_str(
+        "\n## Closing note — 2026-08-26\n\nTwo deliberate deviations from the recipe, and why.\n",
+    );
+    fs::write(&report, &text).unwrap();
+    docsys::adopt::run(&repo, &docs, "en").unwrap();
+    let again = fs::read_to_string(&report).unwrap();
+    assert!(
+        again.contains("## Closing note — 2026-08-26\n\nTwo deliberate deviations"),
+        "{again}"
+    );
+    assert_eq!(
+        again.matches("# docsys adoption report").count(),
+        1,
+        "{again}"
+    );
+    assert_eq!(again.matches(docsys::adopt::REPORT_BEGIN).count(), 1);
+    fs::write(&report, "# docsys adoption report\n\n## Done\n- old\n\n## Triage — 2026-08-26\n| item | decision |\n").unwrap();
+    let out = docsys::adopt::run(&repo, &docs, "en").unwrap();
+    let third = fs::read_to_string(&report).unwrap();
+    assert!(
+        third.contains("## Triage — 2026-08-26\n| item | decision |"),
+        "{third}"
+    );
+    assert!(
+        out.summary.iter().any(|l| l.contains("kept verbatim")),
         "{:?}",
         out.summary
     );

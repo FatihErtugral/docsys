@@ -188,7 +188,8 @@ pub fn run(repo: &Path, root: &Path, lang: &str) -> Result<AdoptOutcome, String>
 
     // 2 · agent layer (never-colliding names; existing files skipped)
     let claude = repo.join(".claude");
-    let installed = agents::install(&claude, false)?;
+    let installed =
+        agents::install_with_preamble(&claude, false, &crate::migrate::generated_preamble(root))?;
     summary.push(format!(
         "agent assets: {} written, {} already present",
         installed.written.len(),
@@ -295,8 +296,14 @@ pub fn run(repo: &Path, root: &Path, lang: &str) -> Result<AdoptOutcome, String>
     // file is the owner's — a privacy classifier's marker, a review note —
     // and survives the rewrite (D-046).
     let report_path = repo.join("ADOPTION.md");
-    let header = preserved_header(&fs::read_to_string(&report_path).unwrap_or_default());
-    fs::write(&report_path, format!("{header}{md}")).map_err(|e| e.to_string())?;
+    let existing = fs::read_to_string(&report_path).unwrap_or_default();
+    let (text, note) = managed_report(&existing, &md);
+    if let Some(n) = note {
+        summary.push(n);
+    }
+    let pre = crate::migrate::generated_preamble(root);
+    fs::write(&report_path, crate::migrate::with_preamble(&text, &pre))
+        .map_err(|e| e.to_string())?;
 
     Ok(AdoptOutcome {
         report_path: report_path.to_string_lossy().to_string(),
@@ -338,6 +345,51 @@ pub fn preserved_header(existing: &str) -> String {
     }
 }
 
+pub const REPORT_BEGIN: &str = "<!-- docsys:adoption:begin — generated, do not edit inside -->";
+pub const REPORT_END: &str = "<!-- docsys:adoption:end -->";
+
+/// The report lives in a managed block; everything outside it is the owner's
+/// and survives every regeneration (R-045, D-057). An existing file without
+/// the markers — written by an earlier version wholesale — is kept verbatim
+/// below the new block rather than overwritten: nothing authored is lost,
+/// and the note names what to trim. Returns the new text and a summary note.
+pub fn managed_report(existing: &str, report: &str) -> (String, Option<String>) {
+    let block = format!("{REPORT_BEGIN}\n{}\n{REPORT_END}\n", report.trim_end());
+    if existing.is_empty() {
+        return (block, None);
+    }
+    if let (Some(b), Some(e)) = (existing.find(REPORT_BEGIN), existing.find(REPORT_END)) {
+        if b < e {
+            let head = existing.get(..b).unwrap_or("");
+            let tail = existing
+                .get(e + REPORT_END.len()..)
+                .unwrap_or("")
+                .trim_start_matches('\n');
+            let tail = if tail.is_empty() {
+                String::new()
+            } else {
+                format!("\n{tail}")
+            };
+            return (format!("{head}{block}{tail}"), None);
+        }
+    }
+    let header = preserved_header(existing);
+    let rest = existing
+        .get(header.len()..)
+        .unwrap_or(existing)
+        .trim_start_matches('\n');
+    let text = format!(
+        "{header}{block}\n<!-- docsys: the previous ADOPTION.md, written before the report had a managed block, is kept verbatim below (R-045); trim what the block above now covers -->\n\n{rest}"
+    );
+    (
+        text,
+        Some(
+            "ADOPTION.md: previous unmarked report kept verbatim below the managed block — trim it"
+                .to_string(),
+        ),
+    )
+}
+
 #[cfg(test)]
 #[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 mod tests {
@@ -374,6 +426,37 @@ mod tests {
     #[test]
     fn leading_whitespace_on_the_comment_line_is_tolerated() {
         assert_eq!(preserved_header("  <!-- x -->\ntext"), "  <!-- x -->\n\n");
+    }
+
+    #[test]
+    fn managed_report_keeps_everything_outside_its_block() {
+        use super::{managed_report, REPORT_BEGIN, REPORT_END};
+        let (first, note) = managed_report("", "# report v1\n\n- a");
+        assert!(note.is_none());
+        assert!(first.starts_with(REPORT_BEGIN) && first.trim_end().ends_with(REPORT_END));
+        let authored = format!("<!-- mine -->\n{first}\n## Closing note\n\nkept.\n");
+        let (second, note) = managed_report(&authored, "# report v2");
+        assert!(note.is_none());
+        assert!(second.starts_with("<!-- mine -->\n"), "{second}");
+        assert!(
+            second.contains("# report v2") && !second.contains("# report v1"),
+            "{second}"
+        );
+        assert!(second.ends_with("## Closing note\n\nkept.\n"), "{second}");
+        assert_eq!(second.matches(REPORT_BEGIN).count(), 1);
+        let legacy = "<!-- restricted-context:public -->\n# docsys adoption report\n\n## Done\n- x\n\n## Triage — 2026-08-26\n| a | b |\n";
+        let (third, note) = managed_report(legacy, "# report v3");
+        assert!(note.unwrap().contains("kept verbatim"));
+        assert!(
+            third.starts_with("<!-- restricted-context:public -->\n\n"),
+            "{third}"
+        );
+        assert!(third.contains("# report v3"), "{third}");
+        assert!(
+            third.contains("## Triage — 2026-08-26\n| a | b |"),
+            "{third}"
+        );
+        assert!(third.contains("kept verbatim below (R-045)"), "{third}");
     }
 
     #[test]

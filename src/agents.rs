@@ -363,6 +363,16 @@ pub fn install_kb(claude_dir: &Path, base_dir: &Path, force: bool) -> Result<Ins
 }
 
 pub fn install(claude_dir: &Path, force: bool) -> Result<Installed, String> {
+    install_with_preamble(claude_dir, force, "")
+}
+
+/// `install`, with the owner's generated-file preamble (D-056) placed in
+/// every markdown asset — never in a shell hook.
+pub fn install_with_preamble(
+    claude_dir: &Path,
+    force: bool,
+    preamble: &str,
+) -> Result<Installed, String> {
     let files: [(&str, &str, bool); 7] = [
         ("hooks/pre-commit-docs.sh", PRE_COMMIT_DOCS, true),
         ("hooks/stop-docs-reminder.sh", STOP_DOCS_REMINDER, true),
@@ -388,7 +398,7 @@ pub fn install(claude_dir: &Path, force: bool) -> Result<Installed, String> {
         let content = if executable {
             stamp(content)
         } else {
-            content.to_string()
+            crate::migrate::with_preamble(content, preamble)
         };
         fs::write(&path, content).map_err(|e| e.to_string())?;
         #[cfg(unix)]

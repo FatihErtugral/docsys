@@ -156,7 +156,7 @@ fn check_docmeta(tree: &DocTree, r: &mut Report) {
         ));
     }
     // R-161: unknown keys are reported, never rejected.
-    const KNOWN: [&str; 20] = [
+    const KNOWN: [&str; 21] = [
         "spec",
         "profile",
         "default_content_language",
@@ -175,6 +175,7 @@ fn check_docmeta(tree: &DocTree, r: &mut Report) {
         "work_categories",
         "epics",
         "scan_exclude",
+        "generated_preamble",
         "deprecation_window",
         "headings",
     ];
