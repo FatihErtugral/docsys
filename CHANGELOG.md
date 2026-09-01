@@ -5,7 +5,7 @@ All notable changes to docsys are documented here. The format follows
 [SemVer](https://semver.org/). Release notes are extracted from this file
 by the release workflow — the tag's section becomes the GitHub release body.
 
-## [Unreleased]
+## [0.11.0] - 2026-09-02
 
 The four gaps between "kept honest by an agent" and "kept honest
 mechanically", closed.
