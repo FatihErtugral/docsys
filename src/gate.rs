@@ -24,7 +24,25 @@ pub struct GateOutcome {
 }
 
 pub fn run(repo: &Path, root: &Path) -> Result<(GateOutcome, crate::checks::Report), String> {
-    let (report, _) = crate::lint(root);
+    run_scoped(repo, root, None)
+}
+
+/// The same question over a commit range (`origin/main...HEAD`): what CI asks
+/// of a pull request. No marker, no asking once — the answer is the answer.
+pub fn run_range(
+    repo: &Path,
+    root: &Path,
+    range: &str,
+) -> Result<(GateOutcome, crate::checks::Report), String> {
+    run_scoped(repo, root, Some(range))
+}
+
+fn run_scoped(
+    repo: &Path,
+    root: &Path,
+    range: Option<&str>,
+) -> Result<(GateOutcome, crate::checks::Report), String> {
+    let (report, _) = crate::lint_in(root, Some(repo));
     let lint_errors = report
         .findings
         .iter()
@@ -57,12 +75,17 @@ pub fn run(repo: &Path, root: &Path) -> Result<(GateOutcome, crate::checks::Repo
             })
             .unwrap_or_default()
     };
-    let mut files = changed(&["diff", "--cached", "--name-only"]);
-    let mut scope = "staged";
-    if files.is_empty() {
-        files = changed(&["diff", "--name-only"]);
-        scope = "working tree";
-    }
+    let (files, scope) = match range {
+        Some(r) => (changed(&["diff", "--name-only", r]), "range"),
+        None => {
+            let staged = changed(&["diff", "--cached", "--name-only"]);
+            if staged.is_empty() {
+                (changed(&["diff", "--name-only"]), "working tree")
+            } else {
+                (staged, "staged")
+            }
+        }
+    };
     let mut code = Vec::new();
     let mut docs = 0usize;
     for f in &files {

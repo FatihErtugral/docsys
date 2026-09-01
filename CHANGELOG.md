@@ -5,6 +5,40 @@ All notable changes to docsys are documented here. The format follows
 [SemVer](https://semver.org/). Release notes are extracted from this file
 by the release workflow — the tag's section becomes the GitHub release body.
 
+## [Unreleased]
+
+The four gaps between "kept honest by an agent" and "kept honest
+mechanically", closed.
+
+### Added
+
+- `verifies:` pins (§11). `docsys pin <page> <path> [--symbol <s>]` writes a
+  code region and its SHA-256 into the page; `docsys pin --refresh <page>`
+  recomputes every pin after the author re-read the page. `lint` recomputes
+  the hashes on every run inside a repository and a moved region is an error
+  (R-111). SHA-256 and the canonical form are in the binary, zero-dep;
+  symbols resolve as brace blocks, or `def`/`class` blocks in Python, and an
+  absent or ambiguous symbol is an error rather than a guess (R-114, D-068,
+  D-069). The frontmatter grammar gains the block list of flat maps.
+- History-derived freshness (D-071): one `git log` walk dates every page.
+  `updated:` behind the page's last commit (R-106) and a `draft`, `active` or
+  `done` file untouched beyond `stale_active_days` (R-085, default 90) are
+  errors. `lint --repo <dir>`; the repository is detected when omitted.
+- `docsys gate --range <a>...<b>`: the code-without-docs question over a
+  commit range — a pull request — failing when unanswered.
+- `adopt` writes `.github/workflows/docsys.yml` when the repository has a
+  `.github/` (lint and refs on every push, the range gate on a pull request),
+  and the git pre-commit gate is hard when the tree lints clean inside its
+  repository; a warn-mode gate is hardened in place by a later `adopt`
+  (D-072).
+
+### Changed
+
+- R-085, R-106 and R-111 block (D-070); R-085 covers `draft` and `done`
+  besides `active`.
+- The agent block and the docsys skill name the pin discipline: a stale pin
+  is re-read against the code, then refreshed — never refreshed blind.
+
 ## [0.10.0] - 2026-09-02
 
 Findings of an agent lab: three sample repositories adopted, fifteen headless

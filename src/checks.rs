@@ -1717,7 +1717,20 @@ fn check_templates(tree: &DocTree, r: &mut Report) {
 
 /// Run every check. `dead_scan` is R-011's second half: the caller flags a
 /// tree whose configured root matched nothing at all.
+/// What a lint run knows beyond the tree: the repository the tree lives in
+/// (for `verifies:` pins, R-110) and its history (R-085, R-106). Absent, the
+/// freshness checks are not applicable — the corpus runs that way.
+#[derive(Debug, Default)]
+pub struct Context {
+    pub repo: Option<std::path::PathBuf>,
+    pub history: Option<crate::fresh::History>,
+}
+
 pub fn run(tree: &DocTree) -> Report {
+    run_with(tree, &Context::default())
+}
+
+pub fn run_with(tree: &DocTree, ctx: &Context) -> Report {
     let mut r = Report {
         findings: Vec::new(),
         inspected: BTreeMap::new(),
@@ -1737,6 +1750,12 @@ pub fn run(tree: &DocTree) -> Report {
     check_list_grammars(tree, &mut r);
     check_templates(tree, &mut r);
     check_sources(tree, &mut r);
+    if let Some(repo) = &ctx.repo {
+        crate::fresh::check_pins(tree, repo, &mut r);
+    }
+    if let Some(h) = &ctx.history {
+        crate::fresh::check_history(tree, h, &mut r);
+    }
     if tree.profile == Profile::KnowledgeBase {
         check_raw_immutability(tree, &mut r);
     }

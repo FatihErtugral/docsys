@@ -7,6 +7,9 @@
 //!     the value are stripped
 //!   - `key: [a, b]` — inline list of scalars
 //!   - `key:` followed by `  - item` lines — block list of scalars
+//!   - `key:` followed by `  - k: v` items, each continued by `    k: v`
+//!     lines — block list of flat maps (the §11 `verifies:` grammar); a list
+//!     never mixes scalars and maps
 //!   - keys are structural tokens: `[a-z][a-z0-9_]*`
 //!   - anything else (nested maps, multi-line scalars, anchors, duplicate
 //!     keys) is a parse finding, never a guess
@@ -17,19 +20,29 @@ use std::collections::BTreeMap;
 pub enum Value {
     Str(String),
     List(Vec<String>),
+    /// `key:` followed by `  - k: v` items with `    k: v` continuations —
+    /// flat maps, one level, no deeper (§11 `verifies:`).
+    Maps(Vec<BTreeMap<String, String>>),
 }
 
 impl Value {
     pub fn as_str(&self) -> Option<&str> {
         match self {
             Value::Str(s) => Some(s.as_str()),
-            Value::List(_) => None,
+            Value::List(_) | Value::Maps(_) => None,
         }
     }
     pub fn as_list(&self) -> Option<&[String]> {
         match self {
-            Value::Str(_) => None,
             Value::List(v) => Some(v.as_slice()),
+            Value::Str(_) | Value::Maps(_) => None,
+        }
+    }
+    /// A block list of flat maps — the §11 `verifies:` grammar.
+    pub fn as_maps(&self) -> Option<&[BTreeMap<String, String>]> {
+        match self {
+            Value::Maps(v) => Some(v.as_slice()),
+            Value::Str(_) | Value::List(_) => None,
         }
     }
 }
@@ -140,14 +153,47 @@ pub fn parse(text: &str) -> Option<Frontmatter> {
                 continue;
             }
             if let Some(item) = line.strip_prefix("  - ") {
-                let entry = fm
-                    .fields
-                    .entry(key)
-                    .or_insert_with(|| Value::List(Vec::new()));
-                if let Value::List(items) = entry {
-                    items.push(strip_quotes(item));
+                // `- key: value` opens a map entry (the §11 `verifies:`
+                // grammar); any other item is a scalar. A list never mixes
+                // the two — that is a finding, not a guess.
+                let map_field = item
+                    .split_once(':')
+                    .filter(|(k, v)| is_key(k.trim()) && (v.is_empty() || v.starts_with(' ')))
+                    .map(|(k, v)| (k.trim().to_string(), strip_quotes(v.trim())));
+                let entry = fm.fields.entry(key).or_insert_with(|| match map_field {
+                    Some(_) => Value::Maps(Vec::new()),
+                    None => Value::List(Vec::new()),
+                });
+                // `key:` with nothing after it was registered as an empty
+                // list before its items were seen; the first item decides.
+                if map_field.is_some() && matches!(entry, Value::List(items) if items.is_empty()) {
+                    *entry = Value::Maps(Vec::new());
+                }
+                match (entry, map_field) {
+                    (Value::Maps(maps), Some((k, v))) => {
+                        let mut m = BTreeMap::new();
+                        m.insert(k, v);
+                        maps.push(m);
+                    }
+                    (Value::List(items), None) => items.push(strip_quotes(item)),
+                    _ => fm
+                        .problems
+                        .push(format!("line {}: a list mixes scalars and maps", idx + 1)),
                 }
                 continue;
+            }
+            // `    key: value` continues the map entry opened just above.
+            if line.starts_with("    ") {
+                if let Some(Value::Maps(maps)) = fm.fields.get_mut(&key) {
+                    let field = line
+                        .trim()
+                        .split_once(':')
+                        .filter(|(k, _)| is_key(k.trim()));
+                    if let (Some(last), Some((k, v))) = (maps.last_mut(), field) {
+                        last.insert(k.trim().to_string(), strip_quotes(v.trim()));
+                        continue;
+                    }
+                }
             }
             pending_list_key = None;
         }
@@ -202,8 +248,42 @@ pub fn parse(text: &str) -> Option<Frontmatter> {
 }
 
 #[cfg(test)]
+#[allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::indexing_slicing
+)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn parses_a_block_list_of_flat_maps() {
+        let fm = parse(
+            "---\nid: x\nverifies:\n  - path: src/a.rs\n    symbol: f\n    hash: \"sha256:ab\"\n  - path: src/b.rs\n    hash: sha256:cd\ntags: [a]\n---\n",
+        )
+        .unwrap();
+        let maps = fm.fields.get("verifies").unwrap().as_maps().unwrap();
+        assert_eq!(maps.len(), 2);
+        assert_eq!(maps[0].get("symbol").map(String::as_str), Some("f"));
+        assert_eq!(maps[0].get("hash").map(String::as_str), Some("sha256:ab"));
+        assert_eq!(maps[1].get("path").map(String::as_str), Some("src/b.rs"));
+        assert_eq!(fm.fields.get("tags").unwrap().as_list().unwrap(), ["a"]);
+        assert!(fm.problems.is_empty(), "{:?}", fm.problems);
+        // a scalar list is untouched by the grammar; a URL item is a scalar
+        let fm = parse("---\nsources:\n  - raw/x.md\n  - http://a/b\n---\n").unwrap();
+        assert_eq!(
+            fm.fields.get("sources").unwrap().as_list().unwrap().len(),
+            2
+        );
+        // mixing is a finding
+        let fm = parse("---\nk:\n  - a\n  - path: b\n---\n").unwrap();
+        assert!(
+            fm.problems.iter().any(|p| p.contains("mixes")),
+            "{:?}",
+            fm.problems
+        );
+    }
 
     #[test]
     fn parses_scalars_lists_and_comments() {

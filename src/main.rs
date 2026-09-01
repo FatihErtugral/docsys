@@ -1,11 +1,13 @@
-use docsys::{lint, migrate, to_json, Outcome};
+use docsys::{migrate, to_json, Outcome};
 use std::path::PathBuf;
 use std::process::ExitCode;
 
 const USAGE: &str = "docsys — documentation system tool (spec: SPEC.md)
 
 Usage:
-  docsys lint    [--root <dir>] [--json]
+  docsys lint    [--root <dir>] [--repo <dir>] [--json]   # inside a git repository: pins and history too
+  docsys pin     <page> <path> [--symbol <s>] [--repo .] [--root docs]   # pin a page to a code region (verifies:, §11)
+  docsys pin     --refresh <page> [--repo .] [--root docs]              # recompute its pins after re-reading the page
   docsys init    [--root <dir>] [--lang <code>] [--profile project|knowledge-base]
   docsys migrate inventory [--root <dir>] [--repo <dir>]   # plan skeleton to stdout
   docsys migrate apply --plan <file> [--root <dir>] [--lang <code>] [--repo <dir>]
@@ -22,7 +24,7 @@ Usage:
   docsys export feature <id> [<id>...] [--follow] [--title <t>] [--root <dir>] [--out <file>] [--lang <code>] [--audience <a>]
   docsys export manifest [--root <dir>] [--out <file>]   # what this namespace exports
   docsys fetch   [--root <dir>]              # materialize consumed namespaces into .federation/
-  docsys gate    [--repo .] [--root docs]    # commit-time question: lint + code-without-docs
+  docsys gate    [--repo .] [--root docs] [--range <a>...<b>]   # commit-time question: lint + code-without-docs; --range: a pull request, in CI
   docsys doctor  [--repo .] [--root docs] [--dir .claude]   # is the pipeline itself alive?
   docsys seed    plan [--target <feature>] [--since <date>] [--memory <dir>] [--repo .] [--root docs]
                                              # brownfield: feature inventory, or one feature's history as evidence
@@ -70,6 +72,9 @@ struct Opts {
     agents_md: bool,
     procedures: bool,
     max_lines: usize,
+    range: Option<String>,
+    refresh: bool,
+    symbol: Option<String>,
     positional: Vec<String>,
 }
 
@@ -100,6 +105,9 @@ fn parse_opts(args: &[String]) -> Result<Opts, String> {
         agents_md: false,
         procedures: false,
         max_lines: 200,
+        range: None,
+        refresh: false,
+        symbol: None,
         positional: Vec::new(),
     };
     let mut it = args.iter();
@@ -142,6 +150,9 @@ fn parse_opts(args: &[String]) -> Result<Opts, String> {
                     .map_err(|_| "--max-lines needs a number".to_string())?;
             }
             "--json" => o.json = true,
+            "--range" => o.range = Some(it.next().ok_or("--range needs a value")?.clone()),
+            "--refresh" => o.refresh = true,
+            "--symbol" => o.symbol = Some(it.next().ok_or("--symbol needs a value")?.clone()),
             other if !other.starts_with("--") => o.positional.push(other.to_string()),
             other => return Err(format!("unknown argument `{other}`")),
         }
@@ -150,7 +161,10 @@ fn parse_opts(args: &[String]) -> Result<Opts, String> {
 }
 
 fn run_lint(o: &Opts) -> ExitCode {
-    let (report, outcome) = lint(&o.root);
+    // The repository is where pins resolve and history lives: given, or the
+    // one the root sits in. Outside any repository the tree is linted alone.
+    let repo = o.repo.clone().or_else(|| docsys::repo_of(&o.root));
+    let (report, outcome) = docsys::lint_in(&o.root, repo.as_deref());
     if o.json {
         print!("{}", to_json(&report));
     } else {
@@ -509,6 +523,39 @@ fn main() -> ExitCode {
             eprint!("{}", reply.stderr);
             ExitCode::from(reply.code)
         }
+        ("pin", None) => {
+            let repo = opts.repo.clone().unwrap_or_else(|| PathBuf::from("."));
+            let root = if opts.root.is_absolute() {
+                opts.root.clone()
+            } else {
+                repo.join(&opts.root)
+            };
+            let result = if opts.refresh {
+                match opts.positional.first() {
+                    Some(page) => docsys::fresh::refresh(&root, &repo, page),
+                    None => Err("pin --refresh needs <page>".to_string()),
+                }
+            } else {
+                match (opts.positional.first(), opts.positional.get(1)) {
+                    (Some(page), Some(path)) => {
+                        docsys::fresh::pin(&root, &repo, page, path, opts.symbol.as_deref())
+                    }
+                    _ => Err(
+                        "pin needs <page> <path> [--symbol <s>], or --refresh <page>".to_string(),
+                    ),
+                }
+            };
+            match result {
+                Ok(msg) => {
+                    println!("{msg}");
+                    ExitCode::SUCCESS
+                }
+                Err(e) => {
+                    eprintln!("pin: {e}");
+                    ExitCode::from(2)
+                }
+            }
+        }
         ("gate", None) => {
             let repo = opts.repo.clone().unwrap_or_else(|| PathBuf::from("."));
             let root = if opts.root.is_absolute() {
@@ -516,7 +563,11 @@ fn main() -> ExitCode {
             } else {
                 repo.join(&opts.root)
             };
-            match docsys::gate::run(&repo, &root) {
+            let result = match &opts.range {
+                Some(r) => docsys::gate::run_range(&repo, &root, r),
+                None => docsys::gate::run(&repo, &root),
+            };
+            match result {
                 Ok((g, report)) => {
                     for f in &report.findings {
                         println!(
@@ -546,7 +597,10 @@ fn main() -> ExitCode {
                         "-- {} error(s), {} warning(s)",
                         g.lint_errors, g.lint_warnings
                     );
-                    if g.lint_errors > 0 {
+                    // Over a range there is nobody to ask once: code without
+                    // documentation fails the check, as CI must.
+                    let unanswered = opts.range.is_some() && !g.code.is_empty() && g.docs == 0;
+                    if g.lint_errors > 0 || unanswered {
                         ExitCode::from(1)
                     } else {
                         ExitCode::SUCCESS

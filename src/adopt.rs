@@ -9,6 +9,43 @@ use std::fs;
 use std::path::Path;
 
 const GATE_MARKER: &str = "docsys documentation gate";
+const WARN_MODE_LINE: &str =
+    "# Warn-mode until the adoption debt is triaged; `docsys adopt` hardens it once lint is clean.";
+const HARD_MODE_LINE: &str = "# Hard gate: lint errors and dangling references stop the commit.";
+const CI_MARKER: &str = "docsys documentation workflow";
+
+/// `.github/workflows/docsys.yml` when the repository has a `.github/`: lint
+/// and refs on every push, the code-without-docs question over a pull
+/// request's range (D-072). Written once, never regenerated — it is the
+/// project's file after that; nothing where no GitHub layout exists.
+fn ensure_ci_workflow(repo: &Path, root_rel: &str) -> &'static str {
+    if !repo.join(".github").is_dir() {
+        return "skipped (no .github/)";
+    }
+    let dir = repo.join(".github/workflows");
+    let file = dir.join("docsys.yml");
+    if file.exists() {
+        return "kept";
+    }
+    let text = format!(
+        "# {CI_MARKER} — written by `docsys adopt`; edit freely, it is not regenerated.\n\
+         name: docsys\n\n\
+         on:\n  push:\n  pull_request:\n\n\
+         jobs:\n  docs:\n    runs-on: ubuntu-latest\n    steps:\n\
+         \x20     - uses: actions/checkout@v5\n\
+         \x20       with:\n\
+         \x20         fetch-depth: 0\n\
+         \x20     - run: cargo install docsys\n\
+         \x20     - run: docsys lint --root {root_rel} --repo .\n\
+         \x20     - run: docsys refs --repo . --root {root_rel}\n\
+         \x20     - if: github.event_name == 'pull_request'\n\
+         \x20       run: docsys gate --repo . --root {root_rel} --range \"origin/${{{{ github.base_ref }}}}...HEAD\"\n"
+    );
+    if fs::create_dir_all(&dir).is_err() || fs::write(&file, text).is_err() {
+        return "failed";
+    }
+    "written"
+}
 
 #[derive(Debug)]
 pub struct AdoptOutcome {
@@ -72,10 +109,12 @@ fn ensure_docmeta(root: &Path, lang: &str) -> Result<&'static str, String> {
     Ok("upgraded")
 }
 
-/// Append the warn-mode gate to the repo's pre-commit hook (idempotent).
-/// Warn-mode is deliberate: a fresh adoption carries debt, and a gate that
-/// blocks every commit on day one gets bypassed forever (R-150).
-fn ensure_git_gate(repo: &Path, root_rel: &str) -> &'static str {
+/// Append the gate to the repo's pre-commit hook (idempotent). Hard — lint
+/// errors and dangling references stop the commit — when the tree lints clean
+/// at adoption; warn-mode when it carries debt, because a gate that blocks
+/// every commit on day one gets bypassed forever (R-150). A warn-mode gate is
+/// hardened by a later `adopt` once the tree is clean (D-072).
+fn ensure_git_gate(repo: &Path, root_rel: &str, clean: bool) -> &'static str {
     // Placement order: configured core.hooksPath → a tracked .githooks/ dir
     // (the project's own convention; we also set hooksPath so the gate fires
     // on a fresh clone, exactly what the project's own setup step would do)
@@ -105,17 +144,32 @@ fn ensure_git_gate(repo: &Path, root_rel: &str) -> &'static str {
     let hook = repo.join(&hooks_dir).join("pre-commit");
     let existing = fs::read_to_string(&hook).unwrap_or_default();
     if existing.contains(GATE_MARKER) {
+        if clean && existing.contains(" || true") {
+            let text = existing
+                .replace(" || true", "")
+                .replace(WARN_MODE_LINE, HARD_MODE_LINE);
+            return if fs::write(&hook, text).is_ok() {
+                "hardened"
+            } else {
+                "failed"
+            };
+        }
         return "kept";
     }
+    let (mode_line, tail) = if clean {
+        (HARD_MODE_LINE, "")
+    } else {
+        (WARN_MODE_LINE, " || true")
+    };
     let mut block = String::new();
     let _ = write!(
         block,
         "\n# --- {GATE_MARKER} ---------------------------------------------\n\
-         # Warn-mode until the adoption debt is triaged; then remove `|| true`.\n\
+         {mode_line}\n\
          # One-off skip: DOCSYS_SKIP=1 git commit ...\n\
          if [ -z \"${{DOCSYS_SKIP:-}}\" ] && command -v docsys >/dev/null; then\n\
-         \x20 docsys lint --root {root_rel} || true\n\
-         \x20 docsys refs --repo . --root {root_rel} || true\n\
+         \x20 docsys lint --root {root_rel}{tail}\n\
+         \x20 docsys refs --repo . --root {root_rel}{tail}\n\
          fi\n"
     );
     // The block goes right below the shebang, never at the end: an existing
@@ -230,9 +284,26 @@ pub fn run(repo: &Path, root: &Path, lang: &str) -> Result<AdoptOutcome, String>
     )?;
     summary.push("AGENTS.md: managed block written".to_string());
 
-    // 4 · git pre-commit gate (warn-mode)
-    let gate = ensure_git_gate(repo, &root_rel);
-    summary.push(format!("git pre-commit gate: {gate}"));
+    // 4 · git pre-commit gate — hard when the tree is clean as the hook will
+    // see it (inside the repository: pins and history included), warn-mode
+    // while it carries debt (D-072)
+    let clean = {
+        let (r, _) = crate::lint_in(root, Some(repo));
+        !r.findings
+            .iter()
+            .any(|f| f.severity == crate::model::Severity::Error)
+    };
+    let gate = ensure_git_gate(repo, &root_rel, clean);
+    let mode = if clean {
+        "hard"
+    } else {
+        "warn-mode until lint is clean"
+    };
+    summary.push(format!("git pre-commit gate: {gate} ({mode})"));
+
+    // 4b · CI: the same questions on every push and pull request
+    let ci = ensure_ci_workflow(repo, &root_rel);
+    summary.push(format!("ci workflow (.github/workflows/docsys.yml): {ci}"));
 
     // 5 · evidence: current findings + the existing layer
     let (lint_report, _) = lint(root);
@@ -283,8 +354,16 @@ pub fn run(repo: &Path, root: &Path, lang: &str) -> Result<AdoptOutcome, String>
          \x20     (the file's content stays in the project's language).\n\
          - [ ] Triage the error findings: dangling references are usually decisions\n\
          \x20     cited but never distilled — graduate them (`docsys graduate plan`).\n\
-         - [ ] When errors reach zero, harden the pre-commit gate: remove `|| true`.\n",
+         - [ ] When errors reach zero, run `docsys adopt` again: the pre-commit gate\n\
+         \x20     hardens by itself (lint errors then stop the commit).\n",
     );
+    if ci.starts_with("skipped") {
+        md.push_str(
+            "- [ ] No `.github/` here: run `docsys lint --root <root> --repo .`, `docsys refs`\n\
+             \x20     and `docsys gate --range <base>...HEAD` in the CI you have; `docsys adopt`\n\
+             \x20     writes the GitHub workflow once `.github/` exists.\n",
+        );
+    }
     if !settings_missing {
         md.push_str(
             "- [ ] Merge the docsys hook wires into `.claude/settings.json` by hand or\n\

@@ -100,4 +100,35 @@ cd app
 docsys export feature ghost-id --root docs --out /dev/null 2>/tmp/ref.err && fail "unknown id composed"
 grep -q 'no permanent page' /tmp/ref.err || fail "refusal does not name the problem"
 
+say "8 · freshness: a pin catches drift, history dates the page, the range gate asks CI's question"
+mkdir -p docs/reference
+cat > docs/reference/entry.md <<EOF
+---
+id: entry
+type: reference
+updated: $(date +%F)
+---
+# Entry
+
+This page states what the entry point prints; read it before changing main.
+
+It prints nothing.
+EOF
+printf -- '- [[reference/entry|Entry]] -- what main prints.\n' >> docs/index.md
+docsys pin reference/entry main.rs >/dev/null || fail "pin did not land"
+grep -q 'sha256:' docs/reference/entry.md || fail "pin wrote no hash"
+git add -A && git commit -qm "entry page, pinned"
+docsys lint --root docs | grep -q -- '-- 0 error(s)' || fail "a fresh pin is not clean"
+echo 'fn main() { println!("hi") }' > main.rs
+(docsys lint --root docs || true) | grep -q 'R-111' || fail "a moved region is not reported"   # lint exits 1 here BY DESIGN
+docsys pin --refresh reference/entry >/dev/null || fail "refresh failed"
+docsys lint --root docs | grep -q -- '-- 0 error(s)' || fail "refreshed pin is not clean"
+git add -A && git commit -qm "main moved, page re-read"
+base=$(git rev-parse HEAD)
+echo 'pub fn helper() {}' > lib.rs      # code the pin does not cover: lint stays clean, only the range question is open
+git add -A && git commit -qm "code only"
+docsys gate --repo . --root docs --range "$base..HEAD" >/dev/null && fail "range gate passed code without docs"
+(docsys gate --repo . --root docs --range "$base..HEAD" || true) | grep -q '^GATE ' || fail "range gate names nothing"
+cd "$WORK"
+
 printf '\nE2E OK\n'

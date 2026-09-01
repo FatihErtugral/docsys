@@ -507,9 +507,10 @@ timestamps are never used; a fresh clone resets them. R-106 backstops the hand
 edit that skips the tooling.
 
 **R-106** `lint` · MUST — Where version-control history is available, a page
-whose `updated` is older than its last content change in history **is
-reported**. This is the R-018 backstop for R-052: an edit made without the
-tooling leaves exactly this trace.
+whose `updated` is older than its last content change in history **is an
+error**. This is the R-018 backstop for R-052: an edit made without the
+tooling leaves exactly this trace, the freshness field is the one claim a
+reader cannot check by hand, and the fix is one date (D-070, D-071).
 
 **R-053** WITHDRAWN — folded into R-050. An exemption is not an optional
 capability, and at `MAY` level R-010 let an implementation decline to test it
@@ -876,9 +877,12 @@ transition from happening without one.
 work to `explanation/` as a rejected alternative and whose archive gate decides
 the tried-versus-unnecessary split.
 
-**R-085** `lint` · SHOULD — A file whose last content change in version-control
-history is older than `stale_active_days` (default 90) while `status: active`
-SHOULD be reported. Undeclared abandonment is the common case, not the rare one.
+**R-085** `lint` · MUST — A file whose last content change in version-control
+history is older than `stale_active_days` (default 90) while its status is
+`draft`, `active` or `done` **is an error**. Undeclared abandonment is the
+common case, not the rare one, and a flowing layer nobody closes is where
+knowledge goes to die; the fix is one field — `abandoned` with its reason — or
+the graduation the file was waiting for (D-070).
 
 ### 8.2 Work types are not categories
 
@@ -1070,17 +1074,21 @@ verifies:
 **R-110** `lint` · MAY — A page MAY declare `verifies`. When the hash of the
 referenced region no longer matches, the page is reported as stale.
 
-**R-111** `lint` · MUST — Staleness **is reported** on every run until resolved,
-naming the page and the region that moved. "Loud" here means never silent, not
-blocking: drift is reversible and visible, and a build that fails on every
-documentation lag gets its check disabled. This is the only mechanism in this
+**R-111** `lint` · MUST — Staleness **is an error** on every run until resolved,
+naming the page and the region that moved. A pin is a promise the author made
+about a region of code; once the region moves the page is silently wrong until
+someone re-reads it, which is R-151's criterion exactly. The cost is bounded:
+the fix is one re-read followed by `docsys pin --refresh <page>`, or dropping a
+pin that was never worth keeping (D-070). This is the only mechanism in this
 specification that detects code-documentation drift mechanically.
 
 **R-113** `lint` · MUST — A **content hash** is `sha256` over the canonical form
 of the content, written as `sha256:` followed by lowercase hex. The canonical
 form is: UTF-8, NFC-normalized, LF line endings, trailing whitespace removed from
 each line, exactly one trailing LF. Without a fixed definition two
-implementations disagree about staleness for the same tree.
+implementations disagree about staleness for the same tree. An implementation
+that cannot normalize registers the gap and hashes the bytes as written
+(D-068).
 
 A **page's** content hash covers its **body** — everything after the closing
 frontmatter delimiter; a file without frontmatter hashes whole. Frontmatter is
@@ -1093,7 +1101,8 @@ region, unchanged.
 **R-114** `lint` · MUST — When `symbol` is absent, the hash covers the whole file
 at `path`. When `symbol` is present, the implementation MUST declare how it
 resolves symbols for that language, and MUST report an error rather than guess
-when a symbol is ambiguous or unresolvable.
+when a symbol is ambiguous or unresolvable. The reference implementation's
+resolution is registered as D-069.
 
 ---
 

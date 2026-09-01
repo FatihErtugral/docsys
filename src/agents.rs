@@ -61,8 +61,10 @@ allowed-tools: Bash(git log:*), Bash(git diff:*), Bash(git show:*), Bash(docsys 
 Manual, never automatic. Report; propose `docs/work/debt.md` items as a diff
 and wait for approval. Commit nothing.
 
-1. Mechanical pass: `docsys lint --root docs` and `docsys refs --repo .` —
-   include both outputs (one line each if green).
+1. Mechanical pass: `docsys lint --root docs --repo .` and `docsys refs --repo .` —
+   include both outputs (one line each if green). Freshness errors are drift
+   by definition: a stale pin names the region that moved, `updated:` behind
+   history names a hand edit, an untouched draft names abandonment.
 2. Drift suspects: `docsys seed plan --repo . --root docs --since <date of
    the newest journal entry>` — every feature history touched since, with
    its coverage. For each covered feature with commits, `git show --stat
@@ -91,6 +93,11 @@ approval gates. Never re-implement what a command does; never skip a gate.
 ## Always
 
 - Gate: `docsys lint --root docs` — before any commit, after any docs change.
+  Inside the repository it also checks freshness: a stale pin (R-111) is
+  re-read against the code, then `docsys pin --refresh <page>` — never
+  refreshed blind; `updated:` behind history (R-106) is one date; a draft
+  untouched past `stale_active_days` (R-085) is abandoned with a reason,
+  graduated, or worked on.
 - Never rewrite content — move it. Never translate. Never invent.
 - Judgment calls follow the authored procedures: `docsys rules --procedures`.
   When no option fits, take the escape; never force.
@@ -753,6 +760,21 @@ mod tests {
 
     #[test]
     fn hook_templates_are_valid_bash() {
+        // The check needs a bash that can run: on a Windows runner `bash`
+        // resolves to the WSL launcher, which has no distribution and fails
+        // every script. A parser that cannot parse inspected nothing (R-011),
+        // so the case is skipped there, not failed — the same templates are
+        // parsed on the Unix legs of the matrix.
+        let probe = std::process::Command::new("bash")
+            .args(["-c", "echo bash-ok"])
+            .output();
+        let usable = probe
+            .map(|o| String::from_utf8_lossy(&o.stdout).contains("bash-ok"))
+            .unwrap_or(false);
+        if !usable {
+            eprintln!("no usable bash on this host — template parse check skipped");
+            return;
+        }
         for (name, src) in [
             ("pre-commit", PRE_COMMIT_DOCS),
             ("stop", STOP_DOCS_REMINDER),

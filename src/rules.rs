@@ -112,6 +112,8 @@ pub fn agents_md() -> String {
            tree, drafts under `work/` included\n\
          - inside docs a page is linked as `[[dir/id]]` — the full path from the\n\
            docs root (R-070)\n\
+         - a page pinned to code (`verifies:`) that lint reports stale is re-read\n\
+           against the code, then `docsys pin --refresh <page>` — never refreshed blind\n\
          - a blocked Bash call is blocked whole: `git add … && git commit` re-runs\n\
            from the `add`; what landed is `git show HEAD:<file>`, not the tree\n\n\
          Judgment stays with you, but inside these rules:\n"

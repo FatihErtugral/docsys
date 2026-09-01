@@ -9,6 +9,7 @@ pub mod checks;
 pub mod doctor;
 pub mod export;
 pub mod fm;
+pub mod fresh;
 pub mod gate;
 pub mod graduate;
 pub mod graph;
@@ -32,7 +33,29 @@ pub enum Outcome {
     Config,
 }
 
+/// The repository a docs root lives in, as git sees it — `None` outside any
+/// repository, where the history checks are not applicable.
+pub fn repo_of(root: &Path) -> Option<std::path::PathBuf> {
+    let out = std::process::Command::new("git")
+        .arg("-C")
+        .arg(root)
+        .args(["rev-parse", "--show-toplevel"])
+        .output()
+        .ok()
+        .filter(|o| o.status.success())?;
+    let top = String::from_utf8_lossy(&out.stdout).trim().to_string();
+    (!top.is_empty()).then(|| std::path::PathBuf::from(top))
+}
+
+/// Lint the tree alone: no repository, so the freshness checks (§11, R-085,
+/// R-106) do not run. The corpus and the tree-only callers use this.
 pub fn lint(root: &Path) -> (checks::Report, Outcome) {
+    lint_in(root, None)
+}
+
+/// Lint the tree inside its repository: pins are recomputed against the code
+/// and history dates every page (the CLI and the gate pass the repository).
+pub fn lint_in(root: &Path, repo: Option<&Path>) -> (checks::Report, Outcome) {
     if !root.is_dir() {
         let mut r = checks::Report {
             findings: Vec::new(),
@@ -62,7 +85,11 @@ pub fn lint(root: &Path) -> (checks::Report, Outcome) {
             return (r, Outcome::Config);
         }
     };
-    let report = checks::run(&tree);
+    let ctx = checks::Context {
+        repo: repo.map(Path::to_path_buf),
+        history: repo.map(|r| fresh::History::load(r, root)),
+    };
+    let report = checks::run_with(&tree, &ctx);
     let outcome = if !tree.docmeta_present {
         Outcome::Config
     } else if report
