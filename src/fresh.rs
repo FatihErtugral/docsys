@@ -129,14 +129,12 @@ pub fn sha256(data: &[u8]) -> [u8; 32] {
         msg.push(0);
     }
     msg.extend_from_slice(&bit_len.to_be_bytes());
-    for chunk in msg.chunks_exact(64) {
+    let (blocks, _) = msg.as_chunks::<64>();
+    for chunk in blocks {
         let mut w = [0u32; 64];
-        for (i, word) in chunk.chunks_exact(4).enumerate() {
-            let mut bytes = [0u8; 4];
-            for (slot, b) in bytes.iter_mut().zip(word) {
-                *slot = *b;
-            }
-            set(&mut w, i, u32::from_be_bytes(bytes));
+        let (words, _) = chunk.as_chunks::<4>();
+        for (i, word) in words.iter().enumerate() {
+            set(&mut w, i, u32::from_be_bytes(*word));
         }
         for i in 16..64 {
             let w15 = at(&w, i - 15);
