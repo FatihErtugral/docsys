@@ -226,6 +226,35 @@ fn stop_reminder_sees_code_committed_but_not_pushed() {
 }
 
 #[test]
+fn stop_reminder_asks_for_the_journal_line_when_only_a_draft_moved() {
+    let repo = build_repo("stop-journal");
+    with_upstream(&repo);
+    // code moved and a research draft moved with it — the old reminder read
+    // "documentation changed" and stayed silent; the session's record, the
+    // journal line, was never written
+    fs::write(repo.join("main.rs"), "fn main() {}\n").unwrap();
+    fs::create_dir_all(repo.join("docs/work/research")).unwrap();
+    fs::write(
+        repo.join("docs/work/research/x.md"),
+        "---\nid: x\nstatus: draft\nupdated: 2026-08-16\n---\n\n## Question\n\n## Tried\n\n## Learned\n\n## Why no decision\n",
+    )
+    .unwrap();
+    let (code, err) = run_stop(&repo);
+    assert_eq!(code, 0, "warns, never blocks");
+    assert!(err.contains("work/journal.md"), "{err}");
+    assert!(err.contains("journal entry"), "{err}");
+    // the journal line answers it
+    fs::write(
+        repo.join("docs/work/journal.md"),
+        "# Journal\n\n## 2026-08-16 - main added\n- entry point landed\n\n\
+         ## 2026-08-16 - initialized\n- documentation tree created\n",
+    )
+    .unwrap();
+    let (_, err) = run_stop(&repo);
+    assert!(err.is_empty(), "{err}");
+}
+
+#[test]
 fn stop_reminder_reads_the_new_path_of_a_rename() {
     let repo = build_repo("stop-rename");
     // a docs page renamed to a code path: the old `awk '{print $2}'` read the
@@ -314,9 +343,10 @@ fn a_non_ascii_docs_page_answers_the_question() {
     let (code, err) = run_hook(&repo, commit_payload(), &[]);
     assert_eq!(code, 0, "{err}");
     assert!(!err.contains("GATE "), "{err}");
-    // the stop reminder reads the same paths
+    // the stop reminder reads the same paths: the docs page counts as
+    // documentation (the journal-line reminder is a different question)
     let (_, err) = run_stop(&repo);
-    assert!(err.is_empty(), "{err}");
+    assert!(!err.contains("no documentation"), "{err}");
     // and a non-ASCII CODE path alone still speaks
     git(&repo, &["commit", "-q", "-m", "both"]);
     fs::write(repo.join("çekirdek.rs"), "fn main() { run() }\n").unwrap();

@@ -311,6 +311,33 @@ fn check_permanent_frontmatter(tree: &DocTree, r: &mut Report) {
             kb_page_checks(tree, page, fm, r);
         }
     }
+    // R-061's domain is every page carrying `id` — tracked work included (a
+    // work page's id is an id, R-194/R-076). Permanent pages were read first,
+    // so a collision lands on the work page: the permanent page owns the
+    // identifier and the draft that took it is the one to rename (D-067).
+    for page in &tree.pages {
+        if page.kind != Kind::Tracked {
+            continue;
+        }
+        let Some(id) = page
+            .fm
+            .as_ref()
+            .and_then(|fm| fm.fields.get("id"))
+            .and_then(Value::as_str)
+        else {
+            continue;
+        };
+        if let Some(first) = ids.get(id) {
+            r.findings.push(Finding::err(
+                R061,
+                &page.rel,
+                id,
+                format!("id `{id}` already claimed by {first}"),
+            ));
+        } else {
+            ids.insert(id.to_string(), page.rel.clone());
+        }
+    }
     r.inspected.insert("permanent-frontmatter", inspected);
 }
 
@@ -445,7 +472,7 @@ fn check_sources(tree: &DocTree, r: &mut Report) {
                 .get_or_insert_with(|| crate::locator::repo_of(&tree.root))
                 .as_ref()
                 .is_some_and(|rp| rp.join(s).is_file());
-            if !in_tree && !(tree.profile == Profile::Project && in_repo) {
+            if !(in_tree || (tree.profile == Profile::Project && in_repo)) {
                 r.findings.push(finding(
                     &page.rel,
                     s,
@@ -1119,8 +1146,9 @@ fn check_doc_refs(tree: &DocTree, r: &mut Report) {
                         &page.rel,
                         &token,
                         format!(
-                            "line {}: `doc: {token}` cites the flowing layer — distil it into a \
-                             permanent page",
+                            "line {}: `doc: {token}` cites the flowing layer — a draft is \
+                             linked as `[[work/…/{token}]]` (R-070); `doc:` is for the \
+                             permanent page it distils into",
                             line + 1
                         ),
                     )),
@@ -1453,6 +1481,27 @@ fn check_list_grammars(tree: &DocTree, r: &mut Report) {
         let mut in_prose = false;
         for (i, line) in page.text.lines().enumerate() {
             if !line.starts_with("- [") {
+                // A list item with no checkbox is not preamble prose: it is a
+                // debt or a question written in a form no check, no `debt
+                // close`, no age measurement can see — silently wrong (R-151),
+                // before or after the first item. Found live: an agent noted a
+                // real debt as `- text` under an empty ledger, and lint read
+                // the file as clean.
+                if line.starts_with("- ") || line.starts_with("* ") {
+                    inspected += 1;
+                    r.findings.push(Finding::err(
+                        R108,
+                        &page.rel,
+                        &format!("line-{}", i + 1),
+                        format!(
+                            "line {}: a list item without a checkbox is invisible to every \
+                             check — an open item is `- [ ] YYYY-MM-DD …`, a closed one \
+                             `- [x] …` (R-108)",
+                            i + 1
+                        ),
+                    ));
+                    continue;
+                }
                 if is_debt && seen_item {
                     let t = line.trim();
                     let benign = t.is_empty()

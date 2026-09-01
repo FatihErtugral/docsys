@@ -127,7 +127,7 @@ flowchart LR
     SI --> WORK["agent works<br/>judgment via docsys rules --procedures"]
     WORK -- "edits docs page" --> PU["post-edit hook<br/>bumps updated:"]
     WORK -- "commit" --> PC["pre-commit hook<br/>docsys gate"]
-    WORK -- "turn ends" --> ST["stop hook<br/>code moved, docs didn't?<br/>(tree + unpushed commits) → remind"]
+    WORK -- "turn ends" --> ST["stop hook<br/>code moved, docs or journal didn't?<br/>(tree + unpushed commits) → remind"]
     PC -- "lint errors" --> BLOCK[BLOCKED — fix first]
     PC -- "code moved, docs didn't" --> ASK["asks ONCE — the same<br/>commit again proceeds"]
     PC -- "docs moved too" --> DONE([commit])
@@ -221,35 +221,70 @@ stamp carries its fetch date so a stale composition is visible.
 
 | Command | What it does |
 |---|---|
-| `docsys adopt [--repo .] [--root docs]` | One-command integration: docmeta (or the full init skeleton on a fresh project), agent assets, `settings.json` when absent, AGENTS.md managed block, git pre-commit gate (warn-mode), and an `ADOPTION.md` report whose checklist carries every judgment call. Idempotent. |
-| `docsys seed plan [--target <feature>]` · `docsys seed apply --plan <file>` · `docsys seed gaps` | Brownfield seeding: evidence from history and code, refused when a page covers the feature; the approved rows land under `work/` as tokens and verbatim quotations (D-053, D-058). |
-| `docsys debt close <n>` · `docsys journal add <text>` · `docsys page new <kind> <id>` | Capture, mechanical: a repaid debt leaves the ledger with its journal line; an entry at its date; a page from its template (D-063). |
-| `docsys backlinks <page>` · `docsys mentions [<page>]` · `docsys graph --format dot\|json\|jsoncanvas` | Derived navigation, never written into a page: who points at a page (code included), who names it without linking, the whole map (D-064). |
+| `docsys adopt [--repo .] [--root docs] [--lang <code>] [--obsidian]` | One-command integration: docmeta (or the full init skeleton on a fresh project), agent assets, `settings.json` when absent, AGENTS.md managed block, git pre-commit gate (warn-mode), and an `ADOPTION.md` report whose checklist carries every judgment call. Idempotent. |
+| `docsys seed plan [--target <feature>] [--since <date>] [--memory <dir>]` · `docsys seed apply --plan <file> [--force]` · `docsys seed gaps [--since <date>]` | Brownfield seeding: evidence from history and code, refused when a page covers the feature; the approved rows land under `work/` as tokens and verbatim quotations (D-053, D-058). |
+| `docsys debt close <n> [--note <line>]` · `docsys journal add <text> [--title <t>] [--date <d>] [--link <path>]` · `docsys page new <kind> <id> [--title <t>]` | Capture, mechanical: a repaid debt leaves the ledger with its journal line; an entry at its date; a page from its template (D-063). |
+| `docsys backlinks <path\|id> [--repo .]` · `docsys mentions [<path\|id>]` · `docsys graph [--format dot\|json\|jsoncanvas] [--repo .]` | Derived navigation, never written into a page: who points at a page (code included), who names it without linking, the whole map (D-064). |
 | `docsys adopt --obsidian` | The docs root as an Obsidian vault: absolute links, `_archive/` ignored, `_templates/` as templates, a `stale-work.base` view (D-065). Caveats: `aliases:` means retired ids here; keep Linter's `yaml-timestamp` off. |
 | `docsys lint [--root docs] [--json]` | Full tree validation: frontmatter, ids, links, journal discipline, templates, list grammars — both profiles. Errors exit 1, warnings don't. |
-| `docsys init [--root docs] [--profile …]` | Greenfield skeleton. `project`: router, journal, debt. `knowledge-base`: the record layer (`raw/inbox/`) and the wiki root. |
-| `docsys migrate inventory / apply` | Brownfield adoption: evidence-rich plan → approved mapping → mechanical move with link rewriting on both sides of the docs boundary. |
-| `docsys refs --repo .` | Validate every `doc: <id>` in the code base against the tree (typos stop being invisible). |
-| `docsys graduate plan / apply` | Byte-exact block movement from work files to the permanent layer. |
-| `docsys export plan / product / feature` | Compose a document from permanent pages: a draft map from the tree's own evidence, a whole product from an authored map, or one feature by identifier (`--follow` widens a hop). Bodies verbatim, source-stamped, `--audience` and `--lang` aware. |
-| `docsys export manifest` | Publish what this namespace exports — id, type, title, summary, content hash, no bodies. A few KB where a clone is megabytes. |
-| `docsys fetch` | Materialize consumed namespaces into `.federation/`: manifest first, unchanged pages skipped, provenance recorded. |
-| `docsys rules --agents-md / --procedures` | Agent text generated from the embedded spec: a ~33-line always-loaded block, and the fifteen decision procedures. |
-| `docsys agents [--kb] [--force]` | Install the agent layer: four relay hooks + `/docsys-sync`, `/docsys-seed`, `/docsys-interview` + the docsys and export skills for a project, or the four knowledge-base organs (capture · ingest · audit · lookup) with `--kb`. Hooks carry their template version; `--force` refreshes them. |
-| `docsys hook pre-tool-use\|stop\|post-tool-use\|user-prompt-submit` | The hook logic itself, reading the agent harness payload on stdin (D-051). |
-| `docsys gate` · `docsys doctor` | The commit-time question the binary computes (lint + code-without-docs), and the liveness check: every hook present, executable, wired under the right event, up to date (D-040, D-047). |
+| `docsys init [--root docs] [--lang <code>] [--profile project\|knowledge-base]` | Greenfield skeleton. `project`: router, journal, debt. `knowledge-base`: the record layer (`raw/inbox/`) and the wiki root. |
+| `docsys migrate inventory [--root <dir>] [--repo <dir>]` · `docsys migrate apply --plan <file> [--root <dir>] [--lang <code>] [--repo <dir>]` | Brownfield adoption: evidence-rich plan → approved mapping → mechanical move with link rewriting on both sides of the docs boundary. |
+| `docsys refs --repo <dir> [--root <dir>] [--json]` | Validate every `doc: <id>` in the code base against the tree (typos stop being invisible). |
+| `docsys graduate plan <work-file> [--root <dir>]` · `docsys graduate apply --plan <file> [--root <dir>] [--force]` | Byte-exact block movement from work files to the permanent layer; `--force` overrides the dirty-tree refusal. |
+| `docsys export plan [--audience <a>]` · `docsys export product <map> [--out <file>] [--lang <code>] [--audience <a>]` · `docsys export feature <id>… [--follow] [--title <t>] [--out <file>] [--lang <code>] [--audience <a>]` | Compose a document from permanent pages: a draft map from the tree's own evidence, a whole product from an authored map, or one feature by identifier (`--follow` widens a hop). Bodies verbatim, source-stamped, `--audience` and `--lang` aware. |
+| `docsys export manifest [--root <dir>] [--out <file>]` | Publish what this namespace exports — id, type, title, summary, content hash, no bodies. A few KB where a clone is megabytes. |
+| `docsys fetch [--root <dir>]` | Materialize consumed namespaces into `.federation/`: manifest first, unchanged pages skipped, provenance recorded. |
+| `docsys rules --agents-md \| --procedures [--max-lines <n>] [--write <file>]` | Agent text generated from the embedded spec: a ~40-line always-loaded block, and the fifteen decision procedures. `--max-lines` checks the block against the budget (R-165); `--write` lands it in a file instead of stdout. |
+| `docsys agents [--kb] [--dir .claude] [--force]` · `docsys agents --report [--dir .claude]` | Install the agent layer (`--report`: list the layer already installed and the shell calls it makes): four relay hooks + `/docsys-sync`, `/docsys-seed`, `/docsys-interview` + the docsys and export skills for a project, or the four knowledge-base organs (capture · ingest · audit · lookup) with `--kb`. Hooks carry their template version; `--force` refreshes them. |
+| `docsys hook pre-tool-use\|stop\|post-tool-use\|user-prompt-submit [--repo .] [--root docs]` | The hook logic itself, reading the agent harness payload on stdin (D-051). |
+| `docsys gate [--repo .] [--root docs]` · `docsys doctor [--repo .] [--root docs] [--dir .claude]` | The commit-time question the binary computes (lint + code-without-docs), and the liveness check: every hook present, executable, wired under the right event, up to date (D-040, D-047). |
 
 ## Quick start
 
 ```sh
 cargo install docsys      # zero dependencies → one static binary on your PATH
-docsys help
+cd your-project           # any git repository, with or without documentation
+docsys adopt              # the whole setup, one command — what it writes is listed below
+docsys doctor             # is the pipeline alive? every hook present, wired, up to date
 ```
 
 No Rust toolchain? Grab a prebuilt binary for Linux (static musl,
 x86_64/aarch64), macOS (Intel/Apple Silicon), or Windows from the
 [releases page](https://github.com/FatihErtugral/docsys/releases) and put it
 on your PATH.
+
+`adopt` is idempotent — re-run it after an upgrade and only what changed is
+rewritten. It lands:
+
+- `docs/` — the skeleton when none exists (`.docmeta.yml`, router, journal,
+  debt, questions, `_templates/`); an existing tree is left as it is
+- `.claude/hooks/`, `.claude/commands/`, `.claude/skills/` — four relay hooks,
+  `/docsys-sync`, `/docsys-seed`, `/docsys-interview`, the docsys and export
+  skills
+- `.claude/settings.json` — the hook wiring, written only when the file does
+  not exist (an existing one is never clobbered; the snippet to merge goes on
+  the report)
+- `AGENTS.md` — a managed block generated from the embedded spec
+- `.git/hooks/pre-commit` — the lint gate, in warn mode until the tree is
+  clean
+- `ADOPTION.md` — the report, with a checklist of every judgment call left to
+  you
+
+Then open an agent session in that directory and work as usual. Three things
+happen without being asked:
+
+- the first message gets a routing block — name the work type (feature / bug /
+  refactor / research / idea) and where each one lands
+- editing a page under `docs/` bumps its `updated:` by itself
+- committing code without touching docs is asked about once, naming what
+  moved; the same commit again proceeds
+
+`docsys lint --root docs` is the check CI runs: errors exit 1, warnings do
+not. Everything else — feeling the severity doctrine on a clean tree, seeding
+a project that has no documentation, the capture commands, migrating an
+existing tree, a personal knowledge base — is a guided tour below.
+
+## Guided tours
 
 ### 1 · Feel it on a clean project (5 minutes)
 
@@ -271,11 +306,11 @@ mkdir -p docs/reference && echo "naked page" > docs/reference/x.md
 docsys lint --root docs      # WARN R-050 (frontmatter) + WARN R-034 (orphan)
 ```
 
-### 2 · The agent layer (where it becomes a system)
+### 2 · The agent layer, in detail
 
 ```sh
-docsys adopt                           # assets + settings.json + AGENTS.md block + git gate + report
 docsys rules --procedures | less       # the 15 authored decision procedures
+docsys agents --report                 # what is installed, and the shell calls it makes
 ```
 
 Test fixtures that carry a deliberately broken `doc:` reference (probe files, a
@@ -299,7 +334,7 @@ agent session in that directory and try the loop:
   declare it once — `generated_preamble: "<!-- … -->"` in `.docmeta.yml` — and
   every file docsys writes opens with it (D-056)
 
-### 2b · A project with no documentation at all — seeding
+### 3 · A project with no documentation at all — seeding
 
 ```sh
 docsys adopt                                   # skeleton, hooks, templates, questions ledger
@@ -319,7 +354,7 @@ debt and question items). `/docsys-interview` runs it feature by feature,
 resumable. A feature a page already covers is refused by name; from there the
 hooks keep it current.
 
-### 2c · Capture and navigation
+### 4 · Capture and navigation
 
 ```sh
 docsys journal add "Wire format settled; details on the page" --link reference/wire
@@ -337,7 +372,7 @@ writes (absolute link format, `_archive/` and `.federation/` ignored,
 identifiers here and autocomplete names there; and keep the Linter plugin's
 `yaml-timestamp` off — it fights `updated:` (D-065).
 
-### 3 · A real repository, safely (clone first)
+### 5 · A real repository, safely (clone first)
 
 ```sh
 git clone <your-repo> /tmp/pilot && cd /tmp/pilot
@@ -358,7 +393,7 @@ boundary (README included), reports what it could not map as RISK lines, and
 lints the result. Don't like it? `git checkout . && git clean -fd` — it was a
 clone; zero risk.
 
-### 4 · A personal knowledge base (the other profile)
+### 6 · A personal knowledge base (the other profile)
 
 The same mechanics, a different layout: notes land with zero discipline, get
 distilled with full discipline, and every claim keeps its evidence.

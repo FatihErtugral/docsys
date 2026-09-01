@@ -209,6 +209,7 @@ mod tests {
         g(&["init", "-q"]);
         g(&["config", "user.email", "t@example.invalid"]);
         g(&["config", "user.name", "t"]);
+        g(&["config", "tag.gpgsign", "false"]); // the developer's signing setup is not the test's
         std::fs::write(dir.join("a.txt"), "1\n2\n3\n").unwrap();
         g(&["add", "-A"]);
         g(&["commit", "-q", "-m", "one"]);

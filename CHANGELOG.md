@@ -5,6 +5,44 @@ All notable changes to docsys are documented here. The format follows
 [SemVer](https://semver.org/). Release notes are extracted from this file
 by the release workflow — the tag's section becomes the GitHub release body.
 
+## [Unreleased]
+
+Findings of an agent lab: three sample repositories adopted, fifteen headless
+agent sessions (feature · bug · research · refactor · idea), every write and
+every hook observed.
+
+### Changed
+
+- `lint`: R-061's uniqueness domain now includes tracked work pages. A draft
+  under `work/` that claims a permanent page's identifier is an error named on
+  the draft (D-067); corpus case 38. Before, lint passed and `backlinks`
+  silently picked the permanent page.
+- `lint`: a list item without a checkbox in `debt.md` or `questions.md` —
+  `- text`, before or after the first item — is an error (R-108 text
+  clarified); corpus case 39. Before, a debt written that way was invisible to
+  every check.
+- Dates are the local day (D-066): `DOCSYS_TODAY`, then `date +%F`, then the
+  UTC civil day as the floor. Before, an evening session got yesterday on
+  `updated:` and today in the journal.
+- Stop hook: when code and documentation moved but `work/journal.md` did not,
+  the reminder asks for the session's journal line; a touched draft alone no
+  longer reads as "documented". Warns, never blocks (R-150).
+- Session-intent routing names `research` (→ `work/research/`, no code) and
+  the in-docs link form; `rules --agents-md` states tree-wide id uniqueness
+  and the `[[dir/id]]` link form.
+- R-194's flowing-layer finding names the wiki-link form of a draft citation
+  instead of only "distil" — the previous wording made an agent delete the
+  link.
+- `journal add`: a one-line text without `--title` becomes the heading alone;
+  the same sentence is no longer repeated as the first bullet.
+
+### Fixed
+
+- README: the Commands table carries every flag the binary parses
+  (`--report`, `--dir`, `--max-lines`, `--write`, `--since`, `--memory`,
+  `--date`, …); Quick start opens with the one-command adoption and the
+  guided tours moved under their own heading.
+
 ## [0.9.0] - 2026-08-29
 
 ### Added

@@ -37,8 +37,52 @@ fn strip_md_links(s: &str) -> String {
     out
 }
 
-/// Civil date from the system clock (days-from-epoch algorithm; zero-dep).
+/// The calendar day every write carries (`updated:`, journal entries, `page
+/// new`, seed rows). It is the LOCAL day — the one the human and the agent see
+/// in `date` and write by hand. A UTC day disagrees with them for the hours
+/// around midnight and puts two dates on one evening's work (D-066). Sources
+/// in order: `DOCSYS_TODAY` (an ISO date; hooks and tests may pin it), the
+/// platform's `date +%F`, and only then the UTC civil day from the clock.
+/// Resolved once per process.
 pub fn today() -> String {
+    static TODAY: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    TODAY
+        .get_or_init(|| {
+            today_from(
+                std::env::var("DOCSYS_TODAY").ok().as_deref(),
+                local_date_command().as_deref(),
+            )
+        })
+        .clone()
+}
+
+/// The day from its candidate sources, first valid ISO date wins; the UTC
+/// clock is the floor. Pure, so the precedence is testable.
+pub fn today_from(pinned: Option<&str>, local: Option<&str>) -> String {
+    for candidate in [pinned, local].into_iter().flatten() {
+        let c = candidate.trim();
+        if crate::model::is_iso_date(c) {
+            return c.to_string();
+        }
+    }
+    utc_today()
+}
+
+/// `date +%F` — the local civil day on every Unix; absent or different on a
+/// platform without it, which is why it is one source and not the source.
+fn local_date_command() -> Option<String> {
+    let out = std::process::Command::new("date")
+        .arg("+%F")
+        .output()
+        .ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    Some(String::from_utf8_lossy(&out.stdout).trim().to_string())
+}
+
+/// UTC civil date from the system clock (days-from-epoch algorithm; zero-dep).
+fn utc_today() -> String {
     let secs = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_secs())
@@ -796,6 +840,19 @@ mod tests_more {
         let t = today();
         assert!(crate::model::is_iso_date(&t), "{t}");
         assert!(t.starts_with("20"), "{t}");
+    }
+
+    #[test]
+    fn today_prefers_the_pin_then_the_local_day_then_utc() {
+        assert_eq!(
+            today_from(Some("2026-01-02"), Some("2026-01-03")),
+            "2026-01-02"
+        );
+        assert_eq!(today_from(Some("junk"), Some("2026-01-03")), "2026-01-03");
+        assert_eq!(today_from(None, Some(" 2026-01-03\n")), "2026-01-03");
+        let floor = today_from(Some(""), Some("not a date"));
+        assert!(crate::model::is_iso_date(&floor), "{floor}");
+        assert_eq!(floor, utc_today());
     }
 }
 

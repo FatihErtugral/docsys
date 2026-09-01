@@ -85,23 +85,27 @@ pub fn journal_add(
         Some(d) => return Err(format!("`{d}` is not a YYYY-MM-DD date")),
         None => today(),
     };
-    let title = title
-        .map(str::trim)
-        .filter(|t| !t.is_empty())
-        .map(str::to_string)
-        .unwrap_or_else(|| {
-            let first = text.lines().next().unwrap_or("").trim();
-            first
-                .split_once(". ")
-                .map_or(first, |(a, _)| a)
-                .trim_end_matches('.')
-                .to_string()
-        });
+    let explicit = title.map(str::trim).filter(|t| !t.is_empty());
+    let title = explicit.map(str::to_string).unwrap_or_else(|| {
+        let first = text.lines().next().unwrap_or("").trim();
+        first
+            .split_once(". ")
+            .map_or(first, |(a, _)| a)
+            .trim_end_matches('.')
+            .to_string()
+    });
+    // A single sentence with no title of its own IS the title: repeating it
+    // as the first bullet wrote every one-line entry twice. R-101 blesses a
+    // one-line entry; the links, when given, are its body.
+    let text_is_title =
+        explicit.is_none() && text.lines().count() == 1 && text.trim_end_matches('.') == title;
     let mut entry = format!("## {date} - {title}");
-    for line in text.lines() {
-        let l = line.trim();
-        if !l.is_empty() {
-            entry.push_str(&format!("\n- {}", l.trim_start_matches("- ")));
+    if !text_is_title {
+        for line in text.lines() {
+            let l = line.trim();
+            if !l.is_empty() {
+                entry.push_str(&format!("\n- {}", l.trim_start_matches("- ")));
+            }
         }
     }
     if let Some(l) = link.map(str::trim).filter(|l| !l.is_empty()) {

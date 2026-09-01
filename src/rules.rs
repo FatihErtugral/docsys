@@ -108,7 +108,10 @@ pub fn agents_md() -> String {
          - `docsys lint` before every commit; errors block, warnings accumulate\n\
          - `docsys refs --repo .` when code references documentation\n\
          - code cites documentation as `doc: <id>` — never a path; the id is the\n\
-           contract, the filename is cosmetic\n\
+           contract, the filename is cosmetic, and it is unique across the whole\n\
+           tree, drafts under `work/` included\n\
+         - inside docs a page is linked as `[[dir/id]]` — the full path from the\n\
+           docs root (R-070)\n\
          - a blocked Bash call is blocked whole: `git add … && git commit` re-runs\n\
            from the `add`; what landed is `git show HEAD:<file>`, not the tree\n\n\
          Judgment stays with you, but inside these rules:\n"

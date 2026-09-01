@@ -451,8 +451,9 @@ pub fn stop(repo: &Path, root: &Path) -> Reply {
     paths.extend(ahead.iter().cloned());
     paths.sort();
     paths.dedup();
-    let (code, docs) = classify(&paths, &root_rel(repo, root));
-    if code.is_empty() || docs > 0 {
+    let root_rel = root_rel(repo, root);
+    let (code, docs) = classify(&paths, &root_rel);
+    if code.is_empty() {
         return Reply::ok();
     }
     let where_ = if ahead.is_empty() {
@@ -460,6 +461,28 @@ pub fn stop(repo: &Path, root: &Path) -> Reply {
     } else {
         "this session (including commits not yet pushed)"
     };
+    if docs > 0 {
+        // Documentation moved with the code — but the session's own record is
+        // the journal line (R-101), and a touched draft or a renamed token in
+        // a research note is not one. Found live: a public rename updated the
+        // research page that named the method and ended with no journal entry.
+        let root = root_rel.trim_end_matches('/');
+        let journal = if root.is_empty() || root == "." {
+            "work/journal.md".to_string()
+        } else {
+            format!("{root}/work/journal.md")
+        };
+        if paths.iter().any(|p| p == &journal) {
+            return Reply::ok();
+        }
+        return Reply {
+            code: 0,
+            stderr: format!(
+                "docs: {where_} changed code and documentation, but work/journal.md did\nnot move — end of session: one journal entry (≤5 lines, links not content).\n"
+            ),
+            stdout: String::new(),
+        };
+    }
     Reply {
         code: 0,
         stderr: format!(
@@ -531,17 +554,21 @@ pub fn bump_updated(text: &str, today: &str) -> Option<String> {
 }
 
 pub const ROUTING: &str = "<session-doc-routing>
-First turn. Classify the work type before anything else. If the message makes
-it clear, state it in one line and proceed — ask only when genuinely ambiguous
-(feature / bug / refactor / idea-note).
+First turn. Name the work type before anything else — one of feature, bug,
+refactor, research, idea-note. If the message makes it clear, state it in one
+line and proceed; when it is genuinely ambiguous, ask THAT question first.
 
 Routing: feature needing a design decision → work/features/ (status: draft);
 bug → root cause first: wrong line = journal line, wrong assumption = invariant
 in reference/ or a postmortem (test: can it recur?); refactor touching a public
-surface → reference/ updated, and always record WHY; idea → journal or roadmap
-line, never the permanent layer before it becomes a decision.
+surface → reference/ updated, and always record WHY; research = a question
+with no decision yet → work/research/ (Question · Tried · Learned · Why no
+decision), no code; idea → journal or roadmap line, never the permanent layer
+before it becomes a decision.
 
 Contract-surface changes update their documentation in the SAME session.
+Inside docs a page is linked as [[dir/id]] (full path); `doc: <id>` is how
+code cites a page. An id is unique across the whole tree, drafts included.
 End of session: journal line (≤5 lines, links not content). Gate: docsys lint.
 Judgment calls follow the procedures: docsys rules --procedures.
 </session-doc-routing>
