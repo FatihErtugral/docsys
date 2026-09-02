@@ -28,6 +28,15 @@ write gate for connectors, and the digest.
   base, its agent layer, every docsys project one level under the given
   directories consumed and fetched, their recent commits as records, the
   digest. Idempotent. Another knowledge base found there is skipped.
+- A verification is checked against its consumed sources (D-082): a
+  `verified` page whose `@namespace/id` source moved since `verified_rev`
+  (the provenance hash at that revision differs from the current one) is an
+  R-024 error; a materialization with no committed baseline is an R-028
+  error. `status` reports "sources moved" separately. This is how a base
+  stays current: `fetch` brings the new hash, lint names the pages that
+  rested on the old one.
+- The git connector skips bookkeeping commits (no body, nothing outside
+  documentation, manifests and the agent layer) unless `--all`.
 - `refs` never scans `.federation/`, and in a base that is its own repository
   it scans code only — its wiki pages were reported as strays before.
 - SPEC §20 Connectors (EXPERIMENTAL): the record, the boundary (no secrets,

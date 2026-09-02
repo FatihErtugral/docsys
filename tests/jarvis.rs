@@ -202,7 +202,7 @@ fn the_git_connector_lands_each_commit_once_and_the_inbox_shows_in_status() {
     let b = base(&hub);
     git(&b, &["add", "-A"]);
     git(&b, &["commit", "-q", "-m", "base"]);
-    let landed = inbox::pull_git(&b, &relay, "30.days", None, None).unwrap();
+    let landed = inbox::pull_git(&b, &relay, "30.days", None, None, false).unwrap();
     assert_eq!(landed.len(), 1, "{landed:?}");
     assert!(landed[0].starts_with("captured: raw/inbox/"), "{landed:?}");
     let rel = landed[0].trim_start_matches("captured: ");
@@ -221,7 +221,7 @@ fn the_git_connector_lands_each_commit_once_and_the_inbox_shows_in_status() {
         "{record}"
     );
     // a second pull: nothing new, the same record named
-    let again = inbox::pull_git(&b, &relay, "30.days", None, None).unwrap();
+    let again = inbox::pull_git(&b, &relay, "30.days", None, None, false).unwrap();
     assert_eq!(again.len(), 1);
     assert!(
         again[0].starts_with("already captured: raw/inbox/"),
@@ -331,4 +331,166 @@ fn an_assistants_memory_stands_up_in_one_command_and_again() {
     let err = docsys::assistant::run(&hub.join("relay").join("docs"), &[], &[], "30.days", None)
         .unwrap_err();
     assert!(err.contains("knowledge base"), "{err}");
+}
+
+#[test]
+fn a_verified_page_fails_when_a_consumed_source_moves_after_verification() {
+    let hub = tmp("source-moved");
+    let relay = provider(
+        &hub,
+        "relay",
+        "retry-policy",
+        "Retry policy",
+        "Four attempts.",
+    );
+    let b = base(&hub);
+    consume::add(&b, hub.join("relay").to_str().unwrap(), None).unwrap();
+    export::fetch(&b).unwrap();
+    write(
+        &b,
+        "wiki/coding/explanation/relay-in-one-page.md",
+        "---\nid: relay-in-one-page\ntype: explanation\ndomain: coding\nverification: unverified\nupdated: 2026-09-02\nsources: [@relay/retry-policy]\n---\n# Relay in one page\n\nThis page explains relay's promise; read it before depending on it.\n\nFour attempts, then a dead letter.\n",
+    );
+    write(
+        &b,
+        "wiki/coding/index.md",
+        "# coding\n\n- [[coding/explanation/relay-in-one-page|Relay]] -- in one page.\n",
+    );
+    write(
+        &b,
+        "wiki/index.md",
+        "# Knowledge base\n\n- [[coding/index|Coding]] -- code.\n",
+    );
+    git(&b, &["add", "-A"]);
+    git(&b, &["commit", "-q", "-m", "learned"]);
+    let rev = String::from_utf8(
+        Command::new("git")
+            .args(["rev-parse", "--short", "HEAD"])
+            .current_dir(&b)
+            .output()
+            .unwrap()
+            .stdout,
+    )
+    .unwrap()
+    .trim()
+    .to_string();
+    // another session verifies it against the source as fetched
+    let page = b.join("wiki/coding/explanation/relay-in-one-page.md");
+    let text = fs::read_to_string(&page).unwrap().replace(
+        "verification: unverified",
+        &format!("verification: verified\nverified_by: other-session\nverified_rev: {rev}"),
+    );
+    fs::write(&page, &text).unwrap();
+    assert!(errors(&b).is_empty(), "{:?}", errors(&b));
+
+    // the provider changes its page; the next fetch brings the new hash
+    let src = relay.join("docs/reference/retry-policy.md");
+    let changed = fs::read_to_string(&src)
+        .unwrap()
+        .replace("Four attempts.", "Six attempts.");
+    fs::write(&src, changed).unwrap();
+    git(&relay, &["add", "-A"]);
+    git(&relay, &["commit", "-q", "-m", "relay: six attempts"]);
+    export::fetch(&b).unwrap();
+    let errs = errors(&b);
+    assert!(
+        errs.contains(
+            &"R-024 wiki/coding/explanation/relay-in-one-page.md @relay/retry-policy".to_string()
+        ),
+        "{errs:?}"
+    );
+    let s = status::status(&b, Some(&b)).unwrap();
+    assert_eq!(s.sources_moved, 1);
+    assert!(
+        status::render(&s, &b).contains("sources: 1 verified page(s) whose consumed sources moved")
+    );
+    assert!(status::render_json(&s).contains("\"sources_moved\":1"));
+
+    // a verification with no committed baseline cannot be audited
+    let fresh = hub.join("jarvis2");
+    fs::create_dir_all(&fresh).unwrap();
+    git(&fresh, &["init", "-q"]);
+    git(&fresh, &["config", "user.email", "t@example.invalid"]);
+    git(&fresh, &["config", "user.name", "t"]);
+    docsys::migrate::init_profile(&fresh, "en", "knowledge-base").unwrap();
+    let dm = fresh.join(".docmeta.yml");
+    fs::write(
+        &dm,
+        fs::read_to_string(&dm)
+            .unwrap()
+            .replace("domains: []", "domains: [coding]"),
+    )
+    .unwrap();
+    git(&fresh, &["add", "-A"]);
+    git(&fresh, &["commit", "-q", "-m", "empty base"]);
+    let rev2 = String::from_utf8(
+        Command::new("git")
+            .args(["rev-parse", "--short", "HEAD"])
+            .current_dir(&fresh)
+            .output()
+            .unwrap()
+            .stdout,
+    )
+    .unwrap()
+    .trim()
+    .to_string();
+    consume::add(&fresh, hub.join("relay").to_str().unwrap(), None).unwrap();
+    export::fetch(&fresh).unwrap(); // materialized, never committed
+    write(
+        &fresh,
+        "wiki/coding/explanation/relay-in-one-page.md",
+        &format!("---\nid: relay-in-one-page\ntype: explanation\ndomain: coding\nverification: verified\nverified_by: other\nverified_rev: {rev2}\nupdated: 2026-09-02\nsources: [@relay/retry-policy]\n---\n# Relay in one page\n\nThis page explains relay's promise; read it first.\n\nSix attempts.\n"),
+    );
+    write(
+        &fresh,
+        "wiki/coding/index.md",
+        "# coding\n\n- [[coding/explanation/relay-in-one-page|Relay]] -- in one page.\n",
+    );
+    write(
+        &fresh,
+        "wiki/index.md",
+        "# Knowledge base\n\n- [[coding/index|Coding]] -- code.\n",
+    );
+    let errs = errors(&fresh);
+    assert!(
+        errs.iter()
+            .any(|e| e.starts_with("R-028 wiki/coding/explanation/relay-in-one-page.md")),
+        "{errs:?}"
+    );
+}
+
+#[test]
+fn the_git_connector_skips_bookkeeping_unless_asked() {
+    let hub = tmp("noise");
+    let relay = provider(
+        &hub,
+        "relay",
+        "retry-policy",
+        "Retry policy",
+        "Four attempts.",
+    );
+    // a docs-only commit with no body: bookkeeping
+    let page = relay.join("docs/reference/retry-policy.md");
+    fs::write(
+        &page,
+        fs::read_to_string(&page)
+            .unwrap()
+            .replace("2026-09-02", "2026-09-03"),
+    )
+    .unwrap();
+    git(&relay, &["add", "-A"]);
+    git(&relay, &["commit", "-q", "-m", "docs: bump updated"]);
+    let b = base(&hub);
+    git(&b, &["add", "-A"]);
+    git(&b, &["commit", "-q", "-m", "base"]);
+    let landed = inbox::pull_git(&b, &relay, "30.days", None, None, false).unwrap();
+    assert_eq!(landed.len(), 1, "{landed:?}");
+    assert!(landed[0].contains("relay-relay-retry-policy"), "{landed:?}");
+    let all = inbox::pull_git(&b, &relay, "30.days", None, None, true).unwrap();
+    assert_eq!(all.len(), 2, "{all:?}");
+    assert!(
+        all.iter()
+            .any(|l| l.starts_with("captured:") && l.contains("bump-updated")),
+        "{all:?}"
+    );
 }

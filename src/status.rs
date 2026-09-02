@@ -38,6 +38,8 @@ pub struct Status {
     /// error findings by rule: R-111 stale pins, R-106 updated behind history,
     /// R-085 untouched drafts, R-024 verified drift, R-095 stale skills, …
     pub by_rule: BTreeMap<String, usize>,
+    /// verified pages whose consumed sources moved since verification (D-082)
+    pub sources_moved: usize,
     pub first_errors: Vec<String>,
 }
 
@@ -166,6 +168,9 @@ pub fn status(root: &Path, repo: Option<&Path>) -> Result<Status, String> {
         if f.severity == Severity::Error {
             s.errors += 1;
             *s.by_rule.entry(f.rule.0.to_string()).or_insert(0) += 1;
+            if f.rule.0 == "R-024" && f.subject.starts_with('@') {
+                s.sources_moved += 1;
+            }
             if s.first_errors.len() < 5 {
                 s.first_errors.push(format!(
                     "{} {} [{}] {}",
@@ -246,8 +251,18 @@ pub fn render(s: &Status, root: &Path) -> String {
         s.by_rule.get("R-111").copied().unwrap_or(0),
         s.by_rule.get("R-106").copied().unwrap_or(0),
         s.by_rule.get("R-085").copied().unwrap_or(0),
-        s.by_rule.get("R-024").copied().unwrap_or(0)
+        s.by_rule
+            .get("R-024")
+            .copied()
+            .unwrap_or(0)
+            .saturating_sub(s.sources_moved)
     ));
+    if !s.consumed.is_empty() {
+        out.push_str(&format!(
+            "sources: {} verified page(s) whose consumed sources moved since verification\n",
+            s.sources_moved
+        ));
+    }
     out.push_str(&format!(
         "lint: {} error(s), {} warning(s)\n",
         s.errors, s.warnings
@@ -300,7 +315,7 @@ pub fn render_json(s: &Status) -> String {
         .map(|e| format!("\"{}\"", esc(e)))
         .collect();
     format!(
-        "{{\"profile\":\"{}\",\"namespace\":{},\"inbox\":{},\"inbox_oldest\":{},\"permanent\":{},\"unverified\":[{}],\"work\":{{{}}},\"questions_open\":{},\"debt_open\":{},\"consumed\":[{}],\"skills_compiled\":{},\"errors\":{},\"warnings\":{},\"by_rule\":{{{}}},\"first_errors\":[{}]}}\n",
+        "{{\"profile\":\"{}\",\"namespace\":{},\"inbox\":{},\"inbox_oldest\":{},\"permanent\":{},\"unverified\":[{}],\"work\":{{{}}},\"questions_open\":{},\"debt_open\":{},\"consumed\":[{}],\"skills_compiled\":{},\"errors\":{},\"warnings\":{},\"by_rule\":{{{}}},\"sources_moved\":{},\"first_errors\":[{}]}}\n",
         esc(&s.profile),
         s.namespace
             .as_ref()
@@ -319,6 +334,7 @@ pub fn render_json(s: &Status) -> String {
         s.errors,
         s.warnings,
         by_rule.join(","),
+        s.sources_moved,
         first.join(",")
     )
 }

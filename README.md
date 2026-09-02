@@ -11,9 +11,15 @@ your commit unless the damage would be irreversible or silently wrong.
 
 Built spec-first: every behavior traces to a numbered rule in [SPEC.md](SPEC.md)
 (147 normative rules, survived six adversarial audit rounds by six independent
-models), every implementation-defined choice is registered in
-[corpus/DECISIONS.md](corpus/DECISIONS.md), and the conformance corpus keeps the
-binary from drifting looser *or* noisier than the rules.
+models, plus two experimental sections — federation and connectors — that bind
+nothing until real use settles them), every implementation-defined choice is
+registered in [corpus/DECISIONS.md](corpus/DECISIONS.md), and the conformance
+corpus keeps the binary from drifting looser *or* noisier than the rules.
+
+Two profiles, one binary. A **project** keeps its documentation next to its
+code and honest against it; a **knowledge base** is a person's memory — and,
+consuming the projects, an assistant's: `docsys assistant --root ~/jarvis
+--projects ~/code` is the whole setup.
 
 ---
 
@@ -43,8 +49,8 @@ flowchart LR
 
     F ==>|"graduate — byte-exact,<br/>never rewritten"| PERM
     CODE -->|"doc: &lt;id&gt;<br/>never a path"| PERM
-    PERM -.->|"verifies: hash pin<br/>(spec §11 — not yet in the binary)"| CODE
-    HOW -->|"compile<br/>(mature only)"| SKILL
+    PERM -.->|"verifies: SHA-256 pin (§11)<br/>lint fails when the region moves"| CODE
+    HOW -->|"compile (complete steps only)<br/>skill pinned to the page's hash"| SKILL
 ```
 
 Which section of a work file lands in which permanent type is a lookup, not a
@@ -66,14 +72,15 @@ Two contracts carry everything:
 ```mermaid
 flowchart TD
     subgraph TOOL["docsys  (deterministic — never authors prose)"]
-        T1[lint · refs<br/>validation]
-        T2[init · migrate · graduate<br/>movement + scaffolding]
-        T3[rules · agents<br/>generated agent layer]
+        T1[lint · refs · gate · status<br/>validation and the digest]
+        T2[init · adopt · migrate · graduate<br/>fetch · inbox — movement, scaffolding, records]
+        T3[rules · agents · pin · compile<br/>generated layer, hashes, skills]
     end
     subgraph MODEL["LLM  (judgment — never moves bytes)"]
         M1[classify: which type?]
         M2[route: which block where?]
         M3[write: openings, distillations]
+        M4[verify: in another session]
     end
     subgraph HUMAN["human  (authority)"]
         H1[approve plans]
@@ -140,6 +147,12 @@ so a retry that dropped its `git add` is caught, not waved through). The other
 hooks warn and never block: a wall gets hooks disabled, a question does not
 (R-150, R-151, D-040, D-043, D-049).
 
+The same four relays serve a knowledge base (`docsys agents --kb`); the binary
+reads the root's profile and changes what they guard: a `Write`/`Edit` on an
+existing `raw/` record is blocked (the one irreversible write), the first turn
+names the four organs instead of the work types, `updated:` bumps on wiki
+pages only, and the end of a turn names what waits in the inbox (D-076).
+
 ## Graduation — the heart
 
 ```mermaid
@@ -155,6 +168,41 @@ flowchart LR
 "Content is never rewritten, only moved" stopped being a rule the model must
 obey and became a guarantee the command enforces (R-090): the model selects
 the mapping, the tool copies the bytes.
+
+## Freshness — drift is a hash, not a reviewer
+
+Documentation goes wrong quietly: the code moves, the page does not. Five
+checks make that loud, all of them errors, none of them a reviewer's memory:
+
+```mermaid
+flowchart LR
+    CODE["code region"] -- "verifies: sha256 pin" --> PAGE["permanent page"]
+    PAGE -- "compile" --> SKILL[".claude/skills/&lt;id&gt;<br/>docsys_source_hash"]
+    HIST["git history"] -- "last change vs updated:<br/>days since draft moved" --> PAGE
+    PROV["provider page<br/>(consumed, @ns/id)"] -- "fetch: provenance hash" --> WIKI["wiki page<br/>verified at rev"]
+    WIKI -- "body at verified_rev<br/>sources at verified_rev" --> LINT{lint}
+    PAGE --> LINT
+    SKILL --> LINT
+    LINT -- "moved" --> ERR["ERROR, named:<br/>re-read, then pin --refresh / compile / audit"]
+```
+
+- **`verifies:`** — `docsys pin <page> <path> [--symbol <s>]` records a code
+  region's SHA-256 on the page; lint recomputes it on every run and a moved
+  region is an error until the page is re-read and `pin --refresh`ed (§11,
+  R-111). Symbols resolve as brace or `def`/`class` blocks; an ambiguous one
+  is an error, never a guess (D-069).
+- **History** — one `git log` walk dates every page: `updated:` behind the
+  page's last commit (R-106) and a `draft`/`active`/`done` file untouched
+  beyond `stale_active_days` (R-085) are errors (D-070, D-071).
+- **Compiled skills** — `docsys compile <howto>` carries the page's hash; the
+  skill is an error once the page moved (R-095).
+- **Verification** — a `verified` wiki page is checked against the body it
+  held at `verified_rev` (D-077) **and** against the consumed sources it rested
+  on (D-082): when a provider's page moves and `fetch` brings the new hash, the
+  pages verified against the old one fail by name.
+- **CI** — `adopt` writes `.github/workflows/docsys.yml` (lint, refs, and
+  `gate --range` on a pull request), and the pre-commit gate is hard as soon
+  as the tree lints clean (D-072).
 
 ## Export — a document for a reader, out of a large tree
 
@@ -215,13 +263,71 @@ cloning estates. On a real 66-page tree the manifest is 20 KB where the
 repository is 70 MB. Foreign pages compose only from the verified local state
 (never a live query); an unfetched or locally edited materialization is refused
 by name, `internal: true` pages never cross the boundary, and every foreign
-stamp carries its fetch date so a stale composition is visible.
+stamp carries its fetch date so a stale composition is visible. A provider
+that publishes no manifest is still consumable — the tree is the index then.
+
+The consumer's list grows without hand-editing and lives nowhere but in its
+own `.docmeta.yml`: `docsys consume discover ~/code` lists the docsys trees
+under a directory, `docsys consume add <path|git-url>` appends one, reading
+the provider's `namespace:` (which `adopt` writes into every tree). A consumed
+page is evidence too: a knowledge-base page may cite `@namespace/id` in its
+`sources:`, and `docsys lookup <words>` searches local and consumed pages in
+one pass (D-074, D-075, D-078).
+
+## An assistant's memory — the knowledge base, its connectors, staying current
+
+The other profile is a person's memory. Consuming the person's projects, it
+becomes an assistant's — and the mechanics are the same ones above, pointed
+the other way.
+
+```mermaid
+flowchart LR
+    subgraph IN["what comes in"]
+        GIT["git connector<br/>inbox pull"]
+        CONN["any connector<br/>inbox add --source --id"]
+        NOTE["a note in a session<br/>capture"]
+    end
+    subgraph BASE["the base (knowledge-base profile)"]
+        RAW["raw/inbox/ — records,<br/>content-immutable, provenance"]
+        WIKI["wiki/&lt;domain&gt;/&lt;type&gt;/<br/>sources: raw/… or @ns/id"]
+        FED[".federation/&lt;ns&gt;/<br/>consumed pages + provenance"]
+    end
+    PROJ["docsys projects<br/>(consume add · fetch)"]
+    GIT & CONN & NOTE --> RAW
+    RAW -- "ingest (session)" --> WIKI
+    PROJ -- "fetch" --> FED
+    FED -- "learn (session):<br/>sources: [@ns/id]" --> WIKI
+    WIKI -- "audit (another session)" --> VER["verified_by · verified_rev"]
+    FED -. "provider moved → fetch →<br/>lint: page stale, by name" .-> WIKI
+    WIKI -- "compile (verified howto)" --> SKILL["skill"]
+    BASE -- "status" --> BRIEF["morning briefing<br/>(the model's words)"]
+```
+
+- **Records, not pages.** A connector lands one file per item in `raw/inbox/`
+  with its provenance (`source`, `source_id`, `title`, `captured`, `url`); the
+  same item lands once, so a schedule is safe; no record is ever edited — the
+  hook blocks the attempt. `docsys inbox add` is the gate every connector
+  calls; the git connector (`docsys inbox pull <repo>`) is built in and skips
+  bookkeeping commits unless `--all` (§20, D-079).
+- **Learning from projects.** A page distilled from consumed pages cites them
+  as `@namespace/id`; lint resolves the citation against the materialization
+  and refuses an unfetched one (D-078).
+- **Staying current.** The base pulls, nothing pushes (R-205): re-running
+  `docsys assistant` (or `fetch` and `inbox pull` on a schedule) brings each
+  project's new pages and commits; a page verified against a source that has
+  since moved is an error until re-read and audited again (D-082); `docsys
+  status` says what waits — inbox, unverified pages, moved sources, stale
+  skills — and the assistant's morning words are the model's, from that
+  (D-080).
+- **What it may never do** is mechanical too: verify its own page (R-025),
+  edit a record (R-023), answer from memory when the base does not have it
+  (the lookup skill), act outward on its own (R-206).
 
 ## Commands
 
 | Command | What it does |
 |---|---|
-| `docsys adopt [--repo .] [--root docs] [--lang <code>] [--obsidian]` | One-command integration: docmeta (or the full init skeleton on a fresh project), agent assets, `settings.json` when absent, AGENTS.md managed block, git pre-commit gate (warn-mode), and an `ADOPTION.md` report whose checklist carries every judgment call. Idempotent. |
+| `docsys adopt [--repo .] [--root docs] [--lang <code>] [--obsidian]` | One-command integration: docmeta (or the full init skeleton on a fresh project) with the tree's `namespace:`, agent assets, `settings.json` when absent, AGENTS.md managed block, the git pre-commit gate (hard when the tree lints clean, warn-mode while it carries debt, hardened by a later run), `.github/workflows/docsys.yml` when `.github/` exists, and an `ADOPTION.md` report whose checklist carries every judgment call. Idempotent. |
 | `docsys seed plan [--target <feature>] [--since <date>] [--memory <dir>]` · `docsys seed apply --plan <file> [--force]` · `docsys seed gaps [--since <date>]` | Brownfield seeding: evidence from history and code, refused when a page covers the feature; the approved rows land under `work/` as tokens and verbatim quotations (D-053, D-058). |
 | `docsys debt close <n> [--note <line>]` · `docsys journal add <text> [--title <t>] [--date <d>] [--link <path>]` · `docsys page new <kind> <id> [--title <t>]` | Capture, mechanical: a repaid debt leaves the ledger with its journal line; an entry at its date; a page from its template (D-063). |
 | `docsys backlinks <path\|id> [--repo .]` · `docsys mentions [<path\|id>]` · `docsys graph [--format dot\|json\|jsoncanvas] [--repo .]` | Derived navigation, never written into a page: who points at a page (code included), who names it without linking, the whole map (D-064). |
@@ -229,7 +335,7 @@ stamp carries its fetch date so a stale composition is visible.
 | `docsys lint [--root docs] [--repo <dir>] [--json]` | Full tree validation: frontmatter, ids, links, journal discipline, templates, list grammars — both profiles. Inside a git repository (`--repo`, or detected) also the freshness rules: `verifies:` pins recomputed (R-111), `updated:` behind history (R-106), drafts untouched beyond `stale_active_days` (R-085). Errors exit 1, warnings don't. |
 | `docsys lookup <word…> [--root docs] [--json]` | A question's first hop: every page, local and consumed (`@namespace/id`), that names every word, best first — identifier, title, tags, summary, body — with `status:` on a draft and `unverified` on an unaudited page. `raw/` is never listed. No hit exits 1: "not in the base" (D-074). |
 | `docsys consume add <path\|git-url>[#subdir] [--as <ns>]` · `docsys consume discover <dir>` | Grow this tree's `consume:` list from a checkout or a git URL, reading the provider's `namespace:`; list the docsys trees under a directory as candidates without writing. The list lives in this tree's `.docmeta.yml` and nowhere else (D-075). |
-| `docsys inbox add --source <name> --id <item> [--title <t>] [--url <u>] [--date <d>] [<file>\|-]` · `docsys inbox pull <repo> [--since <date>] [--as <ns>]` | The connector write gate (§20): one record into `raw/inbox/` with its provenance, the same item landing once; and the built-in git connector, one record per commit (D-079). |
+| `docsys inbox add --source <name> --id <item> [--title <t>] [--url <u>] [--date <d>] [<file>\|-]` · `docsys inbox pull <repo> [--since <date>] [--limit <n>] [--as <ns>] [--all]` | The connector write gate (§20): one record into `raw/inbox/` with its provenance, the same item landing once; and the built-in git connector, one record per commit, bookkeeping commits skipped unless `--all` (D-079). |
 | `docsys assistant [--root .] [--projects <dir>]… [--domains a,b] [--since 30.days] [--limit 3]` | An assistant's memory in one command: the base, its agent layer, every docsys project under the given directories consumed and fetched, their recent commits as records, the digest. Idempotent (D-081). |
 | `docsys status [--root .] [--repo <dir>] [--json]` | The digest an assistant reads first: inbox, pages by state, open questions and debt, consumed namespaces and their fetch day, compiled skills, and lint's findings folded by rule. Derived on every run, never stored (D-080). |
 | `docsys compile <howto> [--root docs] [--dir .claude] [--force]` | A howto whose steps are complete becomes an executable skill: the page body byte for byte under `.claude/skills/<id>/`, pinned to the page's content hash. Lint fails while the page has moved since the compile (R-094, R-095, D-073). |
@@ -242,7 +348,7 @@ stamp carries its fetch date so a stale composition is visible.
 | `docsys export manifest [--root <dir>] [--out <file>]` | Publish what this namespace exports — id, type, title, summary, content hash, no bodies. A few KB where a clone is megabytes. |
 | `docsys fetch [--root <dir>]` | Materialize consumed namespaces into `.federation/`: manifest first, unchanged pages skipped, provenance recorded. |
 | `docsys rules --agents-md \| --procedures [--max-lines <n>] [--write <file>]` | Agent text generated from the embedded spec: a ~40-line always-loaded block, and the fifteen decision procedures. `--max-lines` checks the block against the budget (R-165); `--write` lands it in a file instead of stdout. |
-| `docsys agents [--kb] [--dir .claude] [--force]` · `docsys agents --report [--dir .claude]` | Install the agent layer (`--report`: list the layer already installed and the shell calls it makes). With `--kb` the same four relays guard a knowledge base: an existing `raw/` record is never overwritten through the agent's tools, the first turn names the four organs, the end of a turn names what waits in the inbox (D-076). four relay hooks + `/docsys-sync`, `/docsys-seed`, `/docsys-interview` + the docsys and export skills for a project, or the four knowledge-base organs (capture · ingest · audit · lookup) with `--kb`. Hooks carry their template version; `--force` refreshes them. |
+| `docsys agents [--kb] [--dir .claude] [--force]` · `docsys agents --report [--dir .claude]` | Install the agent layer: four relay hooks + `/docsys-sync`, `/docsys-seed`, `/docsys-interview` + the docsys and export skills for a project; with `--kb` the four knowledge-base organs (capture · ingest · audit · lookup), the same four relays guarding the record layer, `settings.json` when absent and the git gate (D-076). Hooks carry their template version; `--force` refreshes them. `--report` lists the layer already installed and the shell calls it makes. |
 | `docsys hook pre-tool-use\|stop\|post-tool-use\|user-prompt-submit [--repo .] [--root docs]` | The hook logic itself, reading the agent harness payload on stdin (D-051). |
 | `docsys gate [--repo .] [--root docs] [--range <a>...<b>]` · `docsys doctor [--repo .] [--root docs] [--dir .claude]` | The commit-time question the binary computes (lint + code-without-docs); with `--range`, the same question over a pull request, failing when unanswered — what the CI workflow runs. And the liveness check: every hook present, executable, wired under the right event, up to date (D-040, D-047). |
 
@@ -423,9 +529,12 @@ who verified what; *"what do my notes say about X"* answers with the page path
 — or says the base does not have it.
 
 What the binary guarantees underneath: `raw/` is content-immutable (an edited
-or deleted record is an error; relocation is the expected flow), every
-`sources:` entry must resolve, a `verified` page must record `verified_by:` and
-`verified_rev:`, and a page that changes drops back to `unverified`.
+or deleted record is an error; the hook blocks the attempt; relocation is the
+expected flow), every `sources:` entry must resolve, a `verified` page must
+record `verified_by:` and `verified_rev:`, and a verification is checked, not
+trusted — a `verified` page whose body, or whose consumed source, no longer
+hashes to what it held at `verified_rev` is an error until it is audited again
+(D-077, D-082).
 
 ### 7 · Your own assistant (a base that learns from your projects)
 
@@ -467,6 +576,13 @@ that wrote it, no answer is given from memory when the base does not have
 it. Connectors beyond git — calendar, mail, tickets, clips — call the same
 gate: `docsys inbox add --source <name> --id <item>` (§20, experimental).
 
+Staying current is a schedule, not a hope: run `docsys assistant` again (a
+nightly job is enough — the tree holds records, never timers, R-205), and
+`fetch` brings every project's changed pages while `inbox pull` lands its new
+commits. The next `docsys lint` names every page that was verified against a
+source that has since moved (D-082); the next `docsys status` lists it under
+"sources"; the next session re-reads it and another one audits it.
+
 ## What keeps it honest
 
 - **Severity is doctrine.** Warn by default; block only what is irreversible
@@ -477,6 +593,10 @@ gate: `docsys inbox add --source <name> --id <item>` (§20, experimental).
   re-reads the page and refreshes the pin. History dates every page, so a
   freshness field that lies and a draft left to rot are errors too (§11,
   R-085, R-106, D-070).
+- **A verification is checked, not trusted.** `verified` means "this body,
+  against these sources, at this revision"; the body and the consumed sources
+  are re-hashed against that revision on every lint, and a session never
+  verifies its own page (R-024, R-025, D-077, D-082).
 - **A check that inspected zero units fails** — a dead scan must never read as
   a clean tree (R-011). An unmigrated tree announces itself instead of passing
   silently.
@@ -487,22 +607,26 @@ gate: `docsys inbox add --source <name> --id <item>` (§20, experimental).
   fails a case as hard as a missing one, so the checker can't grow noisy.
 - **Every open decision has a home.** What the spec leaves to implementations
   is decided once, in [corpus/DECISIONS.md](corpus/DECISIONS.md), with the
-  reason (R-193) — 65 decisions and counting, most of them forced by real
-  repositories: a formatter that reflowed a config field, a build tree that
-  turned 147 findings into 9,171, an example citation that failed the rule it
-  was teaching.
+  reason (R-193) — 82 decisions and counting, most of them forced by real
+  repositories or by watching agents work: a formatter that reflowed a config
+  field, a build tree that turned 147 findings into 9,171, an example citation
+  that failed the rule it was teaching, a draft that took its own reference
+  page's identifier, a base that read its own wiki as stray pages.
 
 ## Repository layout
 
 ```
-SPEC.md               the specification — 147 normative rules + experimental §13
-src/                  the reference implementation (Rust, stdlib only)
+SPEC.md               the specification — 147 normative rules + experimental §13 (federation), §20 (connectors)
+src/                  the reference implementation (Rust, stdlib only — SHA-256 included)
 corpus/
 ├── DECISIONS.md      register of implementation-defined choices (R-193)
 └── cases/            conformance corpus: tree + exact expected findings
 tests/                behavior locks for migrate · refs · graduate · adopt ·
-                      doctor · hooks (executed for real) · seed · graph ·
-                      knowledge base (git-observable) · export · federation
+                      doctor · hooks and kb hooks (executed for real) · seed ·
+                      graph · knowledge base (git-observable) · export ·
+                      federation · freshness (pins, history, range gate, CI) ·
+                      compile · lookup and consume · the assistant's memory
+ci/e2e.sh             a fresh box, twelve first-run flows, real paths
 ```
 
 ## Status
@@ -523,14 +647,30 @@ the hash on every run; history dates every page, so an `updated:` behind the
 last commit and a draft nobody touched for `stale_active_days` are errors, not
 hopes. `adopt` writes the CI workflow and hardens the pre-commit gate once the
 tree is clean. A mature howto compiles into an executable skill that carries
-its source hash, and goes stale with the page (R-094, R-095).
+its source hash, and goes stale with the page (0.12, R-094, R-095).
 
-Federation (§13) stays marked **experimental** in the spec, and the
-implementation now has its first working slice: manifests, `fetch` over
-filesystem paths and git URLs, and `@namespace/id` composition, proven between
-repositories on one machine. Consuming a provider over HTTP without a
-checkout, and the consumer-impact report for a retired identifier, are the
-next slices — the rules there bind nothing until a second real estate exists.
+The assistant's memory (0.12–0.13) grew out of an agent lab: three sample
+projects adopted, fifteen headless sessions watched, a knowledge base created
+from the CLI alone that consumed the three, distilled a page whose sources
+were their pages, audited it in another session, judged a batch of commit
+records honestly, compiled a verified howto into a skill and gave a morning
+briefing from `docsys status`. What that added: `lookup` across local and
+consumed pages, `consume add`/`discover` with the list in the tree's own
+docmeta, `@namespace/id` as a source, the knowledge-base hook layer, the
+connector write gate with the git connector, `status`, and `assistant` as the
+one command. A verification is now checked against its body and its consumed
+sources at `verified_rev`, so a base stays current by fetching, and lint says
+which pages fell behind.
+
+Federation (§13) and connectors (§20) stay marked **experimental** in the
+spec. Federation's working slice: manifests, `fetch` over filesystem paths and
+git URLs, `@namespace/id` in compositions and in sources, proven between
+repositories on one machine. Connectors' working slice: the write gate and
+the git connector; calendar, mail, tickets and the rest are designed, not
+built. Consuming a provider over HTTP without a checkout, the consumer-impact
+report for a retired identifier, `compile @namespace/id`, and a second
+connector against a real source are the next slices — those rules bind nothing
+until real use settles them.
 
 ## License
 

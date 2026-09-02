@@ -186,14 +186,32 @@ pub fn commits_since(repo: &Path, since: &str) -> Result<Vec<Commit>, String> {
     Ok(commits)
 }
 
-/// `docsys inbox pull <repo> --since <date> [--as <ns>]`: one record per
-/// commit, idempotent by `(git, <ns>@<sha>)`; returns what landed.
+/// Bookkeeping, not knowledge (D-079): no body, and nothing touched outside
+/// documentation, manifests and the agent layer — an `updated:` bump, a
+/// manifest regeneration, a template refresh. A commit with a body, or one
+/// that touched code, is kept whatever it touched.
+fn is_bookkeeping(c: &Commit) -> bool {
+    c.body.trim().is_empty()
+        && !c.files.is_empty()
+        && c.files.iter().all(|f| {
+            f.ends_with(".md")
+                || f.starts_with("docs/")
+                || f.starts_with(".claude/")
+                || f.ends_with("manifest.docsys")
+                || f.ends_with(".docmeta.yml")
+        })
+}
+
+/// `docsys inbox pull <repo> --since <date> [--limit <n>] [--as <ns>] [--all]`:
+/// one record per commit, idempotent by `(git, <ns>@<sha>)`; bookkeeping
+/// commits are skipped unless `all`. Returns what landed and what was skipped.
 pub fn pull_git(
     root: &Path,
     repo: &Path,
     since: &str,
     ns: Option<&str>,
     limit: Option<usize>,
+    all: bool,
 ) -> Result<Vec<String>, String> {
     let repo_c = repo
         .canonicalize()
@@ -207,9 +225,11 @@ pub fn pull_git(
         )
     });
     let mut out = Vec::new();
-    // newest first; `--limit` keeps a first run from flooding the inbox
+    // newest first; the noise filter runs before `--limit`, so the limit
+    // counts commits worth reading
     for c in commits_since(&repo_c, since)?
         .into_iter()
+        .filter(|c| all || !is_bookkeeping(c))
         .take(limit.unwrap_or(usize::MAX))
     {
         let short: String = c.sha.chars().take(12).collect();

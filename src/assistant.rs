@@ -192,7 +192,7 @@ pub fn run(
             if !path.is_dir() {
                 continue;
             }
-            match crate::inbox::pull_git(root, &path, since, Some(&ns), limit) {
+            match crate::inbox::pull_git(root, &path, since, Some(&ns), limit, false) {
                 Ok(lines) => {
                     let new = lines.iter().filter(|l| l.starts_with("captured:")).count();
                     out.records += new;

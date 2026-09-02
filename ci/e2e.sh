@@ -86,7 +86,7 @@ updated: 2026-08-16
 The $svc service in one page.
 EOF
   (cd "$svc" && docsys export manifest --root docs --out docs/manifest.docsys >/dev/null 2>&1 \
-    && git add -A && git commit -qm docs)
+    && git add -A && git commit -q -m docs -m "the service's first page, and why it exists")   # a body: the git connector keeps it (D-079)
 done
 mkdir -p estate/docs && cd estate
 cat > docs/.docmeta.yml <<EOF
@@ -216,6 +216,15 @@ grep -q 'consumed: auth 1 page(s) fetched' /tmp/status.out || fail "status does 
 grep -q '1 unverified' /tmp/status.out || fail "status does not name the unverified page"
 docsys status --root . --json > /tmp/status.json || fail "status --json failed"
 grep -q '"inbox":3' /tmp/status.json || fail "status --json disagrees"
+# staying current: verify the page against the source as fetched, then let the provider move
+git add -A && git commit -qm "learned from auth"
+rev=$(git rev-parse --short HEAD)
+sed -i "s/^verification: unverified/verification: verified\nverified_by: e2e\nverified_rev: $rev/" wiki/coding/explanation/auth-in-one-page.md
+docsys lint --root . | grep -q -- '-- 0 error(s)' || fail "a page verified against the fetched source is not clean: $(docsys lint --root . | head -3)"
+(cd "$WORK/auth" && sed -i 's/in one page\./in one page, now with tokens./' docs/howto/use-auth.md && git add -A && git commit -qm "auth: tokens")
+docsys fetch --root . >/dev/null
+(docsys lint --root . || true) | grep -q 'R-024 wiki/coding/explanation/auth-in-one-page.md \[@auth/use-auth\]' || fail "a moved source did not stale the page that rested on it: $(docsys lint --root . | head -3)"
+docsys status --root . > /tmp/status2.out; grep -q 'sources: 1 verified page(s) whose consumed sources moved' /tmp/status2.out || fail "status does not count the moved source: $(cat /tmp/status2.out)"
 cd "$WORK"
 
 say "12 · one command: an assistant's memory over every project in a directory"

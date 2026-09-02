@@ -234,7 +234,11 @@ recording it, or a mechanical `sources:` path rewrite, would immediately undo it
 Where history is available the claim is checked, not trusted: a `verified` page
 whose body no longer hashes to what it held at `verified_rev` **is an error**
 until it is `unverified` again, and a `verified_rev` that does not hold the page
-**is an error** under R-028 (D-077).
+**is an error** under R-028 (D-077). The sources are checked the same way: a
+`verified` page whose consumed source (`@namespace/id`, §13) no longer hashes to
+what its materialization held at `verified_rev` **is an error** — the provider
+moved and the page has not been re-read — and a materialization with no
+committed provenance at `verified_rev` **is an error** under R-028 (D-082).
 
 **R-025** `agent` · MUST — Only an independent session may set `verified`. The
 session that produced a page never verifies it.

@@ -14,7 +14,8 @@ Usage:
   docsys consume discover <dir> [--root docs]     # the docsys trees one level under a directory, as candidates; writes nothing
   docsys inbox   add --source <name> --id <item> [--title <t>] [--url <u>] [--date <d>] [<file>|-] [--root .]
                                              # a connector's record into raw/inbox/, with provenance; the same item lands once
-  docsys inbox   pull <repo> [--since <date>] [--limit <n>] [--as <ns>] [--root .]   # the git connector: one record per commit since a date, newest first
+  docsys inbox   pull <repo> [--since <date>] [--limit <n>] [--as <ns>] [--all] [--root .]
+                                             # the git connector: one record per commit since a date, newest first; --all keeps bookkeeping commits too
   docsys status  [--root .] [--repo <dir>] [--json]   # the digest: inbox, pages by state, open items, consumed, skills, findings
   docsys assistant [--root .] [--projects <dir>]… [--domains a,b] [--since 30.days] [--limit 3]
                                              # an assistant's memory in one command: base, layer, projects consumed, pages, records, digest
@@ -90,6 +91,7 @@ struct Opts {
     source_id: Option<String>,
     url: Option<String>,
     limit: Option<usize>,
+    all: bool,
     projects: Vec<PathBuf>,
     domains: Vec<String>,
     positional: Vec<String>,
@@ -130,6 +132,7 @@ fn parse_opts(args: &[String]) -> Result<Opts, String> {
         source_id: None,
         url: None,
         limit: None,
+        all: false,
         projects: Vec::new(),
         domains: Vec::new(),
         positional: Vec::new(),
@@ -181,6 +184,7 @@ fn parse_opts(args: &[String]) -> Result<Opts, String> {
             "--source" => o.source = Some(it.next().ok_or("--source needs a value")?.clone()),
             "--id" => o.source_id = Some(it.next().ok_or("--id needs a value")?.clone()),
             "--url" => o.url = Some(it.next().ok_or("--url needs a value")?.clone()),
+            "--all" => o.all = true,
             "--projects" => o
                 .projects
                 .push(PathBuf::from(it.next().ok_or("--projects needs a value")?)),
@@ -700,6 +704,7 @@ fn main() -> ExitCode {
                 &since,
                 opts.as_ns.as_deref(),
                 opts.limit,
+                opts.all,
             ) {
                 Ok(lines) => {
                     for l in &lines {

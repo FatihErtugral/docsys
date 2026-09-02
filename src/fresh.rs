@@ -668,8 +668,73 @@ fn check_verified_bodies(tree: &DocTree, repo: &Path, prefix: &str, r: &mut Repo
                 }
             }
         }
+        // The other half of the claim: the consumed sources the page rests
+        // on still hash to what they held when it was verified (D-082). The
+        // provenance sidecar at verified_rev is the baseline; the current
+        // sidecar is what `fetch` brought since.
+        let sources = fm
+            .fields
+            .get("sources")
+            .and_then(Value::as_list)
+            .map(<[String]>::to_vec)
+            .unwrap_or_default();
+        for s in sources.iter().filter(|s| s.starts_with('@')) {
+            let Some((ns, id)) = s.trim_start_matches('@').split_once('/') else {
+                continue;
+            };
+            let side_rel = format!(".federation/{ns}/{id}.provenance.yml");
+            let now_text = fs::read_to_string(tree.root.join(&side_rel)).ok();
+            let Some(now) = now_text.as_deref().and_then(|t| sidecar_field(t, "hash")) else {
+                continue; // R-059 reports an unmaterialized source
+            };
+            let then = Command::new("git")
+                .arg("-C")
+                .arg(repo)
+                .args(["show", &format!("{}:{prefix}{side_rel}", rev.trim())])
+                .output()
+                .ok()
+                .filter(|o| o.status.success())
+                .and_then(|o| sidecar_field(&String::from_utf8_lossy(&o.stdout), "hash"));
+            match then {
+                None => r.findings.push(Finding::err(
+                    RuleId("R-028"),
+                    &page.rel,
+                    s,
+                    format!(
+                        "`{s}` had no committed provenance at verified_rev {rev} — the \
+                         materialization is part of the base's history (D-082): commit \
+                         `.federation/`, then audit again"
+                    ),
+                )),
+                Some(then) if then != now => {
+                    let fetched = now_text
+                        .as_deref()
+                        .and_then(|t| sidecar_field(t, "fetched"))
+                        .unwrap_or_default();
+                    r.findings.push(Finding::err(
+                        RuleId("R-024"),
+                        &page.rel,
+                        s,
+                        format!(
+                            "`verified` at {rev}, but `{s}` moved since (fetched {fetched}) — \
+                             re-read the page against the source as it now reads, then audit \
+                             again, or set `verification: unverified`"
+                        ),
+                    ));
+                }
+                Some(_) => {}
+            }
+        }
     }
     r.inspected.insert("verified-bodies", inspected);
+}
+
+/// One `key: value` line of a provenance sidecar.
+fn sidecar_field(text: &str, key: &str) -> Option<String> {
+    text.lines()
+        .find_map(|l| l.strip_prefix(key).and_then(|r| r.strip_prefix(':')))
+        .map(|v| v.trim().to_string())
+        .filter(|v| !v.is_empty())
 }
 
 // ---------------------------------------------------------------- pin command
