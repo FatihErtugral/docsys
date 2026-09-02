@@ -229,6 +229,9 @@ stamp carries its fetch date so a stale composition is visible.
 | `docsys lint [--root docs] [--repo <dir>] [--json]` | Full tree validation: frontmatter, ids, links, journal discipline, templates, list grammars — both profiles. Inside a git repository (`--repo`, or detected) also the freshness rules: `verifies:` pins recomputed (R-111), `updated:` behind history (R-106), drafts untouched beyond `stale_active_days` (R-085). Errors exit 1, warnings don't. |
 | `docsys lookup <word…> [--root docs] [--json]` | A question's first hop: every page, local and consumed (`@namespace/id`), that names every word, best first — identifier, title, tags, summary, body — with `status:` on a draft and `unverified` on an unaudited page. `raw/` is never listed. No hit exits 1: "not in the base" (D-074). |
 | `docsys consume add <path\|git-url>[#subdir] [--as <ns>]` · `docsys consume discover <dir>` | Grow this tree's `consume:` list from a checkout or a git URL, reading the provider's `namespace:`; list the docsys trees under a directory as candidates without writing. The list lives in this tree's `.docmeta.yml` and nowhere else (D-075). |
+| `docsys inbox add --source <name> --id <item> [--title <t>] [--url <u>] [--date <d>] [<file>\|-]` · `docsys inbox pull <repo> [--since <date>] [--as <ns>]` | The connector write gate (§20): one record into `raw/inbox/` with its provenance, the same item landing once; and the built-in git connector, one record per commit (D-079). |
+| `docsys assistant [--root .] [--projects <dir>]… [--domains a,b] [--since 30.days] [--limit 3]` | An assistant's memory in one command: the base, its agent layer, every docsys project under the given directories consumed and fetched, their recent commits as records, the digest. Idempotent (D-081). |
+| `docsys status [--root .] [--repo <dir>] [--json]` | The digest an assistant reads first: inbox, pages by state, open questions and debt, consumed namespaces and their fetch day, compiled skills, and lint's findings folded by rule. Derived on every run, never stored (D-080). |
 | `docsys compile <howto> [--root docs] [--dir .claude] [--force]` | A howto whose steps are complete becomes an executable skill: the page body byte for byte under `.claude/skills/<id>/`, pinned to the page's content hash. Lint fails while the page has moved since the compile (R-094, R-095, D-073). |
 | `docsys pin <page> <path> [--symbol <s>]` · `docsys pin --refresh <page>` | Pin a permanent page to a code region — the whole file or one symbol's block — with its SHA-256 (§11); refresh every pin after re-reading the page. Lint fails while a pinned region has moved. |
 | `docsys init [--root docs] [--lang <code>] [--profile project\|knowledge-base]` | Greenfield skeleton. `project`: router, journal, debt. `knowledge-base`: the record layer (`raw/inbox/`) and the wiki root. |
@@ -423,6 +426,46 @@ What the binary guarantees underneath: `raw/` is content-immutable (an edited
 or deleted record is an error; relocation is the expected flow), every
 `sources:` entry must resolve, a `verified` page must record `verified_by:` and
 `verified_rev:`, and a page that changes drops back to `unverified`.
+
+### 7 · Your own assistant (a base that learns from your projects)
+
+The knowledge base is the memory; the projects it consumes are what it learns
+from; connectors are how the outside world lands in it. Nothing below needs a
+server, a database or a hand-written rule file — and the whole setup is one
+command:
+
+```sh
+docsys assistant --root ~/jarvis --projects ~/code --domains coding,ops
+```
+
+It creates the base (a git repository, `raw/inbox/`, `wiki/`), installs the
+four organs and the four relays, consumes every docsys project one level
+under `~/code` (another knowledge base is skipped), materializes their pages,
+lands their recent commits as records through the git connector, and prints
+the digest. Run it again any time: new projects and new commits are picked
+up, nothing is duplicated. The same thing by hand, when you want to see the
+parts:
+
+```sh
+docsys init --profile knowledge-base --root .   # raw/inbox/ + wiki/
+docsys agents --kb --root .                     # four organs, four relays, the gate
+docsys consume discover ~/code --root .         # every docsys tree under ~/code
+docsys consume add ~/code/relay --root .        # the ones you want, one line each
+docsys fetch --root .                           # their pages, materialized
+docsys lookup retry --root .                    # @relay/retry-policy, scored
+docsys inbox pull ~/code/relay --since 7.days --root .   # this week's commits, as records
+docsys status --root .                          # the digest before the morning briefing
+```
+
+Then, in an agent session in that directory: *"study what my projects say
+about failure handling and write it up"* — a wiki page whose `sources:` are
+`@relay/retry-policy` and friends; another session audits it; *"process my
+inbox"* distils the commits; a howto that matured compiles into a skill
+(`docsys compile`). What the assistant may never do is also mechanical: no
+record is edited (the hook blocks it), no page is verified by the session
+that wrote it, no answer is given from memory when the base does not have
+it. Connectors beyond git — calendar, mail, tickets, clips — call the same
+gate: `docsys inbox add --source <name> --id <item>` (§20, experimental).
 
 ## What keeps it honest
 

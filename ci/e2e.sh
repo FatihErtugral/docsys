@@ -181,4 +181,53 @@ docsys consume discover "$WORK" --root docs | grep -q 'billing' || fail "discove
 docsys consume discover "$WORK" --root docs | grep -q 'already consumed' || fail "discover did not mark the consumed one"
 cd "$WORK"
 
+say "11 · an assistant's memory: a base learns from a project, the git connector lands records, status digests"
+# step 5 left one note in this base's inbox; the connector and the calendar item make three
+cd brain
+docsys consume add "$WORK/auth" --root . >/dev/null || fail "the base could not consume auth"
+docsys fetch --root . >/dev/null || fail "the base could not fetch auth"
+mkdir -p wiki/coding/explanation
+cat > wiki/coding/explanation/auth-in-one-page.md <<EOF
+---
+id: auth-in-one-page
+type: explanation
+domain: coding
+verification: unverified
+updated: $(date +%F)
+sources: [@auth/use-auth]
+---
+# Auth in one page
+
+This page explains what the auth service promises, learned from its own documentation; read it before depending on it.
+
+The auth service in one page, as its howto says.
+EOF
+grep -q 'domains:' .docmeta.yml && sed -i 's/^domains: \[\]/domains: [coding]/' .docmeta.yml
+printf '# coding\n\n- [[coding/explanation/auth-in-one-page|Auth in one page]] -- learned from auth.\n' > wiki/coding/index.md
+printf '# Knowledge base\n\n- [[coding/index|Coding]] -- code.\n' > wiki/index.md
+docsys lint --root . | grep -q -- '-- 0 error(s)' || fail "a page citing @auth/use-auth does not lint: $(docsys lint --root . | head -3)"
+docsys inbox pull "$WORK/auth" --since 30.days --root . | grep -q '^captured: raw/inbox/' || fail "the git connector landed nothing"
+docsys inbox pull "$WORK/auth" --since 30.days --root . | grep -q 'already captured' || fail "the git connector is not idempotent"
+docsys inbox add --source calendar --id evt-1 --title "Dentist" --root . >/dev/null || fail "inbox add failed"
+docsys inbox add --source calendar --id evt-1 --title "Dentist again" --root . | grep -q 'already captured' || fail "inbox add landed the same item twice"
+docsys status --root . > /tmp/status.out || fail "status failed: $(cat /tmp/status.out)"   # to a file first: grep -q would close the pipe early
+grep -q 'inbox: 3 note(s)' /tmp/status.out || fail "status miscounts the inbox: $(cat /tmp/status.out)"
+grep -q 'consumed: auth 1 page(s) fetched' /tmp/status.out || fail "status does not name the consumed namespace"
+grep -q '1 unverified' /tmp/status.out || fail "status does not name the unverified page"
+docsys status --root . --json > /tmp/status.json || fail "status --json failed"
+grep -q '"inbox":3' /tmp/status.json || fail "status --json disagrees"
+cd "$WORK"
+
+say "12 · one command: an assistant's memory over every project in a directory"
+docsys assistant --root memory --projects "$WORK" --domains coding > /tmp/assistant.out || fail "assistant failed: $(cat /tmp/assistant.out)"
+grep -q 'base: created' /tmp/assistant.out || fail "assistant did not create the base"
+grep -q 'consume: auth' /tmp/assistant.out && grep -q 'consume: billing' /tmp/assistant.out || fail "assistant did not consume the providers: $(cat /tmp/assistant.out)"
+grep -q 'skipped brain' /tmp/assistant.out || fail "assistant consumed another knowledge base"
+grep -q 'records: auth — 1 new' /tmp/assistant.out || fail "the git connector did not run: $(cat /tmp/assistant.out)"
+test -x memory/.claude/hooks/pre-commit-docs.sh || fail "assistant left no hook layer"
+docsys assistant --root memory --projects "$WORK" > /tmp/assistant2.out || fail "assistant is not idempotent: $(cat /tmp/assistant2.out)"
+grep -q 'base: kept' /tmp/assistant2.out && grep -q 'records: auth — 0 new' /tmp/assistant2.out || fail "assistant duplicated work: $(cat /tmp/assistant2.out)"
+(cd memory && docsys lint --root . | grep -q -- '-- 0 error(s)') || fail "the one-command base does not lint clean"
+cd "$WORK"
+
 printf '\nE2E OK\n'

@@ -4,6 +4,7 @@
 
 pub mod adopt;
 pub mod agents;
+pub mod assistant;
 pub mod capture;
 pub mod checks;
 pub mod compile;
@@ -16,6 +17,7 @@ pub mod gate;
 pub mod graduate;
 pub mod graph;
 pub mod hook;
+pub mod inbox;
 pub mod locator;
 pub mod lookup;
 pub mod migrate;
@@ -23,6 +25,7 @@ pub mod model;
 pub mod refs;
 pub mod rules;
 pub mod seed;
+pub mod status;
 pub mod tree;
 
 use model::Severity;

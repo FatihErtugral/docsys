@@ -1890,3 +1890,86 @@ produce another round of contradictions.
 - Whether `verification` should extend to the `project` profile
 - Epic status aggregation when legs disagree
 - Generated API references: linked from the router, or addressed by identifier
+
+---
+
+## 20. Connectors (EXPERIMENTAL)
+
+A knowledge base becomes an assistant's memory when what happens outside it —
+a repository's history, a calendar, a mailbox, a note dictated on the move —
+lands inside it as records. A connector is the thing that carries one such
+source into `raw/inbox/`. It is deliberately small: it writes records and
+nothing else.
+
+> **Why experimental.** One connector exists, the git connector built into the
+> binary, and the write gate every other one would call. The record grammar,
+> the deduplication key, the outbound boundary and the scheduling boundary need
+> a second and a third connector against real sources before they bind. Until
+> then these rules bind nothing; a base that never runs a connector is
+> untouched by everything below.
+
+### 20.1 The record
+
+**R-200** `cmd` · MUST — A connector writes records, never pages. It lands one
+file per item in `raw/inbox/`; classification, distillation and routing are
+ingest's (R-092), in a session, with judgment.
+
+**R-201** `lint` · MUST — A record a connector writes carries its provenance in
+frontmatter: `source` (the connector's name, a local-id), `source_id` (the
+item's identity at the source), `title`, `captured` (the day it landed) and
+`url` when the source has one. A record without provenance is a note a person
+wrote; a record with it can be traced, deduplicated and re-fetched.
+
+**R-202** `cmd` · MUST — The same item lands once: `(source, source_id)` is the
+key, checked across all of `raw/`, so a connector may run again at any time —
+the second run names what is already there and writes nothing. Idempotence is
+what makes a schedule safe.
+
+**R-203** `cmd` · MUST NOT — A connector never edits or deletes a record, its
+own included (R-023). A source that changes an item produces a new item.
+
+### 20.2 The boundary
+
+**R-204** `advisory` · MUST — Secrets never enter a record. A connector redacts
+credentials, tokens and anything the source marks private before the record
+lands; `internal: true` (R-135) and `scan_exclude` do not reach into `raw/`.
+
+**R-205** `advisory` · MUST — The schedule lives outside the tree. A connector
+is a command run by a scheduler, a hook or a person; the tree holds records,
+never timers. Nothing in a base fires by itself.
+
+**R-206** `advisory` · MUST NOT — Outbound actions — creating an event, sending
+a message, changing a ticket — are never a connector's and never the tool's.
+They are skills an agent runs with the person's confirmation; the record of the
+action, if one is kept, arrives like any other record.
+
+**R-207** `cmd` · MUST — The digest is derived, never stored. `docsys status`
+reads the base — the inbox, pages by state, open items, consumed namespaces,
+compiled skills, the findings lint would raise — and composes no prose. What
+the assistant says in the morning is the model's, from that.
+
+### 20.3 The built-in connector and the write gate
+
+`docsys inbox pull <repo> --since <date>` is the git connector: one record per
+commit — `source: git`, `source_id: <namespace>@<short sha>`, the subject as
+title, the body, the files touched, the day of the commit. It exists because
+docsys already reads git, and because a project's history is the source a base
+most often learns from. `docsys inbox add --source <name> --id <item>` is the
+write gate every other connector calls — a shell script over an API, an MCP
+tool, a mail filter — with the same provenance fields and the same key.
+
+### 20.4 Kinds of connectors (design, not implementation)
+
+| Source | Item | `source_id` | Body |
+|---|---|---|---|
+| git history | a commit | `<ns>@<sha>` | subject, body, files touched |
+| a consumed project's journal | an entry | `<ns>@journal:<date>:<slug>` | the entry's lines, in the author's words |
+| calendar | an event | the provider's event id | when, where, who, the description |
+| mail | a message | the `Message-ID` | sender, subject, the text |
+| a ticket tracker | an issue or a comment | the tracker's id | title, state, the text |
+| reading | a clip | the URL plus a content hash | the clipped text and where it came from |
+| voice | a recording | the file's hash | the transcript |
+| an agent session | a note the person asked to keep | the session id plus a counter | the note, in the person's words |
+
+Every row lands through the same gate and is distilled by the same organ; a
+connector's whole job is the left three columns.

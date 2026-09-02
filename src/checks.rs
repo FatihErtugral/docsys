@@ -447,6 +447,30 @@ fn check_sources(tree: &DocTree, r: &mut Report) {
                 continue; // URLs are out of scope (D-030)
             }
             inspected += 1;
+            // `@namespace/id`: a consumed page is evidence too — a base that
+            // learns from the trees it consumes cites them by identifier, and
+            // the citation resolves against the verified local
+            // materialization, never a live provider (D-078).
+            if let Some(rest) = s.strip_prefix('@') {
+                let resolved = rest.split_once('/').is_some_and(|(ns, id)| {
+                    tree.root
+                        .join(".federation")
+                        .join(ns)
+                        .join(format!("{id}.md"))
+                        .is_file()
+                });
+                if !resolved {
+                    r.findings.push(finding(
+                        &page.rel,
+                        s,
+                        format!(
+                            "sources entry `{s}` is not materialized — `docsys consume add` the \
+                             namespace and `docsys fetch`, then cite it"
+                        ),
+                    ));
+                }
+                continue;
+            }
             if let Some(loc) = crate::locator::parse(s) {
                 let repo = repo.get_or_insert_with(|| crate::locator::repo_of(&tree.root));
                 match repo {
@@ -864,6 +888,19 @@ pub enum Resolved {
     Archived,
 }
 
+/// Is a foreign `@namespace/id` materialized under this root's `.federation/`?
+pub fn materialized(root: &std::path::Path, token: &str) -> bool {
+    token
+        .strip_prefix('@')
+        .and_then(|r| r.split_once('/'))
+        .is_some_and(|(ns, id)| {
+            root.join(".federation")
+                .join(ns)
+                .join(format!("{id}.md"))
+                .is_file()
+        })
+}
+
 pub fn resolve_doc_token(idx: &ResolutionIndex, token: &str) -> Result<Resolved, DocRefFail> {
     if token.starts_with('@') {
         return Err(DocRefFail::Foreign);
@@ -1152,13 +1189,23 @@ fn check_doc_refs(tree: &DocTree, r: &mut Report) {
                             line + 1
                         ),
                     )),
-                    Err(DocRefFail::Foreign) => r.findings.push(Finding::warn(
-                        R076,
-                        &page.rel,
-                        &token,
-                        "foreign reference — unresolvable here (federation is experimental)"
-                            .to_string(),
-                    )),
+                    // R-139: a foreign reference resolves against the local
+                    // materialization, never a live provider (D-078); absent,
+                    // it is reported with the two commands that land it.
+                    Err(DocRefFail::Foreign) => {
+                        if !materialized(&tree.root, &token) {
+                            r.findings.push(Finding::warn(
+                                R076,
+                                &page.rel,
+                                &token,
+                                format!(
+                                    "line {}: `doc: {token}` is not materialized here — \
+                                     `docsys consume add` the namespace and `docsys fetch`",
+                                    line + 1
+                                ),
+                            ));
+                        }
+                    }
                     Err(DocRefFail::BadGrammar) => r.findings.push(Finding::warn(
                         R073,
                         &page.rel,

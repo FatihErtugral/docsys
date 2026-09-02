@@ -32,17 +32,36 @@ pub fn run(repo: &Path, tree: &DocTree) -> Report {
         .collect();
     let mut files_scanned = 0usize;
     let mut tokens = 0usize;
+    // A consumed namespace's materialization is the provider's contract: its
+    // `doc:` tokens resolve in the provider's tree and its pages carry ids on
+    // purpose (R-136). Never scanned here — found live when a base that is its
+    // own repository committed `.federation/` and the gate read it as stray
+    // pages with dangling citations (D-034).
+    let root_rel = crate::fresh::root_rel(repo, &tree.root);
+    // A base that is its own repository has no "outside the docs tree": every
+    // markdown file is the tree's (lint's province), so only code is scanned
+    // for citations and no page can be stray. Found live: a root-level base
+    // saw its own wiki pages reported as strays (D-034).
+    let root_is_repo = root_rel.is_empty() || root_rel == ".";
+    let federation = if root_is_repo {
+        ".federation/".to_string()
+    } else {
+        format!("{root_rel}/.federation/")
+    };
 
     for file in repo_text_files(repo, &tree.root) {
         let Ok(text) = fs::read_to_string(&file) else {
             continue;
         };
-        files_scanned += 1;
         let frel = file
             .strip_prefix(repo)
             .unwrap_or(&file)
             .to_string_lossy()
             .replace('\\', "/");
+        if frel.starts_with(&federation) || (root_is_repo && frel.ends_with(".md")) {
+            continue;
+        }
+        files_scanned += 1;
         if excludes.iter().any(|p| crate::tree::under_prefix(&frel, p)) {
             files_scanned -= 1;
             continue;
@@ -97,13 +116,22 @@ pub fn run(repo: &Path, tree: &DocTree) -> Report {
                             i + 1
                         ),
                     )),
-                    Err(DocRefFail::Foreign) => r.findings.push(Finding::warn(
-                        R076,
-                        &frel,
-                        &token,
-                        "foreign reference — unresolvable here (federation is experimental)"
-                            .to_string(),
-                    )),
+                    // R-139: code citing a consumed page resolves against the
+                    // local materialization (D-078); absent, it is reported
+                    Err(DocRefFail::Foreign) => {
+                        if !checks::materialized(&tree.root, &token) {
+                            r.findings.push(Finding::warn(
+                                R076,
+                                &frel,
+                                &token,
+                                format!(
+                                    "line {}: `doc: {token}` is not materialized here — \
+                                     `docsys consume add` the namespace and `docsys fetch`",
+                                    i + 1
+                                ),
+                            ));
+                        }
+                    }
                     Err(DocRefFail::BadGrammar) => r.findings.push(Finding::warn(
                         R073,
                         &frel,
@@ -128,12 +156,16 @@ pub fn run(repo: &Path, tree: &DocTree) -> Report {
     // `id:` frontmatter claim — it looks like a page, but no check governs it
     // (behavior carried over from the founding estate's check_stray_docs).
     for file in repo_text_files(repo, &tree.root) {
+        if root_is_repo {
+            break; // nothing is outside a root-level tree
+        }
         let frel = file
             .strip_prefix(repo)
             .unwrap_or(&file)
             .to_string_lossy()
             .replace('\\', "/");
         if !frel.ends_with(".md")
+            || frel.starts_with(&federation)
             || excludes
                 .iter()
                 .any(|p| frel.starts_with(p.trim_end_matches('/')))

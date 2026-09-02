@@ -5,6 +5,35 @@ All notable changes to docsys are documented here. The format follows
 [SemVer](https://semver.org/). Release notes are extracted from this file
 by the release workflow — the tag's section becomes the GitHub release body.
 
+## [Unreleased]
+
+An assistant's memory: a base that learns from the trees it consumes, a
+write gate for connectors, and the digest.
+
+### Added
+
+- `sources:` accepts `@namespace/id` (D-078): a page distilled from consumed
+  pages cites them by identifier; the citation resolves against the local
+  materialization and is an error until `consume add` + `fetch` land it.
+- `docsys inbox add --source <name> --id <item> [--title] [--url] [--date]
+  [<file>|-]` (D-079, §20): a connector's record into `raw/inbox/` with
+  provenance frontmatter; the same `(source, source_id)` lands once.
+- `docsys inbox pull <repo> [--since <date>] [--as <ns>]`: the git connector,
+  one record per commit, idempotent.
+- `docsys status [--json]` (D-080): the digest — inbox, pages by state, open
+  items, consumed namespaces, compiled skills, findings by rule. Derived,
+  never stored.
+- `docsys assistant [--root .] [--projects <dir>]… [--domains a,b] [--since
+  30.days] [--limit 3]` (D-081): an assistant's memory in one command — the
+  base, its agent layer, every docsys project one level under the given
+  directories consumed and fetched, their recent commits as records, the
+  digest. Idempotent. Another knowledge base found there is skipped.
+- `refs` never scans `.federation/`, and in a base that is its own repository
+  it scans code only — its wiki pages were reported as strays before.
+- SPEC §20 Connectors (EXPERIMENTAL): the record, the boundary (no secrets,
+  no timers in the tree, no outbound action by the tool), the built-in git
+  connector and the design table of connector kinds.
+
 ## [0.12.0] - 2026-09-02
 
 ### Added

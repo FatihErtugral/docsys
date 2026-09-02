@@ -12,6 +12,12 @@ Usage:
   docsys lookup  <word…> [--root docs] [--json]   # a question's first hop: pages, local and consumed (@ns/id), naming every word
   docsys consume add <path|git-url>[#subdir] [--as <ns>] [--root docs]   # one provider into this tree's consume: list
   docsys consume discover <dir> [--root docs]     # the docsys trees one level under a directory, as candidates; writes nothing
+  docsys inbox   add --source <name> --id <item> [--title <t>] [--url <u>] [--date <d>] [<file>|-] [--root .]
+                                             # a connector's record into raw/inbox/, with provenance; the same item lands once
+  docsys inbox   pull <repo> [--since <date>] [--limit <n>] [--as <ns>] [--root .]   # the git connector: one record per commit since a date, newest first
+  docsys status  [--root .] [--repo <dir>] [--json]   # the digest: inbox, pages by state, open items, consumed, skills, findings
+  docsys assistant [--root .] [--projects <dir>]… [--domains a,b] [--since 30.days] [--limit 3]
+                                             # an assistant's memory in one command: base, layer, projects consumed, pages, records, digest
   docsys init    [--root <dir>] [--lang <code>] [--profile project|knowledge-base]
   docsys migrate inventory [--root <dir>] [--repo <dir>]   # plan skeleton to stdout
   docsys migrate apply --plan <file> [--root <dir>] [--lang <code>] [--repo <dir>]
@@ -80,6 +86,12 @@ struct Opts {
     refresh: bool,
     symbol: Option<String>,
     as_ns: Option<String>,
+    source: Option<String>,
+    source_id: Option<String>,
+    url: Option<String>,
+    limit: Option<usize>,
+    projects: Vec<PathBuf>,
+    domains: Vec<String>,
     positional: Vec<String>,
 }
 
@@ -114,6 +126,12 @@ fn parse_opts(args: &[String]) -> Result<Opts, String> {
         refresh: false,
         symbol: None,
         as_ns: None,
+        source: None,
+        source_id: None,
+        url: None,
+        limit: None,
+        projects: Vec::new(),
+        domains: Vec::new(),
         positional: Vec::new(),
     };
     let mut it = args.iter();
@@ -160,6 +178,29 @@ fn parse_opts(args: &[String]) -> Result<Opts, String> {
             "--refresh" => o.refresh = true,
             "--symbol" => o.symbol = Some(it.next().ok_or("--symbol needs a value")?.clone()),
             "--as" => o.as_ns = Some(it.next().ok_or("--as needs a value")?.clone()),
+            "--source" => o.source = Some(it.next().ok_or("--source needs a value")?.clone()),
+            "--id" => o.source_id = Some(it.next().ok_or("--id needs a value")?.clone()),
+            "--url" => o.url = Some(it.next().ok_or("--url needs a value")?.clone()),
+            "--projects" => o
+                .projects
+                .push(PathBuf::from(it.next().ok_or("--projects needs a value")?)),
+            "--domains" => {
+                o.domains = it
+                    .next()
+                    .ok_or("--domains needs a value")?
+                    .split(',')
+                    .map(|d| d.trim().to_string())
+                    .filter(|d| !d.is_empty())
+                    .collect()
+            }
+            "--limit" => {
+                o.limit = Some(
+                    it.next()
+                        .ok_or("--limit needs a value")?
+                        .parse()
+                        .map_err(|_| "--limit needs a number".to_string())?,
+                );
+            }
             other if !other.starts_with("--") => o.positional.push(other.to_string()),
             other => return Err(format!("unknown argument `{other}`")),
         }
@@ -241,7 +282,8 @@ fn main() -> ExitCode {
                 || c == "debt"
                 || c == "journal"
                 || c == "page"
-                || c == "consume" =>
+                || c == "consume"
+                || c == "inbox" =>
         {
             match r.split_first() {
                 Some((s, r2)) => (c.as_str(), Some(s.as_str()), r2),
@@ -606,6 +648,127 @@ fn main() -> ExitCode {
         ("consume", _) => {
             eprintln!("consume needs `add` or `discover`");
             ExitCode::from(2)
+        }
+        ("inbox", Some("add")) => {
+            let (Some(source), Some(id)) = (opts.source.clone(), opts.source_id.clone()) else {
+                eprintln!("inbox add needs --source <name> and --id <item id at the source>");
+                return ExitCode::from(2);
+            };
+            // the body: a file, `-` for stdin, or nothing
+            let body = match opts.positional.first().map(String::as_str) {
+                Some("-") => {
+                    let mut s = String::new();
+                    let _ = std::io::Read::read_to_string(&mut std::io::stdin(), &mut s);
+                    s
+                }
+                Some(path) => match std::fs::read_to_string(path) {
+                    Ok(s) => s,
+                    Err(e) => {
+                        eprintln!("inbox add: cannot read `{path}`: {e}");
+                        return ExitCode::from(2);
+                    }
+                },
+                None => String::new(),
+            };
+            let p = docsys::inbox::Provenance {
+                source,
+                title: opts.title.clone().unwrap_or_else(|| id.clone()),
+                source_id: id,
+                url: opts.url.clone(),
+                date: opts.date.clone().unwrap_or_else(migrate::today),
+            };
+            match docsys::inbox::add(&opts.root, &p, &body) {
+                Ok(msg) => {
+                    println!("{msg}");
+                    ExitCode::SUCCESS
+                }
+                Err(e) => {
+                    eprintln!("inbox add: {e}");
+                    ExitCode::from(2)
+                }
+            }
+        }
+        ("inbox", Some("pull")) => {
+            let Some(repo) = opts.positional.first() else {
+                eprintln!("inbox pull needs <repo>");
+                return ExitCode::from(2);
+            };
+            let since = opts.since.clone().unwrap_or_else(|| "7.days".to_string());
+            match docsys::inbox::pull_git(
+                &opts.root,
+                &PathBuf::from(repo),
+                &since,
+                opts.as_ns.as_deref(),
+                opts.limit,
+            ) {
+                Ok(lines) => {
+                    for l in &lines {
+                        println!("{l}");
+                    }
+                    let new = lines.iter().filter(|l| l.starts_with("captured:")).count();
+                    println!(
+                        "-- {new} new record(s), {} already captured",
+                        lines.len() - new
+                    );
+                    ExitCode::SUCCESS
+                }
+                Err(e) => {
+                    eprintln!("inbox pull: {e}");
+                    ExitCode::from(2)
+                }
+            }
+        }
+        ("inbox", _) => {
+            eprintln!("inbox needs `add` or `pull`");
+            ExitCode::from(2)
+        }
+        ("assistant", None) => {
+            let since = opts.since.clone().unwrap_or_else(|| "30.days".to_string());
+            let limit = Some(opts.limit.unwrap_or(3));
+            match docsys::assistant::run(&opts.root, &opts.projects, &opts.domains, &since, limit) {
+                Ok(done) => {
+                    for s in &done.steps {
+                        println!("{s}");
+                    }
+                    println!();
+                    match docsys::status::status(&opts.root, docsys::repo_of(&opts.root).as_deref())
+                    {
+                        Ok(s) => print!("{}", docsys::status::render(&s, &opts.root)),
+                        Err(e) => eprintln!("status: {e}"),
+                    }
+                    println!(
+                        "
+next: review, `git add -A && git commit`, then open an agent session here:"
+                    );
+                    println!("  \"how does <project> handle <thing>?\"      lookup — cites @namespace/id");
+                    println!("  \"study what my projects say about X and write it up\"   a page whose sources are theirs");
+                    println!("  \"process my inbox\"   the commit records, distilled or left with a reason");
+                    println!("  \"audit the wiki\"     in another session");
+                    println!("  \"my morning briefing\"   from `docsys status`");
+                    ExitCode::SUCCESS
+                }
+                Err(e) => {
+                    eprintln!("assistant: {e}");
+                    ExitCode::from(2)
+                }
+            }
+        }
+        ("status", None) => {
+            let repo = opts.repo.clone().or_else(|| docsys::repo_of(&opts.root));
+            match docsys::status::status(&opts.root, repo.as_deref()) {
+                Ok(s) => {
+                    if opts.json {
+                        print!("{}", docsys::status::render_json(&s));
+                    } else {
+                        print!("{}", docsys::status::render(&s, &opts.root));
+                    }
+                    ExitCode::SUCCESS
+                }
+                Err(e) => {
+                    eprintln!("status: {e}");
+                    ExitCode::from(2)
+                }
+            }
         }
         ("compile", None) => match opts.positional.first() {
             Some(page) => match docsys::compile::compile(&opts.root, &opts.dir, page, opts.force) {
