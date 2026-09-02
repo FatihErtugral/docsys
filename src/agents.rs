@@ -370,6 +370,15 @@ existing `raw/` record is blocked (R-023) — new knowledge is a new file in
 waits in the inbox. Everything warns and nothing blocks, except the two
 guards on the irreversible: the record and the commit.
 
+## Forgetting
+
+Only on the person's explicit word. `docsys forget <page|record> --reason
+"…"` moves a page to `_archive/` with a tombstone (its identifier is never
+reused) and a record to `raw/_forgotten/` (still a record, never read again,
+never captured again); the ledger `.forgotten.yml` says when and why. Forget
+the page before the records it rests on. It makes a topic unknown to every
+organ; it does not erase history — that is a person's `git filter-repo`.
+
 ## Gate
 
 `docsys lint --root .` — before any commit, after any change. Inside the

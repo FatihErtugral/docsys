@@ -17,6 +17,7 @@ Usage:
   docsys inbox   pull <repo> [--since <date>] [--limit <n>] [--as <ns>] [--all] [--root .]
                                              # the git connector: one record per commit since a date, newest first; --all keeps bookkeeping commits too
   docsys status  [--root .] [--repo <dir>] [--json]   # the digest: inbox, pages by state, open items, consumed, skills, findings
+  docsys forget  <page-id|page-path|record-path> --reason <text> [--root .]   # a page to _archive/ with a tombstone, a record to raw/_forgotten/; the ledger says why
   docsys assistant [--root .] [--projects <dir>]… [--domains a,b] [--since 30.days] [--limit 3]
                                              # an assistant's memory in one command: base, layer, projects consumed, pages, records, digest
   docsys init    [--root <dir>] [--lang <code>] [--profile project|knowledge-base]
@@ -161,6 +162,7 @@ fn parse_opts(args: &[String]) -> Result<Opts, String> {
                 o.memory = Some(PathBuf::from(it.next().ok_or("--memory needs a value")?))
             }
             "--note" => o.note = Some(it.next().ok_or("--note needs a value")?.clone()),
+            "--reason" => o.note = Some(it.next().ok_or("--reason needs a value")?.clone()),
             "--date" => o.date = Some(it.next().ok_or("--date needs a value")?.clone()),
             "--link" => o.link = Some(it.next().ok_or("--link needs a value")?.clone()),
             "--format" => o.format = Some(it.next().ok_or("--format needs a value")?.clone()),
@@ -761,6 +763,30 @@ next: review, `git add -A && git commit`, then open an agent session here."
                 }
             }
         }
+        ("forget", None) => match (
+            opts.positional.first(),
+            opts.note.clone().or_else(|| opts.title.clone()),
+        ) {
+            (Some(target), Some(reason)) => {
+                match docsys::forget::forget(&opts.root, target, &reason) {
+                    Ok(done) => {
+                        for step in &done.steps {
+                            println!("{step}");
+                        }
+                        println!("forgotten. The bytes stay where an audit finds them; erasing history is `git filter-repo`, a person's act.");
+                        ExitCode::SUCCESS
+                    }
+                    Err(e) => {
+                        eprintln!("forget: {e}");
+                        ExitCode::from(2)
+                    }
+                }
+            }
+            _ => {
+                eprintln!("forget needs <page-id|page-path|record-path> and --reason <text>");
+                ExitCode::from(2)
+            }
+        },
         ("status", None) => {
             let repo = opts.repo.clone().or_else(|| docsys::repo_of(&opts.root));
             match docsys::status::status(&opts.root, repo.as_deref()) {

@@ -40,6 +40,8 @@ pub struct Status {
     pub by_rule: BTreeMap<String, usize>,
     /// verified pages whose consumed sources moved since verification (D-082)
     pub sources_moved: usize,
+    /// entries in `.forgotten.yml` (D-084)
+    pub forgotten: usize,
     pub first_errors: Vec<String>,
 }
 
@@ -162,6 +164,7 @@ pub fn status(root: &Path, repo: Option<&Path>) -> Result<Status, String> {
             }
         }
     }
+    s.forgotten = crate::forget::count(root);
     // what lint would say, once
     let (report, _) = crate::lint_in(root, repo);
     for f in &report.findings {
@@ -263,6 +266,12 @@ pub fn render(s: &Status, root: &Path) -> String {
             s.sources_moved
         ));
     }
+    if s.forgotten > 0 {
+        out.push_str(&format!(
+            "forgotten: {} (see .forgotten.yml)\n",
+            s.forgotten
+        ));
+    }
     out.push_str(&format!(
         "lint: {} error(s), {} warning(s)\n",
         s.errors, s.warnings
@@ -315,7 +324,7 @@ pub fn render_json(s: &Status) -> String {
         .map(|e| format!("\"{}\"", esc(e)))
         .collect();
     format!(
-        "{{\"profile\":\"{}\",\"namespace\":{},\"inbox\":{},\"inbox_oldest\":{},\"permanent\":{},\"unverified\":[{}],\"work\":{{{}}},\"questions_open\":{},\"debt_open\":{},\"consumed\":[{}],\"skills_compiled\":{},\"errors\":{},\"warnings\":{},\"by_rule\":{{{}}},\"sources_moved\":{},\"first_errors\":[{}]}}\n",
+        "{{\"profile\":\"{}\",\"namespace\":{},\"inbox\":{},\"inbox_oldest\":{},\"permanent\":{},\"unverified\":[{}],\"work\":{{{}}},\"questions_open\":{},\"debt_open\":{},\"consumed\":[{}],\"skills_compiled\":{},\"errors\":{},\"warnings\":{},\"by_rule\":{{{}}},\"sources_moved\":{},\"forgotten\":{},\"first_errors\":[{}]}}\n",
         esc(&s.profile),
         s.namespace
             .as_ref()
@@ -335,6 +344,7 @@ pub fn render_json(s: &Status) -> String {
         s.warnings,
         by_rule.join(","),
         s.sources_moved,
+        s.forgotten,
         first.join(",")
     )
 }

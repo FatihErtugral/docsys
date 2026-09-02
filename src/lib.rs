@@ -12,6 +12,7 @@ pub mod consume;
 pub mod doctor;
 pub mod export;
 pub mod fm;
+pub mod forget;
 pub mod fresh;
 pub mod gate;
 pub mod graduate;

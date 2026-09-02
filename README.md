@@ -322,6 +322,11 @@ flowchart LR
 - **What it may never do** is mechanical too: verify its own page (R-025),
   edit a record (R-023), answer from memory when the base does not have it
   (the lookup skill), act outward on its own (R-206).
+- **Forgetting, on the person's word.** `docsys forget <page|record>
+  --reason "…"` makes a topic unknown to every organ — the page archived with
+  a tombstone, the record moved where nothing reads it and the connector never
+  re-lands it — and writes when and why to `.forgotten.yml`. It does not erase
+  history; that is `git filter-repo`, a person's act (D-084).
 
 ## Commands
 
@@ -337,6 +342,7 @@ flowchart LR
 | `docsys consume add <path\|git-url>[#subdir] [--as <ns>]` · `docsys consume discover <dir>` | Grow this tree's `consume:` list from a checkout or a git URL, reading the provider's `namespace:`; list the docsys trees under a directory as candidates without writing. The list lives in this tree's `.docmeta.yml` and nowhere else (D-075). |
 | `docsys inbox add --source <name> --id <item> [--title <t>] [--url <u>] [--date <d>] [<file>\|-]` · `docsys inbox pull <repo> [--since <date>] [--limit <n>] [--as <ns>] [--all]` | The connector write gate (§20): one record into `raw/inbox/` with its provenance, the same item landing once; and the built-in git connector, one record per commit, bookkeeping commits skipped unless `--all` (D-079). |
 | `docsys assistant [--root .] [--projects <dir>]… [--domains a,b] [--since 30.days] [--limit 3]` | An assistant's memory in one command: the base, its agent layer, every docsys project under the given directories consumed and fetched, their recent commits as records, the digest. Idempotent (D-081). |
+| `docsys forget <page-id\|page-path\|record-path> --reason <text> [--root .]` | "Take this out of your memory", honestly: a page to `_archive/` with a tombstone (its id never reused), its router line and compiled skill gone; a record to `raw/_forgotten/`, still a record, never read or captured again; one ledger line with the reason. History is untouched (D-084). |
 | `docsys status [--root .] [--repo <dir>] [--json]` | The digest an assistant reads first: inbox, pages by state, open questions and debt, consumed namespaces and their fetch day, compiled skills, and lint's findings folded by rule. Derived on every run, never stored (D-080). |
 | `docsys compile <howto> [--root docs] [--dir .claude] [--force]` | A howto whose steps are complete becomes an executable skill: the page body byte for byte under `.claude/skills/<id>/`, pinned to the page's content hash. Lint fails while the page has moved since the compile (R-094, R-095, D-073). |
 | `docsys pin <page> <path> [--symbol <s>]` · `docsys pin --refresh <page>` | Pin a permanent page to a code region — the whole file or one symbol's block — with its SHA-256 (§11); refresh every pin after re-reading the page. Lint fails while a pinned region has moved. |

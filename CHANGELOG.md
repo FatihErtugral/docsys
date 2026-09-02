@@ -16,6 +16,12 @@ by the release workflow — the tag's section becomes the GitHub release body.
   answers replace the placeholder. The routing text now says: speak the
   person's language, turn by turn; pages keep the declared language.
 
+- `docsys forget <page|record> --reason <text>` (D-084): a page to
+  `_archive/` with a tombstone, its router line and compiled skill gone; a
+  record to `raw/_forgotten/`, still immutable, never read and never captured
+  again; the ledger `.forgotten.yml` says when and why; `status` counts it. A
+  record a page cites is refused until the page is forgotten.
+
 ### Fixed
 
 - `ci/e2e.sh` runs on the macOS leg again: no `sed -i`.

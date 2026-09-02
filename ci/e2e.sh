@@ -242,4 +242,20 @@ grep -q 'base: kept' /tmp/assistant2.out && grep -q 'records: auth — 0 new' /t
 (cd memory && docsys lint --root . | grep -q -- '-- 0 error(s)') || fail "the one-command base does not lint clean"
 cd "$WORK"
 
+say "13 · forgetting: a page and a record leave every organ's sight, with a reason, without touching history"
+cd brain
+docsys forget auth-in-one-page --reason "learned it elsewhere" --root . > /tmp/forget.out || fail "forget refused a page: $(cat /tmp/forget.out)"
+test -f _archive/wiki/coding/explanation/auth-in-one-page.md || fail "the page was not archived"
+grep -q '^- id: auth-in-one-page' .tombstones.yml || fail "no tombstone for the forgotten page"
+grep -q 'auth-in-one-page' wiki/coding/index.md && fail "the router still lists the forgotten page"
+grep -q 'learned it elsewhere' .forgotten.yml || fail "the ledger has no reason"
+rec=$(ls raw/inbox/*-calendar-dentist.md | head -1)
+docsys forget "$rec" --reason "not mine" --root . >/dev/null || fail "forget refused a record"
+test -f "raw/_forgotten/inbox/$(basename "$rec")" || fail "the record was not moved under raw/_forgotten/"
+docsys inbox add --source calendar --id evt-1 --title "Dentist" --root . | grep -q 'already captured: raw/_forgotten/' || fail "a forgotten item landed again"
+docsys lint --root . | grep -q -- '-- 0 error(s)' || fail "forgetting left errors: $(docsys lint --root . | head -3)"
+docsys status --root . | grep -q 'forgotten: 2' || fail "status does not count the forgettings"
+(docsys lookup auth --root . || true) | grep -q 'auth-in-one-page' && fail "a forgotten page is still found"   # the consumed @auth page is a legitimate hit
+cd "$WORK"
+
 printf '\nE2E OK\n'
