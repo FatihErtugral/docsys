@@ -157,4 +157,15 @@ docsys lint --root docs | grep -q -- '-- 0 error(s)' || fail "recompiled skill i
 docsys compile entry --root docs >/dev/null 2>&1 && fail "a reference page compiled"
 cd "$WORK"
 
+say "10 · lookup and consume: a question's first hop across what a tree consumes"
+mkdir hub && cd hub && git init -q && docsys init --root docs >/dev/null
+docsys consume add "$WORK/auth" --root docs | grep -q 'auth' || fail "consume add did not register the provider"
+docsys consume add "$WORK/auth" --root docs >/dev/null 2>&1 && fail "a provider was consumed twice"
+docsys fetch --root docs >/dev/null || fail "fetch after consume add failed"
+docsys lookup auth service --root docs | grep -q '@auth/use-auth' || fail "lookup did not find the consumed page"
+docsys lookup nothing-like-this --root docs >/dev/null 2>&1 && fail "lookup found a page for nonsense"
+docsys consume discover "$WORK" --root docs | grep -q 'billing' || fail "discover did not list the other provider"
+docsys consume discover "$WORK" --root docs | grep -q 'already consumed' || fail "discover did not mark the consumed one"
+cd "$WORK"
+
 printf '\nE2E OK\n'

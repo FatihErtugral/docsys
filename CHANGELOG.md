@@ -15,6 +15,18 @@ by the release workflow — the tag's section becomes the GitHub release body.
   compiles; in the knowledge-base profile only a `verified` one. `lint`
   inside the repository errors when a compiled skill's page moved or is gone.
 
+- `docsys lookup <word…> [--json]` (D-074): a question's first hop — every
+  page, local and consumed (`@namespace/id`), naming every word, scored by
+  where the words occur, drafts and unverified pages flagged; `raw/` never
+  listed; no hit exits 1 with "not in the base".
+- `docsys consume add <path|git-url>[#subdir] [--as <ns>]` and `docsys
+  consume discover <dir>` (D-075): the provider list grows in this tree's
+  own `.docmeta.yml`; `discover` lists candidates and writes nothing.
+  `adopt` writes `namespace:` into the tree's docmeta once. No registry
+  outside the repository.
+- The kb-lookup skill and the docsys skill start a question with
+  `docsys lookup`.
+
 ### Changed
 
 - R-095 blocks (D-070): a stale compiled skill is an error until recompiled.

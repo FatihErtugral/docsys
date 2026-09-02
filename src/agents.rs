@@ -99,6 +99,8 @@ approval gates. Never re-implement what a command does; never skip a gate.
   untouched past `stale_active_days` (R-085) is abandoned with a reason,
   graduated, or worked on.
 - Never rewrite content — move it. Never translate. Never invent.
+- A question about the tree starts with `docsys lookup <words>` — every page,
+  local and consumed (`@namespace/id`), naming the words — then the page.
 - Judgment calls follow the authored procedures: `docsys rules --procedures`.
   When no option fits, take the escape; never force.
 
@@ -294,8 +296,12 @@ description: Answer from the knowledge base — "what do my notes say about X", 
 
 Read-only. Never write, never fix what you find; report gaps instead.
 
-1. `wiki/index.md` → the domain → `wiki/<domain>/index.md` → the page.
-2. Not routed? grep `wiki/` for tags and headings.
+1. `docsys lookup <words> --root <base>` — the mechanical first hop: every
+   page, local and consumed (`@namespace/id`), that names all the words,
+   scored by where they occur. Read the page it points at; a consumed page
+   is another tree's contract and is cited as `@namespace/id`.
+2. Nothing? `wiki/index.md` → the domain → `wiki/<domain>/index.md` → the
+   page; then grep `wiki/` for tags and headings.
 3. Still nothing → **say it is not in the base.** Never answer from your own
    knowledge while implying the base said it; offer to capture the question.
 4. Answer WITH the page path, and say plainly when the page is

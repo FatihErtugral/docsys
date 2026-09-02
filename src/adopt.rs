@@ -14,6 +14,56 @@ const WARN_MODE_LINE: &str =
 const HARD_MODE_LINE: &str = "# Hard gate: lint errors and dangling references stop the commit.";
 const CI_MARKER: &str = "docsys documentation workflow";
 
+/// `namespace:` in the tree's `.docmeta.yml` — the repository's directory
+/// name as a local-id — written when absent, kept when present (D-075).
+fn ensure_namespace(root: &Path, repo: &Path) -> String {
+    let dm = root.join(".docmeta.yml");
+    let Ok(text) = fs::read_to_string(&dm) else {
+        return "docmeta unreadable".to_string();
+    };
+    if let Some(existing) = text
+        .lines()
+        .find_map(|l| l.strip_prefix("namespace:"))
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+    {
+        return format!("{existing} (kept)");
+    }
+    let name = repo
+        .canonicalize()
+        .ok()
+        .and_then(|p| p.file_name().map(|n| n.to_string_lossy().into_owned()))
+        .unwrap_or_else(|| "project".to_string());
+    let ns = crate::consume::local_id_of(&name);
+    let ns = if ns.is_empty() {
+        "project".to_string()
+    } else {
+        ns
+    };
+    // Right after the required trio, so the owner's own lines stay where they
+    // were — at the end, verbatim.
+    let mut lines: Vec<String> = text.lines().map(String::from).collect();
+    let at = lines
+        .iter()
+        .rposition(|l| {
+            l.starts_with("spec:")
+                || l.starts_with("profile:")
+                || l.starts_with("default_content_language:")
+        })
+        .map_or(lines.len(), |i| i + 1);
+    lines.insert(at, format!("namespace: {ns}"));
+    lines.insert(
+        at,
+        format!("# The name a consumer uses for this tree — `consume: [{ns}]` (D-075)."),
+    );
+    let mut out = lines.join("\n");
+    out.push('\n');
+    if fs::write(&dm, out).is_err() {
+        return "write failed".to_string();
+    }
+    format!("{ns} (written)")
+}
+
 /// `.github/workflows/docsys.yml` when the repository has a `.github/`: lint
 /// and refs on every push, the code-without-docs question over a pull
 /// request's range (D-072). Written once, never regenerated — it is the
@@ -239,6 +289,9 @@ pub fn run(repo: &Path, root: &Path, lang: &str) -> Result<AdoptOutcome, String>
     if !scaffolded.is_empty() {
         summary.push(format!("scaffold: {} written", scaffolded.join(", ")));
     }
+    // 1c · the tree's own name for any consumer (D-075) — in its docmeta,
+    // once; never anywhere outside the repository
+    summary.push(format!("namespace: {}", ensure_namespace(root, repo)));
 
     // 2 · agent layer (never-colliding names; existing files skipped)
     let claude = repo.join(".claude");

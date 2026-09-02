@@ -9,6 +9,9 @@ Usage:
   docsys pin     <page> <path> [--symbol <s>] [--repo .] [--root docs]   # pin a page to a code region (verifies:, §11)
   docsys pin     --refresh <page> [--repo .] [--root docs]              # recompute its pins after re-reading the page
   docsys compile <howto> [--root docs] [--dir .claude] [--force]        # a howto's body as an executable skill, pinned to its source hash (R-094, R-095)
+  docsys lookup  <word…> [--root docs] [--json]   # a question's first hop: pages, local and consumed (@ns/id), naming every word
+  docsys consume add <path|git-url>[#subdir] [--as <ns>] [--root docs]   # one provider into this tree's consume: list
+  docsys consume discover <dir> [--root docs]     # the docsys trees one level under a directory, as candidates; writes nothing
   docsys init    [--root <dir>] [--lang <code>] [--profile project|knowledge-base]
   docsys migrate inventory [--root <dir>] [--repo <dir>]   # plan skeleton to stdout
   docsys migrate apply --plan <file> [--root <dir>] [--lang <code>] [--repo <dir>]
@@ -76,6 +79,7 @@ struct Opts {
     range: Option<String>,
     refresh: bool,
     symbol: Option<String>,
+    as_ns: Option<String>,
     positional: Vec<String>,
 }
 
@@ -109,6 +113,7 @@ fn parse_opts(args: &[String]) -> Result<Opts, String> {
         range: None,
         refresh: false,
         symbol: None,
+        as_ns: None,
         positional: Vec::new(),
     };
     let mut it = args.iter();
@@ -154,6 +159,7 @@ fn parse_opts(args: &[String]) -> Result<Opts, String> {
             "--range" => o.range = Some(it.next().ok_or("--range needs a value")?.clone()),
             "--refresh" => o.refresh = true,
             "--symbol" => o.symbol = Some(it.next().ok_or("--symbol needs a value")?.clone()),
+            "--as" => o.as_ns = Some(it.next().ok_or("--as needs a value")?.clone()),
             other if !other.starts_with("--") => o.positional.push(other.to_string()),
             other => return Err(format!("unknown argument `{other}`")),
         }
@@ -234,7 +240,8 @@ fn main() -> ExitCode {
                 || c == "seed"
                 || c == "debt"
                 || c == "journal"
-                || c == "page" =>
+                || c == "page"
+                || c == "consume" =>
         {
             match r.split_first() {
                 Some((s, r2)) => (c.as_str(), Some(s.as_str()), r2),
@@ -523,6 +530,82 @@ fn main() -> ExitCode {
             print!("{}", reply.stdout);
             eprint!("{}", reply.stderr);
             ExitCode::from(reply.code)
+        }
+        ("lookup", None) => {
+            if opts.positional.is_empty() {
+                eprintln!("lookup needs at least one word");
+                return ExitCode::from(2);
+            }
+            match docsys::lookup::lookup(&opts.root, &opts.positional) {
+                Ok(hits) => {
+                    if opts.json {
+                        print!("{}", docsys::lookup::render_json(&hits));
+                    } else {
+                        print!("{}", docsys::lookup::render(&hits, &opts.positional));
+                    }
+                    if hits.is_empty() {
+                        ExitCode::from(1)
+                    } else {
+                        ExitCode::SUCCESS
+                    }
+                }
+                Err(e) => {
+                    eprintln!("lookup: {e}");
+                    ExitCode::from(2)
+                }
+            }
+        }
+        ("consume", Some("add")) => match opts.positional.first() {
+            Some(target) => match docsys::consume::add(&opts.root, target, opts.as_ns.as_deref()) {
+                Ok(msg) => {
+                    println!("{msg}");
+                    ExitCode::SUCCESS
+                }
+                Err(e) => {
+                    eprintln!("consume add: {e}");
+                    ExitCode::from(2)
+                }
+            },
+            None => {
+                eprintln!("consume add needs <path|git-url>[#subdir]");
+                ExitCode::from(2)
+            }
+        },
+        ("consume", Some("discover")) => {
+            let dir = opts
+                .positional
+                .first()
+                .map_or_else(|| PathBuf::from("."), PathBuf::from);
+            match docsys::consume::discover(&opts.root, &dir) {
+                Ok(found) if found.is_empty() => {
+                    println!("no docsys tree one level under {}", dir.display());
+                    ExitCode::SUCCESS
+                }
+                Ok(found) => {
+                    for c in &found {
+                        let action = if c.already {
+                            "already consumed".to_string()
+                        } else {
+                            format!(
+                                "docsys consume add {} --root {}",
+                                c.path.display(),
+                                opts.root.display()
+                            )
+                        };
+                        println!("{}\t{}\t{}\t{action}", c.ns, c.profile, c.path.display());
+                    }
+                    println!("-- {} candidate(s); nothing written", found.len());
+                    ExitCode::SUCCESS
+                }
+                Err(e) => {
+                    eprintln!("consume discover: {e}");
+                    ExitCode::from(2)
+                }
+            }
+        }
+        ("consume", _) => {
+            eprintln!("consume needs `add` or `discover`");
+            ExitCode::from(2)
         }
         ("compile", None) => match opts.positional.first() {
             Some(page) => match docsys::compile::compile(&opts.root, &opts.dir, page, opts.force) {

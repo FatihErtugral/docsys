@@ -406,7 +406,7 @@ fn parse_manifest(text: &str) -> Result<(u32, Vec<ManifestEntry>), String> {
     Ok((version, entries))
 }
 
-fn is_git_url(loc: &str) -> bool {
+pub fn is_git_url(loc: &str) -> bool {
     loc.starts_with("git@")
         || loc.starts_with("http://")
         || loc.starts_with("https://")
