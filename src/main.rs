@@ -521,7 +521,7 @@ fn main() -> ExitCode {
                 "post-tool-use" => {
                     docsys::hook::post_tool_use(&repo, &root, &payload, &migrate::today())
                 }
-                "user-prompt-submit" => docsys::hook::user_prompt_submit(&payload),
+                "user-prompt-submit" => docsys::hook::user_prompt_submit(&payload, &root),
                 other => {
                     eprintln!("hook: unknown event `{other}` (pre-tool-use | stop | post-tool-use | user-prompt-submit)");
                     return ExitCode::from(2);
@@ -897,6 +897,9 @@ fn main() -> ExitCode {
                     }
                     for f in &done.skipped {
                         println!("skipped {f} (exists; --force to overwrite)");
+                    }
+                    for n in &done.notes {
+                        println!("{n}");
                     }
                     println!("\nthe base's four organs: capture · ingest · audit · lookup.");
                     println!(

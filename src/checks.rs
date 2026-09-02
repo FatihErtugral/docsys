@@ -1754,8 +1754,8 @@ pub fn run_with(tree: &DocTree, ctx: &Context) -> Report {
         crate::fresh::check_pins(tree, repo, &mut r);
         crate::compile::check_compiled(tree, repo, &mut r);
     }
-    if let Some(h) = &ctx.history {
-        crate::fresh::check_history(tree, h, &mut r);
+    if let (Some(repo), Some(h)) = (&ctx.repo, &ctx.history) {
+        crate::fresh::check_history(tree, repo, h, &mut r);
     }
     if tree.profile == Profile::KnowledgeBase {
         check_raw_immutability(tree, &mut r);

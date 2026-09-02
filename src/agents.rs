@@ -19,6 +19,8 @@ const PRE_COMMIT_DOCS: &str = r#"#!/usr/bin/env bash
 # pre-commit-docs.sh — PreToolUse gate on `git commit`; the decision is made
 # by `docsys hook pre-tool-use` (D-051): lint errors block, the code-without-docs
 # question is asked once per change set. DOCSYS_SKIP=1 bypasses once.
+# In a knowledge base the same relay guards raw/: an existing record is never
+# overwritten or edited through Write/Edit (R-023, D-076).
 command -v docsys >/dev/null || exit 0
 exec docsys hook pre-tool-use --root "${DOCS_ROOT:-docs}"
 "#;
@@ -46,9 +48,10 @@ exec docsys hook post-tool-use --root "${DOCS_ROOT:-docs}"
 /// intent is genuinely ambiguous (a survey every session becomes noise).
 const SESSION_INTENT: &str = r#"#!/usr/bin/env bash
 # session-intent.sh — UserPromptSubmit hook; the routing text once per
-# session, from `docsys hook user-prompt-submit`.
+# session, from `docsys hook user-prompt-submit` (work types for a project,
+# the four organs for a knowledge base — the root's profile decides).
 command -v docsys >/dev/null || exit 0
-exec docsys hook user-prompt-submit
+exec docsys hook user-prompt-submit --root "${DOCS_ROOT:-docs}"
 "#;
 
 const DOC_SYNC: &str = r#"---
@@ -340,14 +343,31 @@ Rules that are not mechanical:
   `wiki/open-questions.md` and earns its place only after several notes.
 - Never invent. "Not in the base" is a complete answer.
 
+## Hooks
+
+`docsys agents --kb` wires four relays into `.claude/settings.json`: the
+first message of a session gets the organ routing; a `Write`/`Edit` on an
+existing `raw/` record is blocked (R-023) — new knowledge is a new file in
+`raw/inbox/`, relocation is `git mv`; an edited wiki page gets its
+`updated:` bumped; `git commit` runs the gate; the end of a turn names what
+waits in the inbox. Everything warns and nothing blocks, except the two
+guards on the irreversible: the record and the commit.
+
 ## Gate
 
-`docsys lint --root .` — before any commit, after any change.
+`docsys lint --root .` — before any commit, after any change. Inside the
+repository it also checks that a `verified` page still holds the body that
+was verified (R-024): a changed body is an error until the page is
+`unverified` again.
 "#;
 
+#[derive(Debug)]
 pub struct Installed {
     pub written: Vec<String>,
     pub skipped: Vec<String>,
+    /// what was decided rather than written: the gate's mode, a settings
+    /// file left alone
+    pub notes: Vec<String>,
 }
 
 /// The knowledge-base agent layer. Installed beside the base (`--kb`), never
@@ -357,7 +377,52 @@ pub fn install_kb(claude_dir: &Path, base_dir: &Path, force: bool) -> Result<Ins
     let mut out = Installed {
         written: Vec::new(),
         skipped: Vec::new(),
+        notes: Vec::new(),
     };
+    // The hooks name the base relative to where the agent runs — the
+    // directory holding `.claude/` — and that is `.` for a base that is its
+    // own repository (D-076).
+    let repo = claude_dir
+        .parent()
+        .map(Path::to_path_buf)
+        .unwrap_or_else(|| std::path::PathBuf::from("."));
+    let root_arg = {
+        let base_c = base_dir
+            .canonicalize()
+            .unwrap_or_else(|_| base_dir.to_path_buf());
+        let repo_c = repo.canonicalize().unwrap_or_else(|_| repo.clone());
+        match base_c.strip_prefix(&repo_c) {
+            Ok(rel) if rel.as_os_str().is_empty() => ".".to_string(),
+            Ok(rel) => rel.to_string_lossy().replace('\\', "/"),
+            Err(_) => base_dir.to_string_lossy().replace('\\', "/"),
+        }
+    };
+    // The same four relays as a project — the binary reads the profile and
+    // guards the record layer instead of asking the code-without-docs question.
+    for (rel, template) in [
+        ("hooks/pre-commit-docs.sh", PRE_COMMIT_DOCS),
+        ("hooks/stop-docs-reminder.sh", STOP_DOCS_REMINDER),
+        ("hooks/post-edit-updated.sh", POST_EDIT_UPDATED),
+        ("hooks/session-intent.sh", SESSION_INTENT),
+    ] {
+        let path = claude_dir.join(rel);
+        if path.exists() && !force {
+            out.skipped.push(rel.to_string());
+            continue;
+        }
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+        }
+        let content =
+            template.replace("${DOCS_ROOT:-docs}", &format!("${{DOCS_ROOT:-{root_arg}}}"));
+        fs::write(&path, stamp(&content)).map_err(|e| e.to_string())?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let _ = fs::set_permissions(&path, fs::Permissions::from_mode(0o755));
+        }
+        out.written.push(rel.to_string());
+    }
     for (rel, content) in [
         ("skills/kb-capture/SKILL.md", KB_CAPTURE),
         ("skills/kb-ingest/SKILL.md", KB_INGEST),
@@ -375,6 +440,21 @@ pub fn install_kb(claude_dir: &Path, base_dir: &Path, force: bool) -> Result<Ins
         fs::write(&path, content).map_err(|e| e.to_string())?;
         out.written.push(rel.to_string());
     }
+    // settings.json wires the hooks; an existing one may carry MCP servers
+    // and permissions, so it is never overwritten — the wiring goes to a note.
+    let settings = claude_dir.join("settings.json");
+    if settings.exists() {
+        out.notes.push(
+            "settings.json: untouched (may carry MCP/permissions) — wire the four hooks by \
+             hand: UserPromptSubmit → session-intent.sh, PreToolUse matcher `Bash|Write|Edit` → \
+             pre-commit-docs.sh, PostToolUse matcher `Write|Edit` → post-edit-updated.sh, Stop → \
+             stop-docs-reminder.sh"
+                .to_string(),
+        );
+    } else {
+        fs::write(&settings, KB_SETTINGS_SNIPPET).map_err(|e| e.to_string())?;
+        out.written.push("settings.json".to_string());
+    }
     // AGENTS.md is the owner's file: written only when absent (D-028's rule
     // for protected files), never merged over.
     let agents = base_dir.join("AGENTS.md");
@@ -384,8 +464,50 @@ pub fn install_kb(claude_dir: &Path, base_dir: &Path, force: bool) -> Result<Ins
         fs::write(&agents, KB_AGENTS_MD).map_err(|e| e.to_string())?;
         out.written.push("AGENTS.md".to_string());
     }
+    // The git gate, as for a project: hard when the base lints clean inside
+    // its repository, warn-mode while it carries debt (D-072).
+    if repo.join(".git").exists() {
+        let clean = {
+            let (r, _) = crate::lint_in(base_dir, Some(&repo));
+            !r.findings
+                .iter()
+                .any(|f| f.severity == crate::model::Severity::Error)
+        };
+        let gate = crate::adopt::ensure_git_gate(&repo, &root_arg, clean);
+        let mode = if clean {
+            "hard"
+        } else {
+            "warn-mode until lint is clean"
+        };
+        out.notes
+            .push(format!("git pre-commit gate: {gate} ({mode})"));
+    } else {
+        out.notes
+            .push("git pre-commit gate: skipped (not a git repository)".to_string());
+    }
     Ok(out)
 }
+
+/// The knowledge-base wiring: the same four relays, PreToolUse also on
+/// `Write|Edit` so the record layer is guarded before a byte moves (D-076).
+pub const KB_SETTINGS_SNIPPET: &str = r#"{
+  "hooks": {
+    "UserPromptSubmit": [
+      { "hooks": [ { "type": "command", "command": ".claude/hooks/session-intent.sh" } ] }
+    ],
+    "PreToolUse": [
+      { "matcher": "Bash|Write|Edit",
+        "hooks": [ { "type": "command", "command": ".claude/hooks/pre-commit-docs.sh" } ] }
+    ],
+    "PostToolUse": [
+      { "matcher": "Write|Edit",
+        "hooks": [ { "type": "command", "command": ".claude/hooks/post-edit-updated.sh" } ] }
+    ],
+    "Stop": [
+      { "hooks": [ { "type": "command", "command": ".claude/hooks/stop-docs-reminder.sh" } ] }
+    ]
+  }
+}"#;
 
 pub fn install(claude_dir: &Path, force: bool) -> Result<Installed, String> {
     install_with_preamble(claude_dir, force, "")
@@ -412,6 +534,7 @@ pub fn install_with_preamble(
     let mut out = Installed {
         written: Vec::new(),
         skipped: Vec::new(),
+        notes: Vec::new(),
     };
     for (rel, content, executable) in files {
         let path = claude_dir.join(rel);

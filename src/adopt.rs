@@ -164,7 +164,9 @@ fn ensure_docmeta(root: &Path, lang: &str) -> Result<&'static str, String> {
 /// at adoption; warn-mode when it carries debt, because a gate that blocks
 /// every commit on day one gets bypassed forever (R-150). A warn-mode gate is
 /// hardened by a later `adopt` once the tree is clean (D-072).
-fn ensure_git_gate(repo: &Path, root_rel: &str, clean: bool) -> &'static str {
+pub(crate) fn ensure_git_gate(repo: &Path, root_rel: &str, clean: bool) -> &'static str {
+    // a base that is its own repository names itself `.`
+    let root_rel = if root_rel.is_empty() { "." } else { root_rel };
     // Placement order: configured core.hooksPath → a tracked .githooks/ dir
     // (the project's own convention; we also set hooksPath so the gate fires
     // on a fresh clone, exactly what the project's own setup step would do)

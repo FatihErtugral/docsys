@@ -231,6 +231,10 @@ evidence trail of a `wiki/` page is a silent failure of the kind R-151 forbids.
 page that undergoes a **content change** (§2.4) becomes `unverified`. The §2.4
 exclusions are what make verification recordable at all: without them the act of
 recording it, or a mechanical `sources:` path rewrite, would immediately undo it.
+Where history is available the claim is checked, not trusted: a `verified` page
+whose body no longer hashes to what it held at `verified_rev` **is an error**
+until it is `unverified` again, and a `verified_rev` that does not hold the page
+**is an error** under R-028 (D-077).
 
 **R-025** `agent` · MUST — Only an independent session may set `verified`. The
 session that produced a page never verifies it.

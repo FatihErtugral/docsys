@@ -49,7 +49,20 @@ mkdir brain && cd brain && git init -q
 docsys init --profile knowledge-base --root . >/dev/null
 docsys agents --kb --root . >/dev/null
 test -f .claude/skills/kb-capture/SKILL.md || fail "kb skills missing"
+test -x .claude/hooks/pre-commit-docs.sh || fail "kb hooks missing"
+grep -q 'Bash|Write|Edit' .claude/settings.json || fail "kb settings do not guard writes"
 docsys lint --root . | grep -q -- '-- 0 error(s), 0 warning(s)' || fail "fresh kb tree not clean"
+git add -A && git commit -qm base
+docsys doctor --repo . --root . | grep -q -- '-- pipeline alive' || fail "kb doctor: $(docsys doctor --repo . --root . | tail -3)"
+printf 'A note.\n' > raw/inbox/2026-08-16-note.md
+printf '{"tool_name":"Write","tool_input":{"file_path":"%s/raw/inbox/2026-08-16-note.md","content":"x"}}' "$PWD" \
+  | docsys hook pre-tool-use --root . 2>/tmp/raw.err && fail "an existing record was not guarded"
+grep -q 'R-023' /tmp/raw.err || fail "the guard does not name the rule"
+printf '{"tool_name":"Write","tool_input":{"file_path":"%s/raw/inbox/2026-08-16-new.md","content":"x"}}' "$PWD" \
+  | docsys hook pre-tool-use --root . || fail "a new note was blocked"
+(printf '{"session_id":"e2e-kb-%s","prompt":"note this"}' "$$" | docsys hook user-prompt-submit --root . || true) \
+  | grep -q 'capture' || fail "kb routing missing"   # once per session id; grep -q closes the pipe early
+(docsys hook stop --root . 2>&1 || true) | grep -q 'raw/inbox' || fail "stop does not name the inbox"
 cd "$WORK"
 
 say "6 · federation: two git providers, one estate, one document"

@@ -26,6 +26,16 @@ by the release workflow — the tag's section becomes the GitHub release body.
   outside the repository.
 - The kb-lookup skill and the docsys skill start a question with
   `docsys lookup`.
+- The knowledge-base hook layer (D-076): `docsys agents --kb` installs the
+  four relays, `settings.json` when absent, and the git pre-commit gate. In
+  a base the PreToolUse relay blocks a `Write`/`Edit` on an existing `raw/`
+  record (R-023), the first turn names the organs, `updated:` is bumped on
+  wiki pages only, and the end of a turn names the notes waiting in the inbox
+  and the errors the gate will stop.
+- Lint checks a verification against the body it verified (D-077): a
+  `verified` page whose body no longer hashes to what it held at
+  `verified_rev` is an error under R-024; a revision that does not hold the
+  page is an error under R-028.
 
 ### Changed
 

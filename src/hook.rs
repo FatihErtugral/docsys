@@ -344,9 +344,59 @@ const DROPPED_ADD: &str = "docsys gate: the blocked call ran `git add`; this ret
 /// PreToolUse on `Bash`: the commit-time question (D-040), asked once per
 /// (HEAD, change set) with the marker kept until HEAD moves (D-043), and the
 /// dropped-`git add` retry stopped once (D-049).
+/// Does this docs root declare the knowledge-base profile? It changes what
+/// the hooks guard (the record layer) and what they say (organs, not work
+/// types).
+pub fn is_knowledge_base(root: &Path) -> bool {
+    fs::read_to_string(root.join(".docmeta.yml")).is_ok_and(|t| {
+        t.lines().any(|l| {
+            l.strip_prefix("profile:")
+                .is_some_and(|v| v.trim() == "knowledge-base")
+        })
+    })
+}
+
+/// The `raw/`-relative name of an EXISTING record the tool is about to write
+/// over; `None` for anything else — a new file under `raw/inbox/` is a
+/// capture and passes.
+fn raw_record(repo: &Path, root: &Path, file: &str) -> Option<String> {
+    let path = if Path::new(file).is_absolute() {
+        PathBuf::from(file)
+    } else {
+        repo.join(file)
+    };
+    if !path.is_file() {
+        return None;
+    }
+    let raw = root.join("raw").canonicalize().ok()?;
+    let p = path.canonicalize().ok()?;
+    let rel = p.strip_prefix(&raw).ok()?;
+    Some(format!("raw/{}", rel.to_string_lossy().replace('\\', "/")))
+}
+
 pub fn pre_tool_use(repo: &Path, root: &Path, payload: &str, skip: bool) -> Reply {
-    let Some(cmd) = parse_json(payload)
-        .and_then(|j| j.string_at(&["tool_input", "command"]).map(str::to_string))
+    let json = parse_json(payload);
+    // A knowledge base's record layer: an existing file under raw/ is never
+    // overwritten or edited through the agent's tools (R-023) — the one write
+    // that is irreversible, and the one this hook blocks (D-076).
+    if let Some(j) = &json {
+        let tool = j.string_at(&["tool_name"]).unwrap_or("");
+        if matches!(tool, "Write" | "Edit" | "MultiEdit" | "NotebookEdit")
+            && is_knowledge_base(root)
+        {
+            if let Some(rel) = j
+                .string_at(&["tool_input", "file_path"])
+                .and_then(|f| raw_record(repo, root, f))
+            {
+                return Reply::block(format!(
+                    "docsys: raw/ is the record and content-immutable (R-023): `{rel}` already \
+                     exists and is never edited or overwritten. New knowledge is a NEW file under \
+                     raw/inbox/; a processed note moves with `git mv`, bytes untouched.\n"
+                ));
+            }
+        }
+    }
+    let Some(cmd) = json.and_then(|j| j.string_at(&["tool_input", "command"]).map(str::to_string))
     else {
         return Reply::ok();
     };
@@ -446,6 +496,9 @@ fn cksum(s: &str) -> u64 {
 /// Stop: end-of-turn reminder over the working tree AND the commits not yet
 /// pushed (D-041). Warns on stderr, never blocks (R-150).
 pub fn stop(repo: &Path, root: &Path) -> Reply {
+    if is_knowledge_base(root) {
+        return stop_kb(repo, root);
+    }
     let mut paths = porcelain_paths(&git_lines(repo, &["status", "--porcelain"]));
     let ahead = git_lines(repo, &["diff", "--name-only", "@{u}..HEAD"]);
     paths.extend(ahead.iter().cloned());
@@ -494,6 +547,66 @@ pub fn stop(repo: &Path, root: &Path) -> Reply {
 
 /// Is this edited file a live docs page (under the root, `.md`, not a record
 /// or a template)? Paths arrive absolute or repo-relative.
+/// A knowledge base has no code-without-docs question; its end-of-turn
+/// nudge names what waits: notes in the inbox, errors the gate will stop.
+/// Warns, never blocks (R-150).
+fn stop_kb(repo: &Path, root: &Path) -> Reply {
+    let notes = fs::read_dir(root.join("raw/inbox"))
+        .map(|it| {
+            it.filter_map(Result::ok)
+                .filter(|e| e.path().extension().is_some_and(|x| x == "md"))
+                .count()
+        })
+        .unwrap_or(0);
+    let (report, _) = crate::lint_in(root, Some(repo));
+    let errors = report
+        .findings
+        .iter()
+        .filter(|f| f.severity == crate::model::Severity::Error)
+        .count();
+    let mut msg = String::new();
+    if notes > 0 {
+        msg.push_str(&format!(
+            "base: {notes} note(s) waiting in raw/inbox — `process my inbox` distils them when you are ready.\n"
+        ));
+    }
+    if errors > 0 {
+        msg.push_str(&format!(
+            "base: docsys lint reports {errors} error(s) — the gate stops the next commit until they are fixed.\n"
+        ));
+    }
+    Reply {
+        code: 0,
+        stderr: msg,
+        stdout: String::new(),
+    }
+}
+
+/// The page the tool just wrote, if it is a live docs page: under the root,
+/// `.md`, not a template, an archive, a materialization, the agent layer —
+/// and never a `raw/` record, which no tooling edits (R-023). Canonical
+/// paths, so a base that is its own repository (`--root .`) works too.
+fn is_live_in(repo: &Path, root: &Path, file: &str) -> bool {
+    let path = if Path::new(file).is_absolute() {
+        PathBuf::from(file)
+    } else {
+        repo.join(file)
+    };
+    let (Ok(p), Ok(r)) = (path.canonicalize(), root.canonicalize()) else {
+        return false;
+    };
+    let Ok(tail) = p.strip_prefix(&r) else {
+        return false;
+    };
+    let tail = tail.to_string_lossy().replace('\\', "/");
+    tail.ends_with(".md")
+        && !tail.starts_with("_archive/")
+        && !tail.starts_with("_templates/")
+        && !tail.starts_with(".federation/")
+        && !tail.starts_with(".claude/")
+        && !tail.starts_with("raw/")
+}
+
 pub fn is_live_page(file: &str, root_rel: &str) -> bool {
     let root = root_rel.trim_end_matches('/');
     let f = file.replace('\\', "/");
@@ -517,7 +630,7 @@ pub fn post_tool_use(repo: &Path, root: &Path, payload: &str, today: &str) -> Re
     }) else {
         return Reply::ok();
     };
-    if !is_live_page(&file, &root_rel(repo, root)) {
+    if !is_live_in(repo, root, &file) {
         return Reply::ok();
     }
     let path = if Path::new(&file).is_absolute() {
@@ -553,6 +666,25 @@ pub fn bump_updated(text: &str, today: &str) -> Option<String> {
     changed.then_some(out)
 }
 
+/// The knowledge base's first-turn text: organs, not work types (D-076).
+pub const KB_ROUTING: &str = "<session-doc-routing>
+First turn, knowledge base. Name the organ before anything else — capture,
+ingest, audit or lookup; the skill of that name carries the discipline.
+
+capture → ONE new file in raw/inbox/, the note in the user's own words plus
+one line on why it is worth keeping; never classify, never touch wiki/.
+ingest → one wiki page per note (id, type, domain, verification: unverified,
+sources), routed from the domain index; the note moves to raw/<domain>/ with
+`git mv`, bytes untouched. audit → only in a session that did not write the
+page; `verified` records verified_by and verified_rev. lookup → `docsys
+lookup <words>` first, then the page; \"not in the base\" is a complete answer.
+
+raw/ is content-immutable: an existing record is never edited or deleted, and
+the hook blocks the attempt. A wiki page whose body changes is unverified
+again. Gate: docsys lint (inside the repository).
+</session-doc-routing>
+";
+
 pub const ROUTING: &str = "<session-doc-routing>
 First turn. Name the work type before anything else — one of feature, bug,
 refactor, research, idea-note. If the message makes it clear, state it in one
@@ -576,7 +708,7 @@ Judgment calls follow the procedures: docsys rules --procedures.
 
 /// UserPromptSubmit: the routing text, once per session (stdout joins the
 /// context on this event only).
-pub fn user_prompt_submit(payload: &str) -> Reply {
+pub fn user_prompt_submit(payload: &str, root: &Path) -> Reply {
     let session = parse_json(payload)
         .and_then(|j| j.string_at(&["session_id"]).map(str::to_string))
         .unwrap_or_else(|| "unknown".into());
@@ -589,10 +721,15 @@ pub fn user_prompt_submit(payload: &str) -> Reply {
         return Reply::ok();
     }
     let _ = fs::write(&marker, "");
+    let text = if is_knowledge_base(root) {
+        KB_ROUTING
+    } else {
+        ROUTING
+    };
     Reply {
         code: 0,
         stderr: String::new(),
-        stdout: ROUTING.to_string(),
+        stdout: text.to_string(),
     }
 }
 

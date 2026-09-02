@@ -21,7 +21,7 @@ use std::process::Command;
 use crate::checks::Report;
 use crate::fm::{Frontmatter, Value};
 use crate::model::{is_iso_date, Finding, RuleId};
-use crate::tree::{DocTree, Kind};
+use crate::tree::{DocTree, Kind, Profile};
 
 const R085: RuleId = RuleId("R-085");
 const R106: RuleId = RuleId("R-106");
@@ -535,7 +535,7 @@ impl History {
 
 /// R-106 (`updated` behind history) and R-085 (untouched draft/active/done)
 /// over every page history knows.
-pub fn check_history(tree: &DocTree, h: &History, r: &mut Report) {
+pub fn check_history(tree: &DocTree, repo: &Path, h: &History, r: &mut Report) {
     let prefix = if h.root_rel.is_empty() {
         String::new()
     } else {
@@ -593,6 +593,83 @@ pub fn check_history(tree: &DocTree, h: &History, r: &mut Report) {
         }
     }
     r.inspected.insert("history-freshness", inspected);
+    if tree.profile == Profile::KnowledgeBase {
+        check_verified_bodies(tree, repo, &prefix, r);
+    }
+}
+
+/// The body of a page text — everything after the frontmatter.
+fn body_text(text: &str) -> String {
+    match crate::fm::parse(text) {
+        Some(fm) => {
+            let mut body = text
+                .lines()
+                .skip(fm.body_start)
+                .collect::<Vec<_>>()
+                .join("\n");
+            body.push('\n');
+            body
+        }
+        None => text.to_string(),
+    }
+}
+
+/// R-024 with history: a `verified` page still holds the body that was
+/// verified at `verified_rev` — bookkeeping in the frontmatter (the record
+/// itself, an `updated:` bump) is excluded by hashing the body alone (§2.4,
+/// R-113). A changed body is an error until the page is `unverified` again
+/// (D-077); a revision that does not hold the page makes the record
+/// unauditable (R-028).
+fn check_verified_bodies(tree: &DocTree, repo: &Path, prefix: &str, r: &mut Report) {
+    let mut inspected = 0usize;
+    for page in &tree.pages {
+        if page.kind != Kind::Permanent {
+            continue;
+        }
+        let Some(fm) = &page.fm else { continue };
+        if fm.fields.get("verification").and_then(Value::as_str) != Some("verified") {
+            continue;
+        }
+        let Some(rev) = fm.fields.get("verified_rev").and_then(Value::as_str) else {
+            continue; // R-028 reports the missing record
+        };
+        inspected += 1;
+        let spec = format!("{}:{prefix}{}", rev.trim(), page.rel);
+        let shown = Command::new("git")
+            .arg("-C")
+            .arg(repo)
+            .args(["show", &spec])
+            .output()
+            .ok()
+            .filter(|o| o.status.success());
+        match shown {
+            None => r.findings.push(Finding::err(
+                RuleId("R-028"),
+                &page.rel,
+                "verified_rev",
+                format!(
+                    "`verified_rev: {rev}` does not hold this page — not a revision of this \
+                     repository, or the page was not there: the record cannot be audited"
+                ),
+            )),
+            Some(o) => {
+                let then = String::from_utf8_lossy(&o.stdout);
+                if content_hash(&body_text(&then)) != content_hash(&body_text(&page.text)) {
+                    r.findings.push(Finding::err(
+                        RuleId("R-024"),
+                        &page.rel,
+                        "verification",
+                        format!(
+                            "`verified` at {rev}, but the body changed since — verification \
+                             describes content that no longer exists: set `verification: \
+                             unverified` and audit again (R-025)"
+                        ),
+                    ));
+                }
+            }
+        }
+    }
+    r.inspected.insert("verified-bodies", inspected);
 }
 
 // ---------------------------------------------------------------- pin command
