@@ -202,7 +202,7 @@ This page explains what the auth service promises, learned from its own document
 
 The auth service in one page, as its howto says.
 EOF
-grep -q 'domains:' .docmeta.yml && sed -i 's/^domains: \[\]/domains: [coding]/' .docmeta.yml
+awk '{ if ($0 == "domains: []") print "domains: [coding]"; else print }' .docmeta.yml > .docmeta.tmp && mv .docmeta.tmp .docmeta.yml   # portable: BSD sed has no -i without a suffix
 printf '# coding\n\n- [[coding/explanation/auth-in-one-page|Auth in one page]] -- learned from auth.\n' > wiki/coding/index.md
 printf '# Knowledge base\n\n- [[coding/index|Coding]] -- code.\n' > wiki/index.md
 docsys lint --root . | grep -q -- '-- 0 error(s)' || fail "a page citing @auth/use-auth does not lint: $(docsys lint --root . | head -3)"
@@ -219,9 +219,11 @@ grep -q '"inbox":3' /tmp/status.json || fail "status --json disagrees"
 # staying current: verify the page against the source as fetched, then let the provider move
 git add -A && git commit -qm "learned from auth"
 rev=$(git rev-parse --short HEAD)
-sed -i "s/^verification: unverified/verification: verified\nverified_by: e2e\nverified_rev: $rev/" wiki/coding/explanation/auth-in-one-page.md
+awk -v rev="$rev" '{ if ($0 == "verification: unverified") { print "verification: verified"; print "verified_by: e2e"; print "verified_rev: " rev } else print }' \
+  wiki/coding/explanation/auth-in-one-page.md > /tmp/page.tmp && mv /tmp/page.tmp wiki/coding/explanation/auth-in-one-page.md
 docsys lint --root . | grep -q -- '-- 0 error(s)' || fail "a page verified against the fetched source is not clean: $(docsys lint --root . | head -3)"
-(cd "$WORK/auth" && sed -i 's/in one page\./in one page, now with tokens./' docs/howto/use-auth.md && git add -A && git commit -qm "auth: tokens")
+(cd "$WORK/auth" && sed 's/in one page\./in one page, now with tokens./' docs/howto/use-auth.md > /tmp/use-auth.tmp \
+  && mv /tmp/use-auth.tmp docs/howto/use-auth.md && git add -A && git commit -qm "auth: tokens")
 docsys fetch --root . >/dev/null
 (docsys lint --root . || true) | grep -q 'R-024 wiki/coding/explanation/auth-in-one-page.md \[@auth/use-auth\]' || fail "a moved source did not stale the page that rested on it: $(docsys lint --root . | head -3)"
 docsys status --root . > /tmp/status2.out; grep -q 'sources: 1 verified page(s) whose consumed sources moved' /tmp/status2.out || fail "status does not count the moved source: $(cat /tmp/status2.out)"
