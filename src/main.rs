@@ -8,6 +8,7 @@ Usage:
   docsys lint    [--root <dir>] [--repo <dir>] [--json]   # inside a git repository: pins and history too
   docsys pin     <page> <path> [--symbol <s>] [--repo .] [--root docs]   # pin a page to a code region (verifies:, §11)
   docsys pin     --refresh <page> [--repo .] [--root docs]              # recompute its pins after re-reading the page
+  docsys compile <howto> [--root docs] [--dir .claude] [--force]        # a howto's body as an executable skill, pinned to its source hash (R-094, R-095)
   docsys init    [--root <dir>] [--lang <code>] [--profile project|knowledge-base]
   docsys migrate inventory [--root <dir>] [--repo <dir>]   # plan skeleton to stdout
   docsys migrate apply --plan <file> [--root <dir>] [--lang <code>] [--repo <dir>]
@@ -523,6 +524,22 @@ fn main() -> ExitCode {
             eprint!("{}", reply.stderr);
             ExitCode::from(reply.code)
         }
+        ("compile", None) => match opts.positional.first() {
+            Some(page) => match docsys::compile::compile(&opts.root, &opts.dir, page, opts.force) {
+                Ok(msg) => {
+                    println!("{msg}");
+                    ExitCode::SUCCESS
+                }
+                Err(e) => {
+                    eprintln!("compile: {e}");
+                    ExitCode::from(2)
+                }
+            },
+            None => {
+                eprintln!("compile needs <howto> (an id or a root-relative path)");
+                ExitCode::from(2)
+            }
+        },
         ("pin", None) => {
             let repo = opts.repo.clone().unwrap_or_else(|| PathBuf::from("."));
             let root = if opts.root.is_absolute() {

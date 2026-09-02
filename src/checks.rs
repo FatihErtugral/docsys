@@ -1752,6 +1752,7 @@ pub fn run_with(tree: &DocTree, ctx: &Context) -> Report {
     check_sources(tree, &mut r);
     if let Some(repo) = &ctx.repo {
         crate::fresh::check_pins(tree, repo, &mut r);
+        crate::compile::check_compiled(tree, repo, &mut r);
     }
     if let Some(h) = &ctx.history {
         crate::fresh::check_history(tree, h, &mut r);

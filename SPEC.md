@@ -999,8 +999,10 @@ The graduation chain has one more link: flowing → permanent → executable.
 compiled into an executable agent skill.
 
 **R-095** `cmd` · MUST — A compiled skill MUST record the source identifier and
-the source content hash (R-113). When the source page changes, the compiled skill
-is reported as stale.
+the source content hash (R-113). When the source page changes, or no longer
+exists, the compiled skill **is an error** until it is compiled again from the
+page as it now reads (D-070, D-073): a skill that runs steps its page has
+since corrected is silently wrong on every invocation.
 
 **R-096** `agent` · MUST NOT — Compilation MUST NOT invent steps. A procedure not
 fully written on the page is not ready to be compiled.

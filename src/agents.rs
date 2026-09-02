@@ -129,6 +129,15 @@ information here exist nowhere else?). Route sections by the R-049 table.
 Destination pages are prepared first (R-099), blocks move byte-exactly — you
 select the mapping, you never retype the text (R-090). `confirmed:` requires
 the human's explicit word (P/R-081).
+
+## Compile (a howto into a skill)
+
+A `howto/` page whose steps are complete — every step written, nothing you
+would fill from memory (P/R-096) — compiles: `docsys compile <id>`. The skill
+is the page body byte for byte, pinned to the page's content hash; lint fails
+when the page moves until you re-read it and compile again (R-095). A gap
+found while running the skill is reported on the page, never patched in the
+skill.
 "#;
 
 /// The export skill: turns "create the end-user doc for X" into a procedure.

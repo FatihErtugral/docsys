@@ -6,6 +6,7 @@ pub mod adopt;
 pub mod agents;
 pub mod capture;
 pub mod checks;
+pub mod compile;
 pub mod doctor;
 pub mod export;
 pub mod fm;

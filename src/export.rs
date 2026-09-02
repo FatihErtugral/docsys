@@ -85,7 +85,7 @@ fn title_of(page: &Page) -> String {
 
 /// R-057 defaults: `summary` falls back to the first paragraph, truncated at
 /// the first sentence boundary (the algorithm is implementation-defined, §19).
-fn summary_of(page: &Page) -> String {
+pub fn summary_of(page: &Page) -> String {
     if let Some(s) = page
         .fm
         .as_ref()

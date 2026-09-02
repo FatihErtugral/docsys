@@ -227,6 +227,7 @@ stamp carries its fetch date so a stale composition is visible.
 | `docsys backlinks <path\|id> [--repo .]` · `docsys mentions [<path\|id>]` · `docsys graph [--format dot\|json\|jsoncanvas] [--repo .]` | Derived navigation, never written into a page: who points at a page (code included), who names it without linking, the whole map (D-064). |
 | `docsys adopt --obsidian` | The docs root as an Obsidian vault: absolute links, `_archive/` ignored, `_templates/` as templates, a `stale-work.base` view (D-065). Caveats: `aliases:` means retired ids here; keep Linter's `yaml-timestamp` off. |
 | `docsys lint [--root docs] [--repo <dir>] [--json]` | Full tree validation: frontmatter, ids, links, journal discipline, templates, list grammars — both profiles. Inside a git repository (`--repo`, or detected) also the freshness rules: `verifies:` pins recomputed (R-111), `updated:` behind history (R-106), drafts untouched beyond `stale_active_days` (R-085). Errors exit 1, warnings don't. |
+| `docsys compile <howto> [--root docs] [--dir .claude] [--force]` | A howto whose steps are complete becomes an executable skill: the page body byte for byte under `.claude/skills/<id>/`, pinned to the page's content hash. Lint fails while the page has moved since the compile (R-094, R-095, D-073). |
 | `docsys pin <page> <path> [--symbol <s>]` · `docsys pin --refresh <page>` | Pin a permanent page to a code region — the whole file or one symbol's block — with its SHA-256 (§11); refresh every pin after re-reading the page. Lint fails while a pinned region has moved. |
 | `docsys init [--root docs] [--lang <code>] [--profile project\|knowledge-base]` | Greenfield skeleton. `project`: router, journal, debt. `knowledge-base`: the record layer (`raw/inbox/`) and the wiki root. |
 | `docsys migrate inventory [--root <dir>] [--repo <dir>]` · `docsys migrate apply --plan <file> [--root <dir>] [--lang <code>] [--repo <dir>]` | Brownfield adoption: evidence-rich plan → approved mapping → mechanical move with link rewriting on both sides of the docs boundary. |
@@ -476,7 +477,8 @@ mechanical: a page pins a code region (`verifies:`, §11) and lint recomputes
 the hash on every run; history dates every page, so an `updated:` behind the
 last commit and a draft nobody touched for `stale_active_days` are errors, not
 hopes. `adopt` writes the CI workflow and hardens the pre-commit gate once the
-tree is clean.
+tree is clean. A mature howto compiles into an executable skill that carries
+its source hash, and goes stale with the page (R-094, R-095).
 
 Federation (§13) stays marked **experimental** in the spec, and the
 implementation now has its first working slice: manifests, `fetch` over

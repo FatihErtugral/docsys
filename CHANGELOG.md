@@ -5,6 +5,20 @@ All notable changes to docsys are documented here. The format follows
 [SemVer](https://semver.org/). Release notes are extracted from this file
 by the release workflow — the tag's section becomes the GitHub release body.
 
+## [Unreleased]
+
+### Added
+
+- `docsys compile <howto> [--dir .claude] [--force]` (R-094): the page body
+  becomes `.claude/skills/<id>/SKILL.md`, byte for byte, with `docsys_source`
+  and `docsys_source_hash` on the skill (R-095, D-073). Only a `howto`
+  compiles; in the knowledge-base profile only a `verified` one. `lint`
+  inside the repository errors when a compiled skill's page moved or is gone.
+
+### Changed
+
+- R-095 blocks (D-070): a stale compiled skill is an error until recompiled.
+
 ## [0.11.0] - 2026-09-02
 
 The four gaps between "kept honest by an agent" and "kept honest

@@ -129,6 +129,32 @@ echo 'pub fn helper() {}' > lib.rs      # code the pin does not cover: lint stay
 git add -A && git commit -qm "code only"
 docsys gate --repo . --root docs --range "$base..HEAD" >/dev/null && fail "range gate passed code without docs"
 (docsys gate --repo . --root docs --range "$base..HEAD" || true) | grep -q '^GATE ' || fail "range gate names nothing"
+
+say "9 · compile: a howto becomes a skill, and goes stale with its page"
+mkdir -p docs/howto
+cat > docs/howto/ship.md <<EOF
+---
+id: ship
+type: howto
+updated: $(date +%F)
+---
+# Ship
+
+This page lists the shipping steps; read it before tagging.
+
+1. Run the tests.
+2. Tag the commit.
+EOF
+printf -- '- [[howto/ship|Ship]] -- the shipping steps.\n' >> docs/index.md
+docsys compile ship --root docs >/dev/null || fail "compile refused a howto"
+grep -q 'docsys_source_hash: sha256:' .claude/skills/ship/SKILL.md || fail "skill carries no source hash"
+grep -q '^2. Tag the commit.$' .claude/skills/ship/SKILL.md || fail "skill body is not the page"
+docsys lint --root docs | grep -q -- '-- 0 error(s)' || fail "a fresh compile is not clean"
+printf '3. Push the tag.\n' >> docs/howto/ship.md
+(docsys lint --root docs || true) | grep -q 'R-095' || fail "a moved howto did not stale its skill"   # lint exits 1 here BY DESIGN
+docsys compile ship --root docs >/dev/null
+docsys lint --root docs | grep -q -- '-- 0 error(s)' || fail "recompiled skill is not clean"
+docsys compile entry --root docs >/dev/null 2>&1 && fail "a reference page compiled"
 cd "$WORK"
 
 printf '\nE2E OK\n'
