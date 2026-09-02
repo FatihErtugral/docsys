@@ -204,12 +204,34 @@ fn the_first_turn_names_the_organs_once() {
         r#"{"session_id":"SESSION","hook_event_name":"UserPromptSubmit","prompt":"note this"}"#;
     let (code, out, _) = run_relay(&base, "session-intent.sh", payload, "s3");
     assert_eq!(code, 0);
+    // a fresh base: the character survey comes first, then the organs
+    assert!(out.starts_with("<first-run>"), "{out}");
+    assert!(out.contains("Name — what they call the assistant"), "{out}");
+    assert!(
+        out.contains("in the language the person just wrote"),
+        "{out}"
+    );
     assert!(out.contains("knowledge base"), "{out}");
     assert!(out.contains("capture"), "{out}");
     assert!(out.contains("not in the base"), "{out}");
+    assert!(out.contains("Speak the person's language"), "{out}");
     assert!(!out.contains("work/features"), "{out}");
     let (_, again, _) = run_relay(&base, "session-intent.sh", payload, "s3");
     assert!(again.is_empty(), "{again}");
+    // the character is set: the survey never returns, the routing stays
+    let agents = base.join("AGENTS.md");
+    let text = fs::read_to_string(&agents).unwrap();
+    let start = text.find("<!-- character: unset").unwrap();
+    let end = start + text[start..].find("-->").unwrap() + 3;
+    let set = format!(
+        "{}- Name: Jarvis\n- Address: by first name, informal\n- Tone: plain and brief{}",
+        &text[..start],
+        &text[end..]
+    );
+    fs::write(&agents, set).unwrap();
+    let (_, later, _) = run_relay(&base, "session-intent.sh", payload, "s3b");
+    assert!(!later.contains("<first-run>"), "{later}");
+    assert!(later.contains("knowledge base"), "{later}");
 }
 
 #[test]

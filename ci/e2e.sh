@@ -60,8 +60,9 @@ printf '{"tool_name":"Write","tool_input":{"file_path":"%s/raw/inbox/2026-08-16-
 grep -q 'R-023' /tmp/raw.err || fail "the guard does not name the rule"
 printf '{"tool_name":"Write","tool_input":{"file_path":"%s/raw/inbox/2026-08-16-new.md","content":"x"}}' "$PWD" \
   | docsys hook pre-tool-use --root . || fail "a new note was blocked"
-(printf '{"session_id":"e2e-kb-%s","prompt":"note this"}' "$$" | docsys hook user-prompt-submit --root . || true) \
-  | grep -q 'capture' || fail "kb routing missing"   # once per session id; grep -q closes the pipe early
+(printf '{"session_id":"e2e-kb-%s","prompt":"note this"}' "$$" | docsys hook user-prompt-submit --root . || true) > /tmp/routing.out
+grep -q 'capture' /tmp/routing.out || fail "kb routing missing"   # once per session id
+grep -q '<first-run>' /tmp/routing.out || fail "a fresh base did not run the character survey"
 (docsys hook stop --root . 2>&1 || true) | grep -q 'raw/inbox' || fail "stop does not name the inbox"
 cd "$WORK"
 

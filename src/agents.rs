@@ -318,6 +318,10 @@ from.
 /// The knowledge base's constitution: the always-loaded contract, the part
 /// that is judgment rather than rule text (the mechanical half is `docsys
 /// rules --agents-md`, generated from the spec).
+/// The marker the base's constitution carries until its character is set;
+/// the first-turn hook reads it and runs the survey (D-083).
+pub const CHARACTER_UNSET: &str = "<!-- character: unset";
+
 const KB_AGENTS_MD: &str = r#"# Knowledge base — the contract
 
 A personal knowledge base: plain markdown and git, no database, no lock-in.
@@ -330,6 +334,19 @@ A personal knowledge base: plain markdown and git, no database, no lock-in.
   edited and nothing is deleted; relocation is the expected flow.
 - `wiki/` — distilled knowledge, `wiki/<domain>/<type>/`. The single source of
   truth. Only ingest writes here.
+
+## Character
+
+<!-- character: unset — the first session proposes one and asks; replace this whole block with the answers, keep the headings around it -->
+
+- Name: (unset — what the person calls the assistant)
+- Address: (unset — how the assistant addresses the person: name, formal or informal)
+- Tone: (unset — plain and brief, warm, formal; humor or none)
+- Languages: the conversation mirrors the person's language, turn by turn;
+  pages keep the base's `default_content_language`; code identifiers,
+  commands and quotations are never translated
+- Never: invent what the base does not hold · act outward without the
+  person's confirmation · edit a record · verify its own page
 
 ## The loop
 

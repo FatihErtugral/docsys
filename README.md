@@ -566,6 +566,12 @@ docsys inbox pull ~/code/relay --since 7.days --root .   # this week's commits, 
 docsys status --root .                          # the digest before the morning briefing
 ```
 
+The first session proposes the assistant's character — name, how it addresses
+you, tone, languages, what it must never do — asks you to confirm in the
+language you wrote in, writes the answers under `## Character` in the base's
+`AGENTS.md`, and summarizes how it will talk from then on (D-083). It keeps
+speaking your language turn by turn; the pages keep the base's declared one.
+
 Then, in an agent session in that directory: *"study what my projects say
 about failure handling and write it up"* — a wiki page whose `sources:` are
 `@relay/retry-policy` and friends; another session audits it; *"process my

@@ -743,8 +743,11 @@ fn main() -> ExitCode {
                     }
                     println!(
                         "
-next: review, `git add -A && git commit`, then open an agent session here:"
+next: review, `git add -A && git commit`, then open an agent session here."
                     );
+                    println!("  the first session proposes the assistant's character (name, address, tone, languages,");
+                    println!("  never-do) and asks you to confirm — in your language; the answers land in AGENTS.md.");
+                    println!("  then try:");
                     println!("  \"how does <project> handle <thing>?\"      lookup — cites @namespace/id");
                     println!("  \"study what my projects say about X and write it up\"   a page whose sources are theirs");
                     println!("  \"process my inbox\"   the commit records, distilled or left with a reason");

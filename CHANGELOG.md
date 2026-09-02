@@ -5,6 +5,21 @@ All notable changes to docsys are documented here. The format follows
 [SemVer](https://semver.org/). Release notes are extracted from this file
 by the release workflow — the tag's section becomes the GitHub release body.
 
+## [Unreleased]
+
+### Added
+
+- The assistant's character (D-083): `AGENTS.md` of a knowledge base carries
+  a `## Character` placeholder; the first turn of a fresh base puts a
+  `<first-run>` survey before the organ routing — name, address, tone,
+  languages, never-do, defaults offered, in the person's language — and the
+  answers replace the placeholder. The routing text now says: speak the
+  person's language, turn by turn; pages keep the declared language.
+
+### Fixed
+
+- `ci/e2e.sh` runs on the macOS leg again: no `sed -i`.
+
 ## [0.13.0] - 2026-09-02
 
 An assistant's memory: a base that learns from the trees it consumes, a

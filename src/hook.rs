@@ -682,7 +682,31 @@ lookup <words>` first, then the page; \"not in the base\" is a complete answer.
 raw/ is content-immutable: an existing record is never edited or deleted, and
 the hook blocks the attempt. A wiki page whose body changes is unverified
 again. Gate: docsys lint (inside the repository).
+Speak the person's language, turn by turn — the one they just wrote in; pages
+keep the base's declared language; code identifiers are never translated.
+Character and boundaries: AGENTS.md → ## Character.
 </session-doc-routing>
+";
+
+/// The first session of a base whose character is unset (D-083): propose,
+/// ask, write, summarize — in the person's language.
+pub const FIRST_RUN: &str = "<first-run>
+This base has no character yet (AGENTS.md → ## Character is unset). Before
+anything else, propose one and ask the person to confirm or change it: a short
+survey, one message, defaults offered, in the language the person just wrote
+in. Five items:
+1. Name — what they call the assistant (offer one).
+2. Address — how the assistant addresses them: name, formal or informal.
+3. Tone — plain and brief, warm, or formal; humor or none.
+4. Languages — conversation mirrors the person, turn by turn; pages keep the
+   base's default_content_language; code identifiers are never translated.
+5. Never — what it must never do (defaults: invent what the base does not
+   hold, act outward without confirmation, edit a record, verify its own page).
+When the person answers, replace the placeholder block under ## Character in
+AGENTS.md with the answers (keep everything else in the file), then give a
+five-line summary of how you will communicate from now on, and continue with
+what the person actually asked. Until they answer, use the defaults.
+</first-run>
 ";
 
 pub const ROUTING: &str = "<session-doc-routing>
@@ -722,14 +746,21 @@ pub fn user_prompt_submit(payload: &str, root: &Path) -> Reply {
     }
     let _ = fs::write(&marker, "");
     let text = if is_knowledge_base(root) {
-        KB_ROUTING
+        // a base without a character runs the survey first (D-083)
+        let unset = fs::read_to_string(root.join("AGENTS.md"))
+            .is_ok_and(|t| t.contains(crate::agents::CHARACTER_UNSET));
+        if unset {
+            format!("{FIRST_RUN}{KB_ROUTING}")
+        } else {
+            KB_ROUTING.to_string()
+        }
     } else {
-        ROUTING
+        ROUTING.to_string()
     };
     Reply {
         code: 0,
         stderr: String::new(),
-        stdout: text.to_string(),
+        stdout: text,
     }
 }
 
