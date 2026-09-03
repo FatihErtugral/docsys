@@ -5,6 +5,17 @@ All notable changes to docsys are documented here. The format follows
 [SemVer](https://semver.org/). Release notes are extracted from this file
 by the release workflow — the tag's section becomes the GitHub release body.
 
+## [Unreleased]
+
+### Fixed
+
+- `ADOPTION.md` keeps the adoption's own record (D-097): a later `docsys
+  adopt` no longer turns "created … merged 4 hook wire(s) … gate written"
+  into "kept … already wired" — the first `## Done` block stays as written
+  (`## Done — adoption (<date>)`) and the re-run reports itself under
+  `## Last run — <date>`, one block, replaced each time. A report written
+  before this keeps its `## Done` lines as the adoption record.
+
 ## [0.15.0] - 2026-09-04
 
 ### Added

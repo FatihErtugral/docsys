@@ -490,3 +490,51 @@ fn the_seed_command_names_the_absent_builder_case() {
     }
     let _ = fs::remove_dir_all(&repo);
 }
+
+#[test]
+fn a_re_run_keeps_the_adoption_record_and_reports_itself_as_the_last_run() {
+    // D-097: "created" must not become "kept" in the only file that says what adoption did
+    let repo = tmp("record");
+    git_init(&repo);
+    let docs = repo.join("docs");
+    docsys::adopt::run(&repo, &docs, "en").unwrap();
+    let first = fs::read_to_string(repo.join("ADOPTION.md")).unwrap();
+    assert!(first.contains("## Done — adoption ("), "{first}");
+    assert!(
+        first.contains("settings.json: created with docsys hook wires"),
+        "{first}"
+    );
+    assert!(!first.contains("## Last run"), "{first}");
+    docsys::adopt::run(&repo, &docs, "en").unwrap();
+    let second = fs::read_to_string(repo.join("ADOPTION.md")).unwrap();
+    assert!(
+        second.contains("settings.json: created with docsys hook wires"),
+        "the adoption record survives: {second}"
+    );
+    assert!(second.contains("## Last run — "), "{second}");
+    assert!(second.contains("settings.json: already wired"), "{second}");
+    assert_eq!(second.matches("## Done — adoption").count(), 1, "{second}");
+    assert_eq!(second.matches("## Last run").count(), 1, "{second}");
+    // a third run replaces the last-run block, not the adoption one
+    docsys::adopt::run(&repo, &docs, "en").unwrap();
+    let third = fs::read_to_string(repo.join("ADOPTION.md")).unwrap();
+    assert_eq!(third.matches("## Last run").count(), 1, "{third}");
+    assert!(
+        third.contains("settings.json: created with docsys hook wires"),
+        "{third}"
+    );
+    // a report written before D-097 (a plain `## Done` inside the managed block) is taken as the record
+    let start = third.find("## Done — adoption (").unwrap();
+    let end = start + third[start..].find(')').unwrap() + 1;
+    let legacy = format!("{}## Done{}", &third[..start], &third[end..]);
+    fs::write(repo.join("ADOPTION.md"), legacy).unwrap();
+    docsys::adopt::run(&repo, &docs, "en").unwrap();
+    let fourth = fs::read_to_string(repo.join("ADOPTION.md")).unwrap();
+    assert_eq!(fourth.matches("## Done — adoption").count(), 1, "{fourth}");
+    assert!(
+        fourth.contains("settings.json: created with docsys hook wires"),
+        "{fourth}"
+    );
+    assert_eq!(fourth.matches("## Last run").count(), 1, "{fourth}");
+    let _ = fs::remove_dir_all(&repo);
+}
