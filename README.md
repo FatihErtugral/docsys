@@ -10,7 +10,7 @@ Nothing lives in two places, nothing goes stale silently, and nothing blocks
 your commit unless the damage would be irreversible or silently wrong.
 
 Built spec-first: every behavior traces to a numbered rule in [SPEC.md](SPEC.md)
-(147 normative rules, survived six adversarial audit rounds by six independent
+(157 normative rules, survived six adversarial audit rounds by six independent
 models, plus two experimental sections — federation and connectors — that bind
 nothing until real use settles them), every implementation-defined choice is
 registered in [corpus/DECISIONS.md](corpus/DECISIONS.md), and the conformance
@@ -699,7 +699,7 @@ source that has since moved (D-082); the next `docsys status` lists it under
 ## Repository layout
 
 ```
-SPEC.md               the specification — 147 normative rules + experimental §13 (federation), §20 (connectors)
+SPEC.md               the specification — 157 normative rules + experimental §13 (federation), §20 (connectors)
 ROADMAP.md            where it stands, the boundary with the connector project, the next slices in order
 IDEAS.md              the handful of ideas everything else follows from, in plain words, outside the tree on purpose
 src/                  the reference implementation (Rust, stdlib only — SHA-256 included)
