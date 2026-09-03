@@ -330,8 +330,12 @@ fn adopt_writes_the_ci_workflow_and_hardens_the_gate_once_clean() {
         wf.contains("--range \"origin/${{ github.base_ref }}...HEAD\""),
         "{wf}"
     );
+    // D-095: the merge job verifies under each declared approver
+    assert!(wf.contains("verify-on-approval:"), "{wf}");
+    assert!(wf.contains("docsys verify --range"), "{wf}");
+    assert!(wf.contains("--by \"@$login\" --commit"), "{wf}");
     let hook = fs::read_to_string(repo.join(".git/hooks/pre-commit")).unwrap();
-    assert!(hook.contains("|| true"), "{hook}");
+    assert!(hook.contains("docsys_gate_exit=0"), "{hook}");
 
     // the debt is repaid: the next adopt hardens the gate in place
     let text = fs::read_to_string(&index).unwrap();
@@ -350,7 +354,7 @@ fn adopt_writes_the_ci_workflow_and_hardens_the_gate_once_clean() {
         done.summary
     );
     let hook = fs::read_to_string(repo.join(".git/hooks/pre-commit")).unwrap();
-    assert!(!hook.contains("|| true"), "{hook}");
+    assert!(hook.contains("docsys_gate_exit=1"), "{hook}");
     assert!(hook.contains("Hard gate"), "{hook}");
     assert_eq!(
         fs::read_to_string(repo.join(".github/workflows/docsys.yml")).unwrap(),

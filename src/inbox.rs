@@ -59,6 +59,25 @@ fn records(root: &Path) -> Vec<(String, String, PathBuf)> {
 }
 
 /// `docsys inbox add`: one record, or the path of the one already there.
+/// The `--since` bound git receives. A bare `YYYY-MM-DD` means "that day at
+/// this hour" to git — `--since <today>` would land nothing — so a bare date
+/// becomes the start of that day; every other spelling (`30.days`,
+/// `2 weeks ago`, a full timestamp) passes through.
+pub fn since_bound(since: &str) -> String {
+    let s = since.trim();
+    let bare = s.len() == 10
+        && s.as_bytes().get(4) == Some(&b'-')
+        && s.as_bytes().get(7) == Some(&b'-')
+        && s.chars()
+            .enumerate()
+            .all(|(i, c)| i == 4 || i == 7 || c.is_ascii_digit());
+    if bare {
+        format!("{s}T00:00:00")
+    } else {
+        s.to_string()
+    }
+}
+
 pub fn add(root: &Path, p: &Provenance, body: &str) -> Result<String, String> {
     if !root.join("raw").is_dir() {
         return Err(format!(
@@ -144,7 +163,7 @@ pub fn commits_since(repo: &Path, since: &str) -> Result<Vec<Commit>, String> {
             "log",
             "--no-merges",
             "--name-only",
-            &format!("--since={since}"),
+            &format!("--since={}", since_bound(since)),
             "--format=%x1e%H%x1f%cs%x1f%s%x1f%b%x1f",
         ])
         .output()
@@ -327,5 +346,20 @@ mod tests {
             ""
         )
         .is_err());
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+mod since_tests {
+    use super::since_bound;
+
+    #[test]
+    fn a_bare_date_starts_at_midnight_and_other_spellings_pass_through() {
+        assert_eq!(since_bound("2026-09-03"), "2026-09-03T00:00:00");
+        assert_eq!(since_bound(" 2026-09-03 "), "2026-09-03T00:00:00");
+        assert_eq!(since_bound("30.days"), "30.days");
+        assert_eq!(since_bound("2026-09-03T12:00:00"), "2026-09-03T12:00:00");
+        assert_eq!(since_bound("2 weeks ago"), "2 weeks ago");
     }
 }

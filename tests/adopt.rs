@@ -64,13 +64,13 @@ fn greenfield_adopt_scaffolds_everything_and_is_idempotent() {
         "{:?}",
         again.summary
     );
-    // settings now exists → untouched, and the merge snippet moves to the checklist
+    // settings now carries the wires → nothing to add, nothing on the checklist (D-086)
     assert!(again
         .summary
         .iter()
-        .any(|s| s.contains("settings.json: untouched")));
+        .any(|s| s == "settings.json: already wired"));
     let report = fs::read_to_string(repo.join("ADOPTION.md")).unwrap();
-    assert!(report.contains("Merge the docsys hook wires"), "{report}");
+    assert!(!report.contains("Merge the docsys hook wires"), "{report}");
     let _ = fs::remove_dir_all(&repo);
 }
 
@@ -355,4 +355,138 @@ fn adopt_obsidian_writes_the_vault_settings_and_a_stale_work_view_once() {
             .count(),
         0
     );
+}
+
+#[test]
+fn adopt_merges_the_hook_wires_into_an_existing_settings_file() {
+    let repo = tmp("settings-merge");
+    git_init(&repo);
+    let claude = repo.join(".claude");
+    fs::create_dir_all(&claude).unwrap();
+    fs::write(
+        claude.join("settings.json"),
+        "{\n  \"permissions\": { \"allow\": [\"Bash(cargo test:*)\"] }\n}\n",
+    )
+    .unwrap();
+    let docs = repo.join("docs");
+    let out = docsys::adopt::run(&repo, &docs, "en").unwrap();
+    assert!(
+        out.summary
+            .iter()
+            .any(|s| s.contains("settings.json: merged 4 docsys hook wire(s)")),
+        "{:?}",
+        out.summary
+    );
+    let text = fs::read_to_string(claude.join("settings.json")).unwrap();
+    assert!(
+        text.contains("Bash(cargo test:*)"),
+        "permissions kept:\n{text}"
+    );
+    for hook in [
+        "session-intent.sh",
+        "pre-commit-docs.sh",
+        "post-edit-updated.sh",
+        "stop-docs-reminder.sh",
+    ] {
+        assert!(text.contains(hook), "{hook} missing:\n{text}");
+    }
+    assert!(
+        docsys::hook::parse_json(&text).is_some(),
+        "still JSON:\n{text}"
+    );
+    let report = fs::read_to_string(repo.join("ADOPTION.md")).unwrap();
+    assert!(!report.contains("Merge the docsys hook wires"), "{report}");
+
+    // second run: nothing to add, nothing rewritten
+    let again = docsys::adopt::run(&repo, &docs, "en").unwrap();
+    assert!(
+        again
+            .summary
+            .iter()
+            .any(|s| s == "settings.json: already wired"),
+        "{:?}",
+        again.summary
+    );
+    assert_eq!(
+        fs::read_to_string(claude.join("settings.json")).unwrap(),
+        text
+    );
+
+    // a file that is not JSON is never touched; the snippet goes to the checklist
+    fs::write(
+        claude.join("settings.json"),
+        "// comments are not JSON\n{}\n",
+    )
+    .unwrap();
+    let broken = docsys::adopt::run(&repo, &docs, "en").unwrap();
+    assert!(
+        broken.summary.iter().any(|s| s.contains("not valid JSON")),
+        "{:?}",
+        broken.summary
+    );
+    assert_eq!(
+        fs::read_to_string(claude.join("settings.json")).unwrap(),
+        "// comments are not JSON\n{}\n"
+    );
+    let report = fs::read_to_string(repo.join("ADOPTION.md")).unwrap();
+    assert!(report.contains("Merge the docsys hook wires"), "{report}");
+    let _ = fs::remove_dir_all(&repo);
+}
+
+#[test]
+fn the_gate_mode_follows_lint_and_refs_together() {
+    // D-088: a dangling `doc:` in code blocks a commit at the gate, so a
+    // repository carrying one gets a warn-mode gate, not a hard one
+    let repo = tmp("gate-refs");
+    git_init(&repo);
+    fs::create_dir_all(repo.join("src")).unwrap();
+    fs::write(
+        repo.join("src/lib.rs"),
+        "// doc: nowhere-yet\npub fn f() {}\n",
+    )
+    .unwrap();
+    let docs = repo.join("docs");
+    let out = docsys::adopt::run(&repo, &docs, "en").unwrap();
+    let gate_line = out
+        .summary
+        .iter()
+        .find(|s| s.starts_with("git pre-commit gate:"))
+        .cloned()
+        .unwrap_or_default();
+    assert!(
+        gate_line.contains("warn"),
+        "a dangling doc: must leave the gate in warn mode: {gate_line} / {:?}",
+        out.summary
+    );
+    fs::write(repo.join("src/lib.rs"), "pub fn f() {}\n").unwrap();
+    let again = docsys::adopt::run(&repo, &docs, "en").unwrap();
+    let gate_line = again
+        .summary
+        .iter()
+        .find(|s| s.starts_with("git pre-commit gate:"))
+        .cloned()
+        .unwrap_or_default();
+    assert!(
+        gate_line.contains("hard"),
+        "clean lint and refs → hard gate: {gate_line} / {:?}",
+        again.summary
+    );
+    let _ = fs::remove_dir_all(&repo);
+}
+
+#[test]
+fn the_seed_command_names_the_absent_builder_case() {
+    // finding 29: a repository whose people are gone must still be seedable
+    let repo = tmp("seed-text");
+    git_init(&repo);
+    docsys::adopt::run(&repo, &repo.join("docs"), "en").unwrap();
+    let text = fs::read_to_string(repo.join(".claude/commands/docsys-seed.md")).unwrap();
+    for needle in [
+        "rows wait for a builder",
+        "a `question` row that names the",
+        "never committed",
+    ] {
+        assert!(text.contains(needle), "docsys-seed.md lacks `{needle}`");
+    }
+    let _ = fs::remove_dir_all(&repo);
 }

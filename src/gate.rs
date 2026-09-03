@@ -21,6 +21,14 @@ pub struct GateOutcome {
     /// nothing is staged yet (`git commit -a` stages at commit time, after
     /// any pre-tool hook has already run).
     pub scope: &'static str,
+    /// Plan files in the change set (`SEED.tsv`, `*.seed.tsv`): a plan is a
+    /// conversation's draft, never documentation, and never lands (D-091).
+    pub plan_files: Vec<String>,
+}
+
+fn is_plan_file(path: &str) -> bool {
+    let base = path.rsplit('/').next().unwrap_or(path);
+    base == "SEED.tsv" || base.ends_with(".seed.tsv")
 }
 
 pub fn run(repo: &Path, root: &Path) -> Result<(GateOutcome, crate::checks::Report), String> {
@@ -88,6 +96,7 @@ fn run_scoped(
     };
     let mut code = Vec::new();
     let mut docs = 0usize;
+    let plan_files: Vec<String> = files.iter().filter(|f| is_plan_file(f)).cloned().collect();
     for f in &files {
         let inside = !prefix.is_empty() && (f == &prefix || f.starts_with(&format!("{prefix}/")));
         if inside {
@@ -103,6 +112,7 @@ fn run_scoped(
             code,
             docs,
             scope,
+            plan_files,
         },
         report,
     ))

@@ -213,8 +213,13 @@ pub fn render(s: &Status, root: &Path) -> String {
     } else {
         let work: Vec<String> = s.work.iter().map(|(k, v)| format!("{v} {k}")).collect();
         out.push_str(&format!(
-            "pages: {} permanent; work: {}\n",
+            "pages: {} permanent{}; work: {}\n",
             s.permanent,
+            if s.unverified.is_empty() {
+                String::new()
+            } else {
+                format!(" ({} unverified)", s.unverified.len())
+            },
             if work.is_empty() {
                 "none".to_string()
             } else {

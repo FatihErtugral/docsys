@@ -24,10 +24,12 @@ pub mod lookup;
 pub mod migrate;
 pub mod model;
 pub mod refs;
+pub mod relocate;
 pub mod rules;
 pub mod seed;
 pub mod status;
 pub mod tree;
+pub mod verify;
 
 use model::Severity;
 use std::path::Path;

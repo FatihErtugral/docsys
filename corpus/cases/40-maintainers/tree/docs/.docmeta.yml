@@ -1,0 +1,4 @@
+spec: docsys/0.4
+profile: project
+default_content_language: en
+maintainers: [ayse, mehmet <mehmet@example.com>]

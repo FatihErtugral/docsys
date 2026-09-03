@@ -482,3 +482,111 @@ fn memory_notes_become_evidence_lines_without_their_bodies() {
     assert!(!out.contains("SECRET BODY"), "{out}");
     let _ = fs::remove_dir_all(&mem);
 }
+
+#[test]
+fn a_word_that_lives_only_in_commit_bodies_is_a_mention_not_a_feature() {
+    // `caps_fixed` is a line of code in one commit's diff and nowhere else:
+    // no path, no scope, no subject names it — the escape line prints, and
+    // the diff hit is named as a mention, never a skeleton
+    let repo = build("mention");
+    let out = plan(&repo, Some("caps_fixed")).unwrap();
+    assert!(
+        out.contains("# nothing in history names this feature — ask the builder where it lives (a path, a scope, a symbol)"),
+        "{out}"
+    );
+    assert!(
+        out.contains("# the string `caps_fixed` occurs in the diff of 1 commit(s) (git log -S) — a mention in code, not a scope or a path; nothing to seed from"),
+        "{out}"
+    );
+    assert!(!out.contains("# birth"), "no skeleton for a mention: {out}");
+    assert!(!out.contains("# commits 0"), "{out}");
+    let _ = fs::remove_dir_all(&repo);
+}
+
+#[test]
+fn since_narrows_the_history_the_plan_reads() {
+    // a chronological history — git stops walking at the first commit older
+    // than --since, so the dates must be in topological order
+    let repo = tmp("since");
+    git(&repo, &["init", "-q"]);
+    git(&repo, &["config", "user.email", "t@example.invalid"]);
+    git(&repo, &["config", "user.name", "t"]);
+    git(&repo, &["config", "commit.gpgsign", "false"]);
+    docsys::migrate::init_profile(&repo.join("docs"), "en", "project").unwrap();
+    let dated = |date: &str, msg: &str| {
+        git(&repo, &["add", "-A"]);
+        let stamp = format!("{date}T12:00:00+00:00");
+        assert!(Command::new("git")
+            .args(["commit", "-q", "-m", msg])
+            .env("GIT_AUTHOR_DATE", &stamp)
+            .env("GIT_COMMITTER_DATE", &stamp)
+            .current_dir(&repo)
+            .status()
+            .unwrap()
+            .success());
+    };
+    dated("2020-01-01", "chore: init");
+    write(
+        &repo,
+        "apps/weather/app.toml",
+        "[app]\nslug = \"weather\"\n",
+    );
+    write(&repo, "apps/weather/a.cpp", "int a;\n");
+    dated("2020-06-01", "feat(weather): first");
+    write(&repo, "apps/weather/b.cpp", "int b;\n");
+    dated("2022-06-01", "feat(weather): second");
+    write(&repo, "apps/weather/c.cpp", "int c;\n");
+    dated("2024-06-01", "fix(weather): third");
+    let all = plan(&repo, None).unwrap();
+    assert!(
+        all.contains(
+            "# feature weather · directory+manifest+scope · 3 (1) · 2020-06-01..2024-06-01"
+        ),
+        "{all}"
+    );
+    let since = |d: &str| {
+        docsys::seed::plan(
+            &repo,
+            &repo.join("docs"),
+            &docsys::seed::Options {
+                target: None,
+                since: Some(d.to_string()),
+                memory: None,
+            },
+        )
+    };
+    let narrowed = since("2021-01-01").unwrap();
+    assert!(narrowed.contains("since 2021-01-01"), "{narrowed}");
+    assert!(
+        narrowed.contains(
+            "# feature weather · directory+manifest+scope · 2 (1) · 2022-06-01..2024-06-01"
+        ),
+        "{narrowed}"
+    );
+    // an empty span is an error, not an empty plan
+    let empty = since("2030-01-01");
+    assert!(
+        empty
+            .as_ref()
+            .is_err_and(|e| e.contains("no history to read")),
+        "{empty:?}"
+    );
+    let _ = fs::remove_dir_all(&repo);
+}
+
+#[test]
+fn a_foreign_type_word_is_named_in_the_vocab_note() {
+    let repo = build("vocab");
+    write(&repo, "apps/weather/skew.cpp", "int skew = 30;\n");
+    commit(
+        &repo,
+        "düzeltme(weather): saat kayması eşiği 30 saniyeye çekildi",
+    );
+    let out = plan(&repo, None).unwrap();
+    assert!(
+        out.contains("# vocab-note: types outside the tool's English set are counted as work, not fixes: düzeltme — say which are fixes"),
+        "{out}"
+    );
+    assert!(out.contains("düzeltme=1"), "{out}");
+    let _ = fs::remove_dir_all(&repo);
+}

@@ -142,7 +142,7 @@ pub fn load_commits(repo: &Path, since: Option<&str>) -> Vec<Commit> {
     ];
     let since_arg;
     if let Some(s) = since {
-        since_arg = format!("--since={s}");
+        since_arg = format!("--since={}", crate::inbox::since_bound(s));
         args.push(&since_arg);
     }
     let text = git(repo, &args).join("\n");
@@ -753,8 +753,16 @@ pub fn target(repo: &Path, root: &Path, name: &str, opts: &Options) -> Result<St
     }
     let mut out = header(repo, &commits, opts);
     out.push_str(&format!("#\n# feature {want} (asked as `{name}`)\n"));
-    if mine.is_empty() && symbol_hits.is_empty() {
+    if mine.is_empty() {
+        // no commit is attributed to it — a word inside a commit body is a
+        // mention, not a scope or a path, and the agent must not seed from it
         out.push_str("# nothing in history names this feature — ask the builder where it lives (a path, a scope, a symbol)\n");
+        if !symbol_hits.is_empty() {
+            out.push_str(&format!(
+                "# the string `{name}` occurs in the diff of {} commit(s) (git log -S) — a mention in code, not a scope or a path; nothing to seed from\n",
+                symbol_hits.len()
+            ));
+        }
         return Ok(out);
     }
     let fixes = mine.iter().filter(|c| is_fix(c)).count();

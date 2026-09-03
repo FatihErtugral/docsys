@@ -87,3 +87,109 @@ fn apply_refuses_drift_and_missing_destination() {
     assert!(err2.contains("R-099"), "{err2}");
     let _ = fs::remove_dir_all(&root);
 }
+
+// ── R-082 at the gate (D-089): a graduated file is frozen ───────────────────
+
+fn git_in(dir: &std::path::Path, args: &[&str]) {
+    assert!(
+        std::process::Command::new("git")
+            .args(args)
+            .current_dir(dir)
+            .status()
+            .unwrap()
+            .success(),
+        "git {args:?}"
+    );
+}
+
+fn errors_in(root: &std::path::Path, repo: &std::path::Path) -> Vec<String> {
+    let (r, _) = docsys::lint_in(root, Some(repo));
+    r.findings
+        .iter()
+        .filter(|f| f.severity == docsys::model::Severity::Error)
+        .map(|f| format!("{} {} [{}]", f.rule.0, f.file, f.subject))
+        .collect()
+}
+
+#[test]
+fn a_graduated_file_is_frozen_at_the_gate() {
+    let repo = tmp("r082");
+    git_in(&repo, &["init", "-q"]);
+    git_in(&repo, &["config", "user.email", "t@example.invalid"]);
+    git_in(&repo, &["config", "user.name", "t"]);
+    let root = repo.join("docs");
+    let today = docsys::migrate::today();
+    let w = |rel: &str, text: &str| {
+        let p = root.join(rel);
+        fs::create_dir_all(p.parent().unwrap()).unwrap();
+        fs::write(p, text).unwrap();
+    };
+    w(
+        ".docmeta.yml",
+        "spec: docsys/0.4\nprofile: project\ndefault_content_language: en\n",
+    );
+    w(
+        "index.md",
+        "# docs\n\n- [[reference/keys|Keys]] -- the canonical form.\n",
+    );
+    w(
+        "reference/keys.md",
+        &format!("---\nid: keys\ntype: reference\nupdated: {today}\n---\n# Keys\n\nThis page states the canonical form; read it before hashing a key.\n\nSorted fields.\n"),
+    );
+    w("work/journal.md", "# Journal\n");
+    w("work/debt.md", "# Debt\n");
+    w("work/questions.md", "# Questions\n");
+    let page = format!(
+        "---\nid: cart-key\nstatus: graduated\nconfirmed: owner, {today}\ngraduated_to: [keys]\nupdated: {today}\n---\n## Context\n\nWhy the key changed.\n\n## Decision\n\nMoved to [[reference/keys|keys]].\n"
+    );
+    w("work/features/cart-key.md", &page);
+    git_in(&repo, &["add", "-A"]);
+    git_in(&repo, &["commit", "-q", "-m", "graduated"]);
+    assert!(
+        errors_in(&root, &repo).is_empty(),
+        "{:?}",
+        errors_in(&root, &repo)
+    );
+
+    // a content change
+    fs::write(
+        root.join("work/features/cart-key.md"),
+        format!("{page}\nA line added after graduation.\n"),
+    )
+    .unwrap();
+    let errs = errors_in(&root, &repo);
+    assert!(
+        errs.contains(&"R-082 work/features/cart-key.md [content]".to_string()),
+        "{errs:?}"
+    );
+    // a transition out of graduated
+    fs::write(
+        root.join("work/features/cart-key.md"),
+        page.replace("status: graduated", "status: active"),
+    )
+    .unwrap();
+    let errs = errors_in(&root, &repo);
+    assert!(
+        errs.contains(&"R-082 work/features/cart-key.md [status]".to_string()),
+        "{errs:?}"
+    );
+    // frontmatter only (§2.4): not a content change
+    fs::write(
+        root.join("work/features/cart-key.md"),
+        page.replace(&format!("updated: {today}"), "updated: 2099-01-01"),
+    )
+    .unwrap();
+    let errs = errors_in(&root, &repo);
+    assert!(
+        !errs.iter().any(|e| e.starts_with("R-082")),
+        "an `updated:` bump is not content: {errs:?}"
+    );
+    // deleted
+    fs::remove_file(root.join("work/features/cart-key.md")).unwrap();
+    let errs = errors_in(&root, &repo);
+    assert!(
+        errs.contains(&"R-082 work/features/cart-key.md [deleted]".to_string()),
+        "{errs:?}"
+    );
+    let _ = fs::remove_dir_all(&repo);
+}

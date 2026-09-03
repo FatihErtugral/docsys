@@ -21,7 +21,7 @@ use std::process::Command;
 use crate::checks::Report;
 use crate::fm::{Frontmatter, Value};
 use crate::model::{is_iso_date, Finding, RuleId};
-use crate::tree::{DocTree, Kind, Profile};
+use crate::tree::{DocTree, Kind};
 
 const R085: RuleId = RuleId("R-085");
 const R106: RuleId = RuleId("R-106");
@@ -593,9 +593,10 @@ pub fn check_history(tree: &DocTree, repo: &Path, h: &History, r: &mut Report) {
         }
     }
     r.inspected.insert("history-freshness", inspected);
-    if tree.profile == Profile::KnowledgeBase {
-        check_verified_bodies(tree, repo, &prefix, r);
-    }
+    // every page that carries a verification answers to the same contract,
+    // in either profile (§3.1 for the base, §3.2 for a project — D-092)
+    check_verified_bodies(tree, repo, &prefix, r);
+    check_record_authors(tree, repo, &prefix, r);
 }
 
 /// The body of a page text — everything after the frontmatter.
@@ -620,6 +621,75 @@ fn body_text(text: &str) -> String {
 /// R-113). A changed body is an error until the page is `unverified` again
 /// (D-077); a revision that does not hold the page makes the record
 /// unauditable (R-028).
+/// R-208's history half (D-092): when a maintainer entry carries an email, the
+/// commit that introduced the record (`confirmed:` on a work file,
+/// `verified_by:` on a verified page) must be authored by that email. A record
+/// not yet in any commit is the gate's business, not history's.
+fn check_record_authors(tree: &DocTree, repo: &Path, prefix: &str, r: &mut Report) {
+    let maintainers = crate::checks::maintainer_handles(tree);
+    if maintainers.iter().all(|m| m.email.is_none()) {
+        return;
+    }
+    let mut inspected = 0usize;
+    for page in &tree.pages {
+        let Some(fm) = &page.fm else { continue };
+        let field = match page.kind {
+            Kind::Tracked => "confirmed",
+            Kind::Permanent => "verified_by",
+            _ => continue,
+        };
+        let Some(value) = fm.fields.get(field).and_then(Value::as_str) else {
+            continue;
+        };
+        let who = crate::checks::record_handle(value);
+        let Some(email) = maintainers
+            .iter()
+            .find(|m| m.handle == who)
+            .and_then(|m| m.email.as_ref())
+        else {
+            continue; // an unknown handle is checks.rs's finding; no email, nothing to compare
+        };
+        // the line as the file carries it, so -S finds the commit that added it
+        let Some(line) = page
+            .text
+            .lines()
+            .find(|l| l.starts_with(&format!("{field}:")))
+        else {
+            continue;
+        };
+        inspected += 1;
+        let out = Command::new("git")
+            .arg("-C")
+            .arg(repo)
+            .args(["log", "--reverse", "--format=%ae", "-S"])
+            .arg(line)
+            .arg("--")
+            .arg(format!("{prefix}{}", page.rel))
+            .output()
+            .ok()
+            .filter(|o| o.status.success());
+        let Some(out) = out else { continue };
+        let Some(author) = String::from_utf8_lossy(&out.stdout)
+            .lines()
+            .next()
+            .map(|l| l.trim().to_lowercase())
+        else {
+            continue; // not committed yet
+        };
+        if author != *email {
+            r.findings.push(Finding::err(
+                RuleId("R-208"),
+                &page.rel,
+                field,
+                format!(
+                    "`{field}:` names `{who}` but the commit that recorded it was authored by `{author}`, not `{email}` — the record must be the maintainer's own commit (R-208)"
+                ),
+            ));
+        }
+    }
+    r.inspected.insert("record-authors", inspected);
+}
+
 fn check_verified_bodies(tree: &DocTree, repo: &Path, prefix: &str, r: &mut Report) {
     let mut inspected = 0usize;
     for page in &tree.pages {

@@ -105,6 +105,7 @@ fn errors(root: &Path) -> Vec<String> {
 
 #[test]
 fn a_page_learned_from_consumed_trees_cites_them_by_identifier() {
+    let today = docsys::migrate::today();
     let hub = tmp("learn");
     provider(
         &hub,
@@ -124,7 +125,7 @@ fn a_page_learned_from_consumed_trees_cites_them_by_identifier() {
     write(
         &b,
         "wiki/coding/explanation/failure-handling.md",
-        "---\nid: failure-handling\ntype: explanation\ndomain: coding\nverification: unverified\nupdated: 2026-09-02\nsources: [@relay/retry-policy, @ledger/transfer-semantics]\n---\n# Failure handling across the projects\n\nThis page explains how the projects treat a failing operation; read it before designing a new one.\n\nrelay retries (doc: @relay/retry-policy), ledger refuses (doc: @ledger/transfer-semantics).\n",
+        &format!("---\nid: failure-handling\ntype: explanation\ndomain: coding\nverification: unverified\nupdated: {today}\nsources: [@relay/retry-policy, @ledger/transfer-semantics]\n---\n# Failure handling across the projects\n\nThis page explains how the projects treat a failing operation; read it before designing a new one.\n\nrelay retries (doc: @relay/retry-policy), ledger refuses (doc: @ledger/transfer-semantics).\n"),
     );
     write(
         &b,
@@ -335,6 +336,7 @@ fn an_assistants_memory_stands_up_in_one_command_and_again() {
 
 #[test]
 fn a_verified_page_fails_when_a_consumed_source_moves_after_verification() {
+    let today = docsys::migrate::today();
     let hub = tmp("source-moved");
     let relay = provider(
         &hub,
@@ -349,7 +351,7 @@ fn a_verified_page_fails_when_a_consumed_source_moves_after_verification() {
     write(
         &b,
         "wiki/coding/explanation/relay-in-one-page.md",
-        "---\nid: relay-in-one-page\ntype: explanation\ndomain: coding\nverification: unverified\nupdated: 2026-09-02\nsources: [@relay/retry-policy]\n---\n# Relay in one page\n\nThis page explains relay's promise; read it before depending on it.\n\nFour attempts, then a dead letter.\n",
+        &format!("---\nid: relay-in-one-page\ntype: explanation\ndomain: coding\nverification: unverified\nupdated: {today}\nsources: [@relay/retry-policy]\n---\n# Relay in one page\n\nThis page explains relay's promise; read it before depending on it.\n\nFour attempts, then a dead letter.\n"),
     );
     write(
         &b,
@@ -439,7 +441,7 @@ fn a_verified_page_fails_when_a_consumed_source_moves_after_verification() {
     write(
         &fresh,
         "wiki/coding/explanation/relay-in-one-page.md",
-        &format!("---\nid: relay-in-one-page\ntype: explanation\ndomain: coding\nverification: verified\nverified_by: other\nverified_rev: {rev2}\nupdated: 2026-09-02\nsources: [@relay/retry-policy]\n---\n# Relay in one page\n\nThis page explains relay's promise; read it first.\n\nSix attempts.\n"),
+        &format!("---\nid: relay-in-one-page\ntype: explanation\ndomain: coding\nverification: verified\nverified_by: other\nverified_rev: {rev2}\nupdated: {today}\nsources: [@relay/retry-policy]\n---\n# Relay in one page\n\nThis page explains relay's promise; read it first.\n\nSix attempts.\n"),
     );
     write(
         &fresh,
@@ -493,4 +495,118 @@ fn the_git_connector_skips_bookkeeping_unless_asked() {
             .any(|l| l.starts_with("captured:") && l.contains("bump-updated")),
         "{all:?}"
     );
+}
+
+#[test]
+fn a_base_inside_another_repository_is_told_whose_history_it_shares() {
+    let hub = tmp("nested");
+    let relay = provider(
+        &hub,
+        "relay",
+        "retry-policy",
+        "Retry policy",
+        "Four attempts.",
+    );
+    // a base under the provider's own repository: no `git init`, but a clear word
+    let nested = relay.join("memory");
+    let done =
+        docsys::assistant::run(&nested, &[], &["coding".to_string()], "30.days", None).unwrap();
+    assert!(
+        done.steps
+            .iter()
+            .any(|s| s.starts_with("git: inside repository ")),
+        "{:?}",
+        done.steps
+    );
+    assert!(
+        !done
+            .steps
+            .iter()
+            .any(|s| s.contains("repository initialized")),
+        "{:?}",
+        done.steps
+    );
+    assert!(!nested.join(".git").exists());
+    let _ = fs::remove_dir_all(&hub);
+}
+
+#[test]
+fn the_limit_counts_commits_worth_reading_and_a_namespace_override_names_the_records() {
+    let hub = tmp("limit");
+    let relay = provider(
+        &hub,
+        "relay",
+        "retry-policy",
+        "Retry policy",
+        "Four attempts.",
+    );
+    // a second commit worth reading (a body), then three bookkeeping commits:
+    // docs only, no body — the connector skips them unless asked
+    write(&relay, "src/lib.rs", "pub fn f() {}\npub fn g() {}\n");
+    git(&relay, &["add", "-A"]);
+    git(
+        &relay,
+        &[
+            "commit",
+            "-q",
+            "-m",
+            "relay: g\n\nBecause f alone was not enough; measured.",
+        ],
+    );
+    let today = docsys::migrate::today();
+    for i in 1..=3 {
+        let p = relay.join("docs/reference/retry-policy.md");
+        let t = fs::read_to_string(&p).unwrap();
+        fs::write(
+            &p,
+            format!(
+                "{}\nEdited {i}.\n",
+                t.replace("updated: 2026-09-02", &format!("updated: {today}"))
+            ),
+        )
+        .unwrap();
+        git(&relay, &["add", "-A"]);
+        git(&relay, &["commit", "-q", "-m", &format!("docs: touch {i}")]);
+    }
+    let b = base(&hub);
+    git(&b, &["add", "-A"]);
+    git(&b, &["commit", "-q", "-m", "base"]);
+
+    // --limit 1 counts commits worth reading: the newest bookkeeping ones are passed over
+    let landed = inbox::pull_git(&b, &relay, "2000-01-01", None, Some(1), false).unwrap();
+    let captured: Vec<&String> = landed
+        .iter()
+        .filter(|l| l.starts_with("captured: "))
+        .collect();
+    assert_eq!(captured.len(), 1, "{landed:?}");
+    assert!(!captured[0].contains("touch"), "{landed:?}");
+    // the same pull lands nothing twice
+    let again = inbox::pull_git(&b, &relay, "2000-01-01", None, Some(1), false).unwrap();
+    assert!(
+        again.iter().all(|l| l.starts_with("already captured: ")),
+        "{again:?}"
+    );
+    // --all lets the bookkeeping commits through
+    let all = inbox::pull_git(&b, &relay, "2000-01-01", None, Some(2), true).unwrap();
+    assert!(
+        all.iter()
+            .any(|l| l.starts_with("captured: ") && l.contains("touch")),
+        "{all:?}"
+    );
+    // --since after every commit: nothing worth reading in the span
+    let none = inbox::pull_git(&b, &relay, "2030-01-01", None, None, false).unwrap();
+    assert!(
+        !none.iter().any(|l| l.starts_with("captured: ")),
+        "{none:?}"
+    );
+    // --as names the records under another namespace
+    let named = inbox::pull_git(&b, &relay, "2000-01-01", Some("rl"), None, false).unwrap();
+    let rec = named
+        .iter()
+        .find_map(|l| l.strip_prefix("captured: "))
+        .expect("a record under rl");
+    let text = fs::read_to_string(b.join(rec)).unwrap();
+    assert!(text.contains("source_id: rl@"), "{text}");
+    assert!(text.contains("title: \"rl: "), "{text}");
+    let _ = fs::remove_dir_all(&hub);
 }

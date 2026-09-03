@@ -80,7 +80,7 @@ fn ensure_ci_workflow(repo: &Path, root_rel: &str) -> &'static str {
     let text = format!(
         "# {CI_MARKER} — written by `docsys adopt`; edit freely, it is not regenerated.\n\
          name: docsys\n\n\
-         on:\n  push:\n  pull_request:\n\n\
+         on:\n  push:\n  pull_request:\n    types: [opened, synchronize, reopened, closed]\n\n\
          jobs:\n  docs:\n    runs-on: ubuntu-latest\n    steps:\n\
          \x20     - uses: actions/checkout@v5\n\
          \x20       with:\n\
@@ -89,7 +89,32 @@ fn ensure_ci_workflow(repo: &Path, root_rel: &str) -> &'static str {
          \x20     - run: docsys lint --root {root_rel} --repo .\n\
          \x20     - run: docsys refs --repo . --root {root_rel}\n\
          \x20     - if: github.event_name == 'pull_request'\n\
-         \x20       run: docsys gate --repo . --root {root_rel} --range \"origin/${{{{ github.base_ref }}}}...HEAD\"\n"
+         \x20       run: docsys gate --repo . --root {root_rel} --range \"origin/${{{{ github.base_ref }}}}...HEAD\"\n\
+         \n\
+         \x20 # A code review's approval is a maintainer's word (D-095): when a pull request\n\
+         \x20 # merges, every page it touched that carries `verification:` is recorded as\n\
+         \x20 # verified by each approver whose @login is in .docmeta.yml maintainers:, in a\n\
+         \x20 # commit under that approver's identity. Approvers outside the list are skipped.\n\
+         \x20 verify-on-approval:\n\
+         \x20   if: github.event_name == 'pull_request' && github.event.pull_request.merged == true\n\
+         \x20   runs-on: ubuntu-latest\n\
+         \x20   permissions:\n\
+         \x20     contents: write\n\
+         \x20     pull-requests: read\n\
+         \x20   steps:\n\
+         \x20     - uses: actions/checkout@v5\n\
+         \x20       with:\n\
+         \x20         ref: ${{{{ github.event.pull_request.base.ref }}}}\n\
+         \x20         fetch-depth: 0\n\
+         \x20     - run: cargo install docsys\n\
+         \x20     - env:\n\
+         \x20         GH_TOKEN: ${{{{ github.token }}}}\n\
+         \x20       run: |\n\
+         \x20         range=\"${{{{ github.event.pull_request.base.sha }}}}...${{{{ github.sha }}}}\"\n\
+         \x20         for login in $(gh api \"repos/${{{{ github.repository }}}}/pulls/${{{{ github.event.pull_request.number }}}}/reviews\" --jq '[.[] | select(.state == \"APPROVED\") | .user.login] | unique | .[]'); do\n\
+         \x20           docsys verify --range \"$range\" --by \"@$login\" --commit --root {root_rel} || echo \"@$login: not a declared maintainer — skipped\"\n\
+         \x20         done\n\
+         \x20         git push\n"
     );
     if fs::create_dir_all(&dir).is_err() || fs::write(&file, text).is_err() {
         return "failed";
@@ -164,6 +189,27 @@ fn ensure_docmeta(root: &Path, lang: &str) -> Result<&'static str, String> {
 /// at adoption; warn-mode when it carries debt, because a gate that blocks
 /// every commit on day one gets bypassed forever (R-150). A warn-mode gate is
 /// hardened by a later `adopt` once the tree is clean (D-072).
+/// The verdict the gate itself will reach: no lint error AND no refs error
+/// (a dangling `doc:` in code blocks a commit just as a broken page does,
+/// D-088). The gate's mode — hard or warn — follows this, not lint alone.
+pub(crate) fn gate_clean(root: &Path, repo: &Path) -> bool {
+    let (lint, _) = crate::lint_in(root, Some(repo));
+    if lint
+        .findings
+        .iter()
+        .any(|f| f.severity == crate::model::Severity::Error)
+    {
+        return false;
+    }
+    let Ok(tree) = crate::tree::DocTree::load(root) else {
+        return false;
+    };
+    !crate::refs::run(repo, &tree)
+        .findings
+        .iter()
+        .any(|f| f.severity == crate::model::Severity::Error)
+}
+
 pub(crate) fn ensure_git_gate(repo: &Path, root_rel: &str, clean: bool) -> &'static str {
     // a base that is its own repository names itself `.`
     let root_rel = if root_rel.is_empty() { "." } else { root_rel };
@@ -195,10 +241,79 @@ pub(crate) fn ensure_git_gate(repo: &Path, root_rel: &str, clean: bool) -> &'sta
     };
     let hook = repo.join(&hooks_dir).join("pre-commit");
     let existing = fs::read_to_string(&hook).unwrap_or_default();
+    // The block: every check runs, every failure counts, and the mode decides
+    // whether a failure stops the commit. An earlier block let `docsys refs`'
+    // exit code mask a lint failure (the script had no -e and the last command
+    // decided) — found by the agent lab; the block is rewritten when it lacks
+    // the status variable (D-093).
+    let block_for = |hard: bool| -> String {
+        let mode_line = if hard { HARD_MODE_LINE } else { WARN_MODE_LINE };
+        let mut block = String::new();
+        let _ = write!(
+            block,
+            "\n# --- {GATE_MARKER} ---------------------------------------------\n\
+             {mode_line}\n\
+             # One-off skip: DOCSYS_SKIP=1 git commit ... (under commit_policy: require it leaves a debt item)\n\
+             docsys_gate_exit={}\n\
+             if [ -z \"${{DOCSYS_SKIP:-}}\" ] && command -v docsys >/dev/null; then\n\
+             \x20 docsys_gate_status=0\n\
+             \x20 docsys lint --root {root_rel} || docsys_gate_status=1\n\
+             \x20 docsys refs --repo . --root {root_rel} || docsys_gate_status=1\n\
+             \x20 docsys gate --repo . --root {root_rel} || docsys_gate_status=1\n\
+             \x20 if [ \"$docsys_gate_status\" -ne 0 ] && [ \"$docsys_gate_exit\" -ne 0 ]; then exit 1; fi\n\
+             elif [ -n \"${{DOCSYS_SKIP:-}}\" ] && command -v docsys >/dev/null; then\n\
+             \x20 docsys gate --repo . --root {root_rel} --skipped >/dev/null 2>&1 || :\n\
+             fi\n",
+            u8::from(hard)
+        );
+        block
+    };
     if existing.contains(GATE_MARKER) {
-        if clean && existing.contains(" || true") {
+        if !existing.contains("docsys_gate_exit=") {
+            // an older block (masked statuses, or without the policy line): rewrite it in place
+            let lines: Vec<&str> = existing.lines().collect();
+            let start = lines
+                .iter()
+                .position(|l| l.contains(GATE_MARKER) && l.starts_with("# ---"));
+            let end = start.and_then(|s| {
+                lines
+                    .iter()
+                    .skip(s)
+                    .position(|l| l.trim() == "fi")
+                    .map(|i| s + i)
+            });
+            if let (Some(s0), Some(e0)) = (start, end) {
+                let old_block = lines.get(s0..=e0).unwrap_or(&[]);
+                let was_warn = old_block.iter().any(|l| l.contains(" || true"));
+                let hard = clean || !was_warn;
+                let mut out: Vec<String> = lines
+                    .get(..s0)
+                    .unwrap_or(&[])
+                    .iter()
+                    .map(|l| l.to_string())
+                    .collect();
+                // the block text starts with a blank line; the marker line replaces the old one
+                let fresh = block_for(hard);
+                out.extend(fresh.trim_start_matches('\n').lines().map(str::to_string));
+                out.extend(
+                    lines
+                        .get(e0 + 1..)
+                        .unwrap_or(&[])
+                        .iter()
+                        .map(|l| l.to_string()),
+                );
+                let mut text = out.join("\n");
+                text.push('\n');
+                return if fs::write(&hook, text).is_ok() {
+                    "upgraded"
+                } else {
+                    "failed"
+                };
+            }
+        }
+        if clean && existing.contains("docsys_gate_exit=0") {
             let text = existing
-                .replace(" || true", "")
+                .replace("docsys_gate_exit=0", "docsys_gate_exit=1")
                 .replace(WARN_MODE_LINE, HARD_MODE_LINE);
             return if fs::write(&hook, text).is_ok() {
                 "hardened"
@@ -208,22 +323,7 @@ pub(crate) fn ensure_git_gate(repo: &Path, root_rel: &str, clean: bool) -> &'sta
         }
         return "kept";
     }
-    let (mode_line, tail) = if clean {
-        (HARD_MODE_LINE, "")
-    } else {
-        (WARN_MODE_LINE, " || true")
-    };
-    let mut block = String::new();
-    let _ = write!(
-        block,
-        "\n# --- {GATE_MARKER} ---------------------------------------------\n\
-         {mode_line}\n\
-         # One-off skip: DOCSYS_SKIP=1 git commit ...\n\
-         if [ -z \"${{DOCSYS_SKIP:-}}\" ] && command -v docsys >/dev/null; then\n\
-         \x20 docsys lint --root {root_rel}{tail}\n\
-         \x20 docsys refs --repo . --root {root_rel}{tail}\n\
-         fi\n"
-    );
+    let block = block_for(clean);
     // The block goes right below the shebang, never at the end: an existing
     // hook usually ends in `exec` or `exit`, and a block appended below either
     // is dead code that looks installed — found live, twice (doctor's check).
@@ -317,20 +417,33 @@ pub fn run(repo: &Path, root: &Path, lang: &str) -> Result<AdoptOutcome, String>
         ));
     }
 
-    // 2b · settings.json: created only when absent — an existing file may carry
-    // MCP servers, permissions, deny lists; merging those is judgment, so it
-    // goes to the checklist instead of being overwritten.
+    // 2b · settings.json: written whole when absent, merged when present
+    // (D-086) — the docsys wires join the file, MCP servers, permissions and
+    // the owner's own hooks stay as they are. Only a file that is not JSON is
+    // left alone, and then the merge goes to the checklist.
     let settings = claude.join("settings.json");
-    let settings_missing = !settings.exists();
-    if settings_missing {
-        fs::write(&settings, agents::SETTINGS_SNIPPET).map_err(|e| e.to_string())?;
-        summary.push("settings.json: created with docsys hook wires".to_string());
-    } else {
-        summary.push(
-            "settings.json: untouched (may carry MCP/permissions) — merge is on the checklist"
-                .to_string(),
-        );
-    }
+    let settings_unparsable = match agents::wire_settings(&settings, agents::SETTINGS_SNIPPET)? {
+        agents::Wired::Created => {
+            summary.push("settings.json: created with docsys hook wires".to_string());
+            false
+        }
+        agents::Wired::Merged(n) => {
+            summary.push(format!(
+                "settings.json: merged {n} docsys hook wire(s) into the existing file (MCP/permissions kept)"
+            ));
+            false
+        }
+        agents::Wired::AlreadyWired => {
+            summary.push("settings.json: already wired".to_string());
+            false
+        }
+        agents::Wired::Unparsable => {
+            summary.push(
+                "settings.json: not valid JSON — untouched; merge is on the checklist".to_string(),
+            );
+            true
+        }
+    };
 
     // 3 · AGENTS.md managed block (idempotent)
     rules::write_agents_block_with(
@@ -342,17 +455,12 @@ pub fn run(repo: &Path, root: &Path, lang: &str) -> Result<AdoptOutcome, String>
     // 4 · git pre-commit gate — hard when the tree is clean as the hook will
     // see it (inside the repository: pins and history included), warn-mode
     // while it carries debt (D-072)
-    let clean = {
-        let (r, _) = crate::lint_in(root, Some(repo));
-        !r.findings
-            .iter()
-            .any(|f| f.severity == crate::model::Severity::Error)
-    };
+    let clean = gate_clean(root, repo);
     let gate = ensure_git_gate(repo, &root_rel, clean);
     let mode = if clean {
         "hard"
     } else {
-        "warn-mode until lint is clean"
+        "warn-mode until lint and refs are clean"
     };
     summary.push(format!("git pre-commit gate: {gate} ({mode})"));
 
@@ -419,10 +527,10 @@ pub fn run(repo: &Path, root: &Path, lang: &str) -> Result<AdoptOutcome, String>
              \x20     writes the GitHub workflow once `.github/` exists.\n",
         );
     }
-    if !settings_missing {
+    if settings_unparsable {
         md.push_str(
             "- [ ] Merge the docsys hook wires into `.claude/settings.json` by hand or\n\
-             \x20     agent (the tool never edits an existing settings file). Snippet:\n\n\
+             \x20     agent (the file is not valid JSON, so the tool did not touch it). Snippet:\n\n\
              ```json\n",
         );
         md.push_str(agents::SETTINGS_SNIPPET);

@@ -86,6 +86,14 @@ pub fn run(
     fs::create_dir_all(root).map_err(|e| e.to_string())?;
     // 1 · a repository: the gate and the record layer's immutability need one
     let repo = crate::repo_of(root).unwrap_or_else(|| root.to_path_buf());
+    if let Some(enclosing) = crate::repo_of(root).filter(|r| r != root) {
+        // the base shares that repository's history — say so; a base with
+        // its own history is a directory outside every repository
+        out.steps.push(format!(
+            "git: inside repository {} — the base shares its history; a directory outside a repository gets its own",
+            enclosing.display()
+        ));
+    }
     if crate::repo_of(root).is_none() {
         let ok = std::process::Command::new("git")
             .args(["init", "-q"])

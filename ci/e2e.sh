@@ -14,6 +14,7 @@ git config --global user.email >/dev/null 2>&1 || git config --global user.email
 git config --global user.name  >/dev/null 2>&1 || git config --global user.name e2e
 git config --global init.defaultBranch main >/dev/null 2>&1 || true
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 WORK=$(mktemp -d)
 trap 'rm -rf "$WORK"' EXIT
 cd "$WORK"
@@ -257,5 +258,19 @@ docsys lint --root . | grep -q -- '-- 0 error(s)' || fail "forgetting left error
 docsys status --root . | grep -q 'forgotten: 2' || fail "status does not count the forgettings"
 (docsys lookup auth --root . || true) | grep -q 'auth-in-one-page' && fail "a forgotten page is still found"   # the consumed @auth page is a legitimate hit
 cd "$WORK"
+
+say "14 · the mechanical harness: every distillation flow's exact expectations (ci/agent-lab/mech)"
+# The generators and checks live in the repository (ci/agent-lab/); the
+# harness pins what the binary guarantees around ingest, graduation,
+# learning from projects and the brownfield path. Under three minutes.
+LAB="$SCRIPT_DIR/agent-lab"
+if [ -x "$LAB/mech/run.sh" ]; then
+  LAB_OUT="$WORK/lab-out" "$LAB/mech/run.sh" --out "$WORK/lab-out/mech" > "$WORK/mech.log" 2>&1 \
+    || fail "the mechanical harness has failures: $(grep -E '^FAIL|LAB FAIL' "$WORK/mech.log" | head -10)"
+  grep -E 'passed' "$WORK/mech.log"
+  git -C "$LAB/.." checkout -q -- agent-lab/REPORT-mechanical.md 2>/dev/null || true   # CI never rewrites the committed report
+else
+  echo "ci/agent-lab not beside this script — skipped"
+fi
 
 printf '\nE2E OK\n'

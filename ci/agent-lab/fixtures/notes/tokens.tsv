@@ -1,0 +1,10 @@
+note	token
+2026-07-01-uart-dma-timing.md	DMA1_CH5
+2026-07-01-uart-dma-timing.md	115200
+2026-07-01-uart-dma-timing.md	3.2 ms
+2026-07-02-uart-dma-timing-again.md	512 bytes
+2026-07-03-uart-baud-note.md	9600
+2026-07-12-git-ledgerkit-sync-buffer.md	4096
+2026-07-12-git-ledgerkit-sync-buffer.md	2.3%
+2026-07-12-git-ledgerkit-sync-buffer.md	2021-11-04
+2026-07-15-rotate-keys.md	openssl rand -hex 32

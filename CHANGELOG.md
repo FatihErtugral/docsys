@@ -5,6 +5,126 @@ All notable changes to docsys are documented here. The format follows
 [SemVer](https://semver.org/). Release notes are extracted from this file
 by the release workflow — the tag's section becomes the GitHub release body.
 
+## [Unreleased]
+
+### Added
+
+- `docsys raw move <record> <domain>` (D-085): a note leaves `raw/inbox/` for
+  `raw/<domain>/` through git, bytes untouched, and every citing page's
+  `sources:` entry is rewritten in the frontmatter — the body is not touched,
+  so a verified page stays verified. R-027 has its command; the ingest
+  skill, the first-turn routing and the record guard name it instead of
+  `git mv`.
+- A JSON writer beside the hook-payload reader (`Json::render`), so the
+  binary can write back a settings file it parsed.
+- R-082 has its check (D-089): inside a repository, a work file HEAD holds
+  as `status: graduated` whose status, body or existence changed in the
+  working tree is an error at the gate — `graduated` is terminal.
+- `wiki/open-questions.md` is the knowledge base's questions ledger (D-090):
+  a list file under R-108's grammar (`- [ ] YYYY-MM-DD …`), so a free-form
+  rewrite is an error and `status` counts what the organs recorded; the
+  installed texts name the grammar and say that every file under `wiki/`
+  keeps the base's declared language — only the conversation follows the
+  person's.
+- The agent lab, in the repository (`ci/agent-lab/`): dated, reproducible
+  fixtures for the four distillation flows (a knowledge base with an inbox,
+  a project with finished work files, three provider projects, a brownfield
+  repository with seven years of history), a mechanical harness of exact
+  expectations (`mech/run.sh`, ~200 checks, run by `ci/e2e.sh` step 14), and
+  the headless-agent leg (`agent/`): one-line task texts, a rubric that names
+  where the agent read each expectation, a runner with mechanical capture and
+  automatic rows, the sonnet/opus matrix, the real-repository leg by
+  codename, and the two reports. `run-all.sh` runs it end to end.
+
+### Changed
+
+- The pre-commit gate's mode follows the gate's own verdict (D-088): hard
+  only when neither lint nor `refs` reports an error — a dangling `doc:` in
+  code left a freshly adopted repository unable to commit its adoption.
+- `adopt` and `agents --kb` merge the docsys hook wires into an existing
+  `.claude/settings.json` instead of leaving it untouched (D-086): each entry
+  whose command is not yet wired is appended to its event; MCP servers,
+  permissions and the owner's own hooks keep their place and order; a second
+  run changes nothing. A file that is not JSON is still left alone, with the
+  snippet on the `ADOPTION.md` checklist.
+- The installed knowledge-base layer says where sources beyond the inbox
+  come from (D-087): `AGENTS.md` gains "Sources beyond the inbox" (consumed
+  projects and `@namespace/id`, the git connector `inbox pull`, `status`,
+  `assistant`), and the ingest skill's step 3 names `@namespace/id`
+  citations. Nothing an agent needs to run a base lives in a prompt.
+
+### Fixed
+
+- `seed plan --target <feature>` prints its escape line (`nothing in history
+  names this feature`) whenever no commit is attributed to the feature — a
+  word inside a commit body was counted as a hit and returned an empty
+  skeleton with `commits 0` instead; the mention is now named as a mention.
+- `tests/jarvis.rs` dated its base pages with a literal day and failed the
+  morning after (R-106); the pages carry the run's own date.
+- The installed git pre-commit gate masked a lint failure whenever `docsys
+  refs` passed after it (no `-e`; the last command decided) — every hard gate
+  let a red tree commit. The block now accumulates the three statuses and
+  exits on any failure in hard mode; `adopt` rewrites an older block in place
+  (`git pre-commit gate: upgraded`). Found by the agent lab's mechanical
+  harness.
+- `--since YYYY-MM-DD` (`inbox pull`, `seed plan`, `assistant`) is the start
+  of that day: git reads a bare date as "that day at this hour", so
+  `--since <today>` landed nothing.
+- `docsys assistant` on a directory inside another repository says so
+  (`git: inside repository …`) instead of silently sharing that history.
+- `/docsys-seed` §3 says what a conflicting answer becomes: a `question`
+  row naming the evidence, not an `answer` row — the lab saw one model
+  record the disputed claim verbatim and raise the question beside it.
+- The maintainer in the session needs no second session (D-096): R-025 keeps
+  a model from certifying its own page, but when the person driving the
+  session is a declared maintainer and says the page is right, the agent
+  records that word with `docsys verify <page>`; the installed texts say so.
+- A code review's approval verifies (D-095), read from git: `docsys verify
+  --range <a>...<b> --from-trailers --commit` takes the approver from a
+  `Reviewed-by:`/`Approved-by:` trailer whose e-mail is a declared
+  maintainer's and records every page the range touched under that identity
+  — any host, no network. Where the approval lives in a host's review table,
+  `--by @login` takes it from an adapter (the login on the maintainer entry:
+  `handle <email> @login`); the GitHub workflow `adopt` writes is one, run
+  once per declared approver when a pull request merges.
+- `docsys verify <page> [--by <handle>] [--commit] [--revoke]` (D-094): a
+  maintainer's record in one step — the handle from the git identity matched
+  against `maintainers:`, the revision from `HEAD` once the page is committed
+  as it is, refused while a source does not resolve; `--commit` lands it under
+  the person's own identity, `--revoke` takes a page back to `unverified`.
+- `commit_policy: require` (D-093, R-209): a commit that touches code with
+  no documentation change is refused — by the agent relay and by the git hook,
+  every time — until the work is recorded as a work file or a journal entry;
+  the end of a turn holds the session once when code changed without its
+  record, so the knowledge is captured while the session that has it exists;
+  `DOCSYS_SKIP=1` still bypasses but leaves a dated debt item
+  (`docsys gate --skipped` records it for the git hook). The first turn now
+  carries `<docs-in-hand>` — pages, unverified count, work in flight, the
+  policy — and names `improvement` among the work types. The stop relay
+  passes its payload (`--stdin`); `adopt` upgrades an older gate block with
+  the `docsys gate` line.
+- Verification in the project profile, and maintainers (D-092, R-208): a
+  permanent page may carry `verification:` and `sources:` and then answers to
+  the wiki page's contract (record, body hash at `verified_rev`, sources
+  resolving); `docsys page new <type> <id> --unverified` writes it.
+  `.docmeta.yml` may declare `maintainers:`; then `confirmed:` and
+  `verified_by:` must name one of them, and — where history exists and the
+  entry carries an email — the commit that recorded it must be theirs. Anyone
+  writes, a maintainer vouches; an empty list changes nothing. `status` counts
+  a project's unverified pages; the routing text and the docsys skill say it.
+- `/docsys-seed` §4b: the one page the seeding session may author — an
+  `unverified` `explanation/<feature>-overview` from the evidence, routed,
+  for a maintainer to verify — so a repository seeded with nobody present is
+  readable on day one without a claim of truth.
+- The gate blocks a commit that carries a seed plan file (`SEED.tsv`,
+  `*.seed.tsv`) and names the two commands that replace it (D-091) — a plan
+  is a draft, never documentation; two real-repository sessions had
+  committed it.
+- `/docsys-seed` §4 names the absent-builder case: `research`, `journal`,
+  `postmortem` and `question` rows land on the person's word alone, only
+  `answer` rows wait for a builder — a session on a real repository with
+  nobody to ask had committed the plan file and landed nothing.
+
 ## [0.14.0] - 2026-09-02
 
 ### Added

@@ -1,0 +1,4 @@
+codename	repo	size	round	notes
+# S1	owner/name	S	1	a 2019 project, no docs
+# M1	owner/name	M	1	a monorepo with .claude/settings.json
+# L1a	owner/name	L	2	one of a product family

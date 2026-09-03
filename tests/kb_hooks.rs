@@ -306,3 +306,114 @@ fn a_verified_page_must_still_hold_the_verified_body() {
         "{errs:?}"
     );
 }
+
+#[test]
+fn an_existing_settings_file_is_merged_into_and_never_clobbered() {
+    let base = tmp("settings-merge");
+    git(&base, &["init", "-q"]);
+    docsys::migrate::init_profile(&base, "en", "knowledge-base").unwrap();
+    let claude = base.join(".claude");
+    fs::create_dir_all(&claude).unwrap();
+    let mine = "{\n  \"permissions\": { \"allow\": [\"Bash(ls:*)\"], \"deny\": [] },\n  \"hooks\": {\n    \"PreToolUse\": [\n      { \"matcher\": \"Bash\", \"hooks\": [ { \"type\": \"command\", \"command\": \"./mine.sh\" } ] }\n    ]\n  },\n  \"mcpServers\": { \"notes\": { \"command\": \"notes-mcp\" } }\n}\n";
+    fs::write(claude.join("settings.json"), mine).unwrap();
+
+    let done = docsys::agents::install_kb(&claude, &base, false).unwrap();
+    assert!(
+        done.written.iter().any(|w| w == "settings.json"),
+        "{done:?}"
+    );
+    assert!(
+        done.notes
+            .iter()
+            .any(|n| n.contains("merged 4 docsys hook wire(s)")),
+        "{:?}",
+        done.notes
+    );
+    let text = fs::read_to_string(claude.join("settings.json")).unwrap();
+    let json = docsys::hook::parse_json(&text).expect("still JSON");
+    assert_eq!(
+        json.string_at(&["mcpServers", "notes", "command"]),
+        Some("notes-mcp"),
+        "{text}"
+    );
+    assert!(
+        text.contains("Bash(ls:*)") && text.contains("./mine.sh"),
+        "the person's permissions and hook stay:\n{text}"
+    );
+    for hook in [
+        "session-intent.sh",
+        "pre-commit-docs.sh",
+        "post-edit-updated.sh",
+        "stop-docs-reminder.sh",
+    ] {
+        assert!(text.contains(hook), "{hook} missing:\n{text}");
+    }
+    let (p, h, m) = (
+        text.find("\"permissions\"").unwrap(),
+        text.find("\"hooks\"").unwrap(),
+        text.find("\"mcpServers\"").unwrap(),
+    );
+    assert!(p < h && h < m, "key order is the person's:\n{text}");
+
+    // idempotent: nothing to add, nothing written
+    let again = docsys::agents::install_kb(&claude, &base, false).unwrap();
+    assert!(
+        again.skipped.iter().any(|s| s == "settings.json"),
+        "{again:?}"
+    );
+    assert_eq!(
+        fs::read_to_string(claude.join("settings.json")).unwrap(),
+        text
+    );
+
+    // a file that is not JSON is never touched
+    fs::write(claude.join("settings.json"), "{ not json\n").unwrap();
+    let broken = docsys::agents::install_kb(&claude, &base, true).unwrap();
+    assert!(
+        broken.notes.iter().any(|n| n.contains("not valid JSON")),
+        "{:?}",
+        broken.notes
+    );
+    assert_eq!(
+        fs::read_to_string(claude.join("settings.json")).unwrap(),
+        "{ not json\n"
+    );
+    let _ = fs::remove_dir_all(&base);
+}
+
+#[test]
+fn the_installed_layer_names_the_sources_beyond_the_inbox() {
+    // D-087: what an agent needs is in the installed layer, never in a prompt
+    let base = build_base("layer-text");
+    let agents = fs::read_to_string(base.join("AGENTS.md")).unwrap();
+    for needle in [
+        "## Sources beyond the inbox",
+        "docsys consume add",
+        "docsys fetch",
+        "@namespace/id",
+        "docsys inbox pull",
+        "docsys status",
+        "docsys assistant",
+        "docsys raw move",
+        "every file under `wiki/`",
+        "questions ledger",
+    ] {
+        assert!(agents.contains(needle), "AGENTS.md lacks `{needle}`");
+    }
+    let ingest = fs::read_to_string(base.join(".claude/skills/kb-ingest/SKILL.md")).unwrap();
+    for needle in [
+        "docsys raw move",
+        "@namespace/id",
+        "R-027",
+        "(noise) stays too, with one dated line",
+        "- [ ] YYYY-MM-DD",
+        "unless the person you are working with is a declared maintainer",
+    ] {
+        assert!(ingest.contains(needle), "kb-ingest lacks `{needle}`");
+    }
+    assert!(
+        !ingest.contains("move the note from"),
+        "the hand move is no longer taught"
+    );
+    let _ = fs::remove_dir_all(&base);
+}

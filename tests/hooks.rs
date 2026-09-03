@@ -500,3 +500,196 @@ fn command_matcher_table() {
         assert_eq!(code, expected, "payload {payload:?}: {err}");
     }
 }
+
+#[test]
+fn a_staged_seed_plan_blocks_the_commit_and_names_the_way_out() {
+    // D-091: the plan is a draft; landing it is `docsys seed apply`, never a commit
+    let repo = build_repo("seedplan");
+    fs::write(
+        repo.join("SEED.tsv"),
+        "# head: abc1234\nresearch\tsync\t-\n",
+    )
+    .unwrap();
+    fs::write(
+        repo.join("docs/work/journal.md"),
+        "# Journal\n\n## 2026-08-16 - initialized\n- documentation tree created\n\n## 2026-09-03 - seeded\n- rows landed\n",
+    )
+    .unwrap();
+    git(&repo, &["add", "-A"]);
+    let (code, err) = run_hook(&repo, commit_payload(), &[]);
+    assert_eq!(code, 2, "{err}");
+    assert!(err.contains("SEED.tsv"), "{err}");
+    assert!(err.contains("docsys seed apply"), "{err}");
+    // unstaged, the same docs change commits
+    git(&repo, &["reset", "-q", "--", "SEED.tsv"]);
+    let (code, err) = run_hook(&repo, commit_payload(), &[]);
+    assert_eq!(code, 0, "{err}");
+}
+
+// ── commit_policy: require (D-093, R-209) ───────────────────────────────────
+
+fn require(repo: &Path) {
+    let dm = repo.join("docs/.docmeta.yml");
+    let mut text = fs::read_to_string(&dm).unwrap();
+    if text.contains("commit_policy:") {
+        text = text.replace("commit_policy: ask", "commit_policy: require");
+    } else {
+        text.push_str("commit_policy: require\n");
+    }
+    fs::write(&dm, text).unwrap();
+}
+
+fn run_stop_with(repo: &Path, payload: &str) -> (i32, String) {
+    let bin = PathBuf::from(env!("CARGO_BIN_EXE_docsys"));
+    let path = format!(
+        "{}:{}",
+        bin.parent().unwrap().display(),
+        std::env::var("PATH").unwrap_or_default()
+    );
+    let mut child = Command::new("bash")
+        .arg(repo.join(".claude/hooks/stop-docs-reminder.sh"))
+        .current_dir(repo)
+        .env("PATH", path)
+        .stdin(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .unwrap();
+    use std::io::Write as _;
+    child
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(payload.as_bytes())
+        .unwrap();
+    let out = child.wait_with_output().unwrap();
+    (
+        out.status.code().unwrap_or(-1),
+        String::from_utf8_lossy(&out.stderr).into_owned(),
+    )
+}
+
+#[test]
+fn under_require_the_gate_refuses_every_time_and_a_bypass_leaves_debt() {
+    let repo = build_repo("require");
+    require(&repo);
+    git(&repo, &["add", "-A"]);
+    git(&repo, &["commit", "-q", "-m", "policy"]);
+    fs::write(repo.join("main.rs"), "fn main() {}\n").unwrap();
+    git(&repo, &["add", "main.rs"]);
+    let (code, err) = run_hook(&repo, commit_payload(), &[]);
+    assert_eq!(code, 2, "{err}");
+    assert!(err.contains("commit_policy: require"), "{err}");
+    assert!(
+        err.contains("feature | bug | improvement | research"),
+        "{err}"
+    );
+    // the same commit again: still refused — a refusal, not a question
+    let (code, err) = run_hook(&repo, commit_payload(), &[]);
+    assert_eq!(code, 2, "{err}");
+    // a journal entry answers it
+    fs::write(
+        repo.join("docs/work/journal.md"),
+        "# Journal\n\n## 2026-08-16 - initialized\n- documentation tree created\n\n\
+         ## 2026-09-03 - main added\n- feature: the entry point ([[work/journal]])\n",
+    )
+    .unwrap();
+    git(&repo, &["add", "-A"]);
+    let (code, err) = run_hook(&repo, commit_payload(), &[]);
+    assert_eq!(code, 0, "{err}");
+    git(&repo, &["commit", "-q", "-m", "main with its journal line"]);
+    // a bypass under require leaves a debt item
+    fs::write(repo.join("lib.rs"), "pub fn f() {}\n").unwrap();
+    git(&repo, &["add", "lib.rs"]);
+    let (code, _) = run_hook(&repo, commit_payload(), &[("DOCSYS_SKIP", "1")]);
+    assert_eq!(code, 0);
+    let debt = fs::read_to_string(repo.join("docs/work/debt.md")).unwrap();
+    assert!(
+        debt.contains("committed without documentation (DOCSYS_SKIP): lib.rs"),
+        "{debt}"
+    );
+    assert!(
+        debt.contains("-- deferred:") && debt.contains("-- repay when:"),
+        "{debt}"
+    );
+}
+
+#[test]
+fn under_require_the_end_of_a_turn_holds_once_until_the_work_is_recorded() {
+    let repo = build_repo("hold");
+    require(&repo);
+    git(&repo, &["add", "-A"]);
+    git(&repo, &["commit", "-q", "-m", "policy"]);
+    fs::write(repo.join("main.rs"), "fn main() {}\n").unwrap();
+    // code changed, nothing recorded: the turn is held
+    let (code, err) = run_stop_with(&repo, r#"{"session_id":"s1","stop_hook_active":false}"#);
+    assert_eq!(code, 2, "{err}");
+    assert!(err.contains("before this session ends"), "{err}");
+    // the retry (Claude Code sets stop_hook_active) is not held again
+    let (code, err) = run_stop_with(&repo, r#"{"session_id":"s1","stop_hook_active":true}"#);
+    assert_eq!(code, 0, "{err}");
+    assert!(err.contains("changed code but no documentation"), "{err}");
+    // the work recorded: no hold
+    fs::write(
+        repo.join("docs/work/journal.md"),
+        "# Journal\n\n## 2026-08-16 - initialized\n- documentation tree created\n\n\
+         ## 2026-09-03 - main added\n- improvement: the entry point\n",
+    )
+    .unwrap();
+    let (code, err) = run_stop_with(&repo, r#"{"session_id":"s1","stop_hook_active":false}"#);
+    assert_eq!(code, 0, "{err}");
+    // under the default policy the same state only reminds
+    let dm = repo.join("docs/.docmeta.yml");
+    fs::write(
+        &dm,
+        fs::read_to_string(&dm)
+            .unwrap()
+            .replace("commit_policy: require", "commit_policy: ask"),
+    )
+    .unwrap();
+    git(&repo, &["add", "-A"]);
+    git(
+        &repo,
+        &["commit", "-q", "-m", "recorded; policy back to ask"],
+    );
+    fs::write(repo.join("lib.rs"), "pub fn f() {}\n").unwrap();
+    let (code, err) = run_stop_with(&repo, r#"{"session_id":"s1","stop_hook_active":false}"#);
+    assert_eq!(code, 0, "{err}");
+    assert!(err.contains("changed code but no documentation"), "{err}");
+}
+
+#[test]
+fn the_first_turn_names_what_the_tree_holds() {
+    let repo = build_repo("digest");
+    fs::create_dir_all(repo.join("docs/work/features")).unwrap();
+    fs::write(
+        repo.join("docs/work/features/dark-mode.md"),
+        "---\nid: dark-mode\nstatus: active\nupdated: 2026-09-03\n---\n## Context\n\nA toggle.\n",
+    )
+    .unwrap();
+    let out = Command::new(env!("CARGO_BIN_EXE_docsys"))
+        .args(["hook", "user-prompt-submit", "--root", "docs"])
+        .current_dir(&repo)
+        .env("TMPDIR", repo.join(".markers"))
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .spawn()
+        .and_then(|mut c| {
+            use std::io::Write as _;
+            c.stdin
+                .take()
+                .unwrap()
+                .write_all(br#"{"session_id":"digest-1","prompt":"add a toggle"}"#)?;
+            c.wait_with_output()
+        })
+        .unwrap();
+    let text = String::from_utf8_lossy(&out.stdout);
+    assert!(text.contains("<docs-in-hand>"), "{text}");
+    assert!(
+        text.contains("Work in flight: work/features/dark-mode.md (active)"),
+        "{text}"
+    );
+    assert!(
+        text.contains("improvement (refactor, performance, cleanup)"),
+        "{text}"
+    );
+}

@@ -205,7 +205,7 @@ shared across profiles.
 | Flowing layer | `work/` | `raw/` |
 | Permanent layer | `reference/` `howto/` `explanation/` `tutorial/` | `wiki/<domain>/<type>/` |
 | Grouping axis | none | domain |
-| Extra field | — | `verification` |
+| Extra field | `verification` (optional, §3.2) | `verification` (required) |
 
 **R-021** WITHDRAWN — a special case of R-022: absent a reference there is no
 dependency, so no tree can require the existence of a tree of another profile.
@@ -224,7 +224,7 @@ violation.
 
 **R-027** `cmd` · MUST — Relocating a file under `raw/` MUST rewrite every
 `sources:` entry that pointed at the old path. A relocation that severs the
-evidence trail of a `wiki/` page is a silent failure of the kind R-151 forbids.
+evidence trail of a `wiki/` page is a silent failure of the kind R-151 forbids. The command is `docsys raw move <record> <domain>`: the record moves under `raw/<domain>/` (through git when tracked, bytes untouched), the `sources:` entries of every citing page are rewritten in the frontmatter, and the body is not touched — a verification survives the move (§2.4, D-085).
 
 **R-024** `lint` · MUST — A `wiki/` page carries `verification: unverified` or
 `verification: verified`, and `sources:` listing the `raw/` paths it rests on. A
@@ -241,7 +241,12 @@ moved and the page has not been re-read — and a materialization with no
 committed provenance at `verified_rev` **is an error** under R-028 (D-082).
 
 **R-025** `agent` · MUST — Only an independent session may set `verified`. The
-session that produced a page never verifies it.
+session that produced a page never verifies it on its own judgment. This holds
+in both profiles (§3.2). The exception is the authority itself: when the person
+in the session is a declared maintainer (the working copy's git identity is
+theirs, R-208) and says the page is right, that word is the verification and
+the session records it (`docsys verify <page>`) — a second session would only
+repeat what the maintainer just did (D-096).
 
 **R-028** `lint` · MUST — Setting `verified` MUST record, in the page's
 frontmatter, who verified it and which source revision was verified. Without
@@ -250,7 +255,11 @@ this record no reviewer can establish whether verification was independent
 
 **R-026** `lint` · MUST — `domain` values are declared in `.docmeta.yml`. A page
 whose domain is not declared **is reported**; content that fits no declared
-domain stays in `raw/inbox/` rather than being forced into the nearest one.
+domain stays in `raw/inbox/` rather than being forced into the nearest one. What
+the base cannot settle by itself — a domain proposal, a discrepancy an audit
+found, a note left in the inbox with its reason — is one dated line in
+`wiki/open-questions.md`, a list file under R-108's grammar (`- [ ] YYYY-MM-DD …`)
+and, like every file under `wiki/`, in the base's declared language (D-090).
 
 **R-029** `lint` · MUST — In `wiki/<domain>/<type>/`, the directory's type
 segment MUST match the page's declared `type`. Readers navigate this profile by
@@ -268,6 +277,47 @@ on any other page that declares sources (a seeded work file) it **is
 reported**: evidence that moved must be seen, not block the tree.
 
 ---
+
+### 3.2 Verification and maintainers in the project profile
+
+Documentation forms while the work happens — by whoever does the work, an
+agent included — and the people who did the work are not always the people
+who know. The profile separates the two acts: anyone writes; a declared few
+vouch. Nothing here changes a tree that declares no maintainers.
+
+**R-208** `lint` · MUST — When `.docmeta.yml` declares `maintainers:` (a list of
+`handle` or `handle <email>` entries), the person a record names MUST be one
+of them: the first word of `confirmed:` on a work file (R-081) and of
+`verified_by:` on a `verified` page (R-028). A record naming anyone else **is an
+error**. Where version-control history is available and the entry carries an
+email, the commit that introduced the record MUST be authored by that email —
+otherwise **an error**: the vouching is the maintainer's own act, not a line
+somebody typed on their behalf. An empty or absent list means anyone, as
+before.
+
+A permanent page in the `project` profile MAY carry `verification:`
+(`unverified` | `verified`) and `sources:`; when it does, R-024, R-025, R-028
+and R-059 apply to it exactly as to a wiki page (§3.1): a `verified` page whose
+body no longer hashes to what it held at `verified_rev` is an error until it is
+`unverified` again, and its sources must resolve. A page written from evidence
+by the session that did the work — the seeding overview (D-092), a reference
+updated beside a contract change — is `unverified` until a maintainer verifies
+it in another session. Readers, people and agents alike, see the state:
+`lookup` marks it, `status` counts it, and `export` may refuse or mark it
+(R-151). `docsys page new <type> <id> --unverified` writes the frontmatter;
+`docsys verify <page>` writes the record for a maintainer in one step — the
+handle from the git identity matched against `maintainers:`, the revision
+from `HEAD` once the page carries no uncommitted change, refused while a
+source does not resolve — and `--revoke` takes a page back to `unverified`
+after its body moved (D-094). A code review's approval is a maintainer's word
+(D-095), and the word is read from git, not from a host: a `Reviewed-by:` or
+`Approved-by:` trailer on the change's commits whose e-mail is a declared
+maintainer's — `docsys verify --range <base>...<head> --from-trailers --commit`
+records every page the change touched under that approver's identity; where a
+host holds the approval instead, an adapter passes the approver's login
+(`--by @login`, the login on the maintainer entry: `handle <email> @login`).
+The person approved, the tooling is the scribe; an approver outside the list
+records nothing.
 
 ## 4. Layout
 
@@ -875,7 +925,8 @@ an agent's guess, the same reason R-028 exists for verification.
 no further **content change** (§2.4). Where version-control history is available,
 a transition out of `graduated` or a content change in a graduated file **is
 reported** — otherwise knowledge added there stays permanently outside agent
-context.
+context. The check reads the working tree against `HEAD` at the gate (D-089):
+status, body (§2.4) and existence of every file `HEAD` holds as graduated.
 
 **R-083** `cmd` · MUST — A command MUST refuse a transition to `abandoned`
 without a reason. R-055 checks the resulting file; this rule prevents the
@@ -1391,6 +1442,23 @@ honored.
 this specification, not maintained as a hand-written copy. This is transformation
 of existing normative text, not authorship (R-005).
 
+**R-209** `cmd` · MUST — `.docmeta.yml` MAY declare `commit_policy: ask` (the
+default) or `commit_policy: require`. Under `ask` the commit gate asks the
+code-without-docs question once per change set (D-040) and the end of a turn
+reminds. Under `require`, a commit whose change set touches code and no
+documentation **is refused** by the gate — the agent relay and the git hook
+alike, every time — until the work is recorded: a work file under
+`work/<category>/` or, at minimum, a journal entry linking the files and
+saying why; and the end of a turn in which code changed without its record
+**holds the session** once, so the knowledge is captured while the session
+that has it still exists — the commit may come later, from another session or
+from a person at a terminal. `DOCSYS_SKIP=1` still bypasses once; under
+`require` the bypass leaves a dated debt item in `work/debt.md` (derived, not
+authored — R-156), so an undocumented commit is visible, never silent
+(R-151's second criterion: silently wrong). The first turn of a session names
+the tree's own state — permanent pages, work in flight, the policy — before the
+work type is chosen.
+
 ### 14.1 Repair
 
 Detection is defined above; repair has its own constraints. The characteristic
@@ -1475,8 +1543,9 @@ style preference.
 This is the normative content R-163 renders — one procedure per `agent`-tagged
 rule, indented so none parses as a rule declaration. Procedures name the
 `project` profile's surfaces; in the `knowledge-base` profile, read
-`questions.md` and "the journal" as a note in `raw/inbox/` — the profile's
-capture surface — and read the type directories as `wiki/<domain>/<type>/`.
+`questions.md` as `wiki/open-questions.md`, "the journal" as a note in
+`raw/inbox/` — the profile's capture surface — and the type directories as
+`wiki/<domain>/<type>/`.
 
     P/R-031 — choose the type of a permanent page
     EVIDENCE : the content being placed; the four-question table (§4.1)
@@ -1672,6 +1741,8 @@ content_url: "…"                 # required when publishing (R-145)
 work_categories: []              # additional tracked-work categories (R-042)
 epics: []                        # declared epic labels (R-058)
 domains: []                      # knowledge-base profile only (R-026)
+maintainers: []                  # who may confirm work and verify pages (R-208); empty = anyone
+commit_policy: ask               # ask (asks once) | require (no commit without its documentation, R-209)
 
 scan_exclude: []                 # added to version-control ignores (R-077)
 generated_preamble: []           # verbatim line(s) every generated file opens with (D-056)

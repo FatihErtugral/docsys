@@ -40,6 +40,78 @@ impl Json {
             _ => None,
         }
     }
+
+    /// The value as JSON text — two-space indent, one field per line, a
+    /// trailing newline: the shape a person reads back in a settings file.
+    /// Key order is the value's own (D-086: a merged file keeps its order).
+    pub fn render(&self) -> String {
+        let mut out = String::new();
+        self.write(&mut out, 0);
+        out.push('\n');
+        out
+    }
+
+    fn write(&self, out: &mut String, depth: usize) {
+        let indent = |out: &mut String, d: usize| out.push_str(&"  ".repeat(d));
+        match self {
+            Json::Null => out.push_str("null"),
+            Json::Bool(b) => out.push_str(if *b { "true" } else { "false" }),
+            Json::Num(n) => out.push_str(n),
+            Json::Str(s) => push_json_string(out, s),
+            Json::Arr(items) => {
+                if items.is_empty() {
+                    out.push_str("[]");
+                    return;
+                }
+                out.push_str("[\n");
+                for (i, item) in items.iter().enumerate() {
+                    indent(out, depth + 1);
+                    item.write(out, depth + 1);
+                    if i + 1 < items.len() {
+                        out.push(',');
+                    }
+                    out.push('\n');
+                }
+                indent(out, depth);
+                out.push(']');
+            }
+            Json::Obj(fields) => {
+                if fields.is_empty() {
+                    out.push_str("{}");
+                    return;
+                }
+                out.push_str("{\n");
+                for (i, (k, v)) in fields.iter().enumerate() {
+                    indent(out, depth + 1);
+                    push_json_string(out, k);
+                    out.push_str(": ");
+                    v.write(out, depth + 1);
+                    if i + 1 < fields.len() {
+                        out.push(',');
+                    }
+                    out.push('\n');
+                }
+                indent(out, depth);
+                out.push('}');
+            }
+        }
+    }
+}
+
+fn push_json_string(out: &mut String, s: &str) {
+    out.push('"');
+    for c in s.chars() {
+        match c {
+            '"' => out.push_str("\\\""),
+            '\\' => out.push_str("\\\\"),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            c if (c as u32) < 0x20 => out.push_str(&format!("\\u{:04x}", c as u32)),
+            c => out.push(c),
+        }
+    }
+    out.push('"');
 }
 
 /// Parse a JSON document. Malformed input is `None` — a hook must never
@@ -347,6 +419,61 @@ const DROPPED_ADD: &str = "docsys gate: the blocked call ran `git add`; this ret
 /// Does this docs root declare the knowledge-base profile? It changes what
 /// the hooks guard (the record layer) and what they say (organs, not work
 /// types).
+/// `.docmeta.yml` `commit_policy:` — `ask` (the default: the gate asks once,
+/// D-040) or `require` (D-093: nothing lands without its documentation; the
+/// Stop hook holds the session until the work is recorded).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CommitPolicy {
+    Ask,
+    Require,
+}
+
+pub fn commit_policy(root: &Path) -> CommitPolicy {
+    let require = fs::read_to_string(root.join(".docmeta.yml")).is_ok_and(|t| {
+        t.lines().any(|l| {
+            l.strip_prefix("commit_policy:")
+                .is_some_and(|v| v.trim().trim_matches('"') == "require")
+        })
+    });
+    if require {
+        CommitPolicy::Require
+    } else {
+        CommitPolicy::Ask
+    }
+}
+
+/// D-093: a commit that bypassed the `require` gate (`DOCSYS_SKIP=1`) is not
+/// silent — it becomes a dated debt item the next session sees. Mechanical:
+/// the item is derived (date, files), not authored (R-156).
+pub fn record_undocumented_commit(
+    root: &Path,
+    files: &[String],
+    today: &str,
+) -> Result<(), String> {
+    let path = root.join("work/debt.md");
+    let mut text = fs::read_to_string(&path).unwrap_or_else(|_| "# Debt\n".to_string());
+    if !text.ends_with('\n') {
+        text.push('\n');
+    }
+    let shown: Vec<&str> = files.iter().take(5).map(String::as_str).collect();
+    let more = files.len().saturating_sub(shown.len());
+    let tail = if more > 0 {
+        format!(" (+{more} more)")
+    } else {
+        String::new()
+    };
+    text.push_str(&format!(
+        "- [ ] {today} committed without documentation (DOCSYS_SKIP): {}{tail} -- deferred: the session bypassed the gate -- repay when: the next session in this tree names the work and records it\n",
+        shown.join(", ")
+    ));
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+    }
+    fs::write(&path, text).map_err(|e| e.to_string())
+}
+
+const REQUIRE: &str = "commit_policy: require — nothing lands without its documentation. Name the work (feature | bug | improvement | research), record it — a work file under work/<category>/ or, at minimum, a journal entry linking these files and saying why — stage it, and run the SAME commit again, `git add` included. DOCSYS_SKIP=1 bypasses once and leaves a debt item in work/debt.md.\nThis whole Bash call was blocked — a `git add` in it did not run either.\n";
+
 pub fn is_knowledge_base(root: &Path) -> bool {
     fs::read_to_string(root.join(".docmeta.yml")).is_ok_and(|t| {
         t.lines().any(|l| {
@@ -391,7 +518,8 @@ pub fn pre_tool_use(repo: &Path, root: &Path, payload: &str, skip: bool) -> Repl
                 return Reply::block(format!(
                     "docsys: raw/ is the record and content-immutable (R-023): `{rel}` already \
                      exists and is never edited or overwritten. New knowledge is a NEW file under \
-                     raw/inbox/; a processed note moves with `git mv`, bytes untouched.\n"
+                     raw/inbox/; a processed note moves with `docsys raw move <record> <domain>` — \
+                     bytes untouched, every citing page's sources: rewritten (R-027).\n"
                 ));
             }
         }
@@ -400,7 +528,19 @@ pub fn pre_tool_use(repo: &Path, root: &Path, payload: &str, skip: bool) -> Repl
     else {
         return Reply::ok();
     };
-    if !is_git_commit(&cmd) || skip {
+    if !is_git_commit(&cmd) {
+        return Reply::ok();
+    }
+    let policy = commit_policy(root);
+    if skip {
+        // D-093: under `require`, the bypass is recorded as debt, never silent
+        if policy == CommitPolicy::Require {
+            if let Ok((g, _)) = gate::run(repo, root) {
+                if !g.code.is_empty() && g.docs == 0 {
+                    let _ = record_undocumented_commit(root, &g.code, &crate::migrate::today());
+                }
+            }
+        }
         return Reply::ok();
     }
     let (g, report) = match gate::run(repo, root) {
@@ -422,8 +562,37 @@ pub fn pre_tool_use(repo: &Path, root: &Path, payload: &str, skip: bool) -> Repl
         err.push_str("docsys gate: lint errors block this commit — fix them first (DOCSYS_SKIP=1 to bypass once). This whole Bash call was blocked, any `git add` in it included.\n");
         return Reply::block(err);
     }
+    if !g.plan_files.is_empty() {
+        return Reply::block(format!(
+            "docsys gate: a seed plan is in this commit ({}) — a plan is a conversation's draft, \
+             never documentation (R-003, D-091). `git reset -- {}`, land its rows with \
+             `docsys seed apply --plan {} --repo . --root <docs>`, and commit the docs root only. \
+             This whole Bash call was blocked, any `git add` in it included.\n",
+            g.plan_files.join(", "),
+            g.plan_files.join(" "),
+            g.plan_files
+                .first()
+                .map(String::as_str)
+                .unwrap_or("SEED.tsv")
+        ));
+    }
     if g.code.is_empty() || g.docs > 0 {
         return Reply::ok();
+    }
+    if policy == CommitPolicy::Require {
+        // D-093: not a question — a refusal, every time, until the work is recorded
+        let head_lines: Vec<&str> = g.code.iter().take(5).map(String::as_str).collect();
+        let more = g.code.len().saturating_sub(head_lines.len());
+        let tail = if more > 0 {
+            format!(" (+{more} more)")
+        } else {
+            String::new()
+        };
+        return Reply::block(format!(
+            "GATE {} changes with no docs change: {}{tail}\n{REQUIRE}",
+            g.scope,
+            head_lines.join(", ")
+        ));
     }
     // the question — asked once per (HEAD, change set)
     let head =
@@ -495,10 +664,37 @@ fn cksum(s: &str) -> u64 {
 
 /// Stop: end-of-turn reminder over the working tree AND the commits not yet
 /// pushed (D-041). Warns on stderr, never blocks (R-150).
-pub fn stop(repo: &Path, root: &Path) -> Reply {
+pub fn stop(repo: &Path, root: &Path, payload: &str) -> Reply {
     if is_knowledge_base(root) {
         return stop_kb(repo, root);
     }
+    // D-093: under `require` the end of a turn is where the session's knowledge
+    // is captured — the commit may come later, from another session or a
+    // person at a terminal, when this conversation is gone. The hook holds
+    // the session once (Claude Code sets `stop_hook_active` on the retry).
+    let require = commit_policy(root) == CommitPolicy::Require;
+    let already_held = parse_json(payload)
+        .and_then(|j| match j {
+            Json::Obj(fields) => fields
+                .iter()
+                .find(|(k, _)| k == "stop_hook_active")
+                .map(|(_, v)| *v == Json::Bool(true)),
+            _ => None,
+        })
+        .unwrap_or(false);
+    let hold = |text: String| -> Reply {
+        if require && !already_held {
+            Reply::block(format!(
+                "{text}commit_policy: require — before this session ends, name the work (feature | bug | improvement | research) and record it: a work file under work/<category>/ or a journal entry linking the files and saying why. Then stop.\n"
+            ))
+        } else {
+            Reply {
+                code: 0,
+                stderr: text,
+                stdout: String::new(),
+            }
+        }
+    };
     let mut paths = porcelain_paths(&git_lines(repo, &["status", "--porcelain"]));
     let ahead = git_lines(repo, &["diff", "--name-only", "@{u}..HEAD"]);
     paths.extend(ahead.iter().cloned());
@@ -528,21 +724,13 @@ pub fn stop(repo: &Path, root: &Path) -> Reply {
         if paths.iter().any(|p| p == &journal) {
             return Reply::ok();
         }
-        return Reply {
-            code: 0,
-            stderr: format!(
-                "docs: {where_} changed code and documentation, but work/journal.md did\nnot move — end of session: one journal entry (≤5 lines, links not content).\n"
-            ),
-            stdout: String::new(),
-        };
+        return hold(format!(
+            "docs: {where_} changed code and documentation, but work/journal.md did\nnot move — end of session: one journal entry (≤5 lines, links not content).\n"
+        ));
     }
-    Reply {
-        code: 0,
-        stderr: format!(
-            "docs: {where_} changed code but no documentation — if a contract\nmoved, the page moves in the SAME session; at minimum add the journal line.\n"
-        ),
-        stdout: String::new(),
-    }
+    hold(format!(
+        "docs: {where_} changed code but no documentation — if a contract\nmoved, the page moves in the SAME session; at minimum add the journal line.\n"
+    ))
 }
 
 /// Is this edited file a live docs page (under the root, `.md`, not a record
@@ -675,15 +863,18 @@ capture → ONE new file in raw/inbox/, the note in the user's own words plus
 one line on why it is worth keeping; never classify, never touch wiki/.
 ingest → one wiki page per note (id, type, domain, verification: unverified,
 sources), routed from the domain index; the note moves to raw/<domain>/ with
-`git mv`, bytes untouched. audit → only in a session that did not write the
+`docsys raw move <record> <domain>` (bytes untouched, citing pages' sources
+rewritten by the tool). audit → only in a session that did not write the
 page; `verified` records verified_by and verified_rev. lookup → `docsys
 lookup <words>` first, then the page; \"not in the base\" is a complete answer.
 
 raw/ is content-immutable: an existing record is never edited or deleted, and
 the hook blocks the attempt. A wiki page whose body changes is unverified
 again. Gate: docsys lint (inside the repository).
-Speak the person's language, turn by turn — the one they just wrote in; pages
-keep the base's declared language; code identifiers are never translated.
+Speak the person's language, turn by turn — the one they just wrote in; every
+file under wiki/ (pages, indexes, open-questions.md) keeps the base's declared
+language, whatever the session's own language setting says; code identifiers
+are never translated.
 Character and boundaries: AGENTS.md → ## Character.
 </session-doc-routing>
 ";
@@ -711,18 +902,25 @@ what the person actually asked. Until they answer, use the defaults.
 
 pub const ROUTING: &str = "<session-doc-routing>
 First turn. Name the work type before anything else — one of feature, bug,
-refactor, research, idea-note. If the message makes it clear, state it in one
-line and proceed; when it is genuinely ambiguous, ask THAT question first.
+improvement (refactor, performance, cleanup), research, idea-note. If the
+message makes it clear, state it in one line and proceed; when it is genuinely
+ambiguous, ask THAT question first. Read <docs-in-hand> below: this tree already
+holds documentation, and the work you are about to do may already have a page
+or a work file.
 
 Routing: feature needing a design decision → work/features/ (status: draft);
 bug → root cause first: wrong line = journal line, wrong assumption = invariant
-in reference/ or a postmortem (test: can it recur?); refactor touching a public
-surface → reference/ updated, and always record WHY; research = a question
+in reference/ or a postmortem (test: can it recur?); improvement touching a
+public surface → reference/ updated, and always record WHY; research = a question
 with no decision yet → work/research/ (Question · Tried · Learned · Why no
 decision), no code; idea → journal or roadmap line, never the permanent layer
 before it becomes a decision.
 
 Contract-surface changes update their documentation in the SAME session.
+A permanent page you write from evidence, or change in substance, carries
+`verification: unverified` (+ sources); a maintainer verifies it in another
+session — `verified_by:` and `confirmed:` name someone in .docmeta.yml
+`maintainers:` (R-208). Nothing you write is the truth yet; say so in the page.
 Inside docs a page is linked as [[dir/id]] (full path); `doc: <id>` is how
 code cites a page. An id is unique across the whole tree, drafts included.
 End of session: journal line (≤5 lines, links not content). Gate: docsys lint.
@@ -755,13 +953,83 @@ pub fn user_prompt_submit(payload: &str, root: &Path) -> Reply {
             KB_ROUTING.to_string()
         }
     } else {
-        ROUTING.to_string()
+        format!("{ROUTING}{}", tree_digest(root))
     };
     Reply {
         code: 0,
         stderr: String::new(),
         stdout: text,
     }
+}
+
+/// What this tree already holds, for the first turn (D-093): the work in
+/// flight, the open items, the commit policy — so the agent starts from the
+/// documentation it has, not from a blank page.
+fn tree_digest(root: &Path) -> String {
+    let Ok(tree) = crate::tree::DocTree::load(root) else {
+        return String::new();
+    };
+    use crate::fm::Value;
+    use crate::tree::Kind;
+    let mut flight: Vec<String> = tree
+        .pages
+        .iter()
+        .filter(|p| p.kind == Kind::Tracked)
+        .filter_map(|p| {
+            let st =
+                p.fm.as_ref()?
+                    .fields
+                    .get("status")
+                    .and_then(Value::as_str)?;
+            matches!(st, "draft" | "active" | "done").then(|| format!("{} ({st})", p.rel))
+        })
+        .collect();
+    flight.sort();
+    let shown: Vec<String> = flight.iter().take(8).cloned().collect();
+    let more = flight.len().saturating_sub(shown.len());
+    let permanent = tree
+        .pages
+        .iter()
+        .filter(|p| p.kind == Kind::Permanent)
+        .count();
+    let unverified = tree
+        .pages
+        .iter()
+        .filter(|p| p.kind == Kind::Permanent)
+        .filter(|p| {
+            p.fm.as_ref()
+                .and_then(|f| f.fields.get("verification"))
+                .and_then(Value::as_str)
+                == Some("unverified")
+        })
+        .count();
+    let mut out = String::from("<docs-in-hand>\n");
+    out.push_str(&format!(
+        "{permanent} permanent page(s){}; index.md routes them; `docsys lookup <words>` before writing a page.\n",
+        if unverified > 0 {
+            format!(", {unverified} unverified")
+        } else {
+            String::new()
+        }
+    ));
+    if shown.is_empty() {
+        out.push_str("Work in flight: none.\n");
+    } else {
+        out.push_str(&format!(
+            "Work in flight: {}{}\n",
+            shown.join(", "),
+            if more > 0 {
+                format!(" (+{more} more)")
+            } else {
+                String::new()
+            }
+        ));
+    }
+    if commit_policy(root) == CommitPolicy::Require {
+        out.push_str("commit_policy: require — no commit lands without its documentation, and the end of a turn holds until the work is recorded (feature | bug | improvement | research → work file or journal entry).\n");
+    }
+    out.push_str("</docs-in-hand>\n");
+    out
 }
 
 #[cfg(test)]
@@ -920,5 +1188,22 @@ mod tests {
             bump_updated("updated: x", "2026-08-26").as_deref(),
             Some("updated: 2026-08-26")
         );
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+mod render_tests {
+    use super::*;
+
+    #[test]
+    fn what_render_writes_the_reader_reads_back_unchanged() {
+        let text = r#"{"a":[1,true,null,"q\"\\\n\u0001é"],"b":{},"c":[],"d":{"e":-2.5e3}}"#;
+        let v = parse_json(text).unwrap();
+        let out = v.render();
+        assert_eq!(parse_json(&out).unwrap(), v, "{out}");
+        assert!(out.starts_with("{\n  \"a\": [\n    1,\n"), "{out}");
+        assert!(out.contains("  \"b\": {},\n  \"c\": [],\n"), "{out}");
+        assert!(out.ends_with("}\n"), "{out}");
     }
 }

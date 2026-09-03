@@ -1,0 +1,14 @@
+source	block	disposition
+work/features/cart-key.md	## Context	keep
+work/features/cart-key.md	## Decision	move:explanation/cart-key-decision
+work/features/cart-key.md	## Contract surface	move:reference/cart-key-contract
+work/features/cart-key.md	## Rejected alternatives	move:explanation/cart-key-decision
+work/features/cart-key.md	## Notes	link:reference/keys
+work/postmortems/cache-stampede.md	## What happened	keep
+work/postmortems/cache-stampede.md	## Root cause	move:explanation/cache-stampede-cause
+work/postmortems/cache-stampede.md	## Recurrence	move:reference/cache-stampede-invariant
+work/postmortems/cache-stampede.md	## Lesson	move:howto/cache-stampede-runbook
+work/research/retry-budget.md	## Question	keep
+work/research/retry-budget.md	## Tried	move:explanation/retry-budget-findings
+work/research/retry-budget.md	## Learned	move:explanation/retry-budget-findings
+work/research/retry-budget.md	## Why no decision	move:explanation/retry-budget-findings

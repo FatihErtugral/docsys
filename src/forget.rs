@@ -31,7 +31,8 @@ pub struct Forgotten {
 }
 
 /// Move a path inside the repository, through git when it is tracked.
-fn relocate(repo: &Path, root: &Path, from: &str, to: &str) -> Result<(), String> {
+/// Shared with `raw move` (D-085): one relocation, one set of rules.
+pub(crate) fn relocate(repo: &Path, root: &Path, from: &str, to: &str) -> Result<(), String> {
     let src = root.join(from);
     let dst = root.join(to);
     if let Some(parent) = dst.parent() {

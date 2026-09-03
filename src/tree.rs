@@ -75,6 +75,8 @@ fn classify_kb(rel: &str) -> Kind {
         ["README.md"] => Kind::Readme,
         ["raw", ..] => Kind::Raw,
         ["wiki", "index.md"] | ["wiki", _, "index.md"] => Kind::Router,
+        // the base's questions ledger: R-108 grammar, like work/questions.md (D-090)
+        ["wiki", "open-questions.md"] => Kind::ListFile,
         ["wiki", _, ty, ..] if PERMANENT_DIRS.contains(ty) => Kind::Permanent,
         _ => Kind::Other,
     }

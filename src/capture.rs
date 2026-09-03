@@ -130,7 +130,13 @@ pub fn journal_add(
 /// frontmatter and the R-032 opening left for the author. Refuses to
 /// overwrite; never routes — the router line is a sentence only the author
 /// can write, and lint names the page until it is written.
-pub fn page_new(root: &Path, kind: &str, id: &str, title: Option<&str>) -> Result<String, String> {
+pub fn page_new(
+    root: &Path,
+    kind: &str,
+    id: &str,
+    title: Option<&str>,
+    unverified: bool,
+) -> Result<String, String> {
     if !crate::model::is_local_id(id) {
         return Err(format!(
             "`{id}` is not a local-id (lowercase, digits, single hyphens)"
@@ -168,10 +174,17 @@ pub fn page_new(root: &Path, kind: &str, id: &str, title: Option<&str>) -> Resul
         };
         (rel, body)
     } else if VALID_TYPES.contains(&kind) {
+        // --unverified (D-092): a page written from evidence that nobody has
+        // vouched for yet — the record fields a maintainer will fill (R-028)
+        let verification = if unverified {
+            "verification: unverified\nsources: []\n"
+        } else {
+            ""
+        };
         (
             format!("{kind}/{id}.md"),
             format!(
-                "---\nid: {id}\ntype: {kind}\nupdated: {today}\n---\n# {title}\n\n<!-- opening: one or two sentences that establish this page's own context — what it describes, when to read it (R-032). Then route it from index.md. -->\n"
+                "---\nid: {id}\ntype: {kind}\n{verification}updated: {today}\n---\n# {title}\n\n<!-- opening: one or two sentences that establish this page's own context — what it describes, when to read it (R-032). Then route it from index.md. -->\n"
             ),
         )
     } else {
@@ -271,7 +284,7 @@ mod tests {
     #[test]
     fn page_new_opens_from_the_template_or_with_a_permanent_skeleton() {
         let root = tree("page");
-        let out = page_new(&root, "feature", "dark-mode", None).unwrap();
+        let out = page_new(&root, "feature", "dark-mode", None, false).unwrap();
         assert_eq!(out, "created: work/features/dark-mode.md");
         let f = fs::read_to_string(root.join("work/features/dark-mode.md")).unwrap();
         assert!(
@@ -286,20 +299,20 @@ mod tests {
             "{f}"
         );
         assert!(!f.contains("copy to work/"), "{f}");
-        let out = page_new(&root, "reference", "token-ttl", Some("Token TTL")).unwrap();
+        let out = page_new(&root, "reference", "token-ttl", Some("Token TTL"), false).unwrap();
         assert_eq!(out, "created: reference/token-ttl.md");
         let p = fs::read_to_string(root.join("reference/token-ttl.md")).unwrap();
         assert!(
             p.contains("type: reference") && p.contains("# Token TTL") && p.contains("R-032"),
             "{p}"
         );
-        assert!(page_new(&root, "reference", "token-ttl", None)
+        assert!(page_new(&root, "reference", "token-ttl", None, false)
             .unwrap_err()
             .contains("already exists"));
-        assert!(page_new(&root, "novel", "x", None)
+        assert!(page_new(&root, "novel", "x", None, false)
             .unwrap_err()
             .contains("not a category"));
-        assert!(page_new(&root, "feature", "Bad Id", None)
+        assert!(page_new(&root, "feature", "Bad Id", None, false)
             .unwrap_err()
             .contains("local-id"));
         let _ = fs::remove_dir_all(&root);

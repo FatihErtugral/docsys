@@ -147,6 +147,20 @@ so a retry that dropped its `git add` is caught, not waved through). The other
 hooks warn and never block: a wall gets hooks disabled, a question does not
 (R-150, R-151, D-040, D-043, D-049).
 
+**Strict mode.** A team that wants the wall declares it: `commit_policy:
+require` in `.docmeta.yml` (R-209, D-093). Then a commit that touches code with
+no documentation change is refused every time — by the relay in the session
+and by the git hook at the terminal — until the work is recorded (a work file
+under `work/<category>/`, or at minimum a journal entry that links the files
+and says why); and the end of a turn holds the session once when code changed
+without its record, because the conversation that holds the reasons may be
+closed by the time the commit lands. `DOCSYS_SKIP=1` still bypasses, but under
+`require` it leaves a dated debt item — an undocumented commit is visible debt,
+never a silent hole. The first turn carries `<docs-in-hand>`: the pages the
+tree already has, the unverified ones, the work in flight, the policy — so the
+agent routes the work (feature, bug, improvement, research) against what
+exists.
+
 The same four relays serve a knowledge base (`docsys agents --kb`); the binary
 reads the root's profile and changes what they guard: a `Write`/`Edit` on an
 existing `raw/` record is blocked (the one irreversible write), the first turn
@@ -168,6 +182,52 @@ flowchart LR
 "Content is never rewritten, only moved" stopped being a rule the model must
 obey and became a guarantee the command enforces (R-090): the model selects
 the mapping, the tool copies the bytes.
+
+## Who vouches — anyone writes, a maintainer verifies
+
+Documentation forms while the work happens, by whoever does it — the agent
+included — and not everyone who writes knows. The project profile keeps the
+two acts apart (§3.2, D-092):
+
+- A permanent page written from evidence, or changed in substance, carries
+  `verification: unverified` and `sources:` (`docsys page new <type> <id>
+  --unverified`). It is readable on day one and says what it is.
+- Only an independent session sets `verified`, recording `verified_by:` and
+  `verified_rev:` (R-025, R-028); a `verified` page whose body then changes is
+  an error until it is `unverified` again (R-024, D-077).
+- `.docmeta.yml` may declare `maintainers:` — `handle` or `handle <email>`.
+  Then `confirmed:` on a work file and `verified_by:` on a page must name one
+  of them, and where history exists the commit that recorded it must be that
+  maintainer's own (R-208). This is the code review's authority extended to
+  the page, not a new role: the people who may approve a change are the people
+  who may say a page is true. An empty list changes nothing.
+- `status` counts the unverified pages; `lookup` marks them; a reader — a
+  person or an agent — sees the state and reads accordingly.
+- The maintainer in the session needs no second session (D-096): when the
+  person driving it is a declared maintainer and says the page is right, the
+  agent records that word with `docsys verify <page>`; anyone else's page
+  waits for a maintainer.
+- Verifying is one command: `docsys verify <page>` (`--commit` to land it as
+  yourself, `--revoke` after the body moved). It takes your handle from your
+  git identity, the revision from `HEAD`, and refuses while the page is
+  uncommitted or a source does not resolve.
+- **A code review's approval is the word** (D-095), and docsys reads it from
+  git, not from a host: a `Reviewed-by:` / `Approved-by:` trailer on the
+  change whose e-mail is a declared maintainer's. In any CI, on any forge, or
+  by hand before a merge:
+  `docsys verify --range base...head --from-trailers --commit` verifies every
+  page the change touched, in a commit under the approver's identity. On a
+  host that keeps approvals in its own review table, an adapter passes the
+  login instead (`--by @login`, the login on the maintainer entry — `ayse
+  <ayse@example.com> @ayse-gh`); the GitHub workflow `adopt` writes when
+  `.github/` exists does exactly that once per declared approver when a pull
+  request merges. Approvers who are not maintainers are skipped by name.
+  Nothing else changes for the reviewer: they approve the change, as before.
+
+```yaml
+# .docmeta.yml
+maintainers: [ayse <ayse@example.com> @ayse-gh, mehmet]
+```
 
 ## Freshness — drift is a hash, not a reviewer
 
@@ -332,9 +392,9 @@ flowchart LR
 
 | Command | What it does |
 |---|---|
-| `docsys adopt [--repo .] [--root docs] [--lang <code>] [--obsidian]` | One-command integration: docmeta (or the full init skeleton on a fresh project) with the tree's `namespace:`, agent assets, `settings.json` when absent, AGENTS.md managed block, the git pre-commit gate (hard when the tree lints clean, warn-mode while it carries debt, hardened by a later run), `.github/workflows/docsys.yml` when `.github/` exists, and an `ADOPTION.md` report whose checklist carries every judgment call. Idempotent. |
+| `docsys adopt [--repo .] [--root docs] [--lang <code>] [--obsidian]` | One-command integration: docmeta (or the full init skeleton on a fresh project) with the tree's `namespace:`, agent assets, `settings.json` (written when absent, merged into when present — D-086), AGENTS.md managed block, the git pre-commit gate (hard when lint and `refs` are both clean, warn-mode while the tree or the code carries debt, hardened by a later run — D-088), `.github/workflows/docsys.yml` when `.github/` exists, and an `ADOPTION.md` report whose checklist carries every judgment call. Idempotent. |
 | `docsys seed plan [--target <feature>] [--since <date>] [--memory <dir>]` · `docsys seed apply --plan <file> [--force]` · `docsys seed gaps [--since <date>]` | Brownfield seeding: evidence from history and code, refused when a page covers the feature; the approved rows land under `work/` as tokens and verbatim quotations (D-053, D-058). |
-| `docsys debt close <n> [--note <line>]` · `docsys journal add <text> [--title <t>] [--date <d>] [--link <path>]` · `docsys page new <kind> <id> [--title <t>]` | Capture, mechanical: a repaid debt leaves the ledger with its journal line; an entry at its date; a page from its template (D-063). |
+| `docsys debt close <n> [--note <line>]` · `docsys journal add <text> [--title <t>] [--date <d>] [--link <path>]` · `docsys page new <kind> <id> [--title <t>] [--unverified]` | Capture, mechanical: a repaid debt leaves the ledger with its journal line; an entry at its date; a page from its template (D-063); `--unverified` writes `verification: unverified` and `sources: []` on a permanent page — a page from evidence, for a maintainer to verify (R-208, D-092). |
 | `docsys backlinks <path\|id> [--repo .]` · `docsys mentions [<path\|id>]` · `docsys graph [--format dot\|json\|jsoncanvas] [--repo .]` | Derived navigation, never written into a page: who points at a page (code included), who names it without linking, the whole map (D-064). |
 | `docsys adopt --obsidian` | The docs root as an Obsidian vault: absolute links, `_archive/` ignored, `_templates/` as templates, a `stale-work.base` view (D-065). Caveats: `aliases:` means retired ids here; keep Linter's `yaml-timestamp` off. |
 | `docsys lint [--root docs] [--repo <dir>] [--json]` | Full tree validation: frontmatter, ids, links, journal discipline, templates, list grammars — both profiles. Inside a git repository (`--repo`, or detected) also the freshness rules: `verifies:` pins recomputed (R-111), `updated:` behind history (R-106), drafts untouched beyond `stale_active_days` (R-085). Errors exit 1, warnings don't. |
@@ -343,6 +403,8 @@ flowchart LR
 | `docsys inbox add --source <name> --id <item> [--title <t>] [--url <u>] [--date <d>] [<file>\|-]` · `docsys inbox pull <repo> [--since <date>] [--limit <n>] [--as <ns>] [--all]` | The connector write gate (§20): one record into `raw/inbox/` with its provenance, the same item landing once; and the built-in git connector, one record per commit, bookkeeping commits skipped unless `--all` (D-079). |
 | `docsys assistant [--root .] [--projects <dir>]… [--domains a,b] [--since 30.days] [--limit 3]` | An assistant's memory in one command: the base, its agent layer, every docsys project under the given directories consumed and fetched, their recent commits as records, the digest. Idempotent (D-081). |
 | `docsys forget <page-id\|page-path\|record-path> --reason <text> [--root .]` | "Take this out of your memory", honestly: a page to `_archive/` with a tombstone (its id never reused), its router line and compiled skill gone; a record to `raw/_forgotten/`, still a record, never read or captured again; one ledger line with the reason. History is untouched (D-084). |
+| `docsys verify <page> [--by <handle>] [--commit] [--revoke] [--root docs]` | A maintainer's verification record in one step (D-094): who from the git identity matched against `maintainers:`, `verified_rev` from `HEAD` once the page carries no uncommitted change, refused while a `sources:` entry does not resolve; `--commit` lands it under your own identity (R-208 checks that), `--revoke` returns a page to `unverified`. |
+| `docsys raw move <record> <domain> [--root .]` | A note from `raw/inbox/` to `raw/<domain>/`, through git, bytes untouched — and every citing page's `sources:` entry rewritten in the frontmatter (R-027, D-085). The domain must be declared; an existing destination is refused; the body is not touched, so a verified page stays verified. |
 | `docsys status [--root .] [--repo <dir>] [--json]` | The digest an assistant reads first: inbox, pages by state, open questions and debt, consumed namespaces and their fetch day, compiled skills, and lint's findings folded by rule. Derived on every run, never stored (D-080). |
 | `docsys compile <howto> [--root docs] [--dir .claude] [--force]` | A howto whose steps are complete becomes an executable skill: the page body byte for byte under `.claude/skills/<id>/`, pinned to the page's content hash. Lint fails while the page has moved since the compile (R-094, R-095, D-073). |
 | `docsys pin <page> <path> [--symbol <s>]` · `docsys pin --refresh <page>` | Pin a permanent page to a code region — the whole file or one symbol's block — with its SHA-256 (§11); refresh every pin after re-reading the page. Lint fails while a pinned region has moved. |
@@ -354,7 +416,7 @@ flowchart LR
 | `docsys export manifest [--root <dir>] [--out <file>]` | Publish what this namespace exports — id, type, title, summary, content hash, no bodies. A few KB where a clone is megabytes. |
 | `docsys fetch [--root <dir>]` | Materialize consumed namespaces into `.federation/`: manifest first, unchanged pages skipped, provenance recorded. |
 | `docsys rules --agents-md \| --procedures [--max-lines <n>] [--write <file>]` | Agent text generated from the embedded spec: a ~40-line always-loaded block, and the fifteen decision procedures. `--max-lines` checks the block against the budget (R-165); `--write` lands it in a file instead of stdout. |
-| `docsys agents [--kb] [--dir .claude] [--force]` · `docsys agents --report [--dir .claude]` | Install the agent layer: four relay hooks + `/docsys-sync`, `/docsys-seed`, `/docsys-interview` + the docsys and export skills for a project; with `--kb` the four knowledge-base organs (capture · ingest · audit · lookup), the same four relays guarding the record layer, `settings.json` when absent and the git gate (D-076). Hooks carry their template version; `--force` refreshes them. `--report` lists the layer already installed and the shell calls it makes. |
+| `docsys agents [--kb] [--dir .claude] [--force]` · `docsys agents --report [--dir .claude]` | Install the agent layer: four relay hooks + `/docsys-sync`, `/docsys-seed`, `/docsys-interview` + the docsys and export skills for a project; with `--kb` the four knowledge-base organs (capture · ingest · audit · lookup), the same four relays guarding the record layer, `settings.json` (written when absent, merged into when present) and the git gate (D-076, D-086). Hooks carry their template version; `--force` refreshes them. `--report` lists the layer already installed and the shell calls it makes. |
 | `docsys hook pre-tool-use\|stop\|post-tool-use\|user-prompt-submit [--repo .] [--root docs]` | The hook logic itself, reading the agent harness payload on stdin (D-051). |
 | `docsys gate [--repo .] [--root docs] [--range <a>...<b>]` · `docsys doctor [--repo .] [--root docs] [--dir .claude]` | The commit-time question the binary computes (lint + code-without-docs); with `--range`, the same question over a pull request, failing when unanswered — what the CI workflow runs. And the liveness check: every hook present, executable, wired under the right event, up to date (D-040, D-047). |
 
@@ -380,11 +442,12 @@ rewritten. It lands:
 - `.claude/hooks/`, `.claude/commands/`, `.claude/skills/` — four relay hooks,
   `/docsys-sync`, `/docsys-seed`, `/docsys-interview`, the docsys and export
   skills
-- `.claude/settings.json` — the hook wiring, written only when the file does
-  not exist (an existing one is never clobbered; the snippet to merge goes on
-  the report)
+- `.claude/settings.json` — the hook wiring: written whole when the file does
+  not exist, merged into when it does (MCP servers, permissions and your own
+  hooks keep their place; only a file that is not JSON is left alone, with the
+  snippet on the report)
 - `AGENTS.md` — a managed block generated from the embedded spec
-- `.git/hooks/pre-commit` — the lint gate, in warn mode until the tree is
+- `.git/hooks/pre-commit` — the lint + refs gate, in warn mode until both are
   clean
 - `ADOPTION.md` — the report, with a checklist of every judgment call left to
   you
@@ -440,9 +503,10 @@ check's own negative case) go under a directory listed in `scan_exclude` — the
 scanner reads every tracked text file (R-077), so nowhere else in the tree can hold
 one. Scope note: `docsys lint` reads the documentation root only; `.claude/rules/*.md`,
 `AGENTS.md` and code are the province of `docsys refs --repo .`, which checks the
-`doc:` references they carry. `adopt` writes `.claude/settings.json` only when the file does not exist — an
-existing one may carry MCP servers and permission lists, so the merge snippet
-lands on the `ADOPTION.md` checklist instead of being clobbered. Then open an
+`doc:` references they carry. `adopt` writes `.claude/settings.json` whole when the file does not exist and merges
+the hook wires into an existing one — MCP servers and permission lists stay as they
+are; only a file that is not JSON is left alone, with the snippet on the `ADOPTION.md`
+checklist. Then open an
 agent session in that directory and try the loop:
 
 - open with something ambiguous ("let's look at the timer") → the
@@ -475,6 +539,12 @@ builder's answers, dated journal entries, a postmortem quoting its commit,
 debt and question items). `/docsys-interview` runs it feature by feature,
 resumable. A feature a page already covers is refused by name; from there the
 hooks keep it current.
+
+When nobody can answer — a repository whose people are gone — the rows that
+need no memory still land on your word (`research`, `journal`, `postmortem`,
+`question`), and the session may author one page per feature:
+`explanation/<feature>-overview`, `unverified`, from the evidence, routed —
+readable on day one, verified by a maintainer later (D-092).
 
 ### 4 · Capture and navigation
 
@@ -536,7 +606,8 @@ who verified what; *"what do my notes say about X"* answers with the page path
 
 What the binary guarantees underneath: `raw/` is content-immutable (an edited
 or deleted record is an error; the hook blocks the attempt; relocation is the
-expected flow), every `sources:` entry must resolve, a `verified` page must
+expected flow, and `docsys raw move` does it while rewriting every citing page's
+`sources:`), every `sources:` entry must resolve, a `verified` page must
 record `verified_by:` and `verified_rev:`, and a verification is checked, not
 trusted — a `verified` page whose body, or whose consumed source, no longer
 hashes to what it held at `verified_rev` is an error until it is audited again
@@ -629,6 +700,8 @@ source that has since moved (D-082); the next `docsys status` lists it under
 
 ```
 SPEC.md               the specification — 147 normative rules + experimental §13 (federation), §20 (connectors)
+ROADMAP.md            where it stands, the boundary with the connector project, the next slices in order
+IDEAS.md              the handful of ideas everything else follows from, in plain words, outside the tree on purpose
 src/                  the reference implementation (Rust, stdlib only — SHA-256 included)
 corpus/
 ├── DECISIONS.md      register of implementation-defined choices (R-193)
@@ -638,7 +711,10 @@ tests/                behavior locks for migrate · refs · graduate · adopt ·
                       graph · knowledge base (git-observable) · export ·
                       federation · freshness (pins, history, range gate, CI) ·
                       compile · lookup and consume · the assistant's memory
-ci/e2e.sh             a fresh box, twelve first-run flows, real paths
+ci/e2e.sh             a fresh box, fourteen first-run flows, real paths — the last one is the mechanical harness
+ci/agent-lab/         the agent lab: reproducible fixtures, the mechanical harness (mech/run.sh), the
+                      headless-agent leg and its rubric, REPORT-mechanical.md · REPORT-agent.md · FINDINGS.md
+run-all.sh            build → mechanical harness → agent matrix → scores
 ```
 
 ## Status
@@ -682,7 +758,8 @@ the git connector; calendar, mail, tickets and the rest are designed, not
 built. Consuming a provider over HTTP without a checkout, the consumer-impact
 report for a retired identifier, `compile @namespace/id`, and a second
 connector against a real source are the next slices — those rules bind nothing
-until real use settles them.
+until real use settles them. What comes next, and what will not be built
+here, is in [ROADMAP.md](ROADMAP.md).
 
 ## License
 

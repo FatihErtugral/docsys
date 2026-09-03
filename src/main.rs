@@ -18,6 +18,9 @@ Usage:
                                              # the git connector: one record per commit since a date, newest first; --all keeps bookkeeping commits too
   docsys status  [--root .] [--repo <dir>] [--json]   # the digest: inbox, pages by state, open items, consumed, skills, findings
   docsys forget  <page-id|page-path|record-path> --reason <text> [--root .]   # a page to _archive/ with a tombstone, a record to raw/_forgotten/; the ledger says why
+  docsys verify  <page> [--by <handle|@login>] [--commit] [--revoke] [--root docs]   # a maintainer's record in one step: who from git identity, rev from HEAD, sources checked; --revoke: back to unverified
+  docsys verify  --range <a>...<b> (--by @login | --from-trailers) [--commit] [--root docs]   # every page the range touched, under the review approver's identity: a login a host adapter passes, or the Reviewed-by:/Approved-by: trailer in git (D-095)
+  docsys raw     move <record> <domain> [--root .]   # a note from raw/inbox/ to raw/<domain>/, through git, bytes untouched; every citing page's sources: rewritten (R-027)
   docsys assistant [--root .] [--projects <dir>]… [--domains a,b] [--since 30.days] [--limit 3]
                                              # an assistant's memory in one command: base, layer, projects consumed, pages, records, digest
   docsys init    [--root <dir>] [--lang <code>] [--profile project|knowledge-base]
@@ -36,7 +39,7 @@ Usage:
   docsys export feature <id> [<id>...] [--follow] [--title <t>] [--root <dir>] [--out <file>] [--lang <code>] [--audience <a>]
   docsys export manifest [--root <dir>] [--out <file>]   # what this namespace exports
   docsys fetch   [--root <dir>]              # materialize consumed namespaces into .federation/
-  docsys gate    [--repo .] [--root docs] [--range <a>...<b>]   # commit-time question: lint + code-without-docs; --range: a pull request, in CI
+  docsys gate    [--repo .] [--root docs] [--range <a>...<b>] [--skipped]   # commit-time question: lint + code-without-docs; --range: a pull request, in CI; under commit_policy: require it refuses, --skipped records a bypass as debt
   docsys doctor  [--repo .] [--root docs] [--dir .claude]   # is the pipeline itself alive?
   docsys seed    plan [--target <feature>] [--since <date>] [--memory <dir>] [--repo .] [--root docs]
                                              # brownfield: feature inventory, or one feature's history as evidence
@@ -44,7 +47,7 @@ Usage:
   docsys seed    apply --plan <file> [--repo .] [--root docs] [--force]  # land the approved rows under work/
   docsys debt    close <n> [--note <line>] [--root docs]   # repaid: item leaves the ledger, journal records it
   docsys journal add <text…> [--title <t>] [--date <d>] [--link <path>] [--root docs]
-  docsys page    new <category|type> <id> [--title <t>] [--root docs]   # from _templates/, or a permanent skeleton
+  docsys page    new <category|type> <id> [--title <t>] [--unverified] [--root docs]   # from _templates/, or a permanent skeleton; --unverified: a page written from evidence, for a maintainer to verify (R-208)
   docsys backlinks <path|id> [--repo .] [--root docs]      # pages (and code) pointing at a page
   docsys mentions [<path|id>] [--root docs]                 # prose naming a page without a link
   docsys graph   [--format dot|json|jsoncanvas] [--repo .] [--root docs]
@@ -73,6 +76,13 @@ struct Opts {
     repo: Option<PathBuf>,
     dir: PathBuf,
     force: bool,
+    unverified: bool,
+    stdin: bool,
+    skipped: bool,
+    by: Option<String>,
+    commit: bool,
+    revoke: bool,
+    from_trailers: bool,
     target: Option<String>,
     since: Option<String>,
     memory: Option<PathBuf>,
@@ -114,6 +124,13 @@ fn parse_opts(args: &[String]) -> Result<Opts, String> {
         repo: None,
         dir: PathBuf::from(".claude"),
         force: false,
+        unverified: false,
+        stdin: false,
+        skipped: false,
+        by: None,
+        commit: false,
+        revoke: false,
+        from_trailers: false,
         target: None,
         since: None,
         memory: None,
@@ -156,6 +173,13 @@ fn parse_opts(args: &[String]) -> Result<Opts, String> {
             "--repo" => o.repo = Some(PathBuf::from(it.next().ok_or("--repo needs a value")?)),
             "--dir" => o.dir = PathBuf::from(it.next().ok_or("--dir needs a value")?),
             "--force" => o.force = true,
+            "--unverified" => o.unverified = true,
+            "--stdin" => o.stdin = true,
+            "--by" => o.by = Some(it.next().ok_or("--by needs a value")?.clone()),
+            "--commit" => o.commit = true,
+            "--revoke" => o.revoke = true,
+            "--from-trailers" => o.from_trailers = true,
+            "--skipped" => o.skipped = true,
             "--target" => o.target = Some(it.next().ok_or("--target needs a value")?.clone()),
             "--since" => o.since = Some(it.next().ok_or("--since needs a value")?.clone()),
             "--memory" => {
@@ -289,7 +313,8 @@ fn main() -> ExitCode {
                 || c == "journal"
                 || c == "page"
                 || c == "consume"
-                || c == "inbox" =>
+                || c == "inbox"
+                || c == "raw" =>
         {
             match r.split_first() {
                 Some((s, r2)) => (c.as_str(), Some(s.as_str()), r2),
@@ -457,7 +482,13 @@ fn main() -> ExitCode {
                 eprintln!("page new needs a kind and an id: `docsys page new <feature|postmortem|research|reference|howto|explanation|tutorial> <id>`");
                 return ExitCode::from(2);
             };
-            match docsys::capture::page_new(&opts.root, kind, id, opts.title.as_deref()) {
+            match docsys::capture::page_new(
+                &opts.root,
+                kind,
+                id,
+                opts.title.as_deref(),
+                opts.unverified,
+            ) {
                 Ok(msg) => {
                     println!("{msg}");
                     ExitCode::SUCCESS
@@ -555,7 +586,10 @@ fn main() -> ExitCode {
             // The payload comes on stdin from the agent harness. `stop` needs
             // none, and a human at a terminal must not be left waiting for EOF.
             let mut payload = String::new();
-            if event != "stop" && !std::io::IsTerminal::is_terminal(&std::io::stdin()) {
+            // `stop` reads it only when the relay says so (`--stdin`): a script
+            // calling the hook by hand must not hang on an open pipe.
+            let wants = event != "stop" || opts.stdin;
+            if wants && !std::io::IsTerminal::is_terminal(&std::io::stdin()) {
                 let _ = std::io::Read::read_to_string(&mut std::io::stdin(), &mut payload);
             }
             let reply = match event {
@@ -565,7 +599,7 @@ fn main() -> ExitCode {
                     &payload,
                     std::env::var_os("DOCSYS_SKIP").is_some_and(|v| !v.is_empty()),
                 ),
-                "stop" => docsys::hook::stop(&repo, &root),
+                "stop" => docsys::hook::stop(&repo, &root, &payload),
                 "post-tool-use" => {
                     docsys::hook::post_tool_use(&repo, &root, &payload, &migrate::today())
                 }
@@ -763,6 +797,104 @@ next: review, `git add -A && git commit`, then open an agent session here."
                 }
             }
         }
+        ("verify", None) if opts.range.is_some() => {
+            match docsys::verify::verify_range(
+                &opts.root,
+                opts.range.as_deref().unwrap_or(""),
+                opts.by.as_deref(),
+                opts.from_trailers,
+                opts.commit,
+            ) {
+                Ok(done) => {
+                    for v in &done {
+                        if v.notes.iter().any(|n| n.starts_with("skipped")) {
+                            println!("skipped: {} — {}", v.page, v.notes.join("; "));
+                        } else if v.notes.iter().any(|n| n.starts_with("already")) {
+                            println!("already verified: {}", v.page);
+                        } else {
+                            println!(
+                                "verified: {} by {} at {}{}",
+                                v.page,
+                                v.by,
+                                v.rev,
+                                if v.committed { " (committed)" } else { "" }
+                            );
+                        }
+                    }
+                    if done.is_empty() {
+                        println!("no page with a verification field in that range");
+                    }
+                    ExitCode::SUCCESS
+                }
+                Err(e) => {
+                    eprintln!("verify: {e}");
+                    ExitCode::from(2)
+                }
+            }
+        }
+        ("verify", None) => match opts.positional.first() {
+            Some(page) => match docsys::verify::verify(
+                &opts.root,
+                page,
+                opts.by.as_deref(),
+                opts.commit,
+                opts.revoke,
+            ) {
+                Ok(done) => {
+                    if opts.revoke {
+                        println!("unverified: {}", done.page);
+                    } else {
+                        println!("verified: {} by {} at {}", done.page, done.by, done.rev);
+                    }
+                    for n in &done.notes {
+                        println!("{n}");
+                    }
+                    if !opts.revoke
+                        && !done.committed
+                        && !done.notes.iter().any(|n| n.starts_with("already"))
+                    {
+                        println!(
+                            "now commit it as yourself (the record must be your own commit, R-208): git commit -m \"docs: {} verified\" -- <the page>   (or run again with --commit)",
+                            done.page.trim_end_matches(".md")
+                        );
+                    }
+                    ExitCode::SUCCESS
+                }
+                Err(e) => {
+                    eprintln!("verify: {e}");
+                    ExitCode::from(2)
+                }
+            },
+            None => {
+                eprintln!("verify needs <page-id|page-path> [--by <handle>] [--commit] [--revoke]");
+                ExitCode::from(2)
+            }
+        },
+        ("raw", Some("move")) => match (opts.positional.first(), opts.positional.get(1)) {
+            (Some(record), Some(domain)) => {
+                match docsys::relocate::raw_move(&opts.root, record, domain) {
+                    Ok(done) => {
+                        println!("moved: {} -> {}", done.from, done.to);
+                        for (page, n) in &done.rewritten {
+                            let unit = if *n == 1 { "entry" } else { "entries" };
+                            println!("rewrote: {page} ({n} {unit})");
+                        }
+                        if done.rewritten.is_empty() {
+                            println!("no page cited it");
+                        }
+                        ExitCode::SUCCESS
+                    }
+                    Err(e) => {
+                        eprintln!("raw move: {e}");
+                        ExitCode::from(2)
+                    }
+                }
+            }
+            _ => {
+                eprintln!("raw move needs <record> <domain>");
+                ExitCode::from(2)
+            }
+        },
         ("forget", None) => match (
             opts.positional.first(),
             opts.note.clone().or_else(|| opts.title.clone()),
@@ -876,7 +1008,28 @@ next: review, `git add -A && git commit`, then open an agent session here."
                             f.message
                         );
                     }
-                    if !g.code.is_empty() && g.docs == 0 {
+                    if !g.plan_files.is_empty() {
+                        println!(
+                            "GATE a seed plan is in the change set: {} — a plan is a draft, never documentation (D-091); `git reset -- {}` and land it with `docsys seed apply`",
+                            g.plan_files.join(", "),
+                            g.plan_files.join(" ")
+                        );
+                    }
+                    let require =
+                        docsys::hook::commit_policy(&root) == docsys::hook::CommitPolicy::Require;
+                    let undocumented = !g.code.is_empty() && g.docs == 0;
+                    if undocumented && require && opts.skipped {
+                        // the git hook, bypassed with DOCSYS_SKIP=1: the bypass leaves a debt item (D-093)
+                        match docsys::hook::record_undocumented_commit(
+                            &root,
+                            &g.code,
+                            &migrate::today(),
+                        ) {
+                            Ok(()) => println!("gate: bypassed under commit_policy: require — a debt item records it in work/debt.md"),
+                            Err(e) => eprintln!("gate: could not record the bypass: {e}"),
+                        }
+                    }
+                    if undocumented {
                         let head: Vec<&str> = g.code.iter().take(5).map(String::as_str).collect();
                         let more = g.code.len().saturating_sub(head.len());
                         let tail = if more > 0 {
@@ -889,6 +1042,9 @@ next: review, `git add -A && git commit`, then open an agent session here."
                             g.scope,
                             head.join(", ")
                         );
+                        if require && !opts.skipped {
+                            println!("GATE commit_policy: require — name the work (feature | bug | improvement | research), record it (a work file or a journal entry linking these files), stage it, commit again. DOCSYS_SKIP=1 bypasses once and leaves a debt item.");
+                        }
                     }
                     println!(
                         "-- {} error(s), {} warning(s)",
@@ -896,8 +1052,9 @@ next: review, `git add -A && git commit`, then open an agent session here."
                     );
                     // Over a range there is nobody to ask once: code without
                     // documentation fails the check, as CI must.
-                    let unanswered = opts.range.is_some() && !g.code.is_empty() && g.docs == 0;
-                    if g.lint_errors > 0 || unanswered {
+                    let unanswered =
+                        (opts.range.is_some() || (require && !opts.skipped)) && undocumented;
+                    if g.lint_errors > 0 || unanswered || !g.plan_files.is_empty() {
                         ExitCode::from(1)
                     } else {
                         ExitCode::SUCCESS

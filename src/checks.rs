@@ -18,9 +18,11 @@ const R011: RuleId = RuleId("R-011");
 const R013: RuleId = RuleId("R-013");
 const R020: RuleId = RuleId("R-020");
 const R023: RuleId = RuleId("R-023");
+const R082: RuleId = RuleId("R-082");
 const R024: RuleId = RuleId("R-024");
 const R026: RuleId = RuleId("R-026");
 const R028: RuleId = RuleId("R-028");
+const R208: RuleId = RuleId("R-208");
 const R029: RuleId = RuleId("R-029");
 const R030: RuleId = RuleId("R-030");
 const R034: RuleId = RuleId("R-034");
@@ -161,11 +163,13 @@ fn check_docmeta(tree: &DocTree, r: &mut Report) {
         ));
     }
     // R-161: unknown keys are reported, never rejected.
-    const KNOWN: [&str; 21] = [
+    const KNOWN: [&str; 23] = [
         "spec",
         "profile",
         "default_content_language",
         "domains",
+        "maintainers",
+        "commit_policy",
         "audiences",
         "consume",
         "consume_base",
@@ -309,6 +313,10 @@ fn check_permanent_frontmatter(tree: &DocTree, r: &mut Report) {
         }
         if tree.profile == Profile::KnowledgeBase {
             kb_page_checks(tree, page, fm, r);
+        } else if fm.fields.contains_key("verification") {
+            // a project page that opts into verification (§3.2, D-092) carries
+            // the same record contract as a wiki page
+            verification_record_checks(page, fm, r);
         }
     }
     // R-061's domain is every page carrying `id` — tracked work included (a
@@ -339,6 +347,137 @@ fn check_permanent_frontmatter(tree: &DocTree, r: &mut Report) {
         }
     }
     r.inspected.insert("permanent-frontmatter", inspected);
+}
+
+/// The verification record (R-024's values, R-028's record) — the knowledge
+/// base's contract, and a project page's once it carries `verification:`
+/// (§3.2, D-092).
+fn verification_record_checks(page: &Page, fm: &crate::fm::Frontmatter, r: &mut Report) {
+    let get = |k: &str| fm.fields.get(k).and_then(Value::as_str);
+    match get("verification") {
+        Some("unverified") | None => {}
+        Some("verified") => {
+            // R-028: a verification nobody can audit is a claim, not a record.
+            // D-030 names the fields.
+            let rec: Vec<&str> = ["verified_by", "verified_rev"]
+                .into_iter()
+                .filter(|k| get(k).is_none())
+                .collect();
+            if !rec.is_empty() {
+                r.findings.push(Finding::warn(
+                    R028,
+                    &page.rel,
+                    &rec.join(","),
+                    "verified without recording who verified and which source revision".to_string(),
+                ));
+            }
+        }
+        Some(v) => r.findings.push(Finding::warn(
+            R024,
+            &page.rel,
+            "verification",
+            format!("`{v}` is not unverified/verified"),
+        )),
+    }
+}
+
+/// R-208 (D-092): when `.docmeta.yml` declares `maintainers:`, the people who
+/// vouch — `confirmed:` on a work file, `verified_by:` on a verified page —
+/// must be among them. Anyone writes; a declared few say "this is true".
+/// An entry is `handle`, `handle <email>`, or `handle <email> @login` (the
+/// code-review login, D-095); the handle is matched, case-insensitively,
+/// against the first word of the record.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Maintainer {
+    pub handle: String,
+    pub email: Option<String>,
+    pub login: Option<String>,
+}
+
+pub(crate) fn maintainer_handles(tree: &DocTree) -> Vec<Maintainer> {
+    tree.docmeta_list("maintainers")
+        .iter()
+        .filter_map(|e| {
+            let e = e.trim().trim_matches(|c| c == '"' || c == '\'');
+            if e.is_empty() {
+                return None;
+            }
+            let mut handle = String::new();
+            let mut email = None;
+            let mut login = None;
+            for (i, word) in e.split_whitespace().enumerate() {
+                if let Some(l) = word.strip_prefix('@') {
+                    login = Some(l.to_lowercase());
+                } else if word.starts_with('<') && word.ends_with('>') {
+                    email = Some(word.trim_matches(|c| c == '<' || c == '>').to_lowercase());
+                } else if i == 0 {
+                    handle = word.to_lowercase();
+                }
+            }
+            (!handle.is_empty()).then_some(Maintainer {
+                handle,
+                email,
+                login,
+            })
+        })
+        .collect()
+}
+
+/// The person a record names: the first word of `confirmed: fatih, 2026-08-15`
+/// or of `verified_by: fatih (audit session)`.
+pub(crate) fn record_handle(value: &str) -> String {
+    value
+        .trim()
+        .trim_matches(|c| c == '"' || c == '\'')
+        .split(|c: char| c == ',' || c.is_whitespace() || c == '(')
+        .next()
+        .unwrap_or("")
+        .to_lowercase()
+}
+
+fn check_maintainers(tree: &DocTree, r: &mut Report) {
+    let maintainers = maintainer_handles(tree);
+    if maintainers.is_empty() {
+        return;
+    }
+    let known = |h: &str| maintainers.iter().any(|m| m.handle == h);
+    let mut inspected = 0usize;
+    for page in &tree.pages {
+        let Some(fm) = &page.fm else { continue };
+        let field = match page.kind {
+            Kind::Tracked => "confirmed",
+            Kind::Permanent => "verified_by",
+            _ => continue,
+        };
+        let Some(value) = fm.fields.get(field).and_then(Value::as_str) else {
+            continue;
+        };
+        if field == "verified_by"
+            && fm.fields.get("verification").and_then(Value::as_str) != Some("verified")
+        {
+            continue;
+        }
+        inspected += 1;
+        let who = record_handle(value);
+        if who.is_empty() || !known(&who) {
+            r.findings.push(Finding::err(
+                R208,
+                &page.rel,
+                field,
+                format!(
+                    "`{field}: {}` names `{}`, who is not a declared maintainer ({}) — anyone writes, a maintainer vouches (R-208)",
+                    value.trim(),
+                    if who.is_empty() { "(nobody)" } else { who.as_str() },
+                    maintainers
+                        .iter()
+                        .map(|m| m.handle.as_str())
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                ),
+            ));
+        }
+    }
+    r.inspected.insert("maintainers", inspected);
 }
 
 /// Knowledge-base page fields (§3.1). The shared trio (id/type/updated) is the
@@ -374,31 +513,7 @@ fn kb_page_checks(tree: &DocTree, page: &Page, fm: &crate::fm::Frontmatter, r: &
             ));
         }
     }
-    match get("verification") {
-        Some("unverified") | None => {}
-        Some("verified") => {
-            // R-028: a verification nobody can audit is a claim, not a record.
-            // D-030 names the fields.
-            let rec: Vec<&str> = ["verified_by", "verified_rev"]
-                .into_iter()
-                .filter(|k| get(k).is_none())
-                .collect();
-            if !rec.is_empty() {
-                r.findings.push(Finding::warn(
-                    R028,
-                    &page.rel,
-                    &rec.join(","),
-                    "verified without recording who verified and which source revision".to_string(),
-                ));
-            }
-        }
-        Some(v) => r.findings.push(Finding::warn(
-            R024,
-            &page.rel,
-            "verification",
-            format!("`{v}` is not unverified/verified"),
-        )),
-    }
+    verification_record_checks(page, fm, r);
     // R-029: readers navigate this profile by directory; the segment must not
     // contradict the page.
     if let Some(t) = get("type") {
@@ -562,6 +677,98 @@ fn check_raw_immutability(tree: &DocTree, r: &mut Report) {
                         .to_string(),
                 ));
             }
+        }
+    }
+}
+
+/// R-082 (D-089): `graduated` is terminal and a graduated file receives no
+/// further content change. Like R-023 (D-031) this is observable only against
+/// the git working tree: for every tracked work file HEAD holds as
+/// `status: graduated`, a status that changed or a body that changed is an
+/// error at the gate. Frontmatter-only edits (§2.4: `updated`, a record)
+/// pass. Changes already in history are the history's — a person's revert.
+fn check_graduated_frozen(tree: &DocTree, r: &mut Report) {
+    use std::process::Command;
+    let git = |args: &[&str]| {
+        Command::new("git")
+            .arg("-C")
+            .arg(&tree.root)
+            .args(args)
+            .output()
+            .ok()
+            .filter(|o| o.status.success())
+            .map(|o| String::from_utf8_lossy(&o.stdout).into_owned())
+    };
+    let Some(prefix) = git(&["rev-parse", "--show-prefix"]) else {
+        return;
+    };
+    let prefix = prefix.trim().to_string();
+    let Some(status) = git(&["status", "--porcelain=v1", "--no-renames", "--", "work/"]) else {
+        return;
+    };
+    for line in status.lines() {
+        let (Some(xy), Some(path)) = (line.get(..2), line.get(3..)) else {
+            continue;
+        };
+        let path = path.trim().trim_matches('"');
+        let rel = path.strip_prefix(prefix.as_str()).unwrap_or(path);
+        if !rel.starts_with("work/") || !rel.ends_with(".md") || xy == "??" || xy.contains('A') {
+            continue;
+        }
+        let Some(head) = git(&["show", &format!("HEAD:{prefix}{rel}")]) else {
+            continue;
+        };
+        let Some(head_fm) = crate::fm::parse(&head) else {
+            continue;
+        };
+        if head_fm.fields.get("status").and_then(Value::as_str) != Some("graduated") {
+            continue;
+        }
+        if xy.contains('D') {
+            r.findings.push(Finding::err(
+                R082,
+                rel,
+                "deleted",
+                "a graduated file was deleted — `graduated` is terminal; knowledge that left the flowing layer stays where the links point".to_string(),
+            ));
+            continue;
+        }
+        let Some(page) = tree.pages.iter().find(|p| p.rel == rel) else {
+            continue;
+        };
+        let now_status = page
+            .fm
+            .as_ref()
+            .and_then(|f| f.fields.get("status"))
+            .and_then(Value::as_str);
+        if now_status != Some("graduated") {
+            r.findings.push(Finding::err(
+                R082,
+                rel,
+                "status",
+                format!(
+                    "`status: graduated` is terminal — it became `{}`; a file that needs work again is a new work file",
+                    now_status.unwrap_or("(none)")
+                ),
+            ));
+            continue;
+        }
+        let body = |text: &str, start: usize| -> String {
+            text.lines().skip(start).collect::<Vec<_>>().join("\n")
+        };
+        let head_body = body(&head, head_fm.body_start);
+        let now_body = page
+            .fm
+            .as_ref()
+            .map(|f| body(&page.text, f.body_start))
+            .unwrap_or_else(|| page.text.clone());
+        if head_body != now_body {
+            r.findings.push(Finding::err(
+                R082,
+                rel,
+                "content",
+                "a graduated file received a content change — knowledge added here stays outside agent context; put it on the permanent page it graduated to".to_string(),
+            ));
         }
     }
 }
@@ -1788,6 +1995,7 @@ pub fn run_with(tree: &DocTree, ctx: &Context) -> Report {
     }
     check_permanent_frontmatter(tree, &mut r);
     check_work(tree, &mut r);
+    check_maintainers(tree, &mut r);
     check_graduated_targets(tree, &mut r);
     check_links(tree, &mut r);
     check_doc_refs(tree, &mut r);
@@ -1806,6 +2014,8 @@ pub fn run_with(tree: &DocTree, ctx: &Context) -> Report {
     }
     if tree.profile == Profile::KnowledgeBase {
         check_raw_immutability(tree, &mut r);
+    } else {
+        check_graduated_frozen(tree, &mut r);
     }
     if tree.pages.is_empty() {
         r.findings.push(Finding::warn(
