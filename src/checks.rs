@@ -1195,11 +1195,52 @@ fn permanent_ids(tree: &DocTree) -> BTreeSet<&str> {
     ids
 }
 
-/// Collect wiki-links `[[path]]` / `[[path|alias]]` from scannable lines.
+/// The line with its inline code spans blanked. CommonMark reads a span — a
+/// run of n backticks up to the next run of exactly n on the line — verbatim,
+/// so a link written inside one is quoted material (R-071). A run with no
+/// closing run is literal text.
+fn without_code_spans(line: &str) -> String {
+    let run_len = |s: &str| s.len() - s.trim_start_matches('`').len();
+    let mut out = String::with_capacity(line.len());
+    let mut rest = line;
+    while let Some(open) = rest.find('`') {
+        out.push_str(rest.get(..open).unwrap_or(""));
+        let from = rest.get(open..).unwrap_or("");
+        let n = run_len(from);
+        let after = from.get(n..).unwrap_or("");
+        let mut scan = 0usize;
+        let mut close = None;
+        while let Some(pos) = after.get(scan..).and_then(|s| s.find('`')) {
+            let at = scan + pos;
+            let len = run_len(after.get(at..).unwrap_or(""));
+            if len == n {
+                close = Some(at + len);
+                break;
+            }
+            scan = at + len;
+        }
+        match close {
+            Some(end) => {
+                out.push(' ');
+                rest = after.get(end..).unwrap_or("");
+            }
+            None => {
+                out.push_str(from.get(..n).unwrap_or(""));
+                rest = after;
+            }
+        }
+    }
+    out.push_str(rest);
+    out
+}
+
+/// Collect wiki-links `[[path]]` / `[[path|alias]]` from scannable lines,
+/// outside inline code spans.
 pub(crate) fn wiki_links(text: &str) -> Vec<(usize, String)> {
     let mut out = Vec::new();
     for (i, line) in scannable_lines(text) {
-        let mut rest = line;
+        let line = without_code_spans(line);
+        let mut rest = line.as_str();
         while let Some(start) = rest.find("[[") {
             let Some(after) = rest.get(start + 2..) else {
                 break;
@@ -2068,6 +2109,14 @@ mod tests {
             got,
             vec!["reference/x#section", "reference/y", "reference/z"]
         );
+    }
+
+    #[test]
+    fn wiki_links_skip_inline_code_spans() {
+        let text = "`[[a/one]]` and ``x [[a/two]] `y` z`` but [[a/three]]\n\
+                    an unclosed ` keeps [[a/four]]; ``` ``[[a/five]]`` ``` too";
+        let got: Vec<String> = wiki_links(text).into_iter().map(|(_, t)| t).collect();
+        assert_eq!(got, vec!["a/three", "a/four"]);
     }
 
     #[test]

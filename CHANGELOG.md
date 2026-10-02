@@ -59,6 +59,11 @@ by the release workflow — the tag's section becomes the GitHub release body.
   change (R-106, §2.4): a commit that touched only `updated:`, the
   verification record or a pin's hash no longer counts, so a tool's
   bookkeeping commit leaves the page quiet.
+- A wiki-link written inside an inline code span is quoted material (R-071):
+  a page showing `` `[[reference/x]]` `` no longer fails on a dangling link.
+  A span is CommonMark's — a run of backticks up to the next run of the same
+  length on the line — and lint, `backlinks`, `mentions` and `graph` skip it
+  alike. `doc:` references in inline code still count (R-073).
 
 ### Changed
 

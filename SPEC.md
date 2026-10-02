@@ -757,7 +757,11 @@ retitled heading costs a stale label, not a broken link.
 > a contract between documents. An identifier-based link form is deferred; see
 > §19.
 
-**R-071** `lint` · MUST — Every link target MUST resolve. Resolution appends
+**R-071** `lint` · MUST — Every link target MUST resolve. A link written inside
+an inline code span, a fenced or indented code block, or a block quote is
+quoted material and resolves nothing: CommonMark reads a code span verbatim,
+and a page that shows the link form cites nothing. (`doc:` references differ by
+design — inline code is their field convention, R-073.) Resolution appends
 `.md` when the path has no extension, and does not follow symlinks outside the
 tree. A target that moved to `_archive/` still resolves — to the archived
 copy — and **is reported**: the live link is evidence of remaining interest, so
