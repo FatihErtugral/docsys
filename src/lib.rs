@@ -30,6 +30,7 @@ pub mod refs;
 pub mod relocate;
 pub mod rules;
 pub mod seed;
+pub mod slug;
 pub mod status;
 pub mod tree;
 pub mod verify;

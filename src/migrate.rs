@@ -229,12 +229,20 @@ fn relative_link(from: &str, to: &str) -> String {
     out.join("/")
 }
 
-/// Kebab-case id from a filename: `AppManifests.md` → `app-manifests` (D-018).
+/// Kebab-case id from a filename: `AppManifests.md` → `app-manifests` (D-018);
+/// a Latin letter folds to its base first (D-113).
 pub fn id_from_filename(name: &str) -> String {
     let stem = name.strip_suffix(".md").unwrap_or(name);
     let mut out = String::new();
     let mut prev_lower = false;
-    for c in stem.chars() {
+    let ascii = stem.chars().flat_map(|c| {
+        if c.is_ascii() {
+            vec![c]
+        } else {
+            crate::slug::fold_latin(c).unwrap_or("-").chars().collect()
+        }
+    });
+    for c in ascii {
         match c {
             'A'..='Z' => {
                 if prev_lower {
@@ -748,6 +756,11 @@ mod tests {
         assert_eq!(id_from_filename("fbt.md"), "fbt");
         assert_eq!(id_from_filename("FuriHalBus.md"), "furi-hal-bus");
         assert_eq!(id_from_filename("file_formats.md"), "file-formats");
+        // a Latin letter keeps its base, and its case still splits words (D-113)
+        assert_eq!(id_from_filename("GüncellemeNotu.md"), "guncelleme-notu");
+        assert_eq!(id_from_filename("Öğle arası.md"), "ogle-arasi");
+        assert_eq!(id_from_filename("Straße.md"), "strasse");
+        assert_eq!(id_from_filename("Новости.md"), "");
     }
 
     #[test]

@@ -114,6 +114,13 @@ by the release workflow — the tag's section becomes the GitHub release body.
 - On a docsys/0.5 tree a scalar `maintainers: ayse` is reported (R-208): it names no maintainer,
   so every record check was silently off. The warning names the list forms,
   `maintainers: [ayse]` or a block list.
+- A file name the tool derives keeps the base of its Latin letters (D-113):
+  "Güncelleme notu" lands as `…-guncelleme-notu.md`, not
+  `…-g-ncelleme-notu.md`. The same fold names `inbox pull` records, the
+  namespace `adopt` writes, `migrate`'s identifiers and `seed`'s postmortem
+  files, which kept non-ASCII letters (R-120). A record title with nothing
+  to fold names the record by its source id, then `item`. Existing files are
+  never renamed.
 
 ## [0.15.1] - 2026-09-04
 

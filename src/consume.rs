@@ -11,20 +11,9 @@ use std::path::{Path, PathBuf};
 use crate::tree::DocTree;
 
 /// A directory or repository name as a local identifier: lowercase, digits,
-/// single hyphens (R-060).
+/// single hyphens (R-060), Latin letters folded to their base (D-113).
 pub fn local_id_of(name: &str) -> String {
-    let mut out = String::new();
-    let mut dash = false;
-    for c in name.chars() {
-        if c.is_ascii_alphanumeric() {
-            out.push(c.to_ascii_lowercase());
-            dash = false;
-        } else if !dash && !out.is_empty() {
-            out.push('-');
-            dash = true;
-        }
-    }
-    out.trim_end_matches('-').to_string()
+    crate::slug::slug(name)
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -257,6 +246,8 @@ mod tests {
         assert_eq!(local_id_of("My_Project 2"), "my-project-2");
         assert_eq!(local_id_of("relay"), "relay");
         assert_eq!(local_id_of("--x--"), "x");
+        // a Latin letter keeps its base (D-113); the result is still a local-id
+        assert_eq!(local_id_of("Öğle arası"), "ogle-arasi");
     }
 
     #[test]

@@ -1209,10 +1209,17 @@ pub fn parse_plan(text: &str) -> Result<Plan, String> {
                 }
             }
             "postmortem" => {
-                let slug = fold(col(1));
-                if slug.is_empty() || col(2).is_empty() {
+                // the slug names a file: ASCII, Latin letters folded (D-113)
+                let slug = crate::slug::slug(col(1));
+                if col(1).trim().is_empty() || col(2).is_empty() {
                     return Err(format!(
                         "line {n}: postmortem rows are `postmortem\\t<slug>\\t<sha>`"
+                    ));
+                }
+                if slug.is_empty() {
+                    return Err(format!(
+                        "line {n}: `{}` names no file — a postmortem slug needs a Latin letter or a digit",
+                        col(1).trim()
                     ));
                 }
                 Row::Postmortem {
@@ -1544,6 +1551,22 @@ mod tests_apply {
                     shas: vec![]
                 }
         );
+    }
+
+    #[test]
+    fn a_postmortem_file_name_is_ascii() {
+        // fold() keeps matching Unicode-aware; the file name folds to ASCII (D-113)
+        let p = parse_plan("postmortem\tÇekirdek çöküşü\tdeadbee\n").unwrap();
+        assert_eq!(
+            p.rows[0],
+            Row::Postmortem {
+                slug: "cekirdek-cokusu".into(),
+                sha: "deadbee".into()
+            }
+        );
+        assert_eq!(fold("Çekirdek"), "çekirdek");
+        let err = parse_plan("postmortem\tНовости\tdeadbee\n").unwrap_err();
+        assert!(err.contains("Latin letter or a digit"), "{err}");
     }
 
     #[test]

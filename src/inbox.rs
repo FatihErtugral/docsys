@@ -104,15 +104,12 @@ pub fn add(root: &Path, p: &Provenance, body: &str) -> Result<String, String> {
     } else {
         return Err(format!("`{}` is not a YYYY-MM-DD date", p.date));
     };
-    let slug = {
-        let s = local_id_of(&p.title);
-        let s = if s.is_empty() {
-            local_id_of(&p.source_id)
-        } else {
-            s
-        };
-        s.chars().take(60).collect::<String>()
-    };
+    let slug = [p.title.as_str(), p.source_id.as_str()]
+        .into_iter()
+        .map(local_id_of)
+        .find(|s| !s.is_empty())
+        .unwrap_or_else(|| "item".to_string());
+    let slug: String = slug.chars().take(60).collect();
     let slug = slug.trim_end_matches('-').to_string();
     let inbox = root.join("raw").join("inbox");
     fs::create_dir_all(&inbox).map_err(|e| e.to_string())?;
@@ -341,6 +338,52 @@ mod tests {
             ""
         )
         .is_err());
+    }
+
+    fn record(id: &str, title: &str) -> Provenance {
+        Provenance {
+            source: "Takvim".into(),
+            source_id: id.into(),
+            title: title.into(),
+            url: None,
+            date: "2026-09-02".into(),
+        }
+    }
+
+    #[test]
+    fn a_record_name_keeps_the_base_of_its_latin_letters() {
+        let root = base("fold");
+        assert_eq!(
+            add(&root, &record("e1", "Güncelleme notu"), "").unwrap(),
+            "captured: raw/inbox/2026-09-02-takvim-guncelleme-notu.md"
+        );
+        // a title with nothing to fold names the record by its source id, then `item`
+        assert_eq!(
+            add(&root, &record("evt-7", "Новости"), "").unwrap(),
+            "captured: raw/inbox/2026-09-02-takvim-evt-7.md"
+        );
+        assert_eq!(
+            add(&root, &record("событие", "Новости"), "").unwrap(),
+            "captured: raw/inbox/2026-09-02-takvim-item.md"
+        );
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn a_record_captured_under_an_older_name_is_never_renamed() {
+        let root = base("old-name");
+        let old = "raw/inbox/2026-09-01-takvim-g-ncelleme-notu.md";
+        fs::write(
+            root.join(old),
+            "---\nsource: takvim\nsource_id: e1\ntitle: \"Güncelleme notu\"\ncaptured: 2026-09-01\n---\n",
+        )
+        .unwrap();
+        assert_eq!(
+            add(&root, &record("e1", "Güncelleme notu"), "").unwrap(),
+            format!("already captured: {old}")
+        );
+        assert_eq!(fs::read_dir(root.join("raw/inbox")).unwrap().count(), 1);
+        let _ = fs::remove_dir_all(&root);
     }
 }
 
