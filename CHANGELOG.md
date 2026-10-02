@@ -7,302 +7,73 @@ by the release workflow — the tag's section becomes the GitHub release body.
 
 ## [0.16.0] - unreleased
 
+Every change below to a finding or a file format applies to a tree that
+declares `spec: docsys/0.5`; a tree that declares `docsys/0.4` is served as
+0.15.1 served it (D-118).
+
 ### Upgrading from 0.15.x
 
-Nothing has to move on the day 0.16.0 is installed. A tree that declares
-`spec: docsys/0.4` — every tree 0.15 wrote — keeps its findings, its file
-formats and its hooks under 0.16.0 (D-118); each command says so in one line on
-stderr. Move one repository when it is ready:
-
-1. Install 0.16.0 on every machine that commits to the repository: every clone
-   must install docsys >= 0.16.0 before pulling this change; a gate under
-   .git/hooks cannot warn an old binary. From the moment the tree declares
-   `docsys/0.5`, an older docsys under the new relays, and under a gate the
-   repository tracks, stops with one line naming the version to install.
-2. In a clean working tree, run `docsys upgrade`. It writes nothing and prints
-   the plan: each item `auto` (applied by the next step), `manual` (for a
-   person, never applied) or `info`; the findings the move adds and removes;
-   a diff for every file its owner edited.
-3. Run `docsys upgrade --apply --commit`. It writes the `auto` items and commits
-   them as one commit. It refuses uncommitted changes; `--force` overrides.
-4. Work through the `manual` items. A verified page whose body or consumed
-   sources moved since its `verified_rev` is verified again by a maintainer
-   (`docsys verify <page>`). A pin whose declaration is not the region 0.15
-   read is re-read and refreshed (`docsys pin --refresh <page>`). A `doc:`
-   citation in the middle of a comment moves to the start of its comment, or
-   stays prose. An owner-edited relay, skill, command or CI workflow takes what
-   it wants from the printed diff — in the workflow, the version pin first
-   (`cargo install docsys --version 0.16.0 --locked`).
-5. After pulling the upgrade, every other clone runs `docsys upgrade --apply`
-   once: the git gate lives in each clone's hooks directory, not in the commit.
-   A hooks directory the repository tracks is committed with the upgrade
-   instead.
-6. Push the upgrade commit and the CI pin in the same change: every clone and
-   the CI move together.
+- Nothing has to move on the day 0.16.0 is installed: a docsys/0.4 tree keeps
+  its findings, its file formats and its hooks.
+- Every clone must install docsys >= 0.16.0 before pulling this change; a gate
+  under .git/hooks cannot warn an old binary.
+- `docsys upgrade` prints the plan; `docsys upgrade --apply --commit` moves the
+  tree in one commit. The items it lists for a person are theirs to finish.
 
 ### Added
 
-- `docsys upgrade [--apply] [--commit] [--force]` (D-117, §16) moves a
-  docsys/0.4 tree to docsys/0.5. The steps are data
-  (`migrations/0.4-0.5.tsv`); the default is the plan; `--apply` writes what is
-  mechanical and `--commit` makes it one commit. A file a docsys template
-  wrote and nobody edited is regenerated; an edited one — a relay, a skill, a
-  command, the CI workflow with its runner and install — is never rewritten,
-  only shown as a diff. A verified page gains its block record only when its
-  blocks at `verified_rev` are its blocks now; a pin's hash becomes its
-  acknowledgement only where it holds and its declaration reads the same
-  region; everything else is listed with its page. The conformance case
-  `corpus/upgrades/0.4-to-0.5` locks the move file by file, and a second run
-  changes nothing. `--apply` ends with the one line for teammates: every
-  clone installs the new docsys before pulling, because a gate under
-  `.git/hooks` cannot warn an old binary; `doctor` names `docsys upgrade --apply`
-  for a clone whose gate block is behind.
-
-- On a docsys/0.5 tree `docsys verify` also records the body's blocks
-  (`verified_blocks`; R-028, D-103) — a bullet, a paragraph, a heading,
-  a fence or a comment, cut by markup alone — so a changed page costs a
-  re-read of the change. `docsys verify --show <page>` lists what that
-  re-read is: the blocks numbered with their lines, the changed and new ones
-  with their text, the removed ones from `verified_rev` where history still
-  holds it, stale or lost bound pins, and the sources and pins to read
-  against. Lint's R-024 error for a page still marked verified
-  says how many blocks are unchanged; `status` counts partially verified
-  pages (`blocks:`, `partially_verified`); `lookup` marks `unverified — m/n
-  blocks as verified by …`.
-- On a docsys/0.5 tree `docsys pin <page> <path> [--symbol <s>] --block <n>`
-  binds a pin to the block it backs (R-212): a stale bound pin's R-111 names
-  its block, and only that block stops counting as verified; a binding whose
-  block was rewritten is reported (`WARN R-212`), to be bound again or
-  dropped.
-- `docsys feedback` (D-116): the issue format and, with `--draft`, an issue
-  body with the facts the tool knows — version, OS, the tree's profile and
-  spec, the rule's text, a docsys command's output, a redacted `.docmeta.yml`,
-  the files a rule's findings name — and TODO where a person writes. It files
-  nothing and names the template to open; the repository carries the same
-  format as `.github/ISSUE_TEMPLATE/`. On a docsys/0.5 tree `lint`, `refs` and
-  `gate` point to it under a finding of a rule that reads free text.
-- On a docsys/0.5 tree the tree's own words for a guess and for a change
-  history are reported (R-210, R-211, D-115): `uncertainty_markers:` found in
-  a permanent page's prose, and `history_headings:` heading a reference page.
-  Nothing is declared by default — the tree names them, in its own language.
-- `docsys adopt --rules-file <path>`, `--report-dir <dir>` and `--no-report`
-  (D-110): the file the rules block goes to, the directory `ADOPTION.md`
-  goes to, or the report printed and nothing written.
-- `docsys ledger fix [--root <dir>]` (D-108) rewrites a ledger's em-dash
-  field markers (` — deferred: `) to R-108's ASCII (` -- deferred: `) in
-  `work/debt.md`, `work/questions.md`, `wiki/open-questions.md` and their
-  `_archive/` slices — at the label positions only, in the tree's declared
-  `list_labels` form; a dash inside field text stays. It writes only what
-  changed and prints it; a second run changes nothing.
-- On a docsys/0.5 tree an open ledger item that vanished is reported at the gate (R-045, D-109):
-  inside a repository, lint compares `work/debt.md`, `work/questions.md` and
-  `wiki/open-questions.md` with `HEAD`, and an open item deleted with no
-  counterpart — the item closed in place, a rewording of the same date, an
-  `_archive/` slice, or for debt the journal entry `debt close` writes — is a
-  warning naming its date and first words.
-- `docsys --version`, the binary and the spec it implements. The relays and
-  the git gate read it: a tree that declares a newer spec than the installed
-  docsys implements stops with one line naming the minimum version and the
-  install command, instead of a flood of findings an older binary cannot
-  read.
-- On a docsys/0.5 tree `docsys pin --gc [--repo .] [--root docs]` (D-119)
-  removes the pin acknowledgements nothing needs any more: a directory whose
-  page id pins nothing, and inside a page's directory every acknowledgement
-  no current region of its pins matches. A page whose regions cannot all be
-  read is kept and named; a second run removes nothing. `status` counts the
-  orphaned ones.
-- `ci/pin-replay.sh <clone> <branch> <n> <old-binary> <new-binary>`: replays
-  the last n commits of a real repository that touched pinned code, once per
-  binary, and prints the pages each staled and the docs files and lines a
-  refresh then changed. Manual: it needs a clone, and writes only throwaway
-  worktrees.
-- `docsys adopt --ci-runner <label>[,<label>…]`, `--ci-install cargo|release`
-  with `--ci-sha256 <target>=<hex>,…`, and `--verify-on-approval
-  pull-request|direct|off` (D-105, D-111): the runner labels, how the
-  runners get docsys, and where the verify-on-approval job puts its records.
-  `--ci-install release` without sha256 values is refused before anything
-  is written.
+- `docsys upgrade [--apply] [--commit] [--force]`: a docsys/0.4 tree to
+  docsys/0.5 in one commit; what needs a person is listed, never applied (D-117).
+- `docsys --version`: the binary and the spec it implements (D-099).
+- `docsys verify --show <page>`: what a re-verification reads, block by block (D-103).
+- `docsys pin … --block <n>`: a pin bound to the block it backs (§21, R-212, D-103).
+- `docsys pin --gc`: removes the pin acknowledgements nothing needs (D-119).
+- `docsys ledger fix`: em-dash ledger markers to R-108's ASCII (D-108).
+- `docsys feedback [--draft]`: the issue format and a drafted issue; it files nothing (D-116).
+- `adopt --rules-file`, `--report-dir`, `--no-report` (D-110); `--ci-runner`,
+  `--ci-install cargo|release` with `--ci-sha256`, `--verify-on-approval
+  pull-request|direct|off` (D-105, D-111).
+- The tree's own uncertainty markers and history headings are reported
+  (R-210, R-211, D-115).
+- `ci/compat.sh` and `ci/pin-replay.sh`: manual checks against the previous
+  release and against a real clone.
 
 ### Changed
 
-- The block `rules --agents-md` writes teaches what an agent decides while it
-  writes or verifies a page (D-114): the question and options of P/R-031,
-  P/R-033, P/R-045, P/R-102, P/R-123 and P/R-025 verbatim from the spec, R-108's
-  item grammar, when a pin is worth keeping, and `docsys feedback`. The first
-  turn routes intents to commands — `/docsys-interview` for knowledge only
-  people have, `/docsys-seed` for code with no pages, `/docsys-sync` for drift.
-  `docsys adopt` (or `docsys upgrade`) refreshes the block where its markers
-  are.
-- One docsys serves trees at different spec versions (D-118): a tree that
-  declares `docsys/0.4` gets exactly 0.15.1's findings and file formats, and
-  every 0.5 rule or format — everything this release newly enforces included
-  — applies only to a tree that declares `docsys/0.5`. `docsys upgrade` moves a
-  repository, its CI pin included, when it is ready; nothing has to move on
-  the same day.
-- On a docsys/0.5 tree R-108 reads a ledger line as written (D-108): the check no longer turns a
-  spaced em dash into ` -- ` before matching, so an entry whose field markers
-  are em dashes is reported — a warning that names `docsys ledger fix`, which
-  `docsys upgrade` runs. A docsys/0.4 tree keeps reading the em dash as 0.15.1
-  did. Routers keep accepting the em dash (D-013).
-- On a docsys/0.5 tree an edit that changes a verified page's body demotes it
-  to `unverified` by itself (R-024, D-101): the PostToolUse relay writes it,
-  keeps the record as the last verification and tells the agent; `docsys
-  verify --revoke` keeps the record too. `lookup` says when a verified page's
-  body changed.
-- `adopt` on a tree that holds pages and no `.docmeta.yml` prints the page
-  count and the three ways on — migrate them, keep them in place with
-  `docsys init`, or put the tree elsewhere with `--root` — and never chooses
-  (D-110). `init` writes only the files that are absent, so keeping a tree
-  in place overwrites no page.
-- The `docsys:rules` block stays where its markers are (D-110): a re-adopt
-  updates it in place in whichever `AGENTS.md` or `CLAUDE.md` holds it,
-  never moving it. A first block goes to `AGENTS.md`, or to `CLAUDE.md` when
-  git ignores `AGENTS.md`; when git ignores both, it is printed and the
-  report's checklist names it.
-- A re-adopt finds `ADOPTION.md` wherever its managed block is — moved by
-  hand, untracked, or kept out of git through `.gitignore` — and updates it
-  there instead of writing a new one at the root (D-110).
-- On a docsys/0.5 tree `raw/` is a project's optional record layer (D-112;
-  SPEC §3, R-023, R-076). A record under a project's `raw/` gets the knowledge base's
-  treatment: a dangling link or `doc:` reference in it is reported instead
-  of blocking, and the path scan skips it. **R-023 is newly enforced in
-  0.5 projects**: a tracked record whose bytes change, or that is deleted, is an
-  error at the gate; a record not yet committed stays mutable. `status` in a
-  project prints `records: N (M cited by no page)` and no inbox line; `inbox
-  add` in a project without `raw/` names `mkdir -p <root>/raw/inbox` or the
-  knowledge-base profile. `raw move` stays the knowledge base's.
-- In a `docsys/0.5` tree a pinned symbol resolves to its declaration, never
-  to a use (D-106, superseding D-069). The resolver reads a grammar per
-  extension family — Rust; TS/JS and the `<script>` of `.vue` and `.svelte`;
-  Python; Go; a generic rule for every other brace language — over tokens
-  that skip comments, string literals and imports. Multi-line signatures,
-  `;`-terminated declarations, arrow consts, object literals, union types and
-  object-literal return types now resolve; `Class.method`, `Type::method`
-  and `Outer.Inner.name` resolve inside their owner (every `impl` block of a
-  Rust type; the receiver of a Go method). A symbol that occurs only at uses,
-  or is declared more than once, is refused naming the lines. A
-  `docsys/0.4` tree keeps D-069's resolution and its findings (D-118).
-- `pin` of a whole file longer than 300 lines prints a note: every edit to
-  that file stales the page; pin a symbol.
-- R-114 forbids a guess, and D-069 guessed. When a tree moves to
-  `docsys/0.5`, a pin that 0.15 bound to a use site resolves to the
-  declaration instead — its hash differs, so the page is stale (R-111) until
-  it is re-read and `pin --refresh`ed — or, where the file declares no such
-  symbol, it is refused (R-114). Either way the old pin certified the wrong
-  region.
-- On a docsys/0.5 tree a pin's evidence lives beside the page, never in it
-  (D-119; SPEC R-110, R-111, R-113, R-044). `docsys pin` and `docsys pin
-  --refresh` write the acknowledgement `<root>/.verifies/<page-id>/<region
-  hash>`, holding the one line `<page-id> <hash>`, and a refresh never writes
-  the page — no `hash:` line, no `updated:` bump. Pull requests that refresh
-  different pins of one page, or the same region to the same text, merge,
-  squash or rebase with no conflict in any docs file; a region two merged
-  changes both moved matches neither acknowledgement and stays stale until
-  someone reads the combination. The region hash is the region's token form:
-  a reformat, a comment or an inserted `doc:` citation no longer stales a pin.
-  A pin that still carries `hash:` is checked against it until `docsys
-  upgrade` or a refresh moves it into an acknowledgement; a malformed
-  acknowledgement is reported (R-113). A docsys/0.4 tree keeps `hash:` in the
-  page and never writes `.verifies/`, exactly as 0.15.1.
-- The workflow `adopt` writes is pinned and least-privileged (D-111): it
-  runs on pull requests and pushes to the default branch, with
-  `permissions: contents: read` that only the verify job widens, cancels a
-  superseded run, and installs `cargo install docsys --version <v> --locked`,
-  cached by version, on `ubuntu-latest`. Line 1 records its parameters and a
-  hash of the file, so a file nobody edited can be regenerated with them and
-  an edited one stays its owner's. A re-adopt keeps an existing workflow, as
-  before.
-- The verify-on-approval job commits its records on `docsys/verify-<number>`
-  and opens a follow-up pull request by default, instead of pushing to the
-  base branch, which a protected branch refuses (D-105); `--verify-on-approval
-  direct` keeps the push, `off` writes no job. The ADOPTION checklist names
-  the repository setting that lets Actions open pull requests, and every
-  `maintainers:` entry without the `@login` a host approval is matched by.
-- `docsys verify --range … --by @login` exits 0 with `skipped: @login is not
-  a declared maintainer` when no maintainer entry carries that login (it
-  exited 2), so the workflow drops its `|| echo` and any other failure fails
-  the job (D-105).
+- A verification records the body as its blocks and is checked without
+  history, so it survives a squash; an edit that changes the body demotes the
+  page, and a revoke keeps the record (R-024, R-028, D-101, D-103).
+- R-208 reads the maintainer's act from the record's own history, trailers
+  included (D-102).
+- A pin's evidence lives beside the page under `.verifies/`; a refresh never
+  writes the page, and pull requests that refresh pins merge cleanly (D-119).
+- A pinned symbol resolves to its declaration, never to a use (D-106).
+- `updated:` falls behind history only after a content change (R-106, §2.4).
+- R-108 reads ledger separators as written (D-108); an open item that vanished
+  is reported (R-045, D-109).
+- A code-side `doc:` counts at the start of a comment only (R-072, D-107); a
+  wiki-link inside inline code is quoted material (R-071).
+- A project's `raw/` is a record layer (R-023, D-112).
+- The agent text carries the procedures an agent needs while it writes or
+  verifies a page, and the first turn routes intents to commands (D-114).
+- The CI workflow `adopt` writes is pinned, least-privileged and regenerable,
+  and approvals land through a pull request (D-105, D-111).
+- `adopt` meets a repository as it is: the tree, the rules block and
+  `ADOPTION.md` stay where they are, and `init` writes only absent files (D-110).
 
 ### Fixed
 
-- docsys works from anywhere inside the repository (D-098). A relative
-  `--root` names a tree: every command that works on an existing tree walks
-  from where it runs up to the repository's top level and takes the nearest
-  tree, and the repository is the tree's own. A relay started in a package
-  directory no longer blocks every commit on R-160, skips the `updated:` bump,
-  counts zero pages or misreads a page change as none; a hook finds its tree
-  from the payload (the edited file, the session's `cwd`), then
-  `$CLAUDE_PROJECT_DIR`. A knowledge base at the top level is found without
-  `--root .`. From the top level every command prints what it printed before.
-- The git pre-commit gate of a linked worktree resolves pins at the
-  repository's top: git exports `GIT_DIR` to those hooks, which made the
-  repository read as the docs directory and every pin as moved. Every git
-  call now drops an inherited `GIT_DIR` unless `GIT_WORK_TREE` comes with it,
-  and keeps `GIT_INDEX_FILE` (a partial commit's index).
-- The usage text names the real default root (`docs`, found from where the
-  command runs) instead of `--root .`.
-- The relays run from any directory of the repository (D-099): `adopt` and
-  `agents` wire `"$CLAUDE_PROJECT_DIR"/.claude/hooks/<name>.sh`, each relay
-  starts in the project directory and defaults to the tree's own root (an
-  `adopt --root documentation` no longer installs relays that look for `docs`;
-  a base installed from its own directory no longer bakes an absolute path).
-  A relay already wired in another spelling is not wired a second time;
-  `doctor` names a relative wire and a wire the owner wrapped.
-- `adopt` in a linked worktree writes the git gate (D-100): git names the
-  hooks directory, so `core.hooksPath` and a worktree's common hooks are
-  honoured; it reported "failed" there before.
-- The git gate runs `docsys lint --repo .` like `refs` and `gate`, and carries
-  its template version; `adopt` rewrites a block behind the binary in place.
-- On a docsys/0.5 tree a verification survives a squash merge (D-101):
-  `docsys verify` records the body's blocks (`verified_blocks`) and each
-  consumed source's hash (`verified_sources`); lint checks them without
-  history, and a `verified_rev` a squash or a rebase left unreachable is no
-  finding when the record holds — `status` counts those pages.
-- On a docsys/0.5 tree R-208 reads the maintainer's act from the record's own
-  history (D-102): any commit that changed the record since the body last
-  changed, authored by the maintainer or naming them in a `Co-authored-by:`,
-  `Reviewed-by:` or `Approved-by:` trailer — so a host's squash commit keeps
-  it, and a maintainer re-verifying with an identical `verified_by:` line is
-  seen. Newly enforced there: a verification record carried over a body nobody
-  verified again is an R-208 error.
-- On a docsys/0.5 tree `updated:` is behind history only after a content
-  change (R-106, §2.4): a commit that touched only `updated:`, the
-  verification record or a pin's hash no longer counts, so a tool's
-  bookkeeping commit leaves the page quiet.
-- On a docsys/0.5 tree a wiki-link written inside an inline code span is quoted material (R-071):
-  a page showing `` `[[reference/x]]` `` no longer fails on a dangling link.
-  A span is CommonMark's — a run of backticks up to the next run of the same
-  length on the line — and lint, `backlinks`, `mentions` and `graph` skip it
-  alike. `doc:` references in inline code still count (R-073).
-- On a docsys/0.5 tree a code-side citation is `doc:` at the start of a comment (R-072, D-107):
-  `refs`, the code citations of `backlinks` and `graph`, and `seed`'s
-  citation listing count `doc:` only where it opens a line's text or follows
-  a comment leader (`//`, `/*`, `*`, `#`, `--`, `;`, `%`, `<!--`). A sentence
-  such as "see the provider doc: it caps", `api_doc: foo` or `"doc: x"` no
-  longer fails `refs` with a dangling R-076. A citation written mid-comment
-  (`// see doc: x for why`) stops counting: move it to the start of its
-  comment. Pages are unchanged — inside the tree `doc:` counts anywhere
-  outside quoted material.
-- An unresolved `sources:` entry (R-059) names the forms that resolve: a
-  path under the docs root (or, in a project, the repository), a URL,
-  `git:<sha>`, `git:<sha>:<path>[@L<a>-L<b>]`, `tag:<ref>`, `@namespace/id`,
-  and — where the tree has a `raw/` — a record captured with
-  `docsys inbox add`.
-- On a docsys/0.5 tree a scalar `maintainers: ayse` is reported (R-208): it names no maintainer,
-  so every record check was silently off. The warning names the list forms,
-  `maintainers: [ayse]` or a block list.
-- A file name the tool derives keeps the base of its Latin letters (D-113):
-  "Güncelleme notu" lands as `…-guncelleme-notu.md`, not
-  `…-g-ncelleme-notu.md`. The same fold names `inbox pull` records, the
-  namespace `adopt` writes, `migrate`'s identifiers and `seed`'s postmortem
-  files, which kept non-ASCII letters (R-120). A record title with nothing
-  to fold names the record by its source id, then `item`. Existing files are
-  never renamed.
-- The workflow `adopt` writes for a tree at the repository's top passes
-  `--root .`; 0.15 wrote an empty `--root` there.
-- `pin` and `pin --refresh` keep a pin's `block:` when they rewrite the
-  page's `verifies:`; they dropped every key but `path`, `symbol` and
-  `hash`.
+- docsys works from any directory of the repository, and a hook finds its
+  tree from its payload (D-098).
+- The gate of a linked worktree resolves pins at the repository's top, and
+  `adopt` writes the gate there (D-100).
+- The relays run from any directory and default to the tree's own root (D-099).
+- A scalar `maintainers:` is reported (R-208).
+- A derived file name folds a Latin letter to its base (D-113).
+- An unresolved `sources:` entry names the forms that resolve (R-059).
+- The usage text names the real default root; the workflow for a tree at the
+  repository's top passes `--root .`.
+- `pin` and `pin --refresh` keep a pin's `block:`.
 
 ## [0.15.1] - 2026-09-04
 
