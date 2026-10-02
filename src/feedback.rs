@@ -227,7 +227,8 @@ pub fn draft(d: &Draft) -> Result<String, String> {
     if let Some(c) = d.command {
         let (code, output) = run_command(c)?;
         example.push_str(&format!(
-            "\n`{c}` exited {code}:\n\n```\n{}\n```\n",
+            "\n`{}` exited {code}:\n\n```\n{}\n```\n",
+            redact_home(c),
             redact_home(&output)
         ));
     }
@@ -283,11 +284,10 @@ pub fn draft(d: &Draft) -> Result<String, String> {
         "{title}TODO: a title that states the problem\n\n\
          ### Problem or need\nTODO: one sentence — what is wrong, or what is missing\n\n\
          ### Example\n{example}\n\
-         ### Rule or command\n{rule_line}{}\n\n\
+         ### Rule or command\n{rule_line}\n\n\
          ### Impact\nTODO: who it hits, and how often\n\n\
          ### Proposal (optional)\nTODO: the change, and what it costs or risks — or delete this section\n\n\
-         ### Environment\n{env}",
-        d.command.map(|c| format!("\n`{c}`")).unwrap_or_default()
+         ### Environment\n{env}"
     ))
 }
 

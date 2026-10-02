@@ -171,3 +171,24 @@ fn a_disputed_finding_points_to_feedback_once_on_a_0_5_tree() {
     assert!(!out.contains("Finding wrong?"), "{out}");
     let _ = fs::remove_dir_all(&old);
 }
+
+/// The command a draft ran is echoed once, and the reporter's home directory
+/// in it is `~`, as in its output (D-116).
+#[test]
+fn the_echoed_command_is_written_once_without_the_home_directory() {
+    let repo = tree("echo", "0.5");
+    let home = repo.parent().unwrap().to_path_buf();
+    let command = format!("docsys lint --root {}/nope", repo.display());
+    let out = Command::new(env!("CARGO_BIN_EXE_docsys"))
+        .args(["feedback", "--draft", "--command", &command])
+        .current_dir(&repo)
+        .env("HOME", &home)
+        .output()
+        .unwrap();
+    let body = String::from_utf8_lossy(&out.stdout);
+    let masked = command.replace(home.to_str().unwrap(), "~");
+    assert_ne!(masked, command);
+    assert_eq!(body.matches(&masked).count(), 1, "{body}");
+    assert!(!body.contains(home.to_str().unwrap()), "{body}");
+    let _ = fs::remove_dir_all(&repo);
+}
