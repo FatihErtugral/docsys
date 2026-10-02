@@ -89,7 +89,11 @@ pub fn raw_move(root: &Path, record: &str, domain: &str) -> Result<Moved, String
         if n == 0 {
             continue;
         }
-        let text = crate::hook::bump_updated(&text, &today).unwrap_or(text);
+        let text = if crate::era::Era::at(root).derived_dates() {
+            text
+        } else {
+            crate::hook::bump_updated(&text, &today).unwrap_or(text)
+        };
         fs::write(root.join(&page.rel), text).map_err(|e| e.to_string())?;
         out.rewritten.push((page.rel.clone(), n));
     }

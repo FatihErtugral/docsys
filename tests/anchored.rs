@@ -305,10 +305,10 @@ fn lookup_says_a_verified_body_changed_without_any_history() {
 }
 
 /// §2.4: a commit that changes only bookkeeping — here the verification
-/// record — is not a content change, so `updated:` is not behind it. A body
-/// change is, and R-106 still sees it.
+/// record — is not a content change, so it does not move a page's date. A
+/// body change does (R-050: the date is history's, D-122).
 #[test]
-fn a_bookkeeping_commit_never_puts_updated_behind_history() {
+fn a_bookkeeping_commit_never_moves_a_page_date() {
     // a history of its own, every commit dated, in order
     let repo = tmp("bookkeeping");
     git(&repo, &["init", "-q", "-b", "main"]);
@@ -323,11 +323,17 @@ fn a_bookkeeping_commit_never_puts_updated_behind_history() {
         "index.md",
         "# docs\n\n- [[reference/token-ttl|Token TTL]] -- the lifetime.\n",
     );
-    let dated = "---\nid: token-ttl\ntype: reference\nupdated: 2026-09-01\nverification: unverified\nverified_by: ayse\nverified_rev: 1111111\nsources: []\n---\n\n# Token TTL\n\nTwelve hours.\n";
-    write(&root, "reference/token-ttl.md", dated);
+    let page = "---\nid: token-ttl\ntype: reference\nverification: unverified\nverified_by: ayse\nverified_rev: 1111111\nsources: []\n---\n\n# Token TTL\n\nTwelve hours.\n";
+    write(&root, "reference/token-ttl.md", page);
+    let date = || {
+        let tree = docsys::tree::DocTree::load(&root).unwrap();
+        docsys::fresh::Dates::of(&tree).of_page("reference/token-ttl.md", None)
+    };
+    assert_eq!(date(), "unknown", "nothing committed yet");
     commit_as(&repo, "ayse@example.com", "docs: dated", Some("2026-09-01"));
-    // the record moves, the content does not: `updated:` is not behind it
-    let record_only = dated.replace("verified_rev: 1111111", "verified_rev: 2222222");
+    assert_eq!(date(), "2026-09-01");
+    // the record moves, the content does not: the date stays
+    let record_only = page.replace("verified_rev: 1111111", "verified_rev: 2222222");
     write(&root, "reference/token-ttl.md", &record_only);
     commit_as(
         &repo,
@@ -335,8 +341,8 @@ fn a_bookkeeping_commit_never_puts_updated_behind_history() {
         "docs: record only",
         Some("2026-09-10"),
     );
-    assert_eq!(findings(&root, &repo), Vec::<String>::new());
-    // the check seen failing: a body change on a later day, `updated:` left behind
+    assert_eq!(date(), "2026-09-01");
+    // a body change on a later day moves it
     write(
         &root,
         "reference/token-ttl.md",
@@ -348,10 +354,8 @@ fn a_bookkeeping_commit_never_puts_updated_behind_history() {
         "docs: six hours",
         Some("2026-09-20"),
     );
-    assert_eq!(
-        findings(&root, &repo),
-        vec!["R-106 reference/token-ttl.md [updated]".to_string()]
-    );
+    assert_eq!(date(), "2026-09-20");
+    assert_eq!(findings(&root, &repo), Vec::<String>::new());
     let _ = fs::remove_dir_all(&repo);
 }
 

@@ -5,7 +5,6 @@ verification: verified
 verified_by: maintainer
 verified_rev: @REV@
 sources: []
-updated: 2026-09-02
 verifies:
   - path: src/auth.rs
     symbol: expire

@@ -1,7 +1,6 @@
 ---
 id: <id>
 status: draft
-updated: <YYYY-MM-DD>
 ---
 <!-- features: copy to work/features/<id>.md; the headings are the R-048 template — a section with nothing to say stays empty, never filled for completeness -->
 

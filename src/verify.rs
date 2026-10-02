@@ -162,8 +162,8 @@ fn record_lines(rec: &Record) -> Vec<String> {
     out
 }
 
-/// Rewrite the verification record in a page's frontmatter, `updated:`
-/// bumped (R-052). `Some` writes a new record in place of the old one; `None`
+/// Rewrite the verification record in a page's frontmatter, and on a
+/// docsys/0.4 tree bump its `updated:` to `today`. `Some` writes a new record in place of the old one; `None`
 /// sets `unverified`, and keeps the record as the last verification when
 /// `keep_last` (D-101) — the reading the next verifier compares against — or
 /// removes it, as on a docsys/0.4 tree (D-118).
@@ -171,7 +171,7 @@ fn write_record(
     text: &str,
     record: Option<&Record>,
     keep_last: bool,
-    today: &str,
+    today: Option<&str>,
 ) -> Option<String> {
     let rest = text.strip_prefix("---\n")?;
     let end = rest.find("\n---\n")?;
@@ -233,7 +233,10 @@ fn write_record(
         out = with;
     }
     let rebuilt = format!("---\n{}{tail}", out.join("\n"));
-    Some(crate::hook::bump_updated(&rebuilt, today).unwrap_or(rebuilt))
+    match today {
+        Some(today) => Some(crate::hook::bump_updated(&rebuilt, today).unwrap_or(rebuilt)),
+        None => Some(rebuilt),
+    }
 }
 
 /// What `verify --range` came to.
@@ -435,7 +438,9 @@ pub fn verify(
     let page = find_page(&tree, target)
         .ok_or_else(|| format!("no permanent page at `{target}` and none with that id"))?;
     let path = root.join(&page.rel);
-    let today = crate::migrate::today();
+    // a docsys/0.5 page's date is history's (D-122)
+    let today = (!crate::era::Era::at(root).derived_dates()).then(crate::migrate::today);
+    let today = today.as_deref();
     let mut out = Verified {
         page: page.rel.clone(),
         ..Default::default()
@@ -443,7 +448,7 @@ pub fn verify(
     if revoke {
         let text = fs::read_to_string(&path).map_err(|e| e.to_string())?;
         let keep = crate::era::Era::at(root).anchored_verification();
-        let new = write_record(&text, None, keep, &today).ok_or("the page has no frontmatter")?;
+        let new = write_record(&text, None, keep, today).ok_or("the page has no frontmatter")?;
         fs::write(&path, new).map_err(|e| e.to_string())?;
         out.by = String::new();
         out.notes.push(if keep {
@@ -538,8 +543,8 @@ pub fn verify(
         blocks: anchored.then_some(blocks.as_slice()),
         sources: &sources,
     };
-    let new = write_record(&text, Some(&record), anchored, &today)
-        .ok_or("the page has no frontmatter")?;
+    let new =
+        write_record(&text, Some(&record), anchored, today).ok_or("the page has no frontmatter")?;
     fs::write(&path, new).map_err(|e| e.to_string())?;
     out.by = by.clone();
     out.rev = rev.clone();
@@ -781,10 +786,10 @@ mod tests {
             sources: &none,
         };
         let text = "---\nid: x\ntype: reference\nverification: unverified\nsources: [a.md]\nupdated: 2026-01-01\n---\nBody.\n";
-        let out = write_record(text, Some(&rec), true, "2026-09-04").unwrap();
+        let out = write_record(text, Some(&rec), true, Some("2026-09-04")).unwrap();
         assert!(out.contains("verification: verified\nverified_by: ayse\nverified_rev: abc1234\nverified_blocks: [701b6f9c375e]\nsources: [a.md]\nupdated: 2026-09-04\n---\nBody.\n"), "{out}");
         // revoked: unverified, the record kept as the last verification
-        let back = write_record(&out, None, true, "2026-09-05").unwrap();
+        let back = write_record(&out, None, true, Some("2026-09-05")).unwrap();
         assert!(back.contains("verification: unverified\nverified_by: ayse\nverified_rev: abc1234\nverified_blocks: [701b6f9c375e]\nsources: [a.md]\nupdated: 2026-09-05\n"), "{back}");
         // verified again: the old record is replaced, never duplicated
         let src = vec![("@up/x".to_string(), "fnv:0123456789abcdef".to_string())];
@@ -794,17 +799,17 @@ mod tests {
             blocks: Some(&one),
             sources: &src,
         };
-        let twice = write_record(&back, Some(&again), true, "2026-09-06").unwrap();
+        let twice = write_record(&back, Some(&again), true, Some("2026-09-06")).unwrap();
         assert_eq!(twice.matches("verified_by:").count(), 1, "{twice}");
         assert!(
             twice.contains("verified_by: bora\nverified_rev: def5678\n"),
             "{twice}"
         );
         assert!(twice.contains("verified_sources:\n  - source: \"@up/x\"\n    hash: \"fnv:0123456789abcdef\"\nsources: [a.md]\n"), "{twice}");
-        let thrice = write_record(&twice, Some(&rec), true, "2026-09-07").unwrap();
+        let thrice = write_record(&twice, Some(&rec), true, Some("2026-09-07")).unwrap();
         assert!(!thrice.contains("verified_sources"), "{thrice}");
         let never = "---\nid: y\ntype: howto\nupdated: 2026-01-01\n---\nSteps.\n";
-        let out = write_record(never, Some(&rec), true, "2026-09-04").unwrap();
+        let out = write_record(never, Some(&rec), true, Some("2026-09-04")).unwrap();
         assert!(out.contains("type: howto\nverification: verified\nverified_by: ayse\nverified_rev: abc1234\nverified_blocks: [701b6f9c375e]\nsources: []\nupdated: 2026-09-04\n"), "{out}");
         // a docsys/0.4 tree: the record 0.15 wrote, and a revoke removes it (D-118)
         let old = Record {
@@ -813,9 +818,9 @@ mod tests {
             blocks: None,
             sources: &none,
         };
-        let out = write_record(text, Some(&old), false, "2026-09-04").unwrap();
+        let out = write_record(text, Some(&old), false, Some("2026-09-04")).unwrap();
         assert!(out.contains("verification: verified\nverified_by: ayse\nverified_rev: abc1234\nsources: [a.md]\n"), "{out}");
-        let back = write_record(&out, None, false, "2026-09-05").unwrap();
+        let back = write_record(&out, None, false, Some("2026-09-05")).unwrap();
         assert!(
             back.contains("verification: unverified\nsources: [a.md]\n")
                 && !back.contains("verified_by"),
@@ -833,7 +838,7 @@ mod tests {
             sources: &[],
         };
         let text = "---\nid: x\ntype: reference\nverification: unverified\nsources: []\nupdated: 2026-01-01\n---\nBody.\n";
-        let out = write_record(text, Some(&rec), true, "2026-10-02").unwrap();
+        let out = write_record(text, Some(&rec), true, Some("2026-10-02")).unwrap();
         assert!(out.contains("verified_rev: abc1234\nverified_blocks: [941ba81fbfec, 28949667d156]\nsources: []\n"), "{out}");
         // a formatter reflowed the list (D-002): a new verification replaces it whole
         let reflowed = out.replace(
@@ -845,7 +850,7 @@ mod tests {
             blocks: Some(&one),
             ..rec
         };
-        let twice = write_record(&reflowed, Some(&again), true, "2026-10-03").unwrap();
+        let twice = write_record(&reflowed, Some(&again), true, Some("2026-10-03")).unwrap();
         assert_eq!(twice.matches("941ba81fbfec").count(), 0, "{twice}");
         assert!(
             twice.contains(
@@ -854,7 +859,7 @@ mod tests {
             "{twice}"
         );
         // a revoke keeps it as part of the last verification
-        let back = write_record(&twice, None, true, "2026-10-04").unwrap();
+        let back = write_record(&twice, None, true, Some("2026-10-04")).unwrap();
         assert!(
             back.contains("verification: unverified\nverified_by: ayse\nverified_rev: abc1234\nverified_blocks: [701b6f9c375e]\n"),
             "{back}"

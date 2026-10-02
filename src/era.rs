@@ -138,6 +138,13 @@ impl Era {
         self.v05()
     }
 
+    /// D-122: a page's date is its last content change in history; nothing
+    /// writes `updated:`, and a page that carries it is reported. Before:
+    /// `updated:` required, bumped by the tooling, checked against history.
+    pub fn derived_dates(self) -> bool {
+        self.v05()
+    }
+
     /// D-116: `lint`, `refs` and `gate` end with a pointer to `docsys feedback`
     /// under a finding of a rule that reads free text. Before: the findings alone.
     pub fn finding_pointers(self) -> bool {

@@ -1360,6 +1360,12 @@ pub fn apply(
         }
     }
     let today = crate::migrate::today();
+    // a docsys/0.5 page's date is history's (D-122)
+    let date = if crate::era::Era::at(root).derived_dates() {
+        String::new()
+    } else {
+        format!("updated: {today}\n")
+    };
     let pre = crate::migrate::generated_preamble(root);
     let mut done = Vec::new();
     let commit_text = |sha: &str| -> Result<(String, String), String> {
@@ -1406,7 +1412,7 @@ pub fn apply(
                 }
                 let sources: Vec<String> = shas.iter().map(|s| format!("git:{s}")).collect();
                 let mut text = format!(
-                    "---\nid: {feature}\nstatus: active\nupdated: {today}\n{SEEDED}\ncovers: [scope:{feature}]\nsources: [{}]\n---\nThis page holds what the builder said about `{feature}` during seeding, verbatim; read it before writing the permanent page.\n",
+                    "---\nid: {feature}\nstatus: active\n{date}{SEEDED}\ncovers: [scope:{feature}]\nsources: [{}]\n---\nThis page holds what the builder said about `{feature}` during seeding, verbatim; read it before writing the permanent page.\n",
                     sources.join(", ")
                 );
                 for h in ["Question", "Tried", "Learned", "Why no decision"] {
@@ -1469,7 +1475,7 @@ pub fn apply(
                 }
                 quote.push_str(&format!("> — git:{sha}\n"));
                 let text = format!(
-                    "---\nid: {slug}\nstatus: draft\nupdated: {today}\n{SEEDED}\nsources: [git:{sha}]\n---\nThis page holds a commit's own account of an incident, verbatim; the builder fills the rest.\n\n## What happened\n\n{quote}\n## Root cause\n\n## Recurrence\n\n## Lesson\n"
+                    "---\nid: {slug}\nstatus: draft\n{date}{SEEDED}\nsources: [git:{sha}]\n---\nThis page holds a commit's own account of an incident, verbatim; the builder fills the rest.\n\n## What happened\n\n{quote}\n## Root cause\n\n## Recurrence\n\n## Lesson\n"
                 );
                 std::fs::write(&path, crate::migrate::with_preamble(&text, &pre))
                     .map_err(|e| e.to_string())?;

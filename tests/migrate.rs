@@ -31,7 +31,8 @@ fn apply_moves_rewrites_and_scaffolds() {
 
     let a = fs::read_to_string(root.join("reference/a.md")).unwrap_or_default();
     assert!(
-        a.starts_with("---\nid: a\ntype: reference\nupdated: "),
+        // the tree it writes is docsys/0.5: the date is history's (D-122)
+        a.starts_with("---\nid: a\ntype: reference\n---\n"),
         "frontmatter: {a}"
     );
     assert!(

@@ -818,8 +818,9 @@ pub fn is_live_page(file: &str, root_rel: &str) -> bool {
         && !tail.starts_with("_templates/")
 }
 
-/// PostToolUse on `Edit|Write`: keep `updated:` honest on the edited page
-/// (R-052). `today` is injected so the rewrite is testable.
+/// PostToolUse on `Edit|Write`: an edit that changed a verified page's body
+/// demotes it (R-024); on a docsys/0.4 tree the page's `updated:` is also
+/// bumped, as 0.15 did. `today` is injected so the rewrite is testable.
 pub fn post_tool_use(repo: &Path, root: &Path, payload: &str, today: &str) -> Reply {
     let Some(file) = parse_json(payload).and_then(|j| {
         j.string_at(&["tool_input", "file_path"])
@@ -838,7 +839,11 @@ pub fn post_tool_use(repo: &Path, root: &Path, payload: &str, today: &str) -> Re
     let Ok(text) = fs::read_to_string(&path) else {
         return Reply::ok();
     };
-    let text = match bump_updated(&text, today) {
+    let era = crate::era::Era::at(root);
+    let bumped = (!era.derived_dates())
+        .then(|| bump_updated(&text, today))
+        .flatten();
+    let text = match bumped {
         Some(bumped) => {
             let _ = fs::write(&path, &bumped);
             bumped
@@ -848,7 +853,7 @@ pub fn post_tool_use(repo: &Path, root: &Path, payload: &str, today: &str) -> Re
     // R-024 by construction (D-101): an edit that changed a verified page's
     // body makes it unverified; the record stays as the last verification,
     // and the agent is told — the change it made is now a maintainer's to read.
-    let demoted = crate::era::Era::at(root)
+    let demoted = era
         .anchored_verification()
         .then(|| demote_if_changed(&text))
         .flatten();

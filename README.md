@@ -132,7 +132,7 @@ copy to drift (R-155).
 flowchart LR
     S([session starts]) --> SI["session-intent hook<br/>classify work type once"]
     SI --> WORK["agent works<br/>judgment via docsys rules --procedures"]
-    WORK -- "edits docs page" --> PU["post-edit hook<br/>bumps updated:"]
+    WORK -- "edits docs page" --> PU["post-edit hook<br/>demotes a verified page it changed"]
     WORK -- "commit" --> PC["pre-commit hook<br/>docsys gate"]
     WORK -- "turn ends" --> ST["stop hook<br/>code moved, docs or journal didn't?<br/>(tree + unpushed commits) → remind"]
     PC -- "lint errors" --> BLOCK[BLOCKED — fix first]
@@ -164,8 +164,8 @@ exists.
 The same four relays serve a knowledge base (`docsys agents --kb`); the binary
 reads the root's profile and changes what they guard: a `Write`/`Edit` on an
 existing `raw/` record is blocked (the one irreversible write), the first turn
-names the four organs instead of the work types, `updated:` bumps on wiki
-pages only, and the end of a turn names what waits in the inbox (D-076).
+names the four organs instead of the work types, a verified wiki page an edit
+changed turns unverified, and the end of a turn names what waits in the inbox (D-076).
 
 ## Graduation — the heart
 
@@ -251,7 +251,7 @@ checks make that loud, all of them errors, none of them a reviewer's memory:
 flowchart LR
     CODE["code region"] -- "verifies: sha256 pin" --> PAGE["permanent page"]
     PAGE -- "compile" --> SKILL[".claude/skills/&lt;id&gt;<br/>docsys_source_hash"]
-    HIST["git history"] -- "last change vs updated:<br/>days since draft moved" --> PAGE
+    HIST["git history"] -- "the page's date<br/>days since draft moved" --> PAGE
     PROV["provider page<br/>(consumed, @ns/id)"] -- "fetch: provenance hash" --> WIKI["wiki page<br/>verified at rev"]
     WIKI -- "body at verified_rev<br/>sources at verified_rev" --> LINT{lint}
     PAGE --> LINT
@@ -271,9 +271,10 @@ flowchart LR
   naming the lines, never a guess (D-106; a `docsys/0.4` tree keeps D-069's
   resolution). Prefer a symbol to a large file: every edit to a whole-file
   pin stales the page, and `pin` says so above 300 lines.
-- **History** — one `git log` walk dates every page: `updated:` behind the
-  page's last commit (R-106) and a `draft`/`active`/`done` file untouched
-  beyond `stale_active_days` (R-085) are errors (D-070, D-071).
+- **History** — one `git log` walk dates every page: a page's date is its last
+  content change, never a field the page carries (R-050, D-122), and a
+  `draft`/`active`/`done` file untouched beyond `stale_active_days` is an
+  error (R-085, D-070, D-071).
 - **Compiled skills** — `docsys compile <howto>` carries the page's hash; the
   skill is an error once the page moved (R-095).
 - **Verification** — a `verified` wiki page is checked against the body it
@@ -426,7 +427,7 @@ flowchart LR
 | `docsys debt close <n> [--note <line>]` · `docsys journal add <text> [--title <t>] [--date <d>] [--link <path>]` · `docsys page new <kind> <id> [--title <t>] [--unverified]` | Capture, mechanical: a repaid debt leaves the ledger with its journal line; an entry at its date; a page from its template (D-063); `--unverified` writes `verification: unverified` and `sources: []` on a permanent page — a page from evidence, for a maintainer to verify (R-208, D-092). |
 | `docsys backlinks <path\|id> [--repo .]` · `docsys mentions [<path\|id>]` · `docsys graph [--format dot\|json\|jsoncanvas] [--repo .]` | Derived navigation, never written into a page: who points at a page (code included), and for a code file the pages that pin it or rest on it; who names it without linking; the whole map (D-064, D-121). |
 | `docsys adopt --obsidian` | The docs root as an Obsidian vault: absolute links, `_archive/` ignored, `_templates/` as templates, a `stale-work.base` view (D-065). Caveats: `aliases:` means retired ids here; keep Linter's `yaml-timestamp` off. |
-| `docsys lint [--root docs] [--repo <dir>] [--json]` | Full tree validation: frontmatter, ids, links, journal discipline, templates, list grammars — both profiles. Inside a git repository (`--repo`, or detected) also the freshness rules: `verifies:` pins recomputed (R-111), `updated:` behind history (R-106), drafts untouched beyond `stale_active_days` (R-085). Errors exit 1, warnings don't. |
+| `docsys lint [--root docs] [--repo <dir>] [--json]` | Full tree validation: frontmatter, ids, links, journal discipline, templates, list grammars — both profiles. Inside a git repository (`--repo`, or detected) also the freshness rules: `verifies:` pins recomputed (R-111), drafts untouched beyond `stale_active_days` (R-085). Errors exit 1, warnings don't. |
 | `docsys lookup <word…> [--root docs] [--json]` | A question's first hop: every page, local and consumed (`@namespace/id`), that names every word, best first — identifier, title, tags, summary, body — with `status:` on a draft and `unverified` on an unaudited page. `raw/` is never listed. No hit exits 1: "not in the base" (D-074). |
 | `docsys consume add <path\|git-url>[#subdir] [--as <ns>]` · `docsys consume discover <dir>` | Grow this tree's `consume:` list from a checkout or a git URL, reading the provider's `namespace:`; list the docsys trees under a directory as candidates without writing. The list lives in this tree's `.docmeta.yml` and nowhere else (D-075). |
 | `docsys inbox add --source <name> --id <item> [--title <t>] [--url <u>] [--date <d>] [<file>\|-]` · `docsys inbox pull <repo> [--since <date>] [--limit <n>] [--as <ns>] [--all]` | The connector write gate (§20): one record into `raw/inbox/` with its provenance, the same item landing once; and the built-in git connector, one record per commit, bookkeeping commits skipped unless `--all` (D-079). |
@@ -506,7 +507,8 @@ happen without being asked:
 
 - the first message gets a routing block — name the work type (feature / bug /
   refactor / research / idea) and where each one lands
-- editing a page under `docs/` bumps its `updated:` by itself
+- editing a verified page under `docs/` turns it unverified by itself when
+  its body changed
 - committing code without touching docs is asked about once, naming what
   moved; the same commit again proceeds
 - and CI asks the same questions of every pull request and every push to
@@ -561,7 +563,8 @@ agent session in that directory and try the loop:
 
 - open with something ambiguous ("let's look at the timer") → the
   session-intent hook asks for the work type, once
-- have it edit a `docs/reference/` page → `updated:` bumps itself
+- have it edit a verified `docs/reference/` page → it turns unverified by
+  itself
 - change code and try to commit without touching docs → the pre-commit hook
   asks once, naming what moved; the same commit again proceeds
 - type `/docsys-sync` → a drift report over `docsys lint`, `docsys refs` and
@@ -613,7 +616,8 @@ Opening the tree in Obsidian works as-is with three settings `adopt --obsidian`
 writes (absolute link format, `_archive/` and `.federation/` ignored,
 `_templates/` as the templates folder). Two caveats: `aliases:` means retired
 identifiers here and autocomplete names there; and keep the Linter plugin's
-`yaml-timestamp` off — it fights `updated:` (D-065).
+`yaml-timestamp` off — it writes a date that history already holds (D-065,
+D-122).
 
 ### 5 · A real repository, safely (clone first)
 

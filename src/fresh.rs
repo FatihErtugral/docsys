@@ -728,6 +728,50 @@ impl History {
     }
 }
 
+/// The date a reader is shown for a page of one tree.
+pub struct Dates {
+    derived: bool,
+    history: History,
+    prefix: String,
+}
+
+impl Dates {
+    /// On a docsys/0.5 tree a page's date is its last content change in
+    /// history (R-050, D-122); before, its `updated:` field.
+    pub fn of(tree: &DocTree) -> Dates {
+        let derived = Era::of(tree).derived_dates();
+        let history = match crate::repo_of(&tree.root).filter(|_| derived) {
+            Some(repo) => History::load(&repo, &tree.root),
+            None => History::default(),
+        };
+        let prefix = if history.root_rel.is_empty() {
+            String::new()
+        } else {
+            format!("{}/", history.root_rel)
+        };
+        Dates {
+            derived,
+            history,
+            prefix,
+        }
+    }
+
+    /// The page's date, or "unknown" where nothing records one.
+    pub fn of_page(&self, rel: &str, fm: Option<&Frontmatter>) -> String {
+        let found = if self.derived {
+            self.history
+                .last_change
+                .get(&format!("{}{rel}", self.prefix))
+                .cloned()
+        } else {
+            fm.and_then(|f| f.fields.get("updated"))
+                .and_then(Value::as_str)
+                .map(str::to_string)
+        };
+        found.unwrap_or_else(|| "unknown".to_string())
+    }
+}
+
 /// R-106 (`updated` behind history) and R-085 (untouched draft/active/done)
 /// over every page history knows.
 pub fn check_history(tree: &DocTree, repo: &Path, h: &History, r: &mut Report) {
@@ -751,7 +795,14 @@ pub fn check_history(tree: &DocTree, repo: &Path, h: &History, r: &mut Report) {
             continue;
         };
         inspected += 1;
-        if let Some(u) = fm.fields.get("updated").and_then(Value::as_str) {
+        // a docsys/0.5 page keeps no date to fall behind (R-050, D-122)
+        let dated = !crate::era::Era::of(tree).derived_dates();
+        if let Some(u) = fm
+            .fields
+            .get("updated")
+            .and_then(Value::as_str)
+            .filter(|_| dated)
+        {
             if is_iso_date(u) && u < last.as_str() {
                 r.findings.push(Finding::err(
                     R106,
@@ -1388,10 +1439,11 @@ fn locate(root: &Path, page: &str) -> Result<String, String> {
         .ok_or_else(|| format!("no page at `{page}` and no page with that id"))
 }
 
-/// The page text with its `verifies:` block replaced and `updated:` set to
-/// `today` — the author re-read the page against the code it pins. A pin
-/// without a hash (a 0.5 tree's, D-119) is written without the line.
-fn rewrite(text: &str, pins: &[Pin], today: &str) -> Result<String, String> {
+/// The page text with its `verifies:` block replaced — the author re-read the
+/// page against the code it pins — and, on a docsys/0.4 tree, `updated:` set
+/// to `today`. A pin without a hash (a 0.5 tree's, D-119) is written without
+/// the line.
+fn rewrite(text: &str, pins: &[Pin], today: Option<&str>) -> Result<String, String> {
     let lines: Vec<&str> = text.lines().collect();
     if lines.first() != Some(&"---") {
         return Err("the page has no frontmatter (R-050) — `docsys page new` writes one".into());
@@ -1414,7 +1466,7 @@ fn rewrite(text: &str, pins: &[Pin], today: &str) -> Result<String, String> {
             continue;
         }
         skipping = false;
-        if l.starts_with("updated:") {
+        if let (true, Some(today)) = (l.starts_with("updated:"), today) {
             out.push(format!("updated: {today}"));
         } else {
             out.push((*l).to_string());
@@ -1559,7 +1611,8 @@ pub fn pin_block(
         hash: String::new(),
         block: bound.clone(),
     };
-    let today = crate::migrate::today();
+    let today = (!era.derived_dates()).then(crate::migrate::today);
+    let today = today.as_deref();
     let mut out = if era.acknowledged_pins() {
         let id = page_id(&fm).ok_or_else(|| {
             format!("{rel} has no `id` (R-050) — acknowledgements are kept by page id")
@@ -1582,11 +1635,11 @@ pub fn pin_block(
                 {
                     p.block = bound.clone();
                 }
-                fs::write(&file, rewrite(&text, &pins, &today)?).map_err(|e| e.to_string())?;
+                fs::write(&file, rewrite(&text, &pins, today)?).map_err(|e| e.to_string())?;
             }
         } else {
             pins.push(new.clone());
-            fs::write(&file, rewrite(&text, &pins, &today)?).map_err(|e| e.to_string())?;
+            fs::write(&file, rewrite(&text, &pins, today)?).map_err(|e| e.to_string())?;
         }
         crate::ack::write(root, &id, &hash).map_err(|e| e.to_string())?;
         let binding = match (block, &bound) {
@@ -1608,7 +1661,7 @@ pub fn pin_block(
             Some(existing) => existing.hash = new.hash.clone(),
             None => pins.push(new.clone()),
         }
-        fs::write(&file, rewrite(&text, &pins, &today)?).map_err(|e| e.to_string())?;
+        fs::write(&file, rewrite(&text, &pins, today)?).map_err(|e| e.to_string())?;
         format!("pinned {rel} → {} {}", new.label(), new.hash)
     };
     if new.symbol.is_none() {
@@ -1680,8 +1733,8 @@ pub fn refresh(root: &Path, repo: &Path, page: &str) -> Result<String, String> {
             p.hash = now;
         }
     }
-    let today = crate::migrate::today();
-    fs::write(&file, rewrite(&text, &pins, &today)?).map_err(|e| e.to_string())?;
+    let today = (!Era::at(root).derived_dates()).then(crate::migrate::today);
+    fs::write(&file, rewrite(&text, &pins, today.as_deref())?).map_err(|e| e.to_string())?;
     Ok(if changed.is_empty() {
         format!("{rel}: {} pin(s), all current", pins.len())
     } else {
@@ -1898,7 +1951,7 @@ mod tests {
                 block: None,
             },
         ];
-        let out = rewrite(page, &pins, "2026-10-02").unwrap();
+        let out = rewrite(page, &pins, Some("2026-10-02")).unwrap();
         assert_eq!(
             out,
             "---\nid: p\nupdated: 2026-10-02\nverifies:\n  - path: a.rs\n    symbol: f\n    block: 941ba81fbfec\n  - path: b.rs\n    hash: \"sha256:x\"\n---\nbody\n"
@@ -1979,7 +2032,7 @@ mod tests {
             hash: "sha256:abc".into(),
             block: None,
         }];
-        let out = rewrite(text, &pins, "2026-09-02").unwrap();
+        let out = rewrite(text, &pins, Some("2026-09-02")).unwrap();
         assert_eq!(
             out,
             "---\nid: x\ntype: reference\nupdated: 2026-09-02\ntags: [a]\nverifies:\n  - path: src/a.rs\n    symbol: f\n    hash: \"sha256:abc\"\n---\nBody.\n"

@@ -328,6 +328,7 @@ pub fn manifest(root: &Path) -> Result<String, String> {
         .filter(|p| p.kind == Kind::Permanent)
         .collect();
     pages.sort_by(|a, b| a.rel.cmp(&b.rel));
+    let dates = crate::fresh::Dates::of(&tree);
     for page in pages {
         let Some(fm) = &page.fm else { continue };
         let Some(id) = fm.fields.get("id").and_then(Value::as_str) else {
@@ -347,7 +348,7 @@ pub fn manifest(root: &Path) -> Result<String, String> {
             "  hash: fnv:{:016x}",
             fnv(body.trim_matches('\n').as_bytes())
         );
-        let _ = writeln!(out, "  updated: {}", field("updated"));
+        let _ = writeln!(out, "  updated: {}", dates.of_page(&page.rel, Some(fm)));
         for k in ["lang", "audience", "owner"] {
             let v = field(k);
             if !v.is_empty() {
@@ -532,6 +533,7 @@ pub fn fetch(root: &Path) -> Result<Vec<String>, String> {
                 })
                 .unwrap_or_default();
         let mut count = 0usize;
+        let provider_dates = crate::fresh::Dates::of(&provider);
         for page in &provider.pages {
             if page.kind != Kind::Permanent {
                 continue;
@@ -567,7 +569,13 @@ pub fn fetch(root: &Path) -> Result<Vec<String>, String> {
             let mut head = String::from("---\n");
             let _ = writeln!(head, "id: {id}");
             for k in ["type", "updated", "lang", "audience"] {
-                if let Some(v) = fm.fields.get(k).and_then(Value::as_str) {
+                let v = if k == "updated" {
+                    // the provider's date, derived where its tree derives it
+                    Some(provider_dates.of_page(&page.rel, Some(fm))).filter(|d| d != "unknown")
+                } else {
+                    fm.fields.get(k).and_then(Value::as_str).map(str::to_string)
+                };
+                if let Some(v) = v {
                     let _ = writeln!(head, "{k}: {v}");
                 }
             }
@@ -616,6 +624,7 @@ fn compose(
     want_audience: Option<&str>,
 ) -> Result<ProductOutcome, String> {
     let (by_id, flowing) = index_pages(tree);
+    let dates = crate::fresh::Dates::of(tree);
     let mut errors: Vec<String> = Vec::new();
     let mut warnings: Vec<String> = Vec::new();
     // token → (materialized page, fetched date). Foreign entries compose from
@@ -763,12 +772,17 @@ fn compose(
             let heading = "#".repeat(page_shift + 1);
             let _ = writeln!(out, "\n{heading} {}", title_of(page));
             let _ = writeln!(out, "\n{body}");
-            let updated = page
-                .fm
-                .as_ref()
-                .and_then(|f| f.fields.get("updated"))
-                .and_then(Value::as_str)
-                .unwrap_or("?");
+            // a consumed page keeps the date its provider exported
+            let updated = if fetched.is_some() {
+                page.fm
+                    .as_ref()
+                    .and_then(|f| f.fields.get("updated"))
+                    .and_then(Value::as_str)
+                    .unwrap_or("unknown")
+                    .to_string()
+            } else {
+                dates.of_page(&page.rel, page.fm.as_ref())
+            };
             let fetched_note = fetched
                 .map(|f| format!(" · fetched: {f}"))
                 .unwrap_or_default();

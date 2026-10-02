@@ -373,7 +373,7 @@ fn preview(ctx: &Ctx, u: &mut Upgrade) {
     let added: Vec<&String> = next.difference(&now).collect();
     let removed: Vec<&String> = now.difference(&next).collect();
     u.preview.push(format!(
-            "judged by docsys/0.{} as the tree is now: {} new finding(s), {} gone — the ledger and pin steps clear their part",
+            "judged by docsys/0.{} as the tree is now: {} new finding(s), {} gone — the steps below clear their part",
             u.to,
             added.len(),
             removed.len()
@@ -799,6 +799,56 @@ fn common(ctx: &Ctx, u: &mut Upgrade, apply: bool) -> Result<(), String> {
                 ));
             }
         }
+    }
+    if Era(u.to).derived_dates() {
+        dates(ctx, u, apply)?;
+    }
+    Ok(())
+}
+
+/// dates: a docsys/0.5 page's date is its last content change in history
+/// (D-122), so the `updated:` lines leave pages, tracked work and templates —
+/// a structural change (R-172). A re-run absorbs a line a branch from before
+/// the move still wrote.
+fn dates(ctx: &Ctx, u: &mut Upgrade, apply: bool) -> Result<(), String> {
+    let mut files: Vec<String> = ctx
+        .tree
+        .pages
+        .iter()
+        .filter(|p| matches!(p.kind, Kind::Permanent | Kind::Tracked))
+        .map(|p| p.rel.clone())
+        .collect();
+    if let Ok(entries) = fs::read_dir(ctx.root.join("_templates")) {
+        let mut names: Vec<String> = entries
+            .flatten()
+            .filter_map(|e| e.file_name().to_str().map(str::to_string))
+            .filter(|n| n.ends_with(".md"))
+            .collect();
+        names.sort();
+        files.extend(names.into_iter().map(|n| format!("_templates/{n}")));
+    }
+    let mut n = 0usize;
+    for rel in files {
+        let path = ctx.root.join(&rel);
+        let Ok(text) = fs::read_to_string(&path) else {
+            continue;
+        };
+        let Some(new) = crate::fm::without_scalar(&text, "updated") else {
+            continue;
+        };
+        n += 1;
+        if apply {
+            fs::write(&path, new).map_err(|e| e.to_string())?;
+            u.written.push(format!("{}{rel}", ctx.prefix));
+        }
+    }
+    if n > 0 {
+        u.item(
+            "auto",
+            "dates",
+            &ctx.root_rel,
+            format!("`updated:` removed from {n} page(s) and template(s): a page's date is its last content change in history (D-122)"),
+        );
     }
     Ok(())
 }

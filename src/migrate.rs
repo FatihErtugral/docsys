@@ -355,6 +355,9 @@ pub fn apply(
     }
 
     let date = today();
+    // the tree it writes declares this docsys's spec unless one already
+    // exists; a docsys/0.5 page's date is history's (D-122)
+    let dated = root.join(".docmeta.yml").exists() && !crate::era::Era::at(root).derived_dates();
     let mut out = ApplyOutcome {
         moved: 0,
         kept: 0,
@@ -424,7 +427,11 @@ pub fn apply(
                 if title.is_empty() { id.clone() } else { title },
                 sentence,
             ));
-            format!("---\nid: {id}\ntype: {target}\nupdated: {date}\n---\n{body}")
+            if dated {
+                format!("---\nid: {id}\ntype: {target}\nupdated: {date}\n---\n{body}")
+            } else {
+                format!("---\nid: {id}\ntype: {target}\n---\n{body}")
+            }
         } else {
             body
         };
@@ -899,8 +906,13 @@ pub fn scaffold_list_files_and_templates(root: &Path) -> Result<Vec<&'static str
         if path.exists() {
             continue;
         }
+        let date = if crate::era::Era::at(root).derived_dates() {
+            ""
+        } else {
+            "updated: <YYYY-MM-DD>\n"
+        };
         let mut text = format!(
-            "---\nid: <id>\nstatus: draft\nupdated: <YYYY-MM-DD>\n---\n\
+            "---\nid: <id>\nstatus: draft\n{date}---\n\
              <!-- {category}: copy to work/{category}/<id>.md; the headings are the R-048 \
              template — a section with nothing to say stays empty, never filled for \
              completeness -->\n"

@@ -56,6 +56,23 @@ pub struct Frontmatter {
     pub body_start: usize,
 }
 
+/// The text with the frontmatter's one-line `key:` removed; `None` when the
+/// frontmatter carries no such line. The body is never touched.
+pub fn without_scalar(text: &str, key: &str) -> Option<String> {
+    let fm = parse(text)?;
+    let prefix = format!("{key}:");
+    let mut removed = false;
+    let mut out = String::with_capacity(text.len());
+    for (i, line) in text.split_inclusive('\n').enumerate() {
+        if i > 0 && i < fm.body_start && line.starts_with(&prefix) {
+            removed = true;
+            continue;
+        }
+        out.push_str(line);
+    }
+    removed.then_some(out)
+}
+
 fn is_key(s: &str) -> bool {
     let mut chars = s.chars();
     match chars.next() {
@@ -328,6 +345,20 @@ mod tests {
     clippy::indexing_slicing
 )]
 mod tests_more {
+    #[test]
+    fn a_scalar_leaves_the_frontmatter_and_the_body_stays() {
+        let text = "---\nid: a\nupdated: 2026-01-01\n---\nupdated: in the body\n";
+        assert_eq!(
+            super::without_scalar(text, "updated").as_deref(),
+            Some("---\nid: a\n---\nupdated: in the body\n")
+        );
+        assert_eq!(
+            super::without_scalar("---\nid: a\n---\nbody\n", "updated"),
+            None
+        );
+        assert_eq!(super::without_scalar("no frontmatter\n", "updated"), None);
+    }
+
     use super::*;
 
     fn fm(text: &str) -> Frontmatter {

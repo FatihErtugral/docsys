@@ -86,7 +86,7 @@ fn project(name: &str) -> PathBuf {
     fs::create_dir_all(repo.join("docs/reference")).unwrap();
     fs::write(
         repo.join("docs/reference/token-ttl.md"),
-        "---\nid: token-ttl\ntype: reference\nupdated: 2026-10-02\n---\n\n# Token TTL\n\nThis page says how long a token lives; read it before changing the refresh.\n",
+        "---\nid: token-ttl\ntype: reference\n---\n\n# Token TTL\n\nThis page says how long a token lives; read it before changing the refresh.\n",
     )
     .unwrap();
     let index = fs::read_to_string(repo.join("docs/index.md")).unwrap();
@@ -208,12 +208,14 @@ fn every_relay_works_from_a_subdirectory() {
     );
     ok(&repo, &["commit", "-qm", "page"]);
 
-    // the `updated:` bump: a page edited by a session standing below
+    // the post-edit bookkeeping: a verified page whose body no longer reads
+    // as its record, edited by a session standing below, is demoted
     fs::write(
         &page,
-        fs::read_to_string(&page)
-            .unwrap()
-            .replace("updated: 2026-10-02", "updated: 2026-09-01"),
+        fs::read_to_string(&page).unwrap().replace(
+            "type: reference\n",
+            "type: reference\nverification: verified\nverified_by: t\nverified_rev: 0000000\nverified_blocks: [000000000000]\n",
+        ),
     )
     .unwrap();
     let edit = format!(
@@ -222,12 +224,12 @@ fn every_relay_works_from_a_subdirectory() {
         page.display()
     );
     let (code, _, err) = relay(&repo, "post-edit-updated.sh", &deep, &edit);
-    assert_eq!(code, 0, "{err}");
+    assert_eq!(code, 2, "{err}");
     assert!(
         fs::read_to_string(&page)
             .unwrap()
-            .contains("updated: 2026-10-02"),
-        "the bump was a silent no-op from a subdirectory"
+            .contains("verification: unverified"),
+        "the demotion was a silent no-op from a subdirectory"
     );
 
     // the first-turn digest counts the tree's pages

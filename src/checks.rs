@@ -221,7 +221,11 @@ fn check_docmeta(tree: &DocTree, r: &mut Report) {
     }
 }
 
+/// What a docsys/0.5 page that still carries `updated:` is told (D-122).
+const DERIVED_DATE: &str = "`updated:` is not kept on docsys/0.5 — a page's date is its last content change in history; `docsys upgrade --apply` removes the line";
+
 fn check_permanent_frontmatter(tree: &DocTree, r: &mut Report) {
+    let derived = crate::era::Era::of(tree).derived_dates();
     let mut inspected = 0usize;
     let mut ids: BTreeMap<String, String> = BTreeMap::new(); // id → first file
     for ts in &tree.tombstones {
@@ -249,10 +253,24 @@ fn check_permanent_frontmatter(tree: &DocTree, r: &mut Report) {
                 format!("parse: {p}"),
             ));
         }
-        let missing: Vec<&str> = ["id", "type", "updated"]
-            .into_iter()
+        let required: &[&str] = if derived {
+            &["id", "type"]
+        } else {
+            &["id", "type", "updated"]
+        };
+        let missing: Vec<&str> = required
+            .iter()
+            .copied()
             .filter(|k| fm.fields.get(*k).and_then(Value::as_str).is_none())
             .collect();
+        if derived && fm.fields.contains_key("updated") {
+            r.findings.push(Finding::warn(
+                R050,
+                &page.rel,
+                "updated",
+                DERIVED_DATE.to_string(),
+            ));
+        }
         if !missing.is_empty() {
             r.findings.push(Finding::warn(
                 R050,
@@ -271,7 +289,12 @@ fn check_permanent_frontmatter(tree: &DocTree, r: &mut Report) {
                 ));
             }
         }
-        if let Some(u) = fm.fields.get("updated").and_then(Value::as_str) {
+        if let Some(u) = fm
+            .fields
+            .get("updated")
+            .and_then(Value::as_str)
+            .filter(|_| !derived)
+        {
             if !is_iso_date(u) {
                 r.findings.push(Finding::warn(
                     R050,
@@ -963,6 +986,7 @@ fn basename_exists(dir: &std::path::Path, name: &str) -> bool {
 }
 
 fn check_work(tree: &DocTree, r: &mut Report) {
+    let derived = crate::era::Era::of(tree).derived_dates();
     let mut inspected = 0usize;
     let epics = tree.docmeta_list("epics").to_vec();
     for page in &tree.pages {
@@ -994,7 +1018,14 @@ fn check_work(tree: &DocTree, r: &mut Report) {
                     )),
                     Some(_) => {}
                 }
-                if fm.fields.get("updated").and_then(Value::as_str).is_none() {
+                if derived && fm.fields.contains_key("updated") {
+                    r.findings.push(Finding::warn(
+                        R054,
+                        &page.rel,
+                        "updated",
+                        DERIVED_DATE.to_string(),
+                    ));
+                } else if !derived && fm.fields.get("updated").and_then(Value::as_str).is_none() {
                     r.findings.push(Finding::warn(
                         R054,
                         &page.rel,

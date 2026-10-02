@@ -206,6 +206,13 @@ pub fn page_new(
         ));
     }
     let today = today();
+    // a docsys/0.5 page's date is history's (D-122)
+    let dated = !crate::era::Era::at(root).derived_dates();
+    let date = if dated {
+        format!("updated: {today}\n")
+    } else {
+        String::new()
+    };
     let pre = generated_preamble(root);
     let title = title
         .map(str::to_string)
@@ -219,6 +226,11 @@ pub fn page_new(
         let body = match template {
             Some(t) => {
                 // the installed template, its placeholders filled
+                let t = if dated {
+                    t
+                } else {
+                    crate::fm::without_scalar(&t, "updated").unwrap_or(t)
+                };
                 let t = t.replace("<id>", id).replace("<YYYY-MM-DD>", &today);
                 // drop the template's own instruction comment
                 t.lines()
@@ -228,7 +240,7 @@ pub fn page_new(
                     + "\n"
             }
             None => {
-                let mut t = format!("---\nid: {id}\nstatus: draft\nupdated: {today}\n---\n");
+                let mut t = format!("---\nid: {id}\nstatus: draft\n{date}---\n");
                 for h in sections {
                     t.push_str(&format!("\n## {h}\n"));
                 }
@@ -247,7 +259,7 @@ pub fn page_new(
         (
             format!("{kind}/{id}.md"),
             format!(
-                "---\nid: {id}\ntype: {kind}\n{verification}updated: {today}\n---\n# {title}\n\n<!-- opening: one or two sentences that establish this page's own context — what it describes, when to read it (R-032). Then route it from index.md. -->\n"
+                "---\nid: {id}\ntype: {kind}\n{verification}{date}---\n# {title}\n\n<!-- opening: one or two sentences that establish this page's own context — what it describes, when to read it (R-032). Then route it from index.md. -->\n"
             ),
         )
     } else {
@@ -349,12 +361,10 @@ mod tests {
         let root = tree("page");
         let out = page_new(&root, "feature", "dark-mode", None, false).unwrap();
         assert_eq!(out, "created: work/features/dark-mode.md");
+        // a docsys/0.5 page's date is history's (D-122)
         let f = fs::read_to_string(root.join("work/features/dark-mode.md")).unwrap();
         assert!(
-            f.starts_with(&format!(
-                "---\nid: dark-mode\nstatus: draft\nupdated: {}\n---\n",
-                today()
-            )),
+            f.starts_with("---\nid: dark-mode\nstatus: draft\n---\n"),
             "{f}"
         );
         assert!(
@@ -378,6 +388,20 @@ mod tests {
         assert!(page_new(&root, "feature", "Bad Id", None, false)
             .unwrap_err()
             .contains("local-id"));
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    /// A docsys/0.4 tree is written as 0.15.1 wrote it (D-118): its pages
+    /// carry `updated:`.
+    #[test]
+    fn a_0_4_page_is_dated_as_before() {
+        let root = tree("page04");
+        let meta = root.join(".docmeta.yml");
+        let text = fs::read_to_string(&meta).unwrap();
+        fs::write(&meta, text.replace("spec: docsys/0.5", "spec: docsys/0.4")).unwrap();
+        page_new(&root, "reference", "a", None, false).unwrap();
+        let p = fs::read_to_string(root.join("reference/a.md")).unwrap();
+        assert!(p.contains(&format!("\nupdated: {}\n", today())), "{p}");
         let _ = fs::remove_dir_all(&root);
     }
 }

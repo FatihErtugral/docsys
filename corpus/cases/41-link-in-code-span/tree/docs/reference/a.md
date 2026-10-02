@@ -1,7 +1,6 @@
 ---
 id: a
 type: reference
-updated: 2026-10-02
 ---
 This page describes how a link is written; read it when writing one.
 

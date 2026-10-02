@@ -1,7 +1,6 @@
 ---
 id: a
 type: reference
-updated: 2026-10-02
 ---
 
 The timeout is thirty seconds (guess).

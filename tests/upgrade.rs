@@ -961,3 +961,41 @@ fn the_preview_lists_the_findings_the_move_takes_away() {
     assert!(!plan.contains(", 0 gone"), "{plan}");
     let _ = fs::remove_dir_all(&repo);
 }
+
+/// N4: a branch opened before the move still writes `updated:`; after it
+/// merges, lint names the upgrade, and a re-run takes out exactly that line
+/// (D-122).
+#[test]
+fn a_late_branchs_date_line_is_absorbed_by_a_re_run() {
+    let (repo, _) = build("late-date");
+    let out = docsys(&repo, &["upgrade", "--apply", "--commit"]);
+    assert!(out.status.success(), "{out:?}");
+    let page = repo.join("docs/reference/expiry.md");
+    let moved = fs::read_to_string(&page).unwrap();
+    assert!(!moved.contains("\nupdated:"), "{moved}");
+    let late = moved.replacen(
+        "type: reference\n",
+        "type: reference\nupdated: 2026-09-03\n",
+        1,
+    );
+    fs::write(&page, &late).unwrap();
+    git(&repo, &["commit", "-qam", "a branch from before the move"]);
+    let lint = docsys(&repo, &["lint"]);
+    assert!(
+        String::from_utf8_lossy(&lint.stdout).contains("`docsys upgrade --apply` removes the line"),
+        "{lint:?}"
+    );
+    let out = docsys(&repo, &["upgrade", "--apply"]);
+    assert!(out.status.success(), "{out:?}");
+    assert!(
+        String::from_utf8_lossy(&out.stdout).contains("dates"),
+        "{out:?}"
+    );
+    assert_eq!(fs::read_to_string(&page).unwrap(), moved);
+    let again = docsys(&repo, &["upgrade", "--apply"]);
+    assert!(
+        !String::from_utf8_lossy(&again.stdout).contains("dates"),
+        "{again:?}"
+    );
+    let _ = fs::remove_dir_all(&repo);
+}

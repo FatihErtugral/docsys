@@ -59,15 +59,11 @@ fn build_base(name: &str) -> PathBuf {
         "raw/inbox/2026-09-02-note.md",
         "Rotate keys monthly.\n",
     );
-    // `updated:` is today: the page is committed today, and history must
-    // agree with the field (R-106)
+    // a docsys/0.5 page's date is history's (D-122)
     write(
         &base,
         "wiki/ops/reference/rotation.md",
-        &format!(
-            "---\nid: rotation\ntype: reference\ndomain: ops\nverification: unverified\nupdated: {}\nsources: [raw/inbox/2026-09-02-note.md]\n---\n# Rotation\n\nThis page states the rotation cadence; read it before rotating.\n\nMonthly.\n",
-            docsys::migrate::today()
-        ),
+        "---\nid: rotation\ntype: reference\ndomain: ops\nverification: unverified\nsources: [raw/inbox/2026-09-02-note.md]\n---\n# Rotation\n\nThis page states the rotation cadence; read it before rotating.\n\nMonthly.\n",
     );
     write(
         &base,
@@ -172,24 +168,20 @@ fn an_existing_record_is_guarded_and_a_new_note_passes() {
 }
 
 #[test]
-fn a_wiki_edit_bumps_updated_and_a_record_never_changes() {
+fn a_wiki_edit_writes_no_date_and_a_record_never_changes() {
     let base = build_base("bump");
     let page = base.join("wiki/ops/reference/rotation.md");
-    // an edit that skipped the tooling left the field behind
-    let stale = fs::read_to_string(&page)
-        .unwrap()
-        .replace(&docsys::migrate::today(), "2026-01-01");
-    fs::write(&page, stale).unwrap();
+    let before = fs::read_to_string(&page).unwrap();
     let payload = format!(
         r#"{{"session_id":"SESSION","tool_name":"Edit","tool_input":{{"file_path":"{}","old_string":"Monthly.","new_string":"Weekly."}}}}"#,
         page.display()
     );
     let (code, _, err) = run_relay(&base, "post-edit-updated.sh", &payload, "s2");
     assert_eq!(code, 0, "{err}");
-    let text = fs::read_to_string(&page).unwrap();
-    assert!(
-        text.contains(&format!("updated: {}", docsys::migrate::today())),
-        "{text}"
+    assert_eq!(
+        fs::read_to_string(&page).unwrap(),
+        before,
+        "a docsys/0.5 page's date is history's (D-122)"
     );
     let record = base.join("raw/inbox/2026-09-02-note.md");
     fs::write(&record, "updated: 2026-01-01\nRotate keys monthly.\n").unwrap();

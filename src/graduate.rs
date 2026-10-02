@@ -451,20 +451,12 @@ pub fn apply(root: &Path, plan_text: &str, force: bool) -> Result<Outcome, Strin
         existing.push('\n');
         existing.push_str(body);
         existing.push('\n');
-        // updated: is tool-maintained (R-052).
-        let bumped = existing
-            .lines()
-            .map(|l| {
-                if l.starts_with("updated:") {
-                    format!("updated: {}", today())
-                } else {
-                    l.to_string()
-                }
-            })
-            .collect::<Vec<_>>()
-            .join("\n")
-            + "\n";
-        fs::write(&path, bumped).map_err(|e| e.to_string())?;
+        // a docsys/0.4 page's `updated:` is tool-maintained; a 0.5 page's
+        // date is history's (D-122)
+        if !crate::era::Era::at(root).derived_dates() {
+            existing = crate::hook::bump_updated(&existing, &today()).unwrap_or(existing);
+        }
+        fs::write(&path, existing).map_err(|e| e.to_string())?;
         if !out.dest_files.contains(dest) {
             out.dest_files.push(dest.clone());
         }

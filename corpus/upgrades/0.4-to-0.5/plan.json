@@ -101,6 +101,13 @@
       "command": null
     },
     {
+      "strategy": "auto",
+      "step": "dates",
+      "file": "docs",
+      "what": "`updated:` removed from 5 page(s) and template(s): a page's date is its last content change in history (D-122)",
+      "command": null
+    },
+    {
       "strategy": "manual",
       "step": "verified-record",
       "file": "docs/reference/expiry.md",
@@ -165,7 +172,9 @@
     }
   ],
   "preview": [
-    "judged by docsys/0.5 as the tree is now: 1 new finding(s), 0 gone — the ledger and pin steps clear their part",
+    "judged by docsys/0.5 as the tree is now: 3 new finding(s), 0 gone — the steps below clear their part",
+    "+ WARN R-050 reference/expiry.md [updated] `updated:` is not kept on docsys/0.5 — a page's date is its last content change in history; `docsys upgrade --apply` removes the line",
+    "+ WARN R-050 reference/refresh.md [updated] `updated:` is not kept on docsys/0.5 — a page's date is its last content change in history; `docsys upgrade --apply` removes the line",
     "+ WARN R-108 work/debt.md [line-3] entry does not match its item grammar — a field marker is written ` — `; separators are ASCII ` -- ` (`docsys ledger fix` rewrites them)"
   ],
   "diffs": [
@@ -175,7 +184,7 @@
     },
     {
       "file": ".claude/commands/docsys-sync.md",
-      "diff": "--- .claude/commands/docsys-sync.md\n+++ .claude/commands/docsys-sync.md\n@@ -5,7 +5,7 @@\n \n # /docsys-sync — documentation drift check\n \n-Manual, never automatic; run it before a release. Report; propose `docs/work/debt.md` items as a diff\n+Manual, never automatic. Report; propose `docs/work/debt.md` items as a diff\n and wait for approval. Commit nothing.\n \n 1. Mechanical pass: `docsys lint --root docs --repo .` and `docsys refs --repo .` —\n"
+      "diff": "--- .claude/commands/docsys-sync.md\n+++ .claude/commands/docsys-sync.md\n@@ -5,13 +5,13 @@\n \n # /docsys-sync — documentation drift check\n \n-Manual, never automatic; run it before a release. Report; propose `docs/work/debt.md` items as a diff\n+Manual, never automatic. Report; propose `docs/work/debt.md` items as a diff\n and wait for approval. Commit nothing.\n \n 1. Mechanical pass: `docsys lint --root docs --repo .` and `docsys refs --repo .` —\n    include both outputs (one line each if green). Freshness errors are drift\n-   by definition: a stale pin names the region that moved, `updated:` behind\n-   history names a hand edit, an untouched draft names abandonment.\n+   by definition: a stale pin names the region that moved, an untouched draft\n+   names abandonment.\n 2. Drift suspects: `docsys seed plan --repo . --root docs --since <date of\n    the newest journal entry>` — every feature history touched since, with\n    its coverage. For each covered feature with commits, `git show --stat\n"
     }
   ],
   "written": []

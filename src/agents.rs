@@ -39,10 +39,12 @@ command -v docsys >/dev/null || exit 0
 exec docsys hook stop --root "${DOCS_ROOT:-docs}" --stdin
 "#;
 
-/// Keep `updated:` honest after a docs edit (R-052: maintained by tooling).
+/// The page bookkeeping after a docs edit: a verified page whose body changed
+/// is demoted (R-024).
 const POST_EDIT_UPDATED: &str = r#"#!/usr/bin/env bash
-# post-edit-updated.sh — bump `updated:` on the edited docs page (R-052),
-# via `docsys hook post-tool-use` (reads the PostToolUse payload on stdin).
+# post-edit-updated.sh — the bookkeeping of the edited docs page: a verified
+# page whose body changed turns unverified (R-024), via `docsys hook
+# post-tool-use` (reads the PostToolUse payload on stdin).
 command -v docsys >/dev/null || exit 0
 @DOCSYS_GUARD@
 exec docsys hook post-tool-use --root "${DOCS_ROOT:-docs}"
@@ -96,8 +98,8 @@ and wait for approval. Commit nothing.
 
 1. Mechanical pass: `docsys lint --root docs --repo .` and `docsys refs --repo .` —
    include both outputs (one line each if green). Freshness errors are drift
-   by definition: a stale pin names the region that moved, `updated:` behind
-   history names a hand edit, an untouched draft names abandonment.
+   by definition: a stale pin names the region that moved, an untouched draft
+   names abandonment.
 2. Drift suspects: `docsys seed plan --repo . --root docs --since <date of
    the newest journal entry>` — every feature history touched since, with
    its coverage. For each covered feature with commits, `git show --stat
@@ -482,8 +484,8 @@ Rules that are not mechanical:
 existing file is merged into, never overwritten): the first message of a
 session gets the organ routing; a `Write`/`Edit` on an existing `raw/`
 record is blocked (R-023) — new knowledge is a new file in `raw/inbox/`,
-relocation is `docsys raw move`; an edited wiki page gets its
-`updated:` bumped; `git commit` runs the gate; the end of a turn names what
+relocation is `docsys raw move`; an edited verified wiki page whose body
+changed turns unverified; `git commit` runs the gate; the end of a turn names what
 waits in the inbox. Everything warns and nothing blocks, except the two
 guards on the irreversible: the record and the commit.
 

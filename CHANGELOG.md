@@ -54,7 +54,9 @@ declares `spec: docsys/0.5`; a tree that declares `docsys/0.4` is served as
 - A pin's evidence lives beside the page under `.verifies/`; a refresh never
   writes the page, and pull requests that refresh pins merge cleanly (D-119).
 - A pinned symbol resolves to its declaration, never to a use (D-106).
-- `updated:` falls behind history only after a content change (R-106, §2.4).
+- A page's date is its last content change in history: nothing writes
+  `updated:`, a page that still carries it is reported, and `upgrade` removes
+  the lines (R-050, D-122; R-052 and R-106 withdrawn).
 - R-108 reads ledger separators as written (D-108); an open item that vanished
   is reported (R-045, D-109).
 - A code-side `doc:` counts at the start of a comment only (R-072, D-107); a

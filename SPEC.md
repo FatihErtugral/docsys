@@ -181,17 +181,17 @@ version; the minor component MUST NOT be required to match.
 ### 2.4 Definitions
 
 **Content change.** A change to a page is a *content change* unless it touches
-only: the `updated` field, the verification record (R-028), a `verifies:` hash
-recorded after a re-read (R-111), a `sources:`
-path rewrite performed under R-027, or a structural target rewrite performed by
-a migration under R-172. Every rule that reads "content change" — R-024, R-052,
-R-082, R-085, R-106 — reads this definition. This is a definition, not a rule:
+only: the verification record (R-028), a `verifies:` hash recorded after a
+re-read (R-111), the `updated` field a docsys/0.4 tree kept, a `sources:` path
+rewrite performed under R-027, or a structural change performed by a migration
+under R-172. Every rule that reads "content change" — R-024, R-050, R-082,
+R-085 — reads this definition. This is a definition, not a rule:
 it cannot be violated, so it carries no enforcement tag and incurs no coverage
 obligation.
 
-> Without this, the `updated` repair (R-156) is itself a newer change than the
-> value it writes, and the repair loop never terminates; and a mechanical
-> `sources:` rewrite would flip every resting page to `unverified`.
+> Without this, a mechanical `sources:` rewrite would flip every resting page to
+> `unverified`, and a migration would date every page it touched to the day it
+> ran.
 
 ---
 
@@ -577,7 +577,6 @@ active contract.
 ---
 id: token-ttl            # required
 type: reference          # required
-updated: 2026-08-15      # required
 owner: team-identity     # required when federation is enabled
 title: Token lifetime    # optional — defaults to the first heading
 summary: >               # optional — defaults to the first paragraph
@@ -593,24 +592,23 @@ verifies:                # optional — freshness pin (§11)
 ---
 ```
 
-**R-050** `lint` · MUST — A permanent page MUST carry `id`, `type`, and
-`updated`. Router files (`index.md`) and `README.md` are exempt; router lines
-follow R-035.
+**R-050** `lint` · MUST — A permanent page MUST carry `id` and `type`. Router
+files (`index.md`) and `README.md` are exempt; router lines follow R-035. A
+page's date is derived, never written: its last content change (§2.4) in
+version-control history, and "unknown" where there is none. A page that still
+carries `updated` **is reported**: the field restates history, drifts from it,
+and is the one line every parallel branch rewrites (D-122).
 
 **R-051** WITHDRAWN — absorbed by R-133 (EXPERIMENTAL): `owner` is a field of
 the export manifest, and "exported" has no meaning outside federation, so the
 requirement is checked where it is checkable — at export. The field lesson
 behind it (a wire protocol nobody owned) stays in R-133's territory.
 
-**R-052** `cmd` · MUST — `updated` MUST be maintained by tooling. Filesystem
-timestamps are never used; a fresh clone resets them. R-106 backstops the hand
-edit that skips the tooling.
+**R-052** WITHDRAWN — nothing maintains a date that history already holds
+(R-050, D-122).
 
-**R-106** `lint` · MUST — Where version-control history is available, a page
-whose `updated` is older than its last content change in history **is an
-error**. This is the R-018 backstop for R-052: an edit made without the
-tooling leaves exactly this trace, the freshness field is the one claim a
-reader cannot check by hand, and the fix is one date (D-070, D-071).
+**R-106** WITHDRAWN — with no `updated` field there is nothing to fall behind
+history (R-050).
 
 **R-053** WITHDRAWN — folded into R-050. An exemption is not an optional
 capability, and at `MAY` level R-010 let an implementation decline to test it
@@ -629,7 +627,6 @@ authors `title` and `summary` explicitly.
 ```yaml
 ---
 status: active                     # required
-updated: 2026-08-15                # required
 epic: checkout-v2                  # optional — declared in .docmeta.yml epics:
 confirmed: "fatih, 2026-08-15"     # required at done and graduated (R-081)
 abandoned_reason: "..."            # required when status: abandoned
@@ -637,8 +634,8 @@ graduated_to: [token-ttl]          # required when status: graduated
 ---
 ```
 
-**R-054** `lint` · MUST — A tracked-work file (R-041) MUST carry `status` and
-`updated`. List files are exempt.
+**R-054** `lint` · MUST — A tracked-work file (R-041) MUST carry `status`. Its
+date is derived as a page's is (R-050).
 
 **R-055** `lint` · MUST — `status: abandoned` MUST carry a non-empty
 `abandoned_reason`.
@@ -1065,7 +1062,7 @@ link runs the other way: the destination page records the source in `sources:`
 and the raw file is left untouched.
 
 **R-099** `cmd` · MUST — Creating a new destination page is a two-step operation.
-First the page is prepared: `id`, `type`, `updated` and the context-establishing
+First the page is prepared: `id`, `type` and the context-establishing
 opening (R-032) are written — the frontmatter by the tool, the opening sentence
 by the model. Then blocks are moved into it byte-exactly (R-090). Without this
 split, a page created purely by moving bytes can never satisfy R-050 and R-032,
@@ -1218,7 +1215,7 @@ that cannot normalize registers the gap and hashes the bytes as written
 
 A **page's** content hash covers its **body** — everything after the closing
 frontmatter delimiter; a file without frontmatter hashes whole. Frontmatter is
-identity and bookkeeping, and a bookkeeping change (an `updated` bump) must not
+identity and bookkeeping, and a bookkeeping change (a verification record) must not
 churn manifests, compiled skills and materializations estate-wide. Frontmatter
 is not left unguarded: for materialized pages it is reconstructed from the
 manifest and checked by R-137; `verifies` hashes cover the referenced code
@@ -1545,8 +1542,7 @@ and an agent — correcting each other forever.
 **R-156** `cmd` · MUST NOT — Automatic repair MUST NOT touch authored prose. A
 finding is repairable only when exactly one correct outcome is derivable from
 the tree itself: a missing router line (format and position fixed by R-035; the
-sentence is the R-057 summary — derived, not authored), a lagging `updated`
-field (per the §2.4 definition), a link target moved **by the same command
+sentence is the R-057 summary — derived, not authored), a link target moved **by the same command
 invocation**, a provenance refresh. Everything else is a decision, and
 decisions go to a human or a model (R-003).
 
