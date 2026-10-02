@@ -9,6 +9,47 @@ use std::fs;
 use std::path::Path;
 
 const GATE_MARKER: &str = "docsys documentation gate";
+const GATE_END: &str = "# --- end of the docsys gate";
+
+/// The git pre-commit block. Every check runs, every failure counts, and the
+/// mode decides whether a failure stops the commit: an earlier block let
+/// `docsys refs`' exit code mask a lint failure (no -e, the last command
+/// decided) — found by the agent lab. `lint` takes `--repo .` like the others
+/// (D-099), and a tree that declares a newer spec than the installed docsys
+/// implements is named in one line instead of a flood of findings an older
+/// binary cannot read. The template stamp names a block behind the binary.
+const GATE_BLOCK: &str = r#"
+# --- docsys documentation gate ---------------------------------------------
+# docsys-template: @VERSION@
+@MODE@
+# One-off skip: DOCSYS_SKIP=1 git commit ... (under commit_policy: require it leaves a debt item)
+docsys_gate_exit=@EXIT@
+if [ -z "${DOCSYS_SKIP:-}" ] && command -v docsys >/dev/null; then
+  docsys_gate_status=0
+  docsys_spec=$(sed -n 's/^spec:[[:space:]]*docsys\/0\.\([0-9][0-9]*\).*/\1/p' "@ROOT@/.docmeta.yml" 2>/dev/null | head -n 1)
+  docsys_impl=$(docsys --version 2>/dev/null | sed -n 's/.*docsys\/0\.\([0-9][0-9]*\).*/\1/p')
+  if [ -n "$docsys_spec" ] && [ "$docsys_spec" -gt "${docsys_impl:-4}" ]; then
+    echo "docsys: this tree needs docsys >= @VERSION@ (it declares docsys/0.$docsys_spec); install: cargo install docsys --version @VERSION@ --locked" >&2
+    docsys_gate_status=1
+  else
+    docsys lint --repo . --root @ROOT@ || docsys_gate_status=1
+    docsys refs --repo . --root @ROOT@ || docsys_gate_status=1
+    docsys gate --repo . --root @ROOT@ || docsys_gate_status=1
+  fi
+  if [ "$docsys_gate_status" -ne 0 ] && [ "$docsys_gate_exit" -ne 0 ]; then exit 1; fi
+elif [ -n "${DOCSYS_SKIP:-}" ] && command -v docsys >/dev/null; then
+  docsys gate --repo . --root @ROOT@ --skipped >/dev/null 2>&1 || :
+fi
+# --- end of the docsys gate ---
+"#;
+
+fn gate_block(root_rel: &str, hard: bool) -> String {
+    GATE_BLOCK
+        .replace("@VERSION@", agents::TEMPLATE_VERSION)
+        .replace("@MODE@", if hard { HARD_MODE_LINE } else { WARN_MODE_LINE })
+        .replace("@EXIT@", if hard { "1" } else { "0" })
+        .replace("@ROOT@", root_rel)
+}
 const WARN_MODE_LINE: &str =
     "# Warn-mode until the adoption debt is triaged; `docsys adopt` hardens it once lint is clean.";
 const HARD_MODE_LINE: &str = "# Hard gate: lint errors and dangling references stop the commit.";
@@ -213,114 +254,68 @@ pub(crate) fn gate_clean(root: &Path, repo: &Path) -> bool {
 pub(crate) fn ensure_git_gate(repo: &Path, root_rel: &str, clean: bool) -> &'static str {
     // a base that is its own repository names itself `.`
     let root_rel = if root_rel.is_empty() { "." } else { root_rel };
-    // Placement order: configured core.hooksPath → a tracked .githooks/ dir
-    // (the project's own convention; we also set hooksPath so the gate fires
-    // on a fresh clone, exactly what the project's own setup step would do)
-    // → .git/hooks as the last resort.
-    // git itself answers — a config-file text parse misses another scope or
-    // another casing of the key (found live, from a field log).
+    // A tracked .githooks/ is the project's own convention: when nothing
+    // configures hooksPath, adopt sets it, so the gate fires on a fresh clone
+    // exactly as the project's own setup step would. Then git says where its
+    // hooks live (D-100) — hooksPath honoured, a worktree's being its common
+    // directory's; a config-file text parse once missed another scope.
     let configured = crate::git::cmd(repo)
         .args(["config", "--get", "core.hooksPath"])
         .output()
         .ok()
         .filter(|o| o.status.success())
-        .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
-        .filter(|s| !s.is_empty());
-    let hooks_dir = match configured {
-        Some(d) => d,
-        None if repo.join(".githooks").is_dir() => {
-            let _ = crate::git::cmd(repo)
-                .args(["config", "core.hooksPath", ".githooks"])
-                .status();
-            ".githooks".to_string()
-        }
-        None => ".git/hooks".to_string(),
-    };
-    let hook = repo.join(&hooks_dir).join("pre-commit");
-    let existing = fs::read_to_string(&hook).unwrap_or_default();
-    // The block: every check runs, every failure counts, and the mode decides
-    // whether a failure stops the commit. An earlier block let `docsys refs`'
-    // exit code mask a lint failure (the script had no -e and the last command
-    // decided) — found by the agent lab; the block is rewritten when it lacks
-    // the status variable (D-093).
-    let block_for = |hard: bool| -> String {
-        let mode_line = if hard { HARD_MODE_LINE } else { WARN_MODE_LINE };
-        let mut block = String::new();
-        let _ = write!(
-            block,
-            "\n# --- {GATE_MARKER} ---------------------------------------------\n\
-             {mode_line}\n\
-             # One-off skip: DOCSYS_SKIP=1 git commit ... (under commit_policy: require it leaves a debt item)\n\
-             docsys_gate_exit={}\n\
-             if [ -z \"${{DOCSYS_SKIP:-}}\" ] && command -v docsys >/dev/null; then\n\
-             \x20 docsys_gate_status=0\n\
-             \x20 docsys lint --root {root_rel} || docsys_gate_status=1\n\
-             \x20 docsys refs --repo . --root {root_rel} || docsys_gate_status=1\n\
-             \x20 docsys gate --repo . --root {root_rel} || docsys_gate_status=1\n\
-             \x20 if [ \"$docsys_gate_status\" -ne 0 ] && [ \"$docsys_gate_exit\" -ne 0 ]; then exit 1; fi\n\
-             elif [ -n \"${{DOCSYS_SKIP:-}}\" ] && command -v docsys >/dev/null; then\n\
-             \x20 docsys gate --repo . --root {root_rel} --skipped >/dev/null 2>&1 || :\n\
-             fi\n",
-            u8::from(hard)
-        );
-        block
-    };
-    if existing.contains(GATE_MARKER) {
-        if !existing.contains("docsys_gate_exit=") {
-            // an older block (masked statuses, or without the policy line): rewrite it in place
-            let lines: Vec<&str> = existing.lines().collect();
-            let start = lines
-                .iter()
-                .position(|l| l.contains(GATE_MARKER) && l.starts_with("# ---"));
-            let end = start.and_then(|s| {
-                lines
-                    .iter()
-                    .skip(s)
-                    .position(|l| l.trim() == "fi")
-                    .map(|i| s + i)
-            });
-            if let (Some(s0), Some(e0)) = (start, end) {
-                let old_block = lines.get(s0..=e0).unwrap_or(&[]);
-                let was_warn = old_block.iter().any(|l| l.contains(" || true"));
-                let hard = clean || !was_warn;
-                let mut out: Vec<String> = lines
-                    .get(..s0)
-                    .unwrap_or(&[])
-                    .iter()
-                    .map(|l| l.to_string())
-                    .collect();
-                // the block text starts with a blank line; the marker line replaces the old one
-                let fresh = block_for(hard);
-                out.extend(fresh.trim_start_matches('\n').lines().map(str::to_string));
-                out.extend(
-                    lines
-                        .get(e0 + 1..)
-                        .unwrap_or(&[])
-                        .iter()
-                        .map(|l| l.to_string()),
-                );
-                let mut text = out.join("\n");
-                text.push('\n');
-                return if fs::write(&hook, text).is_ok() {
-                    "upgraded"
-                } else {
-                    "failed"
-                };
-            }
-        }
-        if clean && existing.contains("docsys_gate_exit=0") {
-            let text = existing
-                .replace("docsys_gate_exit=0", "docsys_gate_exit=1")
-                .replace(WARN_MODE_LINE, HARD_MODE_LINE);
-            return if fs::write(&hook, text).is_ok() {
-                "hardened"
-            } else {
-                "failed"
-            };
-        }
-        return "kept";
+        .is_some_and(|o| !o.stdout.trim_ascii().is_empty());
+    if !configured && repo.join(".githooks").is_dir() {
+        let _ = crate::git::cmd(repo)
+            .args(["config", "core.hooksPath", ".githooks"])
+            .status();
     }
-    let block = block_for(clean);
+    let Some(hooks_dir) = crate::git::hooks_dir(repo) else {
+        return "failed";
+    };
+    let hook = hooks_dir.join("pre-commit");
+    let existing = fs::read_to_string(&hook).unwrap_or_default();
+    if existing.contains(GATE_MARKER) {
+        // The block in place is rewritten when it is not the binary's own:
+        // behind its template, or warn-mode on a tree that is now clean
+        // (D-072). A hard gate stays hard.
+        let lines: Vec<&str> = existing.lines().collect();
+        let start = lines
+            .iter()
+            .position(|l| l.contains(GATE_MARKER) && l.starts_with("# ---"));
+        let end = start.and_then(|s| {
+            let rest = lines.iter().skip(s);
+            let explicit = rest.clone().position(|l| l.starts_with(GATE_END));
+            // a block from before the end line ends at its outer `fi`
+            explicit
+                .or_else(|| rest.clone().position(|l| l.trim() == "fi"))
+                .map(|i| s + i)
+        });
+        let (Some(s0), Some(e0)) = (start, end) else {
+            return "kept";
+        };
+        let old_block = lines.get(s0..=e0).unwrap_or(&[]);
+        let was_warn = old_block
+            .iter()
+            .any(|l| l.contains(" || true") || l.trim() == "docsys_gate_exit=0");
+        let hard = clean || !was_warn;
+        let fresh = gate_block(root_rel, hard);
+        let fresh_lines: Vec<&str> = fresh.trim_matches('\n').lines().collect();
+        if old_block == fresh_lines.as_slice() {
+            return "kept";
+        }
+        let mut out: Vec<&str> = lines.get(..s0).unwrap_or(&[]).to_vec();
+        out.extend(fresh_lines);
+        out.extend(lines.get(e0 + 1..).unwrap_or(&[]));
+        let mut text = out.join("\n");
+        text.push('\n');
+        return match (fs::write(&hook, text), was_warn && hard) {
+            (Err(_), _) => "failed",
+            (Ok(()), true) => "hardened",
+            (Ok(()), false) => "upgraded",
+        };
+    }
+    let block = gate_block(root_rel, clean);
     // The block goes right below the shebang, never at the end: an existing
     // hook usually ends in `exec` or `exit`, and a block appended below either
     // is dead code that looks installed — found live, twice (doctor's check).
@@ -343,7 +338,7 @@ pub(crate) fn ensure_git_gate(repo: &Path, root_rel: &str, clean: bool) -> &'sta
         t.push('\n');
         t
     };
-    if fs::create_dir_all(hook.parent().unwrap_or(repo)).is_err() {
+    if fs::create_dir_all(&hooks_dir).is_err() {
         return "failed";
     }
     if fs::write(&hook, text).is_err() {
@@ -373,15 +368,16 @@ pub fn run(repo: &Path, root: &Path, lang: &str) -> Result<AdoptOutcome, String>
         );
     }
     let mut summary = Vec::new();
-    let root_rel = root
-        .strip_prefix(repo)
-        .unwrap_or(root)
-        .to_string_lossy()
-        .replace('\\', "/");
 
     // 1 · configuration
     let dm = ensure_docmeta(root, lang)?;
     summary.push(format!(".docmeta.yml: {dm}"));
+    // the tree as the repository names it, now that it exists — relative
+    // always, so no relay or gate carries an absolute path (D-099)
+    let root_rel = match crate::fresh::root_rel(repo, root) {
+        r if r.is_empty() => ".".to_string(),
+        r => r,
+    };
     // 1b · the promised skeleton pieces an adopted tree usually lacks
     // (R-048 templates, the questions ledger) — written only when absent.
     let scaffolded = crate::migrate::scaffold_list_files_and_templates(root)?;
@@ -394,8 +390,12 @@ pub fn run(repo: &Path, root: &Path, lang: &str) -> Result<AdoptOutcome, String>
 
     // 2 · agent layer (never-colliding names; existing files skipped)
     let claude = repo.join(".claude");
-    let installed =
-        agents::install_with_preamble(&claude, false, &crate::migrate::generated_preamble(root))?;
+    let installed = agents::install_with_preamble(
+        &claude,
+        false,
+        &crate::migrate::generated_preamble(root),
+        &root_rel,
+    )?;
     summary.push(format!(
         "agent assets: {} written, {} already present",
         installed.written.len(),

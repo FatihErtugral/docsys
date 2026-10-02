@@ -9,6 +9,7 @@ nearest tree above is found, and the repository is the tree's own (D-098). init,
 and assistant create a tree where they are pointed.
 
 Usage:
+  docsys --version                          # the binary and the spec version it implements
   docsys lint    [--root <dir>] [--repo <dir>] [--json]   # inside a git repository: pins and history too
   docsys pin     <page> <path> [--symbol <s>] [--repo .] [--root docs]   # pin a page to a code region (verifies:, §11)
   docsys pin     --refresh <page> [--repo .] [--root docs]              # recompute its pins after re-reading the page
@@ -345,7 +346,20 @@ fn main() -> ExitCode {
     // or installs into one, takes its paths as given. A hook finds its own.
     let creates = matches!(
         cmd,
-        "init" | "adopt" | "assistant" | "migrate" | "agents" | "rules" | "hook"
+        "init"
+            | "adopt"
+            | "assistant"
+            | "migrate"
+            | "agents"
+            | "rules"
+            | "hook"
+            | "help"
+            | "--help"
+            | "-h"
+            | "--version"
+            | "-V"
+            | "version"
+            | ""
     );
     let here = (!creates).then(|| {
         docsys::place::locate(
@@ -365,6 +379,15 @@ fn main() -> ExitCode {
     match (cmd, sub) {
         ("help", _) | ("--help", _) | ("-h", _) => {
             print!("{USAGE}");
+            ExitCode::SUCCESS
+        }
+        ("--version", _) | ("-V", _) | ("version", _) => {
+            // the relays and the git gate read the spec number (D-099)
+            println!(
+                "docsys {} (spec docsys/{})",
+                env!("CARGO_PKG_VERSION"),
+                docsys::rules::spec_version()
+            );
             ExitCode::SUCCESS
         }
         ("lint", None) => run_lint(&opts),

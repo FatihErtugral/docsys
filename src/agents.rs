@@ -23,6 +23,7 @@ const PRE_COMMIT_DOCS: &str = r#"#!/usr/bin/env bash
 # In a knowledge base the same relay guards raw/: an existing record is never
 # overwritten or edited through Write/Edit (R-023, D-076).
 command -v docsys >/dev/null || exit 0
+@DOCSYS_GUARD@
 exec docsys hook pre-tool-use --root "${DOCS_ROOT:-docs}"
 "#;
 
@@ -34,6 +35,7 @@ const STOP_DOCS_REMINDER: &str = r#"#!/usr/bin/env bash
 # stop-docs-reminder.sh — end-of-turn nudge; warns, never blocks (R-150).
 # Reads the working tree and the commits not yet pushed (`docsys hook stop`).
 command -v docsys >/dev/null || exit 0
+@DOCSYS_GUARD@
 exec docsys hook stop --root "${DOCS_ROOT:-docs}" --stdin
 "#;
 
@@ -42,6 +44,7 @@ const POST_EDIT_UPDATED: &str = r#"#!/usr/bin/env bash
 # post-edit-updated.sh — bump `updated:` on the edited docs page (R-052),
 # via `docsys hook post-tool-use` (reads the PostToolUse payload on stdin).
 command -v docsys >/dev/null || exit 0
+@DOCSYS_GUARD@
 exec docsys hook post-tool-use --root "${DOCS_ROOT:-docs}"
 "#;
 
@@ -52,8 +55,36 @@ const SESSION_INTENT: &str = r#"#!/usr/bin/env bash
 # session, from `docsys hook user-prompt-submit` (work types for a project,
 # the four organs for a knowledge base — the root's profile decides).
 command -v docsys >/dev/null || exit 0
+@DOCSYS_GUARD@
 exec docsys hook user-prompt-submit --root "${DOCS_ROOT:-docs}"
 "#;
+
+/// What every relay runs before it hands over to the binary (D-099). It works
+/// from the project directory whatever the session's directory is, and a tree
+/// that declares a newer spec than the installed docsys implements is refused
+/// in one line — an older binary would otherwise answer with a flood of
+/// findings about fields it cannot read. A docsys without `--version` predates
+/// it and implements docsys/0.4.
+const RELAY_GUARD: &str = r#"cd "${CLAUDE_PROJECT_DIR:-.}" || exit 0
+docsys_spec=$(sed -n 's/^spec:[[:space:]]*docsys\/0\.\([0-9][0-9]*\).*/\1/p' "${DOCS_ROOT:-docs}/.docmeta.yml" 2>/dev/null | head -n 1)
+docsys_impl=$(docsys --version 2>/dev/null | sed -n 's/.*docsys\/0\.\([0-9][0-9]*\).*/\1/p')
+if [ -n "$docsys_spec" ] && [ "$docsys_spec" -gt "${docsys_impl:-4}" ]; then
+  echo "docsys: this tree needs docsys >= @DOCSYS_MIN@ (it declares docsys/0.$docsys_spec); install: cargo install docsys --version @DOCSYS_MIN@ --locked" >&2
+  exit 1
+fi"#;
+
+/// A relay as it is written to disk: the guard in place, the tree's own root
+/// as the default (relative to the repository, never an absolute path), the
+/// minimum version this binary is, and the template stamp.
+pub fn render_relay(template: &str, root_arg: &str) -> String {
+    let root_arg = if root_arg.is_empty() { "." } else { root_arg };
+    stamp(
+        &template
+            .replace("@DOCSYS_GUARD@", RELAY_GUARD)
+            .replace("${DOCS_ROOT:-docs}", &format!("${{DOCS_ROOT:-{root_arg}}}"))
+            .replace("@DOCSYS_MIN@", TEMPLATE_VERSION),
+    )
+}
 
 const DOC_SYNC: &str = r#"---
 description: Scan code↔doc drift and un-graduated done work; propose debt items as a diff
@@ -475,9 +506,11 @@ pub fn install_kb(claude_dir: &Path, base_dir: &Path, force: bool) -> Result<Ins
     };
     // The hooks name the base relative to where the agent runs — the
     // directory holding `.claude/` — and that is `.` for a base that is its
-    // own repository (D-076).
+    // own repository (D-076). `.claude` has the empty path as its parent,
+    // which would have made the base's absolute path the relays' default.
     let repo = claude_dir
         .parent()
+        .filter(|p| !p.as_os_str().is_empty())
         .map(Path::to_path_buf)
         .unwrap_or_else(|| std::path::PathBuf::from("."));
     let root_arg = {
@@ -507,9 +540,7 @@ pub fn install_kb(claude_dir: &Path, base_dir: &Path, force: bool) -> Result<Ins
         if let Some(parent) = path.parent() {
             fs::create_dir_all(parent).map_err(|e| e.to_string())?;
         }
-        let content =
-            template.replace("${DOCS_ROOT:-docs}", &format!("${{DOCS_ROOT:-{root_arg}}}"));
-        fs::write(&path, stamp(&content)).map_err(|e| e.to_string())?;
+        fs::write(&path, render_relay(template, &root_arg)).map_err(|e| e.to_string())?;
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
@@ -566,8 +597,9 @@ pub fn install_kb(claude_dir: &Path, base_dir: &Path, force: bool) -> Result<Ins
         out.written.push("AGENTS.md".to_string());
     }
     // The git gate, as for a project: hard when the base lints clean inside
-    // its repository, warn-mode while it carries debt (D-072).
-    if repo.join(".git").exists() {
+    // its repository, warn-mode while it carries debt (D-072). A linked
+    // worktree's `.git` is a file; git says whether this is a repository.
+    if crate::git::toplevel(&repo).is_some() {
         let clean = crate::adopt::gate_clean(base_dir, &repo);
         let gate = crate::adopt::ensure_git_gate(&repo, &root_arg, clean);
         let mode = if clean {
@@ -589,32 +621,34 @@ pub fn install_kb(claude_dir: &Path, base_dir: &Path, force: bool) -> Result<Ins
 pub const KB_SETTINGS_SNIPPET: &str = r#"{
   "hooks": {
     "UserPromptSubmit": [
-      { "hooks": [ { "type": "command", "command": ".claude/hooks/session-intent.sh" } ] }
+      { "hooks": [ { "type": "command", "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/session-intent.sh" } ] }
     ],
     "PreToolUse": [
       { "matcher": "Bash|Write|Edit",
-        "hooks": [ { "type": "command", "command": ".claude/hooks/pre-commit-docs.sh" } ] }
+        "hooks": [ { "type": "command", "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/pre-commit-docs.sh" } ] }
     ],
     "PostToolUse": [
       { "matcher": "Write|Edit",
-        "hooks": [ { "type": "command", "command": ".claude/hooks/post-edit-updated.sh" } ] }
+        "hooks": [ { "type": "command", "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/post-edit-updated.sh" } ] }
     ],
     "Stop": [
-      { "hooks": [ { "type": "command", "command": ".claude/hooks/stop-docs-reminder.sh" } ] }
+      { "hooks": [ { "type": "command", "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/stop-docs-reminder.sh" } ] }
     ]
   }
 }"#;
 
 pub fn install(claude_dir: &Path, force: bool) -> Result<Installed, String> {
-    install_with_preamble(claude_dir, force, "")
+    install_with_preamble(claude_dir, force, "", "docs")
 }
 
 /// `install`, with the owner's generated-file preamble (D-056) placed in
-/// every markdown asset — never in a shell hook.
+/// every markdown asset — never in a shell hook — and the tree's root,
+/// relative to the repository, as the relays' default.
 pub fn install_with_preamble(
     claude_dir: &Path,
     force: bool,
     preamble: &str,
+    root_arg: &str,
 ) -> Result<Installed, String> {
     let files: [(&str, &str, bool); 9] = [
         ("hooks/pre-commit-docs.sh", PRE_COMMIT_DOCS, true),
@@ -642,7 +676,7 @@ pub fn install_with_preamble(
             fs::create_dir_all(parent).map_err(|e| e.to_string())?;
         }
         let content = if executable {
-            stamp(content)
+            render_relay(content, root_arg)
         } else {
             crate::migrate::with_preamble(content, preamble)
         };
@@ -729,9 +763,15 @@ fn merge_hook_wires(doc: &mut Json, want: &Json) -> Option<usize> {
         };
         for entry in want_entries {
             let wanted = commands_of(entry);
-            let wired = wanted
-                .iter()
-                .all(|c| list.iter().any(|e| commands_of(e).contains(c)));
+            // a relay is wired whatever spelling wires it (D-099)
+            let wired = wanted.iter().all(|c| {
+                let name = relay_name(c);
+                list.iter().any(|e| {
+                    commands_of(e)
+                        .iter()
+                        .any(|have| have == c || (name.is_some() && relay_name(have) == name))
+                })
+            });
             if !wired {
                 list.push(entry.clone());
                 added += 1;
@@ -755,23 +795,111 @@ fn commands_of(entry: &Json) -> Vec<&str> {
         .collect()
 }
 
+/// The relay a hook command runs, whatever its spelling: quotes, a leading
+/// `bash `/`sh `, a leading `cd "$CLAUDE_PROJECT_DIR" &&`, `${…}` braces and a
+/// leading `./` removed, what remains is exactly `.claude/hooks/<name>.sh`
+/// (D-099). A command that wraps the relay in anything else is the owner's,
+/// and `None`.
+pub fn relay_name(command: &str) -> Option<&'static str> {
+    let mut c = command
+        .replace(['"', '\''], "")
+        .replace("${CLAUDE_PROJECT_DIR}", "$CLAUDE_PROJECT_DIR");
+    c = c.trim().to_string();
+    if let Some(rest) = c.strip_prefix("cd $CLAUDE_PROJECT_DIR") {
+        c = rest.trim_start().strip_prefix("&&")?.trim().to_string();
+    }
+    for runner in ["bash ", "sh "] {
+        if let Some(rest) = c.strip_prefix(runner) {
+            c = rest.trim().to_string();
+        }
+    }
+    let c = c.strip_prefix("$CLAUDE_PROJECT_DIR/").unwrap_or(&c);
+    let c = c.strip_prefix("./").unwrap_or(c);
+    HOOK_FILES
+        .iter()
+        .find(|rel| c.strip_prefix(".claude/") == Some(**rel))
+        .and_then(|rel| rel.strip_prefix("hooks/"))
+}
+
+/// Whether a command wires a relay by a path relative to wherever the session
+/// stands — it runs only while the session sits at the repository's top level.
+pub fn is_relative_wire(command: &str) -> bool {
+    relay_name(command).is_some() && !command.contains("CLAUDE_PROJECT_DIR")
+}
+
+/// Rewrite every docsys wire in a settings document to the one form and fold
+/// duplicates of the same relay under one event into one (D-099). Returns the
+/// number of changes; `None` when the document is not shaped `{"hooks": …}`.
+/// A command that wraps a relay in anything else is the owner's and is left
+/// as it is.
+pub fn canonicalize_wires(doc: &mut Json) -> Option<usize> {
+    let Json::Obj(fields) = doc else { return None };
+    let Some((_, Json::Obj(events))) = fields.iter_mut().find(|(k, _)| k == "hooks") else {
+        return Some(0);
+    };
+    let mut changes = 0;
+    for (_, entries) in events.iter_mut() {
+        let Json::Arr(list) = entries else {
+            return None;
+        };
+        // a duplicate is the same relay under the same matcher; a second
+        // matcher is a second wire, not a duplicate
+        let mut seen: Vec<(String, &'static str)> = Vec::new();
+        let mut kept: Vec<Json> = Vec::new();
+        for mut entry in list.drain(..) {
+            let matcher = entry.string_at(&["matcher"]).unwrap_or("").to_string();
+            if let Json::Obj(ef) = &mut entry {
+                if let Some((_, Json::Arr(hooks))) = ef.iter_mut().find(|(k, _)| k == "hooks") {
+                    let before = hooks.len();
+                    hooks.retain_mut(|h| {
+                        let Some(name) = h.string_at(&["command"]).and_then(relay_name) else {
+                            return true;
+                        };
+                        if seen.contains(&(matcher.clone(), name)) {
+                            return false;
+                        }
+                        seen.push((matcher.clone(), name));
+                        let canonical = format!("\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/{name}");
+                        if let Json::Obj(hf) = h {
+                            for (k, v) in hf.iter_mut() {
+                                if k == "command" && *v != Json::Str(canonical.clone()) {
+                                    *v = Json::Str(canonical.clone());
+                                    changes += 1;
+                                }
+                            }
+                        }
+                        true
+                    });
+                    changes += before - hooks.len();
+                    if hooks.is_empty() {
+                        continue;
+                    }
+                }
+            }
+            kept.push(entry);
+        }
+        *list = kept;
+    }
+    Some(changes)
+}
+
 /// The settings.json snippet for a project (the same wires `wire_settings`
 /// merges into an existing file).
 pub const SETTINGS_SNIPPET: &str = r#"{
   "hooks": {
     "UserPromptSubmit": [
-      { "hooks": [ { "type": "command", "command": ".claude/hooks/session-intent.sh" } ] }
+      { "hooks": [ { "type": "command", "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/session-intent.sh" } ] }
     ],
     "PreToolUse": [
       { "matcher": "Bash",
-        "hooks": [ { "type": "command", "command": ".claude/hooks/pre-commit-docs.sh" } ] }
+        "hooks": [ { "type": "command", "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/pre-commit-docs.sh" } ] }
     ],
     "PostToolUse": [
       { "matcher": "Write|Edit",
-        "hooks": [ { "type": "command", "command": ".claude/hooks/post-edit-updated.sh" } ] }
+        "hooks": [ { "type": "command", "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/post-edit-updated.sh" } ] }
     ],
     "Stop": [
-      { "hooks": [ { "type": "command", "command": ".claude/hooks/stop-docs-reminder.sh" } ] }
+      { "hooks": [ { "type": "command", "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/stop-docs-reminder.sh" } ] }
     ]
   }
 }"#;

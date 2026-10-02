@@ -59,6 +59,27 @@ pub fn toplevel(dir: &Path) -> Option<PathBuf> {
     (!top.is_empty()).then(|| PathBuf::from(top))
 }
 
+/// The directory git runs this repository's hooks from (D-100): git answers,
+/// so `core.hooksPath` is honoured and a linked worktree — where `.git` is a
+/// file — gets its common directory's hooks. A git older than 2.31 has no
+/// `--path-format`; its answer is relative to `repo`.
+pub fn hooks_dir(repo: &Path) -> Option<PathBuf> {
+    let ask = |args: &[&str]| {
+        cmd(repo)
+            .args(args)
+            .output()
+            .ok()
+            .filter(|o| o.status.success())
+            .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+            .filter(|s| !s.is_empty())
+    };
+    if let Some(p) = ask(&["rev-parse", "--path-format=absolute", "--git-path", "hooks"]) {
+        return Some(PathBuf::from(p));
+    }
+    let p = PathBuf::from(ask(&["rev-parse", "--git-path", "hooks"])?);
+    Some(if p.is_absolute() { p } else { repo.join(p) })
+}
+
 #[cfg(test)]
 #[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 mod tests {

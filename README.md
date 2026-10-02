@@ -442,13 +442,16 @@ rewritten. It lands:
 - `.claude/hooks/`, `.claude/commands/`, `.claude/skills/` — four relay hooks,
   `/docsys-sync`, `/docsys-seed`, `/docsys-interview`, the docsys and export
   skills
-- `.claude/settings.json` — the hook wiring: written whole when the file does
-  not exist, merged into when it does (MCP servers, permissions and your own
-  hooks keep their place; only a file that is not JSON is left alone, with the
-  snippet on the report)
+- `.claude/settings.json` — the hook wiring, `"$CLAUDE_PROJECT_DIR"/.claude/hooks/<name>.sh`,
+  so the relays run from any directory of the repository: written whole when
+  the file does not exist, merged into when it does (MCP servers, permissions
+  and your own hooks keep their place; a relay already wired in another
+  spelling is not wired twice; only a file that is not JSON is left alone, with
+  the snippet on the report)
 - `AGENTS.md` — a managed block generated from the embedded spec
-- `.git/hooks/pre-commit` — the lint + refs gate, in warn mode until both are
-  clean
+- `pre-commit` in the directory git runs hooks from (`core.hooksPath`, a
+  tracked `.githooks/`, a linked worktree's common hooks, else `.git/hooks/`)
+  — the lint + refs gate, in warn mode until both are clean
 - `ADOPTION.md` — the report, with a checklist of every judgment call left to
   you
 

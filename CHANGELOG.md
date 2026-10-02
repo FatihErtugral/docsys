@@ -25,6 +25,26 @@ by the release workflow — the tag's section becomes the GitHub release body.
   and keeps `GIT_INDEX_FILE` (a partial commit's index).
 - The usage text names the real default root (`docs`, found from where the
   command runs) instead of `--root .`.
+- The relays run from any directory of the repository (D-099): `adopt` and
+  `agents` wire `"$CLAUDE_PROJECT_DIR"/.claude/hooks/<name>.sh`, each relay
+  starts in the project directory and defaults to the tree's own root (an
+  `adopt --root documentation` no longer installs relays that look for `docs`;
+  a base installed from its own directory no longer bakes an absolute path).
+  A relay already wired in another spelling is not wired a second time;
+  `doctor` names a relative wire and a wire the owner wrapped.
+- `adopt` in a linked worktree writes the git gate (D-100): git names the
+  hooks directory, so `core.hooksPath` and a worktree's common hooks are
+  honoured; it reported "failed" there before.
+- The git gate runs `docsys lint --repo .` like `refs` and `gate`, and carries
+  its template version; `adopt` rewrites a block behind the binary in place.
+
+### Added
+
+- `docsys --version`, the binary and the spec it implements. The relays and
+  the git gate read it: a tree that declares a newer spec than the installed
+  docsys implements stops with one line naming the minimum version and the
+  install command, instead of a flood of findings an older binary cannot
+  read.
 
 ## [0.15.1] - 2026-09-04
 

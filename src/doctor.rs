@@ -58,6 +58,34 @@ fn dead_above(hook_text: &str, marker: &str) -> bool {
     false
 }
 
+/// Every `command` string wired in a settings document.
+fn wire_commands(doc: &crate::hook::Json) -> Vec<String> {
+    use crate::hook::Json;
+    let Some(Json::Obj(events)) = (match doc {
+        Json::Obj(f) => f.iter().find(|(k, _)| k == "hooks").map(|(_, v)| v),
+        _ => None,
+    }) else {
+        return Vec::new();
+    };
+    let mut out = Vec::new();
+    for (_, entries) in events {
+        let Json::Arr(list) = entries else { continue };
+        for entry in list {
+            let Json::Obj(ef) = entry else { continue };
+            let Some((_, Json::Arr(hooks))) = ef.iter().find(|(k, _)| k == "hooks") else {
+                continue;
+            };
+            out.extend(
+                hooks
+                    .iter()
+                    .filter_map(|h| h.string_at(&["command"]))
+                    .map(str::to_string),
+            );
+        }
+    }
+    out
+}
+
 pub fn run(repo: &Path, root: &Path, claude_dir: &Path) -> Diagnosis {
     let mut d = Diagnosis {
         lines: Vec::new(),
@@ -139,19 +167,42 @@ pub fn run(repo: &Path, root: &Path, claude_dir: &Path) -> Diagnosis {
         }
     }
 
+    // 2b. How each relay is wired (D-099): a relative path runs only while the
+    // session sits at the repository's top level; a command that wraps a relay
+    // in something else is the owner's and is left as it is.
+    if let Some(doc) = crate::hook::parse_json(&settings) {
+        for cmd in wire_commands(&doc) {
+            if crate::agents::is_relative_wire(&cmd) {
+                d.lines.push(format!(
+                    "info `{cmd}` is wired by a relative path — it runs only while the session \
+                     sits at the repository's top level; `docsys upgrade` rewrites it"
+                ));
+            } else if crate::agents::relay_name(&cmd).is_none()
+                && crate::agents::HOOK_FILES
+                    .iter()
+                    .any(|rel| cmd.contains(&format!(".claude/{rel}")))
+            {
+                d.lines.push(format!(
+                    "info `{cmd}` wraps a docsys relay — the owner's, left as is"
+                ));
+            }
+        }
+    }
+
     // 3. The git gate exists AND is reachable. git itself answers where hooks
-    // live — parsing the config file missed a hooksPath set in another scope
-    // or spelled in another case, and doctor pointed at the wrong directory
-    // (found live, from a field log).
-    let hooks_dir = crate::git::cmd(repo)
-        .args(["config", "--get", "core.hooksPath"])
-        .output()
-        .ok()
-        .filter(|o| o.status.success())
-        .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
-        .filter(|s| !s.is_empty())
-        .unwrap_or_else(|| ".git/hooks".to_string());
-    let hook_path = repo.join(&hooks_dir).join("pre-commit");
+    // live (D-100): core.hooksPath in any scope, a worktree's common directory.
+    let hooks_dir = crate::git::hooks_dir(repo).unwrap_or_else(|| repo.join(".git/hooks"));
+    let shown = {
+        let repo_c = repo.canonicalize().unwrap_or_else(|_| repo.to_path_buf());
+        let dir_c = hooks_dir
+            .canonicalize()
+            .unwrap_or_else(|_| hooks_dir.clone());
+        dir_c
+            .strip_prefix(&repo_c)
+            .map(|p| p.to_string_lossy().replace('\\', "/"))
+            .unwrap_or_else(|_| hooks_dir.to_string_lossy().replace('\\', "/"))
+    };
+    let hook_path = hooks_dir.join("pre-commit");
     match fs::read_to_string(&hook_path) {
         Ok(text) if text.contains("docsys") => {
             if dead_above(&text, "docsys") {
@@ -159,27 +210,30 @@ pub fn run(repo: &Path, root: &Path, claude_dir: &Path) -> Diagnosis {
                     &mut d,
                     false,
                     format!(
-                        "{hooks_dir}/pre-commit: the docsys block sits below a top-level \
+                        "{shown}/pre-commit: the docsys block sits below a top-level \
                          exec/exit — dead code that looks installed"
                     ),
                 );
             } else {
-                push(
-                    &mut d,
-                    true,
-                    format!("{hooks_dir}/pre-commit gate reachable"),
-                );
+                push(&mut d, true, format!("{shown}/pre-commit gate reachable"));
+                let stamp = format!("# docsys-template: {}", crate::agents::TEMPLATE_VERSION);
+                if text.contains("docsys documentation gate") && !text.contains(&stamp) {
+                    d.lines.push(format!(
+                        "info {shown}/pre-commit: the docsys block is behind the binary — \
+                         `docsys upgrade` (or `docsys adopt`) rewrites it"
+                    ));
+                }
             }
         }
         Ok(_) => push(
             &mut d,
             false,
-            format!("{hooks_dir}/pre-commit exists but carries no docsys gate"),
+            format!("{shown}/pre-commit exists but carries no docsys gate"),
         ),
         Err(_) => push(
             &mut d,
             false,
-            format!("no pre-commit hook under {hooks_dir} — the git gate never fires"),
+            format!("no pre-commit hook under {shown} — the git gate never fires"),
         ),
     }
 
