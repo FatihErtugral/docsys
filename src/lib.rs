@@ -32,6 +32,7 @@ pub mod rules;
 pub mod seed;
 pub mod slug;
 pub mod status;
+pub mod symbols;
 pub mod tree;
 pub mod verify;
 

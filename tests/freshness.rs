@@ -66,6 +66,18 @@ fn repo(name: &str, day: &str) -> (PathBuf, PathBuf) {
     (repo, docs)
 }
 
+/// The tree declares a spec version (D-118): 0.5 rules switch on with it.
+fn declare_spec(docs: &Path, spec: &str) {
+    let dm = docs.join(".docmeta.yml");
+    let text = fs::read_to_string(&dm).unwrap();
+    assert!(text.contains("spec: docsys/0.4\n"), "{text}");
+    fs::write(
+        &dm,
+        text.replace("spec: docsys/0.4\n", &format!("spec: {spec}\n")),
+    )
+    .unwrap();
+}
+
 fn errors(docs: &Path, repo: &Path) -> Vec<String> {
     let (r, _) = lint_in(docs, Some(repo));
     r.findings
@@ -180,6 +192,164 @@ fn an_ambiguous_symbol_or_a_malformed_hash_is_an_error_not_a_guess() {
         errs.iter()
             .any(|e| e.starts_with("R-113 reference/refresh.md")),
         "{errs:?}"
+    );
+}
+
+/// `(from, to)`: one textual edit.
+type Edit = (&'static str, &'static str);
+
+/// One file per family: (path, symbol, source, an edit inside the declaration,
+/// an edit at a use site only). Each use site is a shape D-069 took for the
+/// declaration: a block-opening `if`, a template, a `{{ }}` in a Vue template.
+const FAMILIES: &[(&str, &str, &str, Edit, Edit)] = &[
+    (
+        "src/ledger.rs",
+        "settle",
+        "pub fn settle(total: u64) -> u64 {\n    total / 2\n}\n\npub fn run(total: u64) -> u64 {\n    if settle(total) > 3 {\n        return 1;\n    }\n    0\n}\n",
+        ("total / 2", "total / 4"),
+        ("> 3", "> 5"),
+    ),
+    (
+        "web/settle.ts",
+        "settle",
+        "export const settle = (x: number): boolean => x > 0;\n\nexport function run(x: number) {\n  if (ready && settle(x)) {\n    return 1;\n  }\n  return 0;\n}\n",
+        ("x > 0", "x > 1"),
+        ("return 1", "return 2"),
+    ),
+    (
+        "web/Panel.vue",
+        "settle",
+        "<template>\n  <button @click=\"settle\">{{ label }}</button>\n</template>\n\n<script setup lang=\"ts\">\nconst label = 'settle'\nfunction settle() {\n  return label.length\n}\n</script>\n",
+        ("label.length", "label.length + 1"),
+        ("@click=", "@click.stop="),
+    ),
+    (
+        "tool/settle.py",
+        "settle",
+        "def settle(\n    total,\n):\n    return total // 2\n\n\ndef run(total):\n    return settle(total)\n",
+        ("total // 2", "total // 4"),
+        ("return settle(total)", "return settle(total) + 1"),
+    ),
+    (
+        "cmd/settle.go",
+        "Settle",
+        "package cmd\n\nfunc Settle(total int) int {\n\treturn total / 2\n}\n\nfunc Run(total int) int {\n\tif Settle(total) > 3 {\n\t\treturn 1\n\t}\n\treturn 0\n}\n",
+        ("total / 2", "total / 4"),
+        ("return 1", "return 2"),
+    ),
+    (
+        "app/Settle.java",
+        "settle",
+        "public class Settle {\n    public static int settle(int total)\n    {\n        return total / 2;\n    }\n\n    public static int run(int total) {\n        if (settle(total) > 3) {\n            return 1;\n        }\n        return 0;\n    }\n}\n",
+        ("total / 2", "total / 4"),
+        ("return 1", "return 2"),
+    ),
+];
+
+#[test]
+fn a_symbol_pin_covers_its_declaration_in_every_family_and_no_use() {
+    let today = docsys::migrate::today();
+    let (repo, docs) = repo("families", &today);
+    declare_spec(&docs, "docsys/0.5");
+    for (path, _, source, _, _) in FAMILIES {
+        let file = repo.join(path);
+        fs::create_dir_all(file.parent().unwrap()).unwrap();
+        fs::write(&file, source).unwrap();
+    }
+    git(&repo, &["add", "-A"]);
+    git(&repo, &["commit", "-q", "-m", "code"]);
+    let mut wrong = Vec::new();
+    for (path, symbol, _, _, _) in FAMILIES {
+        if let Err(e) = fresh::pin(&docs, &repo, "reference/refresh", path, Some(symbol)) {
+            wrong.push(format!("{path}#{symbol}: pin refused: {e}"));
+        }
+    }
+    git(&repo, &["add", "-A"]);
+    git(&repo, &["commit", "-q", "-m", "pins"]);
+    assert!(
+        errors(&docs, &repo).is_empty(),
+        "{:?} {wrong:?}",
+        errors(&docs, &repo)
+    );
+    for (path, symbol, source, (decl_from, decl_to), (use_from, use_to)) in FAMILIES {
+        let file = repo.join(path);
+        let stale = format!("R-111 reference/refresh.md {path}#{symbol}");
+        let at_use = source.replacen(use_from, use_to, 1);
+        assert_ne!(&at_use, source, "{path}: the use-site edit changes nothing");
+        fs::write(&file, &at_use).unwrap();
+        if errors(&docs, &repo).contains(&stale) {
+            wrong.push(format!(
+                "{path}#{symbol}: a use site moved and the pin went stale"
+            ));
+        }
+        let in_decl = source.replacen(decl_from, decl_to, 1);
+        assert_ne!(
+            &in_decl, source,
+            "{path}: the declaration edit changes nothing"
+        );
+        fs::write(&file, &in_decl).unwrap();
+        if !errors(&docs, &repo).contains(&stale) {
+            wrong.push(format!(
+                "{path}#{symbol}: the declaration moved and the pin stayed current"
+            ));
+        }
+        fs::write(&file, source).unwrap();
+    }
+    assert!(wrong.is_empty(), "{}", wrong.join("\n"));
+}
+
+#[test]
+fn a_0_4_tree_keeps_the_0_15_1_resolution() {
+    let today = docsys::migrate::today();
+    let (repo, docs) = repo("era-0-4", &today);
+    // the TypeScript file: its only block-opening line naming `settle` is a use
+    let (path, symbol, source, _, (use_from, use_to)) = *FAMILIES.get(1).unwrap();
+    fs::create_dir_all(repo.join("web")).unwrap();
+    fs::write(repo.join(path), source).unwrap();
+    git(&repo, &["add", "-A"]);
+    git(&repo, &["commit", "-q", "-m", "code"]);
+    fresh::pin(&docs, &repo, "reference/refresh", path, Some(symbol)).unwrap();
+    let d069 = fresh::region(source, path, Some(symbol)).unwrap();
+    assert!(d069.starts_with("  if (ready && settle(x)) {"), "{d069}");
+    let page = fs::read_to_string(docs.join("reference/refresh.md")).unwrap();
+    assert!(page.contains(&fresh::content_hash(&d069)), "{page}");
+    git(&repo, &["add", "-A"]);
+    git(&repo, &["commit", "-q", "-m", "pin"]);
+    let (r, _) = lint_in(&docs, Some(&repo));
+    assert!(r.findings.is_empty(), "{:?}", r.findings);
+    // as 0.15.1 had it: the use site is the pinned region
+    fs::write(repo.join(path), source.replacen(use_from, use_to, 1)).unwrap();
+    let errs = errors(&docs, &repo);
+    assert!(
+        errs.contains(&format!("R-111 reference/refresh.md {path}#{symbol}")),
+        "{errs:?}"
+    );
+}
+
+#[test]
+fn pinning_a_large_file_whole_prints_a_note_not_a_finding() {
+    let today = docsys::migrate::today();
+    let (repo, docs) = repo("large", &today);
+    declare_spec(&docs, "docsys/0.5");
+    let big: String = (0..301)
+        .map(|i| format!("const A{i}: u32 = {i};\n"))
+        .collect();
+    fs::write(repo.join("src/big.rs"), big).unwrap();
+    let msg = fresh::pin(&docs, &repo, "reference/refresh", "src/big.rs", None).unwrap();
+    assert!(
+        msg.contains("note:") && msg.contains("301 lines") && msg.contains("pin a symbol"),
+        "{msg}"
+    );
+    let msg = fresh::pin(&docs, &repo, "reference/refresh", "src/auth.rs", None).unwrap();
+    assert!(!msg.contains("note:"), "{msg}");
+    let msg = fresh::pin(&docs, &repo, "reference/refresh", "src/big.rs", Some("A7")).unwrap();
+    assert!(!msg.contains("note:"), "{msg}");
+    git(&repo, &["add", "-A"]);
+    git(&repo, &["commit", "-q", "-m", "pins"]);
+    assert!(
+        errors(&docs, &repo).is_empty(),
+        "{:?}",
+        errors(&docs, &repo)
     );
 }
 

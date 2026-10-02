@@ -61,6 +61,13 @@ impl Era {
         self.v05()
     }
 
+    /// D-106: a symbol resolves to its declaration, never to a use site;
+    /// members resolve inside their owner. Before: D-069's whole-word line
+    /// that opens a block.
+    pub fn declaration_pins(self) -> bool {
+        self.v05()
+    }
+
     /// R-071: a wiki-link inside an inline code span is quoted material.
     /// Before: read as a link.
     pub fn literal_code_spans(self) -> bool {

@@ -249,8 +249,14 @@ flowchart LR
 - **`verifies:`** — `docsys pin <page> <path> [--symbol <s>]` records a code
   region's SHA-256 on the page; lint recomputes it on every run and a moved
   region is an error until the page is re-read and `pin --refresh`ed (§11,
-  R-111). Symbols resolve as brace or `def`/`class` blocks; an ambiguous one
-  is an error, never a guess (D-069).
+  R-111). A symbol resolves to its declaration — never to a use, a comment
+  or a string — read per language family (Rust; TS/JS and the `<script>` of
+  Vue and Svelte files; Python; Go; a generic rule for other brace
+  languages), and `Class.method` or `Type::method` resolves inside its
+  owner. A symbol that is only used, or declared more than once, is an error
+  naming the lines, never a guess (D-106; a `docsys/0.4` tree keeps D-069's
+  resolution). Prefer a symbol to a large file: every edit to a whole-file
+  pin stales the page, and `pin` says so above 300 lines.
 - **History** — one `git log` walk dates every page: `updated:` behind the
   page's last commit (R-106) and a `draft`/`active`/`done` file untouched
   beyond `stale_active_days` (R-085) are errors (D-070, D-071).
@@ -407,7 +413,7 @@ flowchart LR
 | `docsys raw move <record> <domain> [--root .]` | A note from `raw/inbox/` to `raw/<domain>/`, through git, bytes untouched — and every citing page's `sources:` entry rewritten in the frontmatter (R-027, D-085). The domain must be declared; an existing destination is refused; the body is not touched, so a verified page stays verified. |
 | `docsys status [--root .] [--repo <dir>] [--json]` | The digest an assistant reads first: inbox, pages by state, open questions and debt, consumed namespaces and their fetch day, compiled skills, and lint's findings folded by rule. Derived on every run, never stored (D-080). |
 | `docsys compile <howto> [--root docs] [--dir .claude] [--force]` | A howto whose steps are complete becomes an executable skill: the page body byte for byte under `.claude/skills/<id>/`, pinned to the page's content hash. Lint fails while the page has moved since the compile (R-094, R-095, D-073). |
-| `docsys pin <page> <path> [--symbol <s>]` · `docsys pin --refresh <page>` | Pin a permanent page to a code region — the whole file or one symbol's block — with its SHA-256 (§11); refresh every pin after re-reading the page. Lint fails while a pinned region has moved. |
+| `docsys pin <page> <path> [--symbol <s>]` · `docsys pin --refresh <page>` | Pin a permanent page to a code region — the whole file or one symbol's declaration — with its SHA-256 (§11); refresh every pin after re-reading the page. Lint fails while a pinned region has moved. |
 | `docsys init [--root docs] [--lang <code>] [--profile project\|knowledge-base]` | Greenfield skeleton. `project`: router, journal, debt. `knowledge-base`: the record layer (`raw/inbox/`) and the wiki root. |
 | `docsys migrate inventory [--root <dir>] [--repo <dir>]` · `docsys migrate apply --plan <file> [--root <dir>] [--lang <code>] [--repo <dir>]` | Brownfield adoption: evidence-rich plan → approved mapping → mechanical move with link rewriting on both sides of the docs boundary. |
 | `docsys refs --repo <dir> [--root <dir>] [--json]` | Validate every `doc: <id>` in the code base against the tree (typos stop being invisible). |

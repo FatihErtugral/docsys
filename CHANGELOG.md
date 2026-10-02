@@ -70,6 +70,25 @@ by the release workflow — the tag's section becomes the GitHub release body.
   project prints `records: N (M cited by no page)` and no inbox line; `inbox
   add` in a project without `raw/` names `mkdir -p <root>/raw/inbox` or the
   knowledge-base profile. `raw move` stays the knowledge base's.
+- In a `docsys/0.5` tree a pinned symbol resolves to its declaration, never
+  to a use (D-106, superseding D-069). The resolver reads a grammar per
+  extension family — Rust; TS/JS and the `<script>` of `.vue` and `.svelte`;
+  Python; Go; a generic rule for every other brace language — over tokens
+  that skip comments, string literals and imports. Multi-line signatures,
+  `;`-terminated declarations, arrow consts, object literals, union types and
+  object-literal return types now resolve; `Class.method`, `Type::method`
+  and `Outer.Inner.name` resolve inside their owner (every `impl` block of a
+  Rust type; the receiver of a Go method). A symbol that occurs only at uses,
+  or is declared more than once, is refused naming the lines. A
+  `docsys/0.4` tree keeps D-069's resolution and its findings (D-118).
+- `pin` of a whole file longer than 300 lines prints a note: every edit to
+  that file stales the page; pin a symbol.
+- R-114 forbids a guess, and D-069 guessed. When a tree moves to
+  `docsys/0.5`, a pin that 0.15 bound to a use site resolves to the
+  declaration instead — its hash differs, so the page is stale (R-111) until
+  it is re-read and `pin --refresh`ed — or, where the file declares no such
+  symbol, it is refused (R-114). Either way the old pin certified the wrong
+  region.
 
 ### Fixed
 

@@ -18,6 +18,7 @@ use std::fs;
 use std::path::Path;
 
 use crate::checks::Report;
+use crate::era::Era;
 use crate::fm::{Frontmatter, Value};
 use crate::model::{is_iso_date, Finding, RuleId};
 use crate::tree::{DocTree, Kind};
@@ -27,6 +28,10 @@ const R106: RuleId = RuleId("R-106");
 const R111: RuleId = RuleId("R-111");
 const R113: RuleId = RuleId("R-113");
 const R114: RuleId = RuleId("R-114");
+
+/// Above this many lines, `pin` notes that a whole-file pin goes stale on
+/// every edit (D-106).
+const WHOLE_FILE_LINES: usize = 300;
 
 // ---------------------------------------------------------------- SHA-256
 
@@ -335,6 +340,21 @@ pub fn region(source: &str, path: &str, symbol: Option<&str>) -> Result<String, 
     }
 }
 
+/// The text a pin covers in a 0.5 tree: the whole file, or the lines of the
+/// declaration `symbol` names (D-106). A symbol that is absent, only used or
+/// declared more than once is an error, never a guess (R-114).
+pub fn declared_region(source: &str, path: &str, symbol: Option<&str>) -> Result<String, String> {
+    let Some(sym) = symbol.map(str::trim).filter(|s| !s.is_empty()) else {
+        return Ok(source.to_string());
+    };
+    let (first, last) = crate::symbols::resolve(source, path, sym)?;
+    let lines: Vec<&str> = source.lines().collect();
+    Ok(lines
+        .get(first.saturating_sub(1)..last)
+        .unwrap_or(&[])
+        .join("\n"))
+}
+
 // ---------------------------------------------------------------- pins
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -376,8 +396,9 @@ pub fn pins_of(fm: &Frontmatter) -> Vec<Pin> {
         .unwrap_or_default()
 }
 
-/// The hash a pin should carry now, or why it cannot be computed.
-fn current_hash(repo: &Path, pin: &Pin) -> Result<String, (RuleId, String)> {
+/// The hash a pin should carry now, or why it cannot be computed. A 0.4 tree
+/// resolves a symbol by D-069, a later one by D-106 (D-118).
+fn current_hash(repo: &Path, pin: &Pin, era: Era) -> Result<String, (RuleId, String)> {
     let file = repo.join(&pin.path);
     let source = fs::read_to_string(&file).map_err(|_| {
         (
@@ -389,12 +410,19 @@ fn current_hash(repo: &Path, pin: &Pin) -> Result<String, (RuleId, String)> {
             ),
         )
     })?;
-    let text = region(&source, &pin.path, pin.symbol.as_deref()).map_err(|e| (R114, e))?;
+    let symbol = pin.symbol.as_deref();
+    let text = if era.declaration_pins() {
+        declared_region(&source, &pin.path, symbol)
+    } else {
+        region(&source, &pin.path, symbol)
+    }
+    .map_err(|e| (R114, e))?;
     Ok(content_hash(&text))
 }
 
 /// R-110/R-111/R-113/R-114 over every pinned permanent page.
 pub fn check_pins(tree: &DocTree, repo: &Path, r: &mut Report) {
+    let era = Era::of(tree);
     let mut inspected = 0usize;
     for page in &tree.pages {
         if page.kind != Kind::Permanent {
@@ -415,7 +443,7 @@ pub fn check_pins(tree: &DocTree, repo: &Path, r: &mut Report) {
                 ));
                 continue;
             }
-            match current_hash(repo, &pin) {
+            match current_hash(repo, &pin, era) {
                 Err((rule, msg)) => {
                     r.findings
                         .push(Finding::err(rule, &page.rel, &pin.label(), msg))
@@ -1299,7 +1327,7 @@ pub fn pin(
         symbol: symbol.clone(),
         hash: String::new(),
     };
-    new.hash = current_hash(repo, &new).map_err(|(_, m)| m)?;
+    new.hash = current_hash(repo, &new, Era::at(root)).map_err(|(_, m)| m)?;
     let mut pins = pins_of(&fm);
     match pins
         .iter_mut()
@@ -1310,7 +1338,17 @@ pub fn pin(
     }
     let today = crate::migrate::today();
     fs::write(&file, rewrite(&text, &pins, &today)?).map_err(|e| e.to_string())?;
-    Ok(format!("pinned {rel} → {} {}", new.label(), new.hash))
+    let mut out = format!("pinned {rel} → {} {}", new.label(), new.hash);
+    if new.symbol.is_none() {
+        let lines = fs::read_to_string(repo.join(&path)).map_or(0, |s| s.lines().count());
+        if lines > WHOLE_FILE_LINES {
+            out.push_str(&format!(
+                "\nnote: `{path}` has {lines} lines — every edit to that file stales this page; \
+                 pin a symbol (`--symbol <name>`)"
+            ));
+        }
+    }
+    Ok(out)
 }
 
 /// `docsys pin --refresh <page>`: every pin recomputed after the author
@@ -1324,9 +1362,10 @@ pub fn refresh(root: &Path, repo: &Path, page: &str) -> Result<String, String> {
     if pins.is_empty() {
         return Err(format!("{rel} carries no `verifies:` pin"));
     }
+    let era = Era::at(root);
     let mut changed = Vec::new();
     for p in &mut pins {
-        let now = current_hash(repo, p).map_err(|(_, m)| m)?;
+        let now = current_hash(repo, p, era).map_err(|(_, m)| m)?;
         if now != p.hash {
             changed.push(p.label());
             p.hash = now;
