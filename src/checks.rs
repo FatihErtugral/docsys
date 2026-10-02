@@ -530,10 +530,30 @@ fn kb_page_checks(tree: &DocTree, page: &Page, fm: &crate::fm::Frontmatter, r: &
     }
 }
 
+/// What a `sources:` entry may name (R-059), for the finding: a reader who
+/// meets a severed entry learns the forms that resolve, not only that this
+/// one does not. A knowledge base resolves paths in its own tree only.
+fn source_forms(tree: &DocTree) -> String {
+    let paths = match tree.profile {
+        Profile::Project => "a path under the docs root or the repository",
+        Profile::KnowledgeBase => "a path under the docs root",
+    };
+    let raw = if tree.root.join("raw").is_dir() {
+        ", or a `raw/` record — capture one with `docsys inbox add`"
+    } else {
+        ""
+    };
+    format!(
+        "a source is {paths}, a URL (`://`), `git:<sha>`, `git:<sha>:<path>[@L<a>-L<b>]`, \
+         `tag:<ref>`, `@namespace/id` (a consumed page){raw}"
+    )
+}
+
 /// R-059: every `sources:` entry resolves. A severed evidence trail is the
 /// silent failure R-027 names, so a missing file blocks (§2.2).
 fn check_sources(tree: &DocTree, r: &mut Report) {
     let mut inspected = 0usize;
+    let forms = source_forms(tree);
     // Version-control locators resolve against the repository the tree lives
     // in (D-061); looked up once, only if a page names one.
     let mut repo: Option<Option<std::path::PathBuf>> = None;
@@ -600,7 +620,7 @@ fn check_sources(tree: &DocTree, r: &mut Report) {
                             r.findings.push(finding(
                                 &page.rel,
                                 s,
-                                format!("sources entry `{s}` does not resolve — {why}"),
+                                format!("sources entry `{s}` does not resolve — {why} — {forms}"),
                             ));
                         }
                     }
@@ -616,7 +636,10 @@ fn check_sources(tree: &DocTree, r: &mut Report) {
                 r.findings.push(finding(
                     &page.rel,
                     s,
-                    format!("sources entry `{s}` does not resolve — the evidence trail is severed"),
+                    format!(
+                        "sources entry `{s}` does not resolve — the evidence trail is severed \
+                         — {forms}"
+                    ),
                 ));
             }
         }
@@ -2562,5 +2585,101 @@ mod tests_ledger {
             .iter()
             .all(|(s, _)| s != "ERROR"));
         assert!(lint_debt("# Debt\n\n- [ ] 2026-08-01 a -- deferred: r -- repay when: t\n- [ ] 2026-08-02 b -- deferred: r -- repay when: t\n").is_empty());
+    }
+}
+
+#[cfg(test)]
+#[allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::indexing_slicing
+)]
+mod tests_sources {
+    use std::fs;
+    use std::path::Path;
+
+    fn r059_messages(root: &Path) -> Vec<String> {
+        let (report, _) = crate::lint(root);
+        report
+            .findings
+            .iter()
+            .filter(|f| f.rule.0 == "R-059")
+            .map(|f| f.message.clone())
+            .collect()
+    }
+
+    const FORMS: &str = "a URL (`://`), `git:<sha>`, `git:<sha>:<path>[@L<a>-L<b>]`, \
+                         `tag:<ref>`, `@namespace/id` (a consumed page)";
+
+    #[test]
+    fn an_unresolved_source_names_the_forms_that_resolve() {
+        let root = std::env::temp_dir().join(format!("docsys-r059-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        fs::create_dir_all(root.join("reference")).unwrap();
+        assert!(std::process::Command::new("git")
+            .args(["init", "-q"])
+            .current_dir(&root)
+            .status()
+            .unwrap()
+            .success());
+        fs::write(
+            root.join(".docmeta.yml"),
+            "spec: docsys/0.4\nprofile: project\ndefault_content_language: en\n",
+        )
+        .unwrap();
+        fs::write(
+            root.join("index.md"),
+            "# Docs\n\n- [[reference/a|A]] -- a.\n",
+        )
+        .unwrap();
+        fs::write(
+            root.join("reference/a.md"),
+            "---\nid: a\ntype: reference\nupdated: 2026-10-02\nsources: [notes/gone.md, git:0123456789abcdef]\n---\nThis page is a; read it now.\n",
+        )
+        .unwrap();
+        let clause = format!("— a source is a path under the docs root or the repository, {FORMS}");
+        let msgs = r059_messages(&root);
+        assert_eq!(msgs.len(), 2, "{msgs:?}");
+        for m in &msgs {
+            assert!(m.ends_with(&clause), "{m}");
+        }
+        // where raw/ exists, a captured record is one more form
+        fs::create_dir_all(root.join("raw")).unwrap();
+        for m in r059_messages(&root) {
+            assert!(
+                m.ends_with(&format!(
+                    "{clause}, or a `raw/` record — capture one with `docsys inbox add`"
+                )),
+                "{m}"
+            );
+        }
+        let _ = fs::remove_dir_all(&root);
+
+        // a knowledge base resolves a path in its own tree only
+        let kb = std::env::temp_dir().join(format!("docsys-r059-kb-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&kb);
+        fs::create_dir_all(kb.join("wiki/coding/howto")).unwrap();
+        fs::create_dir_all(kb.join("raw/coding")).unwrap();
+        fs::write(
+            kb.join(".docmeta.yml"),
+            "spec: docsys/0.4\nprofile: knowledge-base\ndefault_content_language: en\ndomains: [coding]\n",
+        )
+        .unwrap();
+        fs::write(
+            kb.join("wiki/coding/howto/a.md"),
+            "---\nid: a\ntype: howto\ndomain: coding\nverification: unverified\nupdated: 2026-10-02\nsources: [raw/coding/gone.md]\n---\n# A\n\nThis page is a; read it now.\n",
+        )
+        .unwrap();
+        let msgs = r059_messages(&kb);
+        assert_eq!(
+            msgs,
+            vec![format!(
+                "sources entry `raw/coding/gone.md` does not resolve — the evidence trail is \
+                 severed — a source is a path under the docs root, {FORMS}, or a `raw/` \
+                 record — capture one with `docsys inbox add`"
+            )]
+        );
+        let _ = fs::remove_dir_all(&kb);
     }
 }

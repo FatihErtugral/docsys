@@ -96,6 +96,11 @@ by the release workflow — the tag's section becomes the GitHub release body.
   (`// see doc: x for why`) stops counting: move it to the start of its
   comment. Pages are unchanged — inside the tree `doc:` counts anywhere
   outside quoted material.
+- An unresolved `sources:` entry (R-059) names the forms that resolve: a
+  path under the docs root (or, in a project, the repository), a URL,
+  `git:<sha>`, `git:<sha>:<path>[@L<a>-L<b>]`, `tag:<ref>`, `@namespace/id`,
+  and — where the tree has a `raw/` — a record captured with
+  `docsys inbox add`.
 
 ### Changed
 
