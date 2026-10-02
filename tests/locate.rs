@@ -34,6 +34,10 @@ fn git(dir: &Path, args: &[&str]) -> Output {
         .current_dir(dir)
         .env("PATH", path_with_bin())
         .env("DOCSYS_TODAY", "2026-10-02")
+        // history on the day docsys is told it is, so `updated:` and the last
+        // change agree whatever day the suite runs (R-106)
+        .env("GIT_AUTHOR_DATE", "2026-10-02T12:00:00+00:00")
+        .env("GIT_COMMITTER_DATE", "2026-10-02T12:00:00+00:00")
         .output()
         .unwrap()
 }

@@ -257,14 +257,14 @@ fn an_edit_that_changes_a_verified_body_demotes_the_page_and_keeps_the_record() 
     // layout only: canonically the same body, nothing happens
     let verified = fs::read_to_string(&page).unwrap();
     fs::write(&page, verified.replace("Twelve hours.", "Twelve hours.   ")).unwrap();
-    let r = docsys::hook::post_tool_use(&repo, &root, &payload, "2026-10-02");
+    let r = docsys::hook::post_tool_use(&repo, &root, &payload, &docsys::migrate::today());
     assert_eq!(r.code, 0, "{}", r.stderr);
     assert!(fs::read_to_string(&page)
         .unwrap()
         .contains("verification: verified\n"));
     // a real change: unverified, the record kept, the agent told
     fs::write(&page, verified.replace("Twelve hours.", "Six hours.")).unwrap();
-    let r = docsys::hook::post_tool_use(&repo, &root, &payload, "2026-10-02");
+    let r = docsys::hook::post_tool_use(&repo, &root, &payload, &docsys::migrate::today());
     assert_eq!(r.code, 2);
     assert!(
         r.stderr
