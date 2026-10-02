@@ -12,7 +12,8 @@ use std::process::{Command, Stdio};
 /// The pin's file, beside `.docmeta.yml`.
 pub const FILE: &str = ".docsys-version";
 
-/// Set on the pinned binary a dispatch runs: it never dispatches again.
+/// Set on the pinned binary a dispatch runs: it never dispatches again. It is
+/// that one process's: every process docsys starts runs without it.
 pub const GUARD: &str = "DOCSYS_DISPATCHED";
 
 /// Set by a person who installs every version by hand.

@@ -17,6 +17,9 @@ use std::process::Command;
 pub fn cmd(dir: &Path) -> Command {
     let mut c = Command::new("git");
     c.arg("-C").arg(dir).args(["-c", "core.quotePath=false"]);
+    // the guard is this process's, never its children's: a gate git runs
+    // resolves the pin itself (D-120)
+    c.env_remove(crate::dispatch::GUARD);
     if std::env::var_os("GIT_WORK_TREE").is_none() {
         c.env_remove("GIT_DIR");
     }
@@ -28,6 +31,7 @@ pub fn cmd(dir: &Path) -> Command {
 /// for its own repository may leak in.
 pub fn foreign(dir: Option<&Path>) -> Command {
     let mut c = Command::new("git");
+    c.env_remove(crate::dispatch::GUARD);
     if let Some(d) = dir {
         c.arg("-C").arg(d);
     }

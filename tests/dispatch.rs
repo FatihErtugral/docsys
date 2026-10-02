@@ -101,6 +101,7 @@ fn repo(name: &str) -> PathBuf {
     git(&r, &["init", "-q", "-b", "main"]);
     git(&r, &["config", "user.email", "t@example.invalid"]);
     git(&r, &["config", "user.name", "t"]);
+    git(&r, &["config", "commit.gpgsign", "false"]);
     let out = Command::new(bin())
         .args(["init", "--root", "docs"])
         .current_dir(&r)
@@ -390,6 +391,64 @@ fn version_names_the_running_docsys_and_the_pin() {
             env!("CARGO_PKG_VERSION"),
             docsys::rules::spec_version()
         )
+    );
+    for d in [r, home] {
+        let _ = fs::remove_dir_all(d);
+    }
+}
+
+/// The guard stops a dispatched binary from dispatching again, and nothing
+/// more: the git gate a dispatched `verify --commit` starts resolves the pin
+/// itself, as a gate under a plain `git commit` does.
+#[test]
+fn the_children_of_a_dispatched_command_resolve_the_pin_themselves() {
+    let home = tmp("child-home");
+    let log = home.join("ran.log");
+    executable(
+        &home.join("versions/9.9.9/bin/docsys"),
+        &format!(
+            "#!/bin/sh\necho \"$1\" >> '{}'\nexec '{}' \"$@\"\n",
+            log.display(),
+            bin().display()
+        ),
+    );
+    let path = path_with(&tmp("child-path"));
+    let r = repo("child");
+    let adopt = Command::new(bin())
+        .arg("adopt")
+        .current_dir(&r)
+        .env("PATH", &path)
+        .output()
+        .unwrap();
+    assert!(adopt.status.success(), "{adopt:?}");
+    fs::create_dir_all(r.join("docs/reference")).unwrap();
+    fs::write(
+        r.join("docs/reference/p.md"),
+        "---\nid: p\ntype: reference\nverification: unverified\nsources: []\n---\n# P\n\nThis page states one fact; read it first.\n",
+    )
+    .unwrap();
+    fs::write(r.join("docs/.docsys-version"), "9.9.9\n").unwrap();
+    // setup only: these commits are not what the test watches
+    git(&r, &["add", "-A"]);
+    git(
+        &r,
+        &[
+            "-c",
+            "core.hooksPath=/dev/null",
+            "commit",
+            "-qm",
+            "a page, pinned",
+        ],
+    );
+    let _ = fs::remove_file(&log);
+    let x = run(&r, &path, &home, &[], &["verify", "p", "--commit"]);
+    assert_eq!(x.code, 0, "{}{}", x.out, x.err);
+    let ran = fs::read_to_string(&log).unwrap_or_default();
+    // verify itself, then the gate's own calls inside its commit
+    assert!(ran.starts_with("verify\n"), "{ran}");
+    assert!(
+        ran.lines().any(|l| l == "gate"),
+        "the gate ran unpinned:\n{ran}"
     );
     for d in [r, home] {
         let _ = fs::remove_dir_all(d);

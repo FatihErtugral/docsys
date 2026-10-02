@@ -200,6 +200,7 @@ pub fn run_command(command: &str) -> Result<(i32, String), String> {
     let exe = std::env::current_exe().map_err(|e| e.to_string())?;
     let out = std::process::Command::new(exe)
         .args(words)
+        .env_remove(crate::dispatch::GUARD)
         .output()
         .map_err(|e| e.to_string())?;
     let text = format!(
