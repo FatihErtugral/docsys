@@ -6,7 +6,7 @@
 use crate::{agents, lint, refs, rules, tree::DocTree};
 use std::fmt::Write as _;
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 const GATE_MARKER: &str = "docsys documentation gate";
 const GATE_END: &str = "# --- end of the docsys gate";
@@ -165,25 +165,41 @@ fn ensure_ci_workflow(repo: &Path, root_rel: &str) -> &'static str {
 
 #[derive(Debug)]
 pub struct AdoptOutcome {
+    /// empty under `--no-report`
     pub report_path: String,
     pub summary: Vec<String>,
+    /// what adopt prints instead of writing: the rules block when git ignores
+    /// both files that could hold it, the report under `--no-report`
+    pub printed: Vec<String>,
 }
 
-fn contains_md(dir: &Path) -> bool {
+/// Where adopt puts what it writes outside the tree (D-110); paths are
+/// relative to the repository.
+#[derive(Debug, Default, Clone)]
+pub struct Placement {
+    /// `--rules-file`: the file the docsys:rules block goes to
+    pub rules_file: Option<PathBuf>,
+    /// `--report-dir`: the directory ADOPTION.md goes to
+    pub report_dir: Option<PathBuf>,
+    /// `--no-report`: the report is printed, nothing is written
+    pub no_report: bool,
+}
+
+fn md_count(dir: &Path) -> usize {
     let Ok(entries) = fs::read_dir(dir) else {
-        return false;
+        return 0;
     };
-    for e in entries.filter_map(|e| e.ok()) {
-        let p = e.path();
-        if p.is_dir() {
-            if contains_md(&p) {
-                return true;
+    entries
+        .filter_map(|e| e.ok())
+        .map(|e| e.path())
+        .map(|p| {
+            if p.is_dir() {
+                md_count(&p)
+            } else {
+                usize::from(p.extension().is_some_and(|x| x == "md"))
             }
-        } else if p.extension().is_some_and(|x| x == "md") {
-            return true;
-        }
-    }
-    false
+        })
+        .sum()
 }
 
 fn ensure_docmeta(root: &Path, lang: &str) -> Result<&'static str, String> {
@@ -192,13 +208,26 @@ fn ensure_docmeta(root: &Path, lang: &str) -> Result<&'static str, String> {
     if existing.is_empty() {
         // No docmeta and no pages: greenfield — the full init skeleton
         // (router, journal, debt) beats a bare config file. No docmeta but
-        // existing pages: an unmigrated tree — init would clobber its
-        // index.md, and classification is migrate's job, not adopt's.
-        if contains_md(root) {
+        // existing pages: what they are is judgment (R-003), so adopt stops
+        // and names the ways on (D-110).
+        let pages = md_count(root);
+        if pages > 0 {
+            let shown = root.display().to_string();
+            let r = shown.strip_prefix("./").unwrap_or(&shown);
+            let again = if r == "docs" {
+                String::new()
+            } else {
+                format!(" --root {r}")
+            };
             return Err(format!(
-                "`{}` has pages but no .docmeta.yml — run `docsys migrate inventory` \
-                 first, then adopt",
-                root.display()
+                "`{r}` holds {pages} page(s) and no .docmeta.yml — adopt does not choose \
+                 what they are; classification is judgment (R-003). Three ways on:\n\
+                 \x20 1. migrate them: `docsys migrate inventory --root {r} > plan.tsv`, classify \
+                 each row, `docsys migrate apply --plan plan.tsv --root {r}`, then \
+                 `docsys adopt{again}`\n\
+                 \x20 2. keep them in place as an unmigrated tree: `docsys init --root {r}`, then \
+                 `docsys adopt{again}` — lint reports every page outside the layout (D-016)\n\
+                 \x20 3. put the tree elsewhere: `docsys adopt --root <dir>`"
             ));
         }
         crate::migrate::init(root, lang)?;
@@ -353,6 +382,15 @@ pub(crate) fn ensure_git_gate(repo: &Path, root_rel: &str, clean: bool) -> &'sta
 }
 
 pub fn run(repo: &Path, root: &Path, lang: &str) -> Result<AdoptOutcome, String> {
+    run_placed(repo, root, lang, &Placement::default())
+}
+
+pub fn run_placed(
+    repo: &Path,
+    root: &Path,
+    lang: &str,
+    place: &Placement,
+) -> Result<AdoptOutcome, String> {
     // A knowledge-base tree is lintable (0.3) but its adoption flow — id
     // backfill, legacy-checker delegation — is its own release. Refusing
     // beats half-adopting (the D-006 doctrine).
@@ -442,12 +480,32 @@ pub fn run(repo: &Path, root: &Path, lang: &str) -> Result<AdoptOutcome, String>
         }
     };
 
-    // 3 · AGENTS.md managed block (idempotent)
-    rules::write_agents_block_with(
-        &repo.join("AGENTS.md"),
-        &crate::migrate::generated_preamble(root),
-    )?;
-    summary.push("AGENTS.md: managed block written".to_string());
+    // 3 · the managed rules block (idempotent), in a file the repository
+    // keeps (D-110)
+    let mut printed = Vec::new();
+    let preamble = crate::migrate::generated_preamble(root);
+    let rules_printed = match rules_target(repo, place.rules_file.as_deref()) {
+        Some(file) => {
+            if let Some(dir) = file.parent() {
+                fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+            }
+            rules::write_agents_block_with(&file, &preamble)?;
+            let shown = file.strip_prefix(repo).unwrap_or(&file);
+            summary.push(format!(
+                "{}: managed block written",
+                shown.to_string_lossy().replace('\\', "/")
+            ));
+            false
+        }
+        None => {
+            summary.push(
+                "rules block: git ignores AGENTS.md and CLAUDE.md — printed below, not written"
+                    .to_string(),
+            );
+            printed.push(rules::agents_block_with(&preamble));
+            true
+        }
+    };
 
     // 4 · git pre-commit gate — hard when the tree is clean as the hook will
     // see it (inside the repository: pins and history included), warn-mode
@@ -482,7 +540,8 @@ pub fn run(repo: &Path, root: &Path, lang: &str) -> Result<AdoptOutcome, String>
     // `## Last run` — "created" must not turn into "kept" in the only file
     // that says what adoption did.
     let today = crate::migrate::today();
-    let existing_report = fs::read_to_string(repo.join("ADOPTION.md")).unwrap_or_default();
+    let report_path = report_target(repo, place.report_dir.as_deref());
+    let existing_report = fs::read_to_string(&report_path).unwrap_or_default();
     let adoption_block = previous_adoption_block(&existing_report, root);
     let mut md = String::from(
         "# docsys adoption report\n\nGenerated by `docsys adopt`. \
@@ -543,6 +602,13 @@ pub fn run(repo: &Path, root: &Path, lang: &str) -> Result<AdoptOutcome, String>
              \x20     writes the GitHub workflow once `.github/` exists.\n",
         );
     }
+    if rules_printed {
+        md.push_str(
+            "- [ ] Git ignores both `AGENTS.md` and `CLAUDE.md`, so `docsys adopt` printed\n\
+             \x20     the docsys:rules block instead of writing it: put it in a file your\n\
+             \x20     agents load, or run `docsys adopt --rules-file <path>`.\n",
+        );
+    }
     if settings_unparsable {
         md.push_str(
             "- [ ] Merge the docsys hook wires into `.claude/settings.json` by hand or\n\
@@ -556,20 +622,133 @@ pub fn run(repo: &Path, root: &Path, lang: &str) -> Result<AdoptOutcome, String>
     // The report is regenerated, but a leading comment block on the existing
     // file is the owner's — a privacy classifier's marker, a review note —
     // and survives the rewrite (D-046).
-    let report_path = repo.join("ADOPTION.md");
-    let existing = fs::read_to_string(&report_path).unwrap_or_default();
-    let pre = crate::migrate::generated_preamble(root);
-    let (text, note) = managed_report_with(&existing, &md, &pre);
+    let (text, note) = managed_report_with(&existing_report, &md, &preamble);
     if let Some(n) = note {
         summary.push(n);
     }
-    fs::write(&report_path, crate::migrate::with_preamble(&text, &pre))
-        .map_err(|e| e.to_string())?;
+    let text = crate::migrate::with_preamble(&text, &preamble);
+    if place.no_report {
+        printed.push(text);
+        return Ok(AdoptOutcome {
+            report_path: String::new(),
+            summary,
+            printed,
+        });
+    }
+    if let Some(dir) = report_path.parent() {
+        fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+    }
+    fs::write(&report_path, text).map_err(|e| e.to_string())?;
 
     Ok(AdoptOutcome {
         report_path: report_path.to_string_lossy().to_string(),
         summary,
+        printed,
     })
+}
+
+/// The files git knows of under `repo` that match `pathspecs`, each with
+/// whether it is tracked: tracked, untracked and ignored ones alike. Empty
+/// outside a repository.
+fn known_files(repo: &Path, pathspecs: &[&str]) -> Vec<(String, bool)> {
+    let list = |args: &[&str]| -> Vec<String> {
+        crate::git::cmd(repo)
+            .args(["ls-files", "-z"])
+            .args(args)
+            .arg("--")
+            .args(pathspecs)
+            .output()
+            .ok()
+            .filter(|o| o.status.success())
+            .map(|o| {
+                String::from_utf8_lossy(&o.stdout)
+                    .split('\0')
+                    .filter(|p| !p.is_empty())
+                    .map(str::to_string)
+                    .collect()
+            })
+            .unwrap_or_default()
+    };
+    let mut out: Vec<(String, bool)> = Vec::new();
+    for (args, tracked) in [
+        (&["-c"][..], true),
+        (&["-o", "--exclude-standard"][..], false),
+        (&["-o", "-i", "--exclude-standard"][..], false),
+    ] {
+        for p in list(args) {
+            if !out.iter().any(|(q, _)| *q == p) {
+                out.push((p, tracked));
+            }
+        }
+    }
+    out
+}
+
+fn git_ignores(repo: &Path, rel: &str) -> bool {
+    crate::git::cmd(repo)
+        .args(["check-ignore", "-q", rel])
+        .output()
+        .is_ok_and(|o| o.status.success())
+}
+
+const RULES_FILES: [&str; 2] = ["AGENTS.md", "CLAUDE.md"];
+
+/// Where the docsys:rules block goes (D-110): the named file; else where its
+/// markers already are — a tracked file first, then a root one, AGENTS.md
+/// before CLAUDE.md — updated in place, never moved; else AGENTS.md, or
+/// CLAUDE.md when git ignores AGENTS.md. `None` when git ignores both.
+fn rules_target(repo: &Path, named: Option<&Path>) -> Option<PathBuf> {
+    if let Some(file) = named {
+        return Some(repo.join(file));
+    }
+    let mut known = known_files(repo, &["*AGENTS.md", "*CLAUDE.md"]);
+    for name in RULES_FILES {
+        if !known.iter().any(|(p, _)| p == name) {
+            known.push((name.to_string(), false));
+        }
+    }
+    let mut holding: Vec<(bool, bool, usize, String)> = known
+        .into_iter()
+        .filter_map(|(rel, tracked)| {
+            let base = rel.rsplit('/').next().unwrap_or(&rel);
+            let rank = RULES_FILES.iter().position(|n| *n == base)?;
+            fs::read_to_string(repo.join(&rel))
+                .ok()?
+                .contains(rules::BLOCK_BEGIN)
+                .then(|| (!tracked, rel.contains('/'), rank, rel))
+        })
+        .collect();
+    holding.sort();
+    if let Some((.., rel)) = holding.into_iter().next() {
+        return Some(repo.join(rel));
+    }
+    RULES_FILES
+        .into_iter()
+        .find(|name| !git_ignores(repo, name))
+        .map(|name| repo.join(name))
+}
+
+/// Where ADOPTION.md goes (D-110): into `--report-dir`; else to the one git
+/// knows of — tracked, untracked or ignored, so a report moved by hand or
+/// kept out of git is found again — that holds the managed block; else to
+/// the repository's root.
+fn report_target(repo: &Path, dir: Option<&Path>) -> PathBuf {
+    if let Some(dir) = dir {
+        return repo.join(dir).join("ADOPTION.md");
+    }
+    let at_root = repo.join("ADOPTION.md");
+    let holds = |p: &Path| fs::read_to_string(p).is_ok_and(|t| t.contains(REPORT_BEGIN));
+    if holds(&at_root) {
+        return at_root;
+    }
+    let mut known = known_files(repo, &["*ADOPTION.md"]);
+    known.retain(|(rel, _)| rel.rsplit('/').next() == Some("ADOPTION.md"));
+    known.sort_by_key(|(rel, tracked)| (!tracked, rel.matches('/').count(), rel.clone()));
+    known
+        .into_iter()
+        .map(|(rel, _)| repo.join(rel))
+        .find(|p| holds(p))
+        .unwrap_or(at_root)
 }
 
 /// The first run's `## Done` block inside an existing managed report — kept

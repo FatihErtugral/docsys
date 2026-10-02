@@ -153,8 +153,13 @@ pub fn check_budget(max_lines: usize) -> Result<(usize, usize), String> {
     Ok((summary_lines, max_lines))
 }
 
-const BLOCK_BEGIN: &str = "<!-- docsys:rules:begin — generated, do not edit inside -->";
+pub const BLOCK_BEGIN: &str = "<!-- docsys:rules:begin — generated, do not edit inside -->";
 const BLOCK_END: &str = "<!-- docsys:rules:end -->";
+
+/// The managed block itself, markers and the owner's preamble (D-056) included.
+pub fn agents_block_with(preamble: &str) -> String {
+    format!("{BLOCK_BEGIN}\n{preamble}{}{BLOCK_END}\n", agents_md())
+}
 
 /// Write/update the generated block inside a managed marker region of `path`.
 /// Owner prose outside the markers is never touched; re-runs are idempotent.
@@ -169,7 +174,7 @@ pub fn write_agents_block_with(
     path: &std::path::Path,
     preamble: &str,
 ) -> Result<&'static str, String> {
-    let block = format!("{BLOCK_BEGIN}\n{preamble}{}{BLOCK_END}\n", agents_md());
+    let block = agents_block_with(preamble);
     let existing = std::fs::read_to_string(path).ok();
     let new_text = match existing {
         None => block.clone(),

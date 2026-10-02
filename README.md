@@ -392,7 +392,7 @@ flowchart LR
 
 | Command | What it does |
 |---|---|
-| `docsys adopt [--repo .] [--root docs] [--lang <code>] [--obsidian]` | One-command integration: docmeta (or the full init skeleton on a fresh project) with the tree's `namespace:`, agent assets, `settings.json` (written when absent, merged into when present — D-086), AGENTS.md managed block, the git pre-commit gate (hard when lint and `refs` are both clean, warn-mode while the tree or the code carries debt, hardened by a later run — D-088), `.github/workflows/docsys.yml` when `.github/` exists, and an `ADOPTION.md` report whose checklist carries every judgment call. Idempotent. |
+| `docsys adopt [--repo .] [--root docs] [--lang <code>] [--obsidian] [--rules-file <path>] [--report-dir <dir> \| --no-report]` | One-command integration: docmeta (or the full init skeleton on a fresh project) with the tree's `namespace:`, agent assets, `settings.json` (written when absent, merged into when present — D-086), AGENTS.md managed block, the git pre-commit gate (hard when lint and `refs` are both clean, warn-mode while the tree or the code carries debt, hardened by a later run — D-088), `.github/workflows/docsys.yml` when `.github/` exists, and an `ADOPTION.md` report whose checklist carries every judgment call. Idempotent. |
 | `docsys seed plan [--target <feature>] [--since <date>] [--memory <dir>]` · `docsys seed apply --plan <file> [--force]` · `docsys seed gaps [--since <date>]` | Brownfield seeding: evidence from history and code, refused when a page covers the feature; the approved rows land under `work/` as tokens and verbatim quotations (D-053, D-058). |
 | `docsys debt close <n> [--note <line>]` · `docsys journal add <text> [--title <t>] [--date <d>] [--link <path>]` · `docsys page new <kind> <id> [--title <t>] [--unverified]` | Capture, mechanical: a repaid debt leaves the ledger with its journal line; an entry at its date; a page from its template (D-063); `--unverified` writes `verification: unverified` and `sources: []` on a permanent page — a page from evidence, for a maintainer to verify (R-208, D-092). |
 | `docsys backlinks <path\|id> [--repo .]` · `docsys mentions [<path\|id>]` · `docsys graph [--format dot\|json\|jsoncanvas] [--repo .]` | Derived navigation, never written into a page: who points at a page (code included), who names it without linking, the whole map (D-064). |
@@ -448,12 +448,15 @@ rewritten. It lands:
   and your own hooks keep their place; a relay already wired in another
   spelling is not wired twice; only a file that is not JSON is left alone, with
   the snippet on the report)
-- `AGENTS.md` — a managed block generated from the embedded spec
+- `AGENTS.md` — a managed block generated from the embedded spec; a re-run
+  updates it wherever its markers are, it goes to `CLAUDE.md` when git
+  ignores `AGENTS.md`, and `--rules-file <path>` names the file (D-110)
 - `pre-commit` in the directory git runs hooks from (`core.hooksPath`, a
   tracked `.githooks/`, a linked worktree's common hooks, else `.git/hooks/`)
   — the lint + refs gate, in warn mode until both are clean
 - `ADOPTION.md` — the report, with a checklist of every judgment call left to
-  you
+  you; `--report-dir <dir>` puts it elsewhere, `--no-report` only prints it,
+  and a re-run finds it wherever it was moved (D-110)
 
 Then open an agent session in that directory and work as usual. Three things
 happen without being asked:

@@ -35,6 +35,8 @@ Usage:
   docsys rules   --agents-md | --procedures [--max-lines <n>] [--write <file>]
   docsys agents  --report [--dir .claude]    # existing layer + its shell calls
   docsys adopt   [--repo .] [--root docs] [--lang <code>]  # one-command adoption
+  docsys adopt   … [--rules-file <path>] [--report-dir <dir> | --no-report]
+                                             # where the rules block and ADOPTION.md go; by default, where their markers are (D-110)
   docsys agents  [--dir .claude] [--force]   # install hooks + skill + /doc-sync
   docsys agents  --kb [--root <base>] [--dir .claude] [--force]  # knowledge-base layer
   docsys graduate plan <work-file>  [--root <dir>]
@@ -111,6 +113,9 @@ struct Opts {
     all: bool,
     projects: Vec<PathBuf>,
     domains: Vec<String>,
+    rules_file: Option<PathBuf>,
+    report_dir: Option<PathBuf>,
+    no_report: bool,
     positional: Vec<String>,
 }
 
@@ -159,6 +164,9 @@ fn parse_opts(args: &[String]) -> Result<Opts, String> {
         all: false,
         projects: Vec::new(),
         domains: Vec::new(),
+        rules_file: None,
+        report_dir: None,
+        no_report: false,
         positional: Vec::new(),
     };
     let mut it = args.iter();
@@ -217,6 +225,17 @@ fn parse_opts(args: &[String]) -> Result<Opts, String> {
             "--id" => o.source_id = Some(it.next().ok_or("--id needs a value")?.clone()),
             "--url" => o.url = Some(it.next().ok_or("--url needs a value")?.clone()),
             "--all" => o.all = true,
+            "--rules-file" => {
+                o.rules_file = Some(PathBuf::from(
+                    it.next().ok_or("--rules-file needs a value")?,
+                ))
+            }
+            "--report-dir" => {
+                o.report_dir = Some(PathBuf::from(
+                    it.next().ok_or("--report-dir needs a value")?,
+                ))
+            }
+            "--no-report" => o.no_report = true,
             "--projects" => o
                 .projects
                 .push(PathBuf::from(it.next().ok_or("--projects needs a value")?)),
@@ -410,12 +429,22 @@ fn main() -> ExitCode {
                     }
                 }
             }
-            match docsys::adopt::run(&repo, &root, &opts.lang) {
+            let place = docsys::adopt::Placement {
+                rules_file: opts.rules_file.clone(),
+                report_dir: opts.report_dir.clone(),
+                no_report: opts.no_report,
+            };
+            match docsys::adopt::run_placed(&repo, &root, &opts.lang, &place) {
                 Ok(done) => {
                     for s in &done.summary {
                         println!("{s}");
                     }
-                    println!("\nreport + judgment checklist: {}", done.report_path);
+                    for text in &done.printed {
+                        print!("\n{text}");
+                    }
+                    if !done.report_path.is_empty() {
+                        println!("\nreport + judgment checklist: {}", done.report_path);
+                    }
                     ExitCode::SUCCESS
                 }
                 Err(e) => {

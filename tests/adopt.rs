@@ -538,3 +538,220 @@ fn a_re_run_keeps_the_adoption_record_and_reports_itself_as_the_last_run() {
     assert_eq!(fourth.matches("## Last run").count(), 1, "{fourth}");
     let _ = fs::remove_dir_all(&repo);
 }
+
+fn git(dir: &Path, args: &[&str]) {
+    assert!(Command::new("git")
+        .args(args)
+        .current_dir(dir)
+        .status()
+        .unwrap()
+        .success());
+}
+
+/// The binary, run from the repository's top level — the flags live in main.rs.
+fn docsys(repo: &Path, args: &[&str]) -> std::process::Output {
+    Command::new(env!("CARGO_BIN_EXE_docsys"))
+        .args(args)
+        .current_dir(repo)
+        .output()
+        .unwrap()
+}
+
+const RULES_BEGIN: &str = "docsys:rules:begin";
+
+#[test]
+fn adopt_on_pages_without_docmeta_names_three_ways_on() {
+    // D-110: classification is judgment (R-003) — adopt stops and says how on
+    let repo = tmp("three-ways");
+    git_init(&repo);
+    fs::create_dir_all(repo.join("docs/guides")).unwrap();
+    let index = "# Our docs\n\nThe owner's own index.\n";
+    fs::write(repo.join("docs/index.md"), index).unwrap();
+    fs::write(repo.join("docs/guides/setup.md"), "# Setup\n").unwrap();
+    let out = docsys(&repo, &["adopt"]);
+    let err = String::from_utf8_lossy(&out.stderr);
+    assert_eq!(out.status.code(), Some(2), "{err}");
+    assert!(
+        err.contains("`docs` holds 2 page(s) and no .docmeta.yml"),
+        "{err}"
+    );
+    for way in [
+        "docsys migrate inventory --root docs > plan.tsv",
+        "docsys migrate apply --plan plan.tsv --root docs",
+        "docsys init --root docs",
+        "D-016",
+        "docsys adopt --root <dir>",
+    ] {
+        assert!(err.contains(way), "`{way}` missing:\n{err}");
+    }
+    assert!(!repo.join("docs/.docmeta.yml").exists());
+    // the second way keeps every page where it is: init writes only what is absent
+    assert!(docsys(&repo, &["init", "--root", "docs"]).status.success());
+    assert_eq!(
+        fs::read_to_string(repo.join("docs/index.md")).unwrap(),
+        index
+    );
+    let out = docsys(&repo, &["adopt"]);
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let _ = fs::remove_dir_all(&repo);
+}
+
+#[test]
+fn the_rules_block_goes_to_claude_md_when_git_ignores_agents_md() {
+    let repo = tmp("rules-ignored");
+    git_init(&repo);
+    fs::write(repo.join(".gitignore"), "AGENTS.md\n").unwrap();
+    let docs = repo.join("docs");
+    let out = docsys::adopt::run(&repo, &docs, "en").unwrap();
+    assert!(!repo.join("AGENTS.md").exists());
+    let claude = fs::read_to_string(repo.join("CLAUDE.md")).unwrap();
+    assert_eq!(claude.matches(RULES_BEGIN).count(), 1, "{claude}");
+    assert!(
+        out.summary
+            .iter()
+            .any(|s| s.starts_with("CLAUDE.md: managed block written")),
+        "{:?}",
+        out.summary
+    );
+    // a re-adopt updates it where it is
+    docsys::adopt::run(&repo, &docs, "en").unwrap();
+    assert!(!repo.join("AGENTS.md").exists());
+    let claude = fs::read_to_string(repo.join("CLAUDE.md")).unwrap();
+    assert_eq!(claude.matches(RULES_BEGIN).count(), 1, "{claude}");
+    let _ = fs::remove_dir_all(&repo);
+}
+
+#[test]
+fn the_rules_block_stays_where_its_markers_are() {
+    let repo = tmp("rules-stay");
+    git_init(&repo);
+    let owner = "# Agents\n\nThe owner's rules.\n";
+    fs::write(repo.join("AGENTS.md"), owner).unwrap();
+    fs::write(repo.join("CLAUDE.md"), "# Claude\n").unwrap();
+    docsys::rules::write_agents_block(&repo.join("CLAUDE.md")).unwrap();
+    git(&repo, &["add", "AGENTS.md", "CLAUDE.md"]);
+    docsys::adopt::run(&repo, &repo.join("docs"), "en").unwrap();
+    assert_eq!(fs::read_to_string(repo.join("AGENTS.md")).unwrap(), owner);
+    let claude = fs::read_to_string(repo.join("CLAUDE.md")).unwrap();
+    assert!(claude.starts_with("# Claude\n"), "{claude}");
+    assert_eq!(claude.matches(RULES_BEGIN).count(), 1, "{claude}");
+    let _ = fs::remove_dir_all(&repo);
+}
+
+#[test]
+fn rules_file_names_the_file_and_a_re_adopt_finds_it_there() {
+    let repo = tmp("rules-file");
+    git_init(&repo);
+    let out = docsys(&repo, &["adopt", "--rules-file", "docs/AGENTS.md"]);
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let block = |rel: &str| {
+        fs::read_to_string(repo.join(rel))
+            .unwrap_or_default()
+            .matches(RULES_BEGIN)
+            .count()
+    };
+    assert_eq!(block("docs/AGENTS.md"), 1);
+    assert!(!repo.join("AGENTS.md").exists());
+    let out = docsys(&repo, &["adopt"]);
+    assert!(out.status.success());
+    assert_eq!(block("docs/AGENTS.md"), 1);
+    assert!(!repo.join("AGENTS.md").exists());
+    assert!(!repo.join("CLAUDE.md").exists());
+    let _ = fs::remove_dir_all(&repo);
+}
+
+#[test]
+fn with_both_rules_files_ignored_the_block_is_printed_and_the_checklist_names_it() {
+    let repo = tmp("rules-nowhere");
+    git_init(&repo);
+    fs::write(repo.join(".gitignore"), "AGENTS.md\nCLAUDE.md\n").unwrap();
+    let out = docsys(&repo, &["adopt"]);
+    assert!(out.status.success());
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert_eq!(stdout.matches(RULES_BEGIN).count(), 1, "{stdout}");
+    assert!(!repo.join("AGENTS.md").exists());
+    assert!(!repo.join("CLAUDE.md").exists());
+    let report = fs::read_to_string(repo.join("ADOPTION.md")).unwrap();
+    assert!(
+        report.contains("- [ ] Git ignores both `AGENTS.md` and `CLAUDE.md`"),
+        "{report}"
+    );
+    let _ = fs::remove_dir_all(&repo);
+}
+
+#[test]
+fn report_dir_places_the_report_and_a_re_adopt_finds_it_there() {
+    let repo = tmp("report-dir");
+    git_init(&repo);
+    let out = docsys(&repo, &["adopt", "--report-dir", ".github"]);
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert!(String::from_utf8_lossy(&out.stdout).contains(".github/ADOPTION.md"));
+    assert!(!repo.join("ADOPTION.md").exists());
+    let first = fs::read_to_string(repo.join(".github/ADOPTION.md")).unwrap();
+    assert!(first.contains("## Done — adoption ("), "{first}");
+    let out = docsys(&repo, &["adopt"]);
+    assert!(out.status.success());
+    assert!(!repo.join("ADOPTION.md").exists());
+    let again = fs::read_to_string(repo.join(".github/ADOPTION.md")).unwrap();
+    assert!(again.contains("## Last run — "), "{again}");
+    assert_eq!(again.matches(docsys::adopt::REPORT_BEGIN).count(), 1);
+    let _ = fs::remove_dir_all(&repo);
+}
+
+#[test]
+fn no_report_prints_the_report_and_writes_nothing() {
+    let repo = tmp("no-report");
+    git_init(&repo);
+    let out = docsys(&repo, &["adopt", "--no-report"]);
+    assert!(out.status.success());
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(stdout.contains("# docsys adoption report"), "{stdout}");
+    assert!(stdout.contains("Judgment checklist"), "{stdout}");
+    assert!(!repo.join("ADOPTION.md").exists());
+    let listed = Command::new("git")
+        .args(["ls-files", "-o", "--", "*ADOPTION.md"])
+        .current_dir(&repo)
+        .output()
+        .unwrap();
+    assert!(listed.stdout.is_empty(), "{listed:?}");
+    let _ = fs::remove_dir_all(&repo);
+}
+
+#[test]
+fn an_ignored_report_is_updated_where_it_is() {
+    // a report kept out of git through .gitignore — at the root, or moved by hand
+    let repo = tmp("report-ignored");
+    git_init(&repo);
+    fs::write(repo.join(".gitignore"), "ADOPTION.md\n.notes/\n").unwrap();
+    let docs = repo.join("docs");
+    docsys::adopt::run(&repo, &docs, "en").unwrap();
+    let at_root = repo.join("ADOPTION.md");
+    docsys::adopt::run(&repo, &docs, "en").unwrap();
+    let text = fs::read_to_string(&at_root).unwrap();
+    assert!(text.contains("## Last run — "), "{text}");
+    fs::create_dir_all(repo.join(".notes")).unwrap();
+    fs::rename(&at_root, repo.join(".notes/ADOPTION.md")).unwrap();
+    let out = docsys::adopt::run(&repo, &docs, "en").unwrap();
+    assert!(!at_root.exists(), "the report was written back to the root");
+    let moved = fs::read_to_string(repo.join(".notes/ADOPTION.md")).unwrap();
+    assert_eq!(moved.matches("## Done — adoption").count(), 1, "{moved}");
+    assert_eq!(moved.matches("## Last run").count(), 1, "{moved}");
+    assert!(
+        out.report_path.ends_with(".notes/ADOPTION.md"),
+        "{}",
+        out.report_path
+    );
+    let _ = fs::remove_dir_all(&repo);
+}

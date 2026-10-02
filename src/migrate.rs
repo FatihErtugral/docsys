@@ -512,6 +512,11 @@ pub fn init_profile(root: &Path, lang: &str, profile: &str) -> Result<(), String
     }
     let date = today();
     let w = |rel: &str, text: String| {
+        // a file already there is the owner's — a tree kept in place keeps its
+        // pages (D-110)
+        if root.join(rel).exists() {
+            return Ok(());
+        }
         let text = if rel.ends_with(".md") {
             with_preamble(&text, &generated_preamble(root))
         } else {
