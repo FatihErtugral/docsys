@@ -181,9 +181,10 @@ version; the minor component MUST NOT be required to match.
 ### 2.4 Definitions
 
 **Content change.** A change to a page is a *content change* unless it touches
-only: the `updated` field, the verification record (R-028), a `verifies:` hash
-recorded after a re-read (R-111), a `sources:` path rewrite performed under
-R-027, or a structural target rewrite performed by a migration under R-172. Every rule that reads "content change" — R-024, R-052,
+only: the `updated` field, the verification record (R-028), a machine's check
+record (§21), a `verifies:` hash recorded after a re-read (R-111), a `sources:`
+path rewrite performed under R-027, or a structural target rewrite performed by
+a migration under R-172. Every rule that reads "content change" — R-024, R-052,
 R-082, R-085, R-106 — reads this definition. This is a definition, not a rule:
 it cannot be violated, so it carries no enforcement tag and incurs no coverage
 obligation.
@@ -2100,3 +2101,27 @@ tool, a mail filter — with the same provenance fields and the same key.
 
 Every row lands through the same gate and is distilled by the same organ; a
 connector's whole job is the left three columns.
+
+---
+
+## 21. Verification detail (EXPERIMENTAL)
+
+A verification vouches for a whole page; this section lets it also say *which
+parts* it read, so that a change costs a re-read of the change, not of the page,
+and so that a machine's reading can be recorded beside a person's word without
+being mistaken for it.
+
+> **Why experimental.** One implementation, no second tree yet. Until a second
+> team's tree has re-verified through block records and recorded checks, these
+> rules bind nothing; a tree that never writes them is untouched by everything
+> below.
+
+**R-214** `lint` · MAY — A page MAY carry a check record: `checked_by` (the agent
+or session that checked), `checked_rev`, `checked_hash` (the body read, R-113)
+and `checked_against` (the evidence read — each entry resolvable as a `sources:`
+entry is, R-059). A check is a machine's reading of every claim against that
+evidence by a session that wrote none of the page; it never sets `verified`
+(R-025) — `verified` stays a maintainer's word, and `lookup` and `status` show
+both states side by side. A check whose `checked_hash` no longer matches the
+body, a record missing a field, or a `checked_against` entry that does not
+resolve **is reported**.

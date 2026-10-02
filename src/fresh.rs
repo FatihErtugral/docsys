@@ -667,9 +667,10 @@ pub fn check_history(tree: &DocTree, repo: &Path, h: &History, r: &mut Report) {
 }
 
 /// The frontmatter fields that are bookkeeping, not content (§2.4): the
-/// freshness date, the verification record (R-028), and — inside `verifies:`
-/// — a pin's hash, which records a re-read, not a claim.
-const BOOKKEEPING: [&str; 7] = [
+/// freshness date, the verification record (R-028), a check record (R-214),
+/// and — inside `verifies:` — a pin's hash, which records a re-read, not a
+/// claim.
+const BOOKKEEPING: [&str; 11] = [
     "updated",
     "verification",
     "verified_by",
@@ -677,6 +678,10 @@ const BOOKKEEPING: [&str; 7] = [
     "verified_hash",
     "verified_sources",
     "verified_blocks",
+    "checked_by",
+    "checked_rev",
+    "checked_hash",
+    "checked_against",
 ];
 
 /// What of a page counts as its content (§2.4): the body's hash and every

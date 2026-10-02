@@ -9,6 +9,11 @@ by the release workflow — the tag's section becomes the GitHub release body.
 
 ### Added
 
+- `docsys check <page> --by <agent|session> [--against <evidence>]… [--commit]`
+  (§21, R-214, D-104) on a docsys/0.5 tree: a machine's reading of every claim
+  against its evidence, recorded beside — never as — a maintainer's
+  verification. Lint reports a stale or incomplete check; `status` counts
+  current and stale checks; `lookup` marks `unverified · checked by …`.
 - `docsys feedback` (D-116): the issue format and, with `--draft`, an issue
   body with the facts the tool knows — version, OS, the tree's profile and
   spec, the rule's text, a docsys command's output, a redacted `.docmeta.yml`,

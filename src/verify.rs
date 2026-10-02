@@ -35,7 +35,7 @@ fn git(repo: &Path, args: &[&str]) -> Option<String> {
 }
 
 /// The page named by a path (root-relative, with or without `.md`) or an id.
-fn find_page<'a>(tree: &'a DocTree, target: &str) -> Option<&'a crate::tree::Page> {
+pub(crate) fn find_page<'a>(tree: &'a DocTree, target: &str) -> Option<&'a crate::tree::Page> {
     let wanted = target
         .trim()
         .trim_start_matches("./")

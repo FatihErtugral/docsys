@@ -25,6 +25,7 @@ const R028: RuleId = RuleId("R-028");
 const R208: RuleId = RuleId("R-208");
 const R210: RuleId = RuleId("R-210");
 const R211: RuleId = RuleId("R-211");
+const R214: RuleId = RuleId("R-214");
 const R029: RuleId = RuleId("R-029");
 const R030: RuleId = RuleId("R-030");
 const R034: RuleId = RuleId("R-034");
@@ -606,68 +607,62 @@ fn check_sources(tree: &DocTree, r: &mut Report) {
                 continue; // URLs are out of scope (D-030)
             }
             inspected += 1;
-            // `@namespace/id`: a consumed page is evidence too — a base that
-            // learns from the trees it consumes cites them by identifier, and
-            // the citation resolves against the verified local
-            // materialization, never a live provider (D-078).
-            if let Some(rest) = s.strip_prefix('@') {
-                let resolved = rest.split_once('/').is_some_and(|(ns, id)| {
-                    tree.root
-                        .join(".federation")
-                        .join(ns)
-                        .join(format!("{id}.md"))
-                        .is_file()
-                });
-                if !resolved {
-                    r.findings.push(finding(
-                        &page.rel,
-                        s,
-                        format!(
-                            "sources entry `{s}` is not materialized — `docsys consume add` the \
-                             namespace and `docsys fetch`, then cite it"
-                        ),
-                    ));
-                }
-                continue;
-            }
-            if let Some(loc) = crate::locator::parse(s) {
-                let repo = repo.get_or_insert_with(|| crate::locator::repo_of(&tree.root));
-                match repo {
-                    None => r.findings.push(finding(
-                        &page.rel,
-                        s,
-                        format!("sources entry `{s}` names version-control evidence, but the tree is not in a git repository"),
-                    )),
-                    Some(repo) => {
-                        if let Err(why) = crate::locator::resolve(repo, &loc) {
-                            r.findings.push(finding(
-                                &page.rel,
-                                s,
-                                format!("sources entry `{s}` does not resolve — {why} — {forms}"),
-                            ));
-                        }
-                    }
-                }
-                continue;
-            }
-            let in_tree = tree.root.join(s).is_file();
-            let in_repo = repo
-                .get_or_insert_with(|| crate::locator::repo_of(&tree.root))
-                .as_ref()
-                .is_some_and(|rp| rp.join(s).is_file());
-            if !(in_tree || (tree.profile == Profile::Project && in_repo)) {
-                r.findings.push(finding(
-                    &page.rel,
-                    s,
-                    format!(
-                        "sources entry `{s}` does not resolve — the evidence trail is severed \
-                         — {forms}"
-                    ),
-                ));
+            if let Some(msg) = unresolved_source(tree, s, &mut repo, &forms) {
+                r.findings.push(finding(&page.rel, s, msg));
             }
         }
     }
     r.inspected.insert("sources", inspected);
+}
+
+/// Why a `sources:` entry does not resolve (R-059), or `None` when it does —
+/// the one resolver every kind of evidence goes through (D-061): a consumed
+/// page against its local materialization (D-078), a version-control locator
+/// against the repository, a path in the tree or, in a project, the
+/// repository. `repo` caches the repository lookup across calls.
+pub(crate) fn unresolved_source(
+    tree: &DocTree,
+    s: &str,
+    repo: &mut Option<Option<std::path::PathBuf>>,
+    forms: &str,
+) -> Option<String> {
+    if let Some(rest) = s.strip_prefix('@') {
+        let resolved = rest.split_once('/').is_some_and(|(ns, id)| {
+            tree.root
+                .join(".federation")
+                .join(ns)
+                .join(format!("{id}.md"))
+                .is_file()
+        });
+        return (!resolved).then(|| {
+            format!(
+                "sources entry `{s}` is not materialized — `docsys consume add` the \
+                 namespace and `docsys fetch`, then cite it"
+            )
+        });
+    }
+    if let Some(loc) = crate::locator::parse(s) {
+        let repo = repo.get_or_insert_with(|| crate::locator::repo_of(&tree.root));
+        return match repo {
+            None => Some(format!(
+                "sources entry `{s}` names version-control evidence, but the tree is not in a git repository"
+            )),
+            Some(repo) => crate::locator::resolve(repo, &loc)
+                .err()
+                .map(|why| format!("sources entry `{s}` does not resolve — {why} — {forms}")),
+        };
+    }
+    let in_tree = tree.root.join(s).is_file();
+    let in_repo = repo
+        .get_or_insert_with(|| crate::locator::repo_of(&tree.root))
+        .as_ref()
+        .is_some_and(|rp| rp.join(s).is_file());
+    (!(in_tree || (tree.profile == Profile::Project && in_repo))).then(|| {
+        format!(
+            "sources entry `{s}` does not resolve — the evidence trail is severed \
+             — {forms}"
+        )
+    })
 }
 
 /// R-023: `raw/` is content-immutable. The git working tree is the only
@@ -2148,6 +2143,67 @@ fn check_list_grammars(tree: &DocTree, r: &mut Report) {
     }
 }
 
+/// R-214 (§21, D-104): a check record is complete, holds the body it read,
+/// and names evidence that resolves (R-059's resolver). All reported: a check
+/// is an aid, not a claim of truth, and its staleness is visible in the
+/// record itself.
+fn check_check_records(tree: &DocTree, r: &mut Report) {
+    const FIELDS: [&str; 3] = ["checked_by", "checked_rev", "checked_hash"];
+    let forms = source_forms(tree);
+    let mut repo: Option<Option<std::path::PathBuf>> = None;
+    let mut inspected = 0usize;
+    for page in &tree.pages {
+        if page.kind != Kind::Permanent {
+            continue;
+        }
+        let Some(fm) = &page.fm else { continue };
+        let has = |k: &str| fm.fields.contains_key(k);
+        if !FIELDS.iter().any(|k| has(k)) && !has("checked_against") {
+            continue;
+        }
+        inspected += 1;
+        let missing: Vec<&str> = FIELDS.into_iter().filter(|k| !has(k)).collect();
+        if !missing.is_empty() {
+            r.findings.push(Finding::warn(
+                R214,
+                &page.rel,
+                &missing.join(","),
+                "a check record names who checked, at which revision, and the hash of the body \
+                 read (R-214) — `docsys check <page> --by <label>` writes all three"
+                    .to_string(),
+            ));
+        }
+        if let Some(h) = fm.fields.get("checked_hash").and_then(Value::as_str) {
+            if h != crate::fresh::content_hash(&crate::fresh::body_text(&page.text)) {
+                r.findings.push(Finding::warn(
+                    R214,
+                    &page.rel,
+                    "checked_hash",
+                    "the body changed since it was checked — the check is stale; check it again \
+                     or drop the record"
+                        .to_string(),
+                ));
+            }
+        }
+        let against = fm
+            .fields
+            .get("checked_against")
+            .and_then(Value::as_list)
+            .unwrap_or(&[]);
+        for e in against.iter().filter(|e| !e.contains("://")) {
+            if let Some(why) = unresolved_source(tree, e, &mut repo, &forms) {
+                r.findings.push(Finding::warn(
+                    R214,
+                    &page.rel,
+                    e,
+                    format!("checked against evidence that does not resolve: {why}"),
+                ));
+            }
+        }
+    }
+    r.inspected.insert("check-records", inspected);
+}
+
 /// R-210, R-211 (D-115): the words a tree declares for a guess, and the
 /// headings its language gives a change history, matched as written. A
 /// marker counts in prose only — fences, quotes, indented code and inline
@@ -2425,6 +2481,9 @@ pub fn run_with(tree: &DocTree, ctx: &Context) -> Report {
     }
     if crate::era::Era::of(tree).declared_markers() {
         check_declared_markers(tree, &mut r);
+    }
+    if crate::era::Era::of(tree).machine_checks() {
+        check_check_records(tree, &mut r);
     }
     if tree.pages.is_empty() {
         r.findings.push(Finding::warn(

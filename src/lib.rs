@@ -6,6 +6,7 @@ pub mod adopt;
 pub mod agents;
 pub mod assistant;
 pub mod capture;
+pub mod check;
 pub mod checks;
 pub mod compile;
 pub mod consume;

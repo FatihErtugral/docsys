@@ -126,7 +126,24 @@ fn caveat_of(page: &Page) -> Option<String> {
             .filter(|h| *h != crate::fresh::content_hash(&crate::fresh::body_text(&page.text)))
             .map(|_| "verified, but the body changed since".to_string()),
         None => None,
-        Some(v) => Some(v.to_string()),
+        // an unverified page a machine checked says so, and whether the check
+        // still holds the body (§21, R-214)
+        Some(v) => Some(
+            match fm.fields.get("checked_hash").and_then(Value::as_str) {
+                Some(h)
+                    if h == crate::fresh::content_hash(&crate::fresh::body_text(&page.text)) =>
+                {
+                    let by = fm
+                        .fields
+                        .get("checked_by")
+                        .and_then(Value::as_str)
+                        .unwrap_or("?");
+                    format!("{v} · checked by {by}")
+                }
+                Some(_) => format!("{v} · check stale"),
+                None => v.to_string(),
+            },
+        ),
     }
 }
 

@@ -116,6 +116,13 @@ impl Era {
     pub fn finding_pointers(self) -> bool {
         self.v05()
     }
+
+    /// R-214 (§21, D-104): a machine's check record — who checked, at which
+    /// revision, the body read, the evidence read — beside the maintainer's
+    /// verification. Before: no such record.
+    pub fn machine_checks(self) -> bool {
+        self.v05()
+    }
 }
 
 #[cfg(test)]
