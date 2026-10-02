@@ -2,10 +2,7 @@
 //! page→page links, work→permanent graduation and code→page citations.
 //! Derived artifacts only — nothing here is ever written into a page (R-156).
 
-use crate::checks::{
-    build_index, code_doc_tokens_on_line, doc_tokens_on_line, link_path_of, resolve_doc_token,
-    wiki_links,
-};
+use crate::checks::{build_index, doc_tokens_on_line, link_path_of, resolve_doc_token, wiki_links};
 use crate::fm::Value;
 use crate::tree::{DocTree, Kind};
 use std::collections::{BTreeMap, BTreeSet};
@@ -52,7 +49,7 @@ pub fn backlinks(tree: &DocTree, repo: Option<&Path>, what: &str) -> Result<Stri
         if p.rel == page.rel {
             continue;
         }
-        for (line, t) in wiki_links(&p.text) {
+        for (line, t) in wiki_links(&p.text, crate::era::Era::of(tree).literal_code_spans()) {
             let t = t.split('#').next().unwrap_or("");
             if t == target {
                 out.push_str(&format!("{}:{}\n", p.rel, line + 1));
@@ -79,7 +76,10 @@ pub fn backlinks(tree: &DocTree, repo: Option<&Path>, what: &str) -> Result<Stri
                 .to_string_lossy()
                 .replace('\\', "/");
             for (i, l) in text.lines().enumerate() {
-                if code_doc_tokens_on_line(l).iter().any(|tok| tok == id) {
+                if crate::checks::code_citations(crate::era::Era::of(tree), l)
+                    .iter()
+                    .any(|tok| tok == id)
+                {
                     out.push_str(&format!("{rel}:{} (code, doc: {id})\n", i + 1));
                     n += 1;
                 }
@@ -122,10 +122,11 @@ pub fn mentions(tree: &DocTree, what: Option<&str>) -> Result<String, String> {
             if p.rel == page.rel {
                 continue;
             }
-            let links: BTreeSet<String> = wiki_links(&p.text)
-                .into_iter()
-                .map(|(_, t)| t.split('#').next().unwrap_or("").to_string())
-                .collect();
+            let links: BTreeSet<String> =
+                wiki_links(&p.text, crate::era::Era::of(tree).literal_code_spans())
+                    .into_iter()
+                    .map(|(_, t)| t.split('#').next().unwrap_or("").to_string())
+                    .collect();
             if links.contains(&path) {
                 continue;
             }
@@ -190,7 +191,7 @@ pub fn edges(tree: &DocTree, repo: Option<&Path>) -> (Vec<String>, Vec<Edge>) {
         .filter_map(|p| id_of(p).map(|i| (i, p.rel.clone())))
         .collect();
     for p in &tree.pages {
-        for (_, t) in wiki_links(&p.text) {
+        for (_, t) in wiki_links(&p.text, crate::era::Era::of(tree).literal_code_spans()) {
             let t = t.split('#').next().unwrap_or("");
             if let Some(to) = by_path.get(t) {
                 edges.push(Edge {
@@ -227,7 +228,7 @@ pub fn edges(tree: &DocTree, repo: Option<&Path>) -> (Vec<String>, Vec<Edge>) {
                 .to_string_lossy()
                 .replace('\\', "/");
             for l in text.lines() {
-                for tok in code_doc_tokens_on_line(l) {
+                for tok in crate::checks::code_citations(crate::era::Era::of(tree), l) {
                     if resolve_doc_token(&idx, &tok).is_ok() {
                         if let Some(to) = by_id.get(&tok) {
                             nodes.insert(format!("code:{rel}"));

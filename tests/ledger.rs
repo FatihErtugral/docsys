@@ -42,7 +42,7 @@ fn build(name: &str) -> (PathBuf, PathBuf) {
     fs::create_dir_all(root.join("work")).unwrap();
     fs::write(
         root.join(".docmeta.yml"),
-        "spec: docsys/0.4\nprofile: project\ndefault_content_language: en\n",
+        "spec: docsys/0.5\nprofile: project\ndefault_content_language: en\n",
     )
     .unwrap();
     fs::write(root.join("index.md"), "# Docs\n").unwrap();

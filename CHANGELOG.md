@@ -15,20 +15,36 @@ by the release workflow — the tag's section becomes the GitHub release body.
   `_archive/` slices — at the label positions only, in the tree's declared
   `list_labels` form; a dash inside field text stays. It writes only what
   changed and prints it; a second run changes nothing.
-- An open ledger item that vanished is reported at the gate (R-045, D-109):
+- On a docsys/0.5 tree an open ledger item that vanished is reported at the gate (R-045, D-109):
   inside a repository, lint compares `work/debt.md`, `work/questions.md` and
   `wiki/open-questions.md` with `HEAD`, and an open item deleted with no
   counterpart — the item closed in place, a rewording of the same date, an
   `_archive/` slice, or for debt the journal entry `debt close` writes — is a
   warning naming its date and first words.
+- `docsys --version`, the binary and the spec it implements. The relays and
+  the git gate read it: a tree that declares a newer spec than the installed
+  docsys implements stops with one line naming the minimum version and the
+  install command, instead of a flood of findings an older binary cannot
+  read.
 
 ### Changed
 
-- R-108 reads a ledger line as written (D-108): the check no longer turns a
+- One docsys serves trees at different spec versions (D-118): a tree that
+  declares `docsys/0.4` gets exactly 0.15.1's findings and file formats, and
+  every 0.5 rule or format — everything this release newly enforces included
+  — applies only to a tree that declares `docsys/0.5`. `docsys upgrade` moves a
+  repository, its CI pin included, when it is ready; nothing has to move on
+  the same day.
+- On a docsys/0.5 tree R-108 reads a ledger line as written (D-108): the check no longer turns a
   spaced em dash into ` -- ` before matching, so an entry whose field markers
-  are em dashes is reported — a warning that names `docsys ledger fix`. A
-  0.15.1 tree with em-dash ledger separators now sees R-108 warnings, and
-  `docsys ledger fix` clears them. Routers keep accepting the em dash (D-013).
+  are em dashes is reported — a warning that names `docsys ledger fix`, which
+  `docsys upgrade` runs. A docsys/0.4 tree keeps reading the em dash as 0.15.1
+  did. Routers keep accepting the em dash (D-013).
+- On a docsys/0.5 tree an edit that changes a verified page's body demotes it
+  to `unverified` by itself (R-024, D-101): the PostToolUse relay writes it,
+  keeps the record as the last verification and tells the agent; `docsys
+  verify --revoke` keeps the record too. `lookup` says when a verified page's
+  body changed.
 
 ### Fixed
 
@@ -60,12 +76,6 @@ by the release workflow — the tag's section becomes the GitHub release body.
   honoured; it reported "failed" there before.
 - The git gate runs `docsys lint --repo .` like `refs` and `gate`, and carries
   its template version; `adopt` rewrites a block behind the binary in place.
-- One docsys serves trees at different spec versions (D-118): a tree that
-  declares `docsys/0.4` gets exactly 0.15.1's findings and file formats, and
-  every 0.5 rule or format — everything this release newly enforces included
-  — applies only to a tree that declares `docsys/0.5`. `docsys upgrade` moves a
-  repository, its CI pin included, when it is ready; nothing has to move on
-  the same day.
 - On a docsys/0.5 tree a verification survives a squash merge (D-101):
   `docsys verify` records the body's hash (`verified_hash`) and each consumed
   source's hash (`verified_sources`); lint checks them without history, and a
@@ -82,12 +92,12 @@ by the release workflow — the tag's section becomes the GitHub release body.
   change (R-106, §2.4): a commit that touched only `updated:`, the
   verification record or a pin's hash no longer counts, so a tool's
   bookkeeping commit leaves the page quiet.
-- A wiki-link written inside an inline code span is quoted material (R-071):
+- On a docsys/0.5 tree a wiki-link written inside an inline code span is quoted material (R-071):
   a page showing `` `[[reference/x]]` `` no longer fails on a dangling link.
   A span is CommonMark's — a run of backticks up to the next run of the same
   length on the line — and lint, `backlinks`, `mentions` and `graph` skip it
   alike. `doc:` references in inline code still count (R-073).
-- A code-side citation is `doc:` at the start of a comment (R-072, D-107):
+- On a docsys/0.5 tree a code-side citation is `doc:` at the start of a comment (R-072, D-107):
   `refs`, the code citations of `backlinks` and `graph`, and `seed`'s
   citation listing count `doc:` only where it opens a line's text or follows
   a comment leader (`//`, `/*`, `*`, `#`, `--`, `;`, `%`, `<!--`). A sentence
@@ -101,25 +111,9 @@ by the release workflow — the tag's section becomes the GitHub release body.
   `git:<sha>`, `git:<sha>:<path>[@L<a>-L<b>]`, `tag:<ref>`, `@namespace/id`,
   and — where the tree has a `raw/` — a record captured with
   `docsys inbox add`.
-- A scalar `maintainers: ayse` is reported (R-208): it names no maintainer,
+- On a docsys/0.5 tree a scalar `maintainers: ayse` is reported (R-208): it names no maintainer,
   so every record check was silently off. The warning names the list forms,
   `maintainers: [ayse]` or a block list.
-
-### Changed
-
-- On a docsys/0.5 tree an edit that changes a verified page's body demotes it
-  to `unverified` by itself (R-024, D-101): the PostToolUse relay writes it,
-  keeps the record as the last verification and tells the agent; `docsys
-  verify --revoke` keeps the record too. `lookup` says when a verified page's
-  body changed.
-
-### Added
-
-- `docsys --version`, the binary and the spec it implements. The relays and
-  the git gate read it: a tree that declares a newer spec than the installed
-  docsys implements stops with one line naming the minimum version and the
-  install command, instead of a flood of findings an older binary cannot
-  read.
 
 ## [0.15.1] - 2026-09-04
 

@@ -60,6 +60,36 @@ impl Era {
     pub fn content_history(self) -> bool {
         self.v05()
     }
+
+    /// R-071: a wiki-link inside an inline code span is quoted material.
+    /// Before: read as a link.
+    pub fn literal_code_spans(self) -> bool {
+        self.v05()
+    }
+
+    /// D-107: a code-side citation is `doc:` opening a line's text or right
+    /// after a comment leader. Before: `doc:` anywhere on the line.
+    pub fn positional_citations(self) -> bool {
+        self.v05()
+    }
+
+    /// D-108: a ledger's field markers are ASCII ` -- `; an em dash makes the
+    /// entry non-matching. Before: a spaced em dash was read as ` -- `.
+    pub fn ascii_ledger(self) -> bool {
+        self.v05()
+    }
+
+    /// D-109: an open ledger item that vanished with no counterpart is
+    /// reported at the gate (R-045). Before: not checked.
+    pub fn vanished_items(self) -> bool {
+        self.v05()
+    }
+
+    /// R-208: a scalar `maintainers:` names nobody, and is reported.
+    /// Before: read silently as an empty list.
+    pub fn scalar_maintainers(self) -> bool {
+        self.v05()
+    }
 }
 
 #[cfg(test)]

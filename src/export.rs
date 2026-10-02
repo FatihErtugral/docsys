@@ -854,7 +854,10 @@ pub fn feature(
             let Some(page) = by_id.get(id.as_str()) else {
                 continue; // unresolved: compose refuses with the message below
             };
-            for (_, target) in crate::checks::wiki_links(&page.text) {
+            for (_, target) in crate::checks::wiki_links(
+                &page.text,
+                crate::era::Era::of(&tree).literal_code_spans(),
+            ) {
                 let linked = tree.pages.iter().find(|p| {
                     p.kind == Kind::Permanent
                         && crate::checks::link_path_of(&tree, &p.rel).as_deref()

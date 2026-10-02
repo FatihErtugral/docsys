@@ -439,11 +439,11 @@ pub(crate) fn record_handle(value: &str) -> String {
 fn check_maintainers(tree: &DocTree, r: &mut Report) {
     // A scalar is not a list: it names no maintainer, and R-208 would check
     // nothing without a word.
-    if let Some(v) = tree
-        .docmeta_str("maintainers")
-        .map(str::trim)
-        .filter(|v| !v.is_empty())
-    {
+    let scalar = crate::era::Era::of(tree)
+        .scalar_maintainers()
+        .then(|| tree.docmeta_str("maintainers"))
+        .flatten();
+    if let Some(v) = scalar.map(str::trim).filter(|v| !v.is_empty()) {
         r.findings.push(Finding::warn(
             R208,
             "-",
@@ -1222,6 +1222,16 @@ pub fn code_doc_tokens_on_line(line: &str) -> Vec<String> {
         .collect()
 }
 
+/// The citations a line of code carries, by the tree's era (D-118): where R-072
+/// puts them on a docsys/0.5 tree (D-107), anywhere on the line before.
+pub fn code_citations(era: crate::era::Era, line: &str) -> Vec<String> {
+    if era.positional_citations() {
+        code_doc_tokens_on_line(line)
+    } else {
+        doc_tokens_on_line(line)
+    }
+}
+
 /// The token of the `doc: ` occurrence at byte `at` of `line`, if it is one.
 /// The character before must not be alphanumeric (`htmldoc:` is not a
 /// reference).
@@ -1427,10 +1437,15 @@ fn without_code_spans(line: &str) -> String {
 
 /// Collect wiki-links `[[path]]` / `[[path|alias]]` from scannable lines,
 /// outside inline code spans.
-pub(crate) fn wiki_links(text: &str) -> Vec<(usize, String)> {
+pub(crate) fn wiki_links(text: &str, literal_spans: bool) -> Vec<(usize, String)> {
     let mut out = Vec::new();
     for (i, line) in scannable_lines(text) {
-        let line = without_code_spans(line);
+        // a docsys/0.4 tree reads links inside code spans, as 0.15 did (D-118)
+        let line = if literal_spans {
+            without_code_spans(line)
+        } else {
+            line.to_string()
+        };
         let mut rest = line.as_str();
         while let Some(start) = rest.find("[[") {
             let Some(after) = rest.get(start + 2..) else {
@@ -1473,7 +1488,7 @@ fn check_links(tree: &DocTree, r: &mut Report) {
         .collect();
     let mut inspected = 0usize;
     for page in &tree.pages {
-        for (line, link) in wiki_links(&page.text) {
+        for (line, link) in wiki_links(&page.text, crate::era::Era::of(tree).literal_code_spans()) {
             inspected += 1;
             // A link addresses a page, never a heading (R-070): the fragment
             // is split off, the page part resolves, and the fragment itself
@@ -1825,10 +1840,11 @@ fn check_router_and_orphans(tree: &DocTree, r: &mut Report) {
     // through any non-archived page (registered decision D-009); link paths
     // resolve per profile (D-030).
     let mut reachable: BTreeSet<String> = BTreeSet::new();
-    let mut queue: Vec<String> = wiki_links(&router.text)
-        .into_iter()
-        .map(|(_, t)| t)
-        .collect();
+    let mut queue: Vec<String> =
+        wiki_links(&router.text, crate::era::Era::of(tree).literal_code_spans())
+            .into_iter()
+            .map(|(_, t)| t)
+            .collect();
     while let Some(t) = queue.pop() {
         if !reachable.insert(t.clone()) {
             continue;
@@ -1838,7 +1854,11 @@ fn check_router_and_orphans(tree: &DocTree, r: &mut Report) {
             .iter()
             .find(|p| link_path_of(tree, &p.rel).as_deref() == Some(t.as_str()))
         {
-            queue.extend(wiki_links(&page.text).into_iter().map(|(_, x)| x));
+            queue.extend(
+                wiki_links(&page.text, crate::era::Era::of(tree).literal_code_spans())
+                    .into_iter()
+                    .map(|(_, x)| x),
+            );
         }
     }
     for page in &tree.pages {
@@ -1945,6 +1965,7 @@ fn check_journal(tree: &DocTree, r: &mut Report) {
 
 fn check_list_grammars(tree: &DocTree, r: &mut Report) {
     let mut inspected = 0usize;
+    let ascii = crate::era::Era::of(tree).ascii_ledger();
     for page in &tree.pages {
         let is_debt = page.rel.ends_with("debt.md");
         let is_q = page.rel.ends_with("questions.md");
@@ -2022,6 +2043,13 @@ fn check_list_grammars(tree: &DocTree, r: &mut Report) {
                 ));
                 continue;
             }
+            // a docsys/0.4 tree reads a spaced em dash as the ASCII marker, as 0.15
+            // did (D-118)
+            let norm = if ascii {
+                line.to_string()
+            } else {
+                line.replace(" — ", " -- ")
+            };
             let ok = if is_debt {
                 // Debt lifecycle (D-039): a repaid debt LEAVES the file — the
                 // journal records the repayment, git records the history; a
@@ -2048,13 +2076,13 @@ fn check_list_grammars(tree: &DocTree, r: &mut Report) {
                             .to_string(),
                     ));
                 }
-                line.contains(&format!(" -- {}: ", label_of(tree, "deferred")))
-                    && line.contains(&format!(" -- {}: ", label_of(tree, "repay when")))
+                norm.contains(&format!(" -- {}: ", label_of(tree, "deferred")))
+                    && norm.contains(&format!(" -- {}: ", label_of(tree, "repay when")))
             } else {
-                let after = line.get(6..).unwrap_or("");
+                let after = norm.get(6..).unwrap_or("");
                 let date_ok = is_iso_date(after.get(..10).unwrap_or(""));
                 if closed {
-                    date_ok && line.contains(&format!(" -- {}: ", label_of(tree, "answered")))
+                    date_ok && norm.contains(&format!(" -- {}: ", label_of(tree, "answered")))
                 } else {
                     date_ok
                 }
@@ -2094,7 +2122,9 @@ fn check_list_grammars(tree: &DocTree, r: &mut Report) {
                 .iter()
                 .filter(|p| {
                     p.rel != "work/debt.md"
-                        && wiki_links(&p.text).iter().any(|(_, t)| t == "work/debt")
+                        && wiki_links(&p.text, crate::era::Era::of(tree).literal_code_spans())
+                            .iter()
+                            .any(|(_, t)| t == "work/debt")
                 })
                 .map(|p| p.rel.as_str())
                 .collect();
@@ -2311,7 +2341,9 @@ pub fn run_with(tree: &DocTree, ctx: &Context) -> Report {
     } else {
         check_graduated_frozen(tree, &mut r);
     }
-    check_vanished_items(tree, &mut r);
+    if crate::era::Era::of(tree).vanished_items() {
+        check_vanished_items(tree, &mut r);
+    }
     if tree.pages.is_empty() {
         r.findings.push(Finding::warn(
             R011,
@@ -2361,7 +2393,7 @@ mod tests {
         let text =
             "See [[reference/x#section]] and [[reference/y|Alias]] and [[<path>|<title>]].\n\
                     [[reference/z]]";
-        let got: Vec<String> = wiki_links(text).into_iter().map(|(_, t)| t).collect();
+        let got: Vec<String> = wiki_links(text, true).into_iter().map(|(_, t)| t).collect();
         assert_eq!(
             got,
             vec!["reference/x#section", "reference/y", "reference/z"]
@@ -2372,8 +2404,10 @@ mod tests {
     fn wiki_links_skip_inline_code_spans() {
         let text = "`[[a/one]]` and ``x [[a/two]] `y` z`` but [[a/three]]\n\
                     an unclosed ` keeps [[a/four]]; ``` ``[[a/five]]`` ``` too";
-        let got: Vec<String> = wiki_links(text).into_iter().map(|(_, t)| t).collect();
+        let got: Vec<String> = wiki_links(text, true).into_iter().map(|(_, t)| t).collect();
         assert_eq!(got, vec!["a/three", "a/four"]);
+        // a docsys/0.4 tree reads them all, as 0.15 did (D-118)
+        assert_eq!(wiki_links(text, false).len(), 5);
     }
 
     #[test]

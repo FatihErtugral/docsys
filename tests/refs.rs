@@ -62,7 +62,7 @@ fn a_code_citation_opens_a_comment_and_doc_mid_sentence_is_prose() {
     fs::create_dir_all(docs.join("reference")).unwrap();
     fs::write(
         docs.join(".docmeta.yml"),
-        "spec: docsys/0.4\nprofile: project\ndefault_content_language: en\n",
+        "spec: docsys/0.5\nprofile: project\ndefault_content_language: en\n",
     )
     .unwrap();
     fs::write(

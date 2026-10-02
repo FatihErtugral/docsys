@@ -118,7 +118,7 @@ fn ledger_fix_reads_the_declared_labels() {
     fs::create_dir_all(root.join("work")).unwrap();
     fs::write(
         root.join(".docmeta.yml"),
-        "spec: docsys/0.4\nprofile: project\ndefault_content_language: xx\nlist_labels: [deferred=WHY, repay when=WHEN]\n",
+        "spec: docsys/0.5\nprofile: project\ndefault_content_language: xx\nlist_labels: [deferred=WHY, repay when=WHEN]\n",
     )
     .unwrap();
     fs::write(root.join("index.md"), "# Docs\n").unwrap();

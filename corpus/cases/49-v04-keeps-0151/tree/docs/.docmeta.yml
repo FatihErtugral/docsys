@@ -1,3 +1,4 @@
-spec: docsys/0.5
+spec: docsys/0.4
 profile: project
 default_content_language: en
+maintainers: someone

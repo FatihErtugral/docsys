@@ -3,9 +3,7 @@
 //! makes the identifier a real contract: a typo in a code comment stops being
 //! invisible the day this runs in CI.
 
-use crate::checks::{
-    self, code_doc_tokens_on_line, resolve_doc_token, DocRefFail, Report, Resolved,
-};
+use crate::checks::{self, resolve_doc_token, DocRefFail, Report, Resolved};
 use crate::migrate::repo_text_files;
 use crate::model::{Finding, RuleId};
 use crate::tree::DocTree;
@@ -69,7 +67,7 @@ pub fn run(repo: &Path, tree: &DocTree) -> Report {
             continue;
         }
         for (i, line) in text.lines().enumerate() {
-            for token in code_doc_tokens_on_line(line) {
+            for token in checks::code_citations(crate::era::Era::of(tree), line) {
                 tokens += 1;
                 match resolve_doc_token(&idx, &token) {
                     Ok(Resolved::Permanent) => {}
