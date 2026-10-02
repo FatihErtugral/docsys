@@ -1,5 +1,5 @@
 ---
-description: Run the seeding interview across a project's undocumented features, one feature per round, resumable
+description: Collect what people know — the team's know-how, decisions and reasons — about one feature or every undocumented one, round by round; their words land verbatim under work/
 allowed-tools: Bash(docsys *), Bash(git log:*), Bash(git show:*), Read, Grep, Glob, Write, Edit
 ---
 
@@ -22,3 +22,7 @@ they cannot; a question is plain and single-meaning; a conflicting answer
 is talked through, not recorded; nothing is written before approval; the
 builder's words land verbatim, attributed and dated; the permanent layer is
 never written here.
+
+When the survey stops, name the next step: what the builder confirmed
+graduates into permanent pages (`docsys graduate plan <work-file>`), and each
+page about code is bound to its region as the rules block says.

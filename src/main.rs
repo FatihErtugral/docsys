@@ -2,7 +2,10 @@ use docsys::{migrate, to_json, Outcome};
 use std::path::PathBuf;
 use std::process::ExitCode;
 
-const USAGE: &str = "docsys — documentation system tool (spec: SPEC.md)
+const USAGE: &str = "docsys — keeps a repository's documentation true to its code: typed pages, checked
+by lint, bound to the code they describe (spec: SPEC.md).
+In a repository: `docsys adopt` sets it up — the tree, the agent rules, the hooks and
+the git gate — and lists in ADOPTION.md what is left to do.
 
 --root names a tree, `docs` by default: from any directory inside the repository the
 nearest tree above is found, and the repository is the tree's own (D-098). init, adopt

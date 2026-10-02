@@ -82,6 +82,20 @@
     {
       "strategy": "auto",
       "step": "assets",
+      "file": ".claude/commands/docsys-seed.md",
+      "what": "refreshed: a text docsys 0.15.0 wrote, untouched",
+      "command": null
+    },
+    {
+      "strategy": "auto",
+      "step": "assets",
+      "file": ".claude/commands/docsys-interview.md",
+      "what": "refreshed: a text docsys 0.7.0 wrote, untouched",
+      "command": null
+    },
+    {
+      "strategy": "auto",
+      "step": "assets",
       "file": ".claude/skills/docsys/SKILL.md",
       "what": "refreshed: a text docsys 0.15.0 wrote, untouched",
       "command": null

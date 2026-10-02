@@ -18,6 +18,8 @@ auto    ci-workflow        .github/workflows/docsys.yml  the 0.15 workflow, unto
 auto    rules-block        AGENTS.md  the generated block refreshed in place
 auto    assets             .claude/commands/docsys-upgrade.md  written: new in this version
 manual  assets             .claude/commands/docsys-sync.md  edited by its owner — the diff to this version's text is below
+auto    assets             .claude/commands/docsys-seed.md  refreshed: a text docsys 0.15.0 wrote, untouched
+auto    assets             .claude/commands/docsys-interview.md  refreshed: a text docsys 0.7.0 wrote, untouched
 auto    assets             .claude/skills/docsys/SKILL.md  refreshed: a text docsys 0.15.0 wrote, untouched
 manual  verified-record    docs/reference/expiry.md  the body changed since @REV@ — never recorded blind; a maintainer reads it and verifies it again: `docsys verify reference/expiry.md`
 auto    verified-record    docs/reference/refresh.md  the body @REV@ holds is the body now: `verified_blocks` recorded
@@ -28,7 +30,7 @@ manual  code-citations     src/auth.rs:8  `doc: expiry` sits mid-comment: from 0
 info    raw-records        docs/raw/  1 record(s): from 0.5 a record layer — their dangling references are reported, an edited record stops the commit (R-023)
 auto    spec-line          docs/.docmeta.yml  `spec: docsys/0.4` → `spec: docsys/0.5`
 auto    pin                docs/.docsys-version  no pin → `0.16.0`: every docsys call here runs it
--- 14 automatic, 5 for a person, 1 for information
+-- 16 automatic, 5 for a person, 1 for information
 judged by docsys/0.5 as the tree is now: 1 new finding(s), 0 gone — the ledger and pin steps clear their part
 + WARN R-108 work/debt.md [line-3] entry does not match its item grammar — a field marker is written ` — `; separators are ASCII ` -- ` (`docsys ledger fix` rewrites them)
 

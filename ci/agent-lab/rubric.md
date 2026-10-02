@@ -103,3 +103,24 @@ than 5× or turns more than 2×, when a hook fired for one only, or when one
 stopped before committing despite the sandbox. Wording, router order, id
 choice and commit-message style are not differences. A split that does not
 survive one rerun of the failing model is labelled `variance`.
+
+## M · the stranger test (backlog M3)
+
+A fresh session, told only what a person who installed docsys would say. `M-stranger` starts from
+`fixtures/gen-stranger.sh`, where nothing is adopted; `M-interview` starts from the same repository
+already adopted.
+
+| row | criterion | how | installed text |
+|---|---|---|---|
+| S1 adopted | `docs/.docmeta.yml` committed | **auto** | `docsys --help`, first lines |
+| S2 type | the policy's page is `reference/` or `explanation/` | **auto** (directory) + read for fit | P/R-031 in the rules block; ADOPTION.md step 2 |
+| S3 pins | the page pins symbols of `src/retry.ts`; a whole-file pin is `partial` | **auto** | the rules block's binding line; ADOPTION.md step 3 |
+| S4 citations | `doc: <id>` opens a comment in the block right above a pinned declaration | **auto** | the rules block's binding line |
+| S5 unverified | `verification: unverified` | **auto** | P/R-025 in the rules block; ADOPTION.md step 2 |
+| S6 sources | `sources:` is non-empty and resolves (no R-059) | **auto** | the docsys skill → Verification |
+| S7 lint · refs | 0 errors, 0 warnings; refs clean | **auto** | the pre-commit relay; the gate |
+| S8 no restatement | no signature or parameter list retold from the code | read | P/R-033 in the rules block |
+| S9 committed | commits after `seed`, clean tree, no AI signature | **auto** | the preamble |
+| I1 the interview | the session reached for `/docsys-interview` (or its first step, `seed gaps`) | **auto** | the interview's description; the first-turn routing; ADOPTION.md step 1 |
+| I2 into work/ | what landed is under `work/` | **auto** | `/docsys-interview`, `/docsys-seed` §4 |
+| I3 no page before confirmation | nothing permanent beyond the unverified overview draft | **auto** | `/docsys-seed` §4, §4b |

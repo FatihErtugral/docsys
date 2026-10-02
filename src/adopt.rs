@@ -614,7 +614,19 @@ pub fn run_placed(
          - [ ] Triage the error findings: dangling references are usually decisions\n\
          \x20     cited but never distilled — graduate them (`docsys graduate plan`).\n\
          - [ ] When errors reach zero, run `docsys adopt` again: the pre-commit gate\n\
-         \x20     hardens by itself (lint errors then stop the commit).\n",
+         \x20     hardens by itself (lint errors then stop the commit).\n\
+         \n\
+         An existing project documents itself in this order:\n\n\
+         1. [ ] Collect what exists: what code and history say, per feature, with\n\
+         \x20      `/docsys-seed <feature>`; what only people know with `/docsys-interview`.\n\
+         2. [ ] Write pages by type — reference, howto, explanation — with\n\
+         \x20      `docsys page new <type> <id> --unverified`.\n\
+         3. [ ] Bind each page about code to its region, as the rules block in\n\
+         \x20      `AGENTS.md` says (`docsys pin`).\n\
+         4. [ ] Name the maintainers in `.docmeta.yml` (`maintainers:`) and keep the CI\n\
+         \x20      workflow green.\n\
+         5. [ ] Start the verify flow: a maintainer reads each page against its\n\
+         \x20      sources and records it with `docsys verify <page>`.\n",
     );
     if ci.summary.starts_with("skipped") {
         md.push_str(

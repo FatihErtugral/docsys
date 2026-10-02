@@ -8,9 +8,10 @@ research, debt, questions). `index.md` routes every permanent page.
 Mechanics are the tool's job — run them, never re-derive them:
 - `docsys lint` before every commit; errors block, warnings accumulate
 - `docsys refs --repo .` when code references documentation
-- code cites documentation as `doc: <id>` — never a path; the id is the
-contract, the filename is cosmetic, and it is unique across the whole
-tree, drafts under `work/` included
+- a page about code pins the region it promises about (`docsys pin`); the code
+cites the page with `// doc: <id>` at the start of a comment above that
+region — the id, never a path: unique across the whole tree, drafts under
+`work/` included
 - inside docs a page is linked as `[[dir/id]]` — the full path from the
 docs root (R-070)
 - a page pinned to code (`verifies:`) that lint reports stale is re-read

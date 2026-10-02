@@ -422,3 +422,19 @@ fn agents_on_a_wired_layer_has_nothing_to_merge() {
     );
     let _ = fs::remove_dir_all(&r);
 }
+
+/// A newcomer's first `docsys --help` says what docsys is, then where to
+/// start in a repository (backlog M3).
+#[test]
+fn help_opens_with_what_docsys_is_and_where_to_start() {
+    let r = repo("help");
+    let (_, out) = docsys(&r, &["--help"]);
+    let head: Vec<&str> = out.lines().take(4).collect();
+    let head = head.join("\n");
+    assert!(head.starts_with("docsys — "), "{head}");
+    assert!(
+        head.contains("In a repository: `docsys adopt`") && head.contains("agent rules"),
+        "{head}"
+    );
+    let _ = fs::remove_dir_all(&r);
+}

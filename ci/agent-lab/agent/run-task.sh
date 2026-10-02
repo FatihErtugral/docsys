@@ -3,7 +3,7 @@
 #                   [--var KEY=VALUE]… [--budget <usd>] [--tag <label>]
 #
 # One headless session: a fresh fixture of <kind> (kb | project | estate |
-# brownfield) or a copy of a previous result (--from), the task text as the
+# brownfield | stranger | stranger-adopted) or a copy of a previous result (--from), the task text as the
 # person's message, the installed layer as the only instruction (D-087);
 # then the mechanical capture (commits, diff, lint, status, hook traces, cost,
 # turns, model id, binary sha) and agent/checks.sh → auto.tsv.
@@ -61,7 +61,14 @@ else
         && printf -- '\n- [[reference/cli|The ledgerkit CLI]] -- the command surface.\n' >> docs/index.md \
         && git add -A && git commit -qm "docs: cli reference" )
       ;;
-    *) fail "unknown kind $KIND (kb | project | estate | brownfield)" ;;
+    # the stranger test: no docsys yet; adopting is the session's own first step
+    stranger) "$LAB_DIR/fixtures/gen-stranger.sh" "$FIX" >/dev/null ;;
+    # the same repository, adopted: the agent layer is there when the session starts
+    stranger-adopted)
+      "$LAB_DIR/fixtures/gen-stranger.sh" "$FIX" >/dev/null
+      ( cd "$FIX" && docsys adopt > "$OUT/adopt.out" 2>&1 && git add -A && git commit -qm "adopt docsys" )
+      ;;
+    *) fail "unknown kind $KIND (kb | project | estate | brownfield | stranger | stranger-adopted)" ;;
   esac
 fi
 case "$KIND" in

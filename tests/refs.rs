@@ -121,6 +121,23 @@ fn agents_install_writes_assets_and_respects_existing() {
     // Second run without --force skips everything.
     let again = docsys::agents::install(&dir, false).unwrap();
     assert_eq!(again.skipped.len(), 10);
+    // what people know is the interview's; what code and history say is the
+    // seed's — each command's description says which, and the interview ends
+    // by naming the next step
+    let interview = fs::read_to_string(dir.join("commands/docsys-interview.md")).unwrap();
+    assert!(
+        interview.contains("description: Collect what people know"),
+        "{interview}"
+    );
+    assert!(
+        interview.contains("`docsys graduate plan <work-file>`"),
+        "{interview}"
+    );
+    let seed = fs::read_to_string(dir.join("commands/docsys-seed.md")).unwrap();
+    assert!(
+        seed.contains("from what its code and history say"),
+        "{seed}"
+    );
     // the procedure an agent follows to finish an upgrade with the person (D-104)
     let upgrade = fs::read_to_string(dir.join("commands/docsys-upgrade.md")).unwrap();
     for must in [

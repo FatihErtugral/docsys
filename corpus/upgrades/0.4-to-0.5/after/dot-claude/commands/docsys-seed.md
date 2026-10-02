@@ -1,5 +1,5 @@
 ---
-description: Seed documentation for one feature of an existing project — research in git, ask the builder plainly, write only what was confirmed
+description: Seed documentation for one feature of an existing project from what its code and history say — research in git, ask the builder plainly, write only what was confirmed
 allowed-tools: Bash(docsys *), Bash(git log:*), Bash(git show:*), Bash(git status:*), Read, Grep, Glob, Write, Edit
 ---
 

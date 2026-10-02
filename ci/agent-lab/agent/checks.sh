@@ -226,6 +226,78 @@ F5-change-and-commit)
   code_changed=$(git diff --name-only seed HEAD | grep -vc "^$ROOT/" || true)
   [ "$code_changed" -gt 0 ] && row change F-the-change pass "$code_changed file(s) outside the docs root changed" || row change F-the-change fail "no code changed"
   ;;
+# ── M · the stranger test ─────────────────────────────────────────────────
+M-stranger)
+  if git ls-files --error-unmatch "$ROOT/.docmeta.yml" >/dev/null 2>&1; then row stranger S1-adopted pass "$ROOT/ committed"; else row stranger S1-adopted fail "no committed $ROOT/.docmeta.yml"; fi
+  lint_row stranger S7-lint
+  commit_row stranger S9-committed
+  refs_line=$( (docsys refs --repo . --root "$ROOT" 2>/dev/null || true) | tail -1)
+  case "$refs_line" in "-- 0 error(s)"*) row stranger S7-refs pass "$refs_line" ;; *) row stranger S7-refs fail "$refs_line" ;; esac
+  # the page about the retry policy: a new permanent page that names it
+  git diff --name-only --diff-filter=A seed HEAD -- "$ROOT/reference" "$ROOT/explanation" "$ROOT/howto" "$ROOT/tutorial" 2>/dev/null \
+    | while IFS= read -r p; do grep -qi 'retr' "$p" && printf '%s\n' "$p"; done > "$READ/pages.txt" || true
+  if [ ! -s "$READ/pages.txt" ]; then
+    row stranger S2-type fail "no new permanent page about the retry policy"
+  fi
+  while IFS= read -r p; do
+    id=$(sed -n 's/^id: //p' "$p" | head -1)
+    dir=$(printf '%s' "$p" | awk -F/ '{ print $(NF-1) }')
+    { printf '### %s\n\n' "$p"; cat "$p"; printf '\n\n### src/retry.ts\n\n'; cat src/retry.ts; } > "$READ/$id.md"
+    case "$dir" in reference|explanation) row "$id" S2-type pass "$dir/" ;; *) row "$id" S2-type fail "$dir/ — a policy's values and its why are reference or explanation" ;; esac
+    # pins: verifies entries on src/retry.ts, with the symbol each one names
+    syms=$(awk '/^verifies:/ { v = 1; next } v && /^[a-z_]+:/ { v = 0 } v && /- path: / { p = $NF } v && /symbol: / { if (p ~ /src\/retry\.ts/) print $NF }' "$p" | tr -d '"')
+    whole=$(awk '/^verifies:/ { v = 1; next } v && /^[a-z_]+:/ { v = 0 } v && /- path: / { print $NF }' "$p" | tr -d '"' | grep -c 'src/retry.ts' || true)
+    if [ -n "$syms" ]; then row "$id" S3-pins pass "symbols: $(printf '%s' "$syms" | tr '\n' ' ')"
+    elif [ "$whole" -gt 0 ]; then row "$id" S3-pins partial "src/retry.ts pinned whole"
+    else row "$id" S3-pins fail "no pin on src/retry.ts"; fi
+    # citations: `doc: <id>` opening a comment, in the comment block right above a pinned declaration
+    cited=""
+    for s in $syms; do
+      ok=$(awk -v id="$id" -v sym="$s" '
+        { line[NR] = $0 }
+        END {
+          for (i = 1; i <= NR; i++) if (line[i] ~ ("(function|const|class|let|var) " sym "[^A-Za-z0-9_]")) { d = i; break }
+          if (!d) { print "no"; exit }
+          for (j = d - 1; j >= 1; j--) {
+            l = line[j]; sub(/^[ \t]+/, "", l)
+            if (l !~ /^(\/\/|\/\*|\*)/) break
+            c = l; sub(/^(\/\/|\/\*|\*)[ \t]*/, "", c)
+            if (c ~ ("^doc: " id "([^A-Za-z0-9_-]|$)")) { print "yes"; exit }
+          }
+          print "no"
+        }' src/retry.ts)
+      [ "$ok" = yes ] && cited="$cited $s"
+    done
+    if [ -n "$cited" ]; then row "$id" S4-citations pass "doc: $id above:$cited"
+    elif grep -q "doc: $id" src/*.ts; then row "$id" S4-citations partial "doc: $id cited, not above a pinned region"
+    else row "$id" S4-citations fail "no doc: $id in the code"; fi
+    grep -q '^verification: unverified' "$p" && row "$id" S5-unverified pass "unverified" || row "$id" S5-unverified fail "$(grep '^verification:' "$p" || echo 'no verification field')"
+    if grep -qE '^sources: \[.+\]|^sources:$' "$p" && ! grep -q '"rule":"R-059"' "$OUT/lint.json" 2>/dev/null; then row "$id" S6-sources pass "$(grep -A3 '^sources:' "$p" | tr '\n' ' ')"; else row "$id" S6-sources fail "$(grep '^sources:' "$p" || echo 'no sources')"; fi
+  done < "$READ/pages.txt"
+  row stranger S8-no-restatement n/a "read: $READ/<id>.md beside src/retry.ts — no signature or parameter list retold"
+  ;;
+# ── M · the stranger test, know-how ──────────────────────────────────────
+M-interview)
+  # the session reached for the command made for knowledge only people have
+  if grep -q 'docsys-interview' "$OUT/transcript.jsonl" && grep -qE '"name":"(Skill|SlashCommand)"[^}]*docsys-interview|seed gaps' "$OUT/transcript.jsonl"; then
+    row interview I1-chose-interview pass "/docsys-interview or its first step (seed gaps) ran"
+  else
+    row interview I1-chose-interview fail "neither /docsys-interview nor seed gaps in the transcript"
+  fi
+  git diff --name-only seed HEAD -- "$ROOT/work" > "$READ/work.txt" || true
+  if [ -s "$READ/work.txt" ]; then row interview I2-landed-in-work pass "$(tr '\n' ' ' < "$READ/work.txt")"; else row interview I2-landed-in-work fail "nothing under $ROOT/work"; fi
+  # the one page a round may author is the unverified overview draft (/docsys-seed 4b)
+  other=$(git diff --name-only --diff-filter=A seed HEAD -- "$ROOT/reference" "$ROOT/explanation" "$ROOT/howto" | grep -v -- '-overview\.md$' || true)
+  drafts=$(git diff --name-only --diff-filter=A seed HEAD -- "$ROOT/explanation" | grep -- '-overview\.md$' || true)
+  bad_draft=$(for d in $drafts; do grep -q '^verification: unverified' "$d" || echo "$d"; done)
+  if [ -n "$other$bad_draft" ]; then
+    row interview I3-no-page-before-confirmation fail "a permanent page beyond the unverified overview draft: $other $bad_draft"
+  else
+    row interview I3-no-page-before-confirmation pass "answers wait in work/; ${drafts:-no draft}"
+  fi
+  lint_row interview I4-lint
+  commit_row interview I5-committed
+  ;;
 *) row "$TASK" checks n/a "no automatic rows for this task" ;;
 esac
 printf 'checks: %s rows → %s (%s fail)\n' "$(wc -l < "$AUTO" | tr -d ' ')" "$AUTO" "$(grep -c $'\tfail\t' "$AUTO" || true)"

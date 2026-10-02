@@ -40,6 +40,28 @@ fn greenfield_adopt_scaffolds_everything_and_is_idempotent() {
     let report = fs::read_to_string(repo.join("ADOPTION.md")).unwrap();
     assert!(report.contains("Judgment checklist"), "{report}");
     assert!(report.contains("doc-extensions.md"), "{report}");
+    // an existing project's order, each step naming its command (backlog M2)
+    let order = [
+        "1. [ ] Collect what exists",
+        "`/docsys-seed <feature>`",
+        "`/docsys-interview`",
+        "2. [ ] Write pages by type",
+        "`docsys page new <type> <id> --unverified`",
+        "3. [ ] Bind each page about code",
+        "`docsys pin`",
+        "4. [ ] Name the maintainers",
+        "5. [ ] Start the verify flow",
+        "`docsys verify <page>`",
+    ];
+    let mut at = 0;
+    for step in order {
+        let found = report.get(at..).and_then(|r| r.find(step)).map(|i| at + i);
+        assert!(
+            found.is_some(),
+            "`{step}` missing or out of order:\n{report}"
+        );
+        at = found.unwrap_or(at);
+    }
     // no .githooks, no configured hooksPath → gate falls back to .git/hooks
     let gate = fs::read_to_string(repo.join(".git/hooks/pre-commit")).unwrap();
     assert!(gate.contains("docsys documentation gate"), "{gate}");

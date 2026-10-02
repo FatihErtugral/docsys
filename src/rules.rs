@@ -175,9 +175,10 @@ pub fn agents_md() -> String {
          Mechanics are the tool's job — run them, never re-derive them:\n\
          - `docsys lint` before every commit; errors block, warnings accumulate\n\
          - `docsys refs --repo .` when code references documentation\n\
-         - code cites documentation as `doc: <id>` — never a path; the id is the\n\
-           contract, the filename is cosmetic, and it is unique across the whole\n\
-           tree, drafts under `work/` included\n\
+         - a page about code pins the region it promises about (`docsys pin`); the code\n\
+           cites the page with `// doc: <id>` at the start of a comment above that\n\
+           region — the id, never a path: unique across the whole tree, drafts under\n\
+           `work/` included\n\
          - inside docs a page is linked as `[[dir/id]]` — the full path from the\n\
            docs root (R-070)\n\
          - a page pinned to code (`verifies:`) that lint reports stale is re-read\n\
@@ -424,5 +425,16 @@ mod tests_teach {
         assert!(!digits_dot_digits, "{VERSION_SECTION}");
         assert!(agents_md().contains(VERSION_SECTION));
         assert!(crate::agents::kb_contract().ends_with(VERSION_SECTION));
+    }
+
+    /// A newcomer learns how a page and its code bind each other from the block
+    /// itself: the pin on the promised region, the citation above it (backlog M1).
+    #[test]
+    fn the_block_says_how_a_page_and_its_code_bind() {
+        let flat = agents_md().replace('\n', " ");
+        assert!(
+            flat.contains("a page about code pins the region it promises about (`docsys pin`); the code cites the page with `// doc: <id>` at the start of a comment above that region"),
+            "{flat}"
+        );
     }
 }
