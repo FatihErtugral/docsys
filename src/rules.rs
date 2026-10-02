@@ -175,10 +175,9 @@ pub fn agents_md() -> String {
          Mechanics are the tool's job — run them, never re-derive them:\n\
          - `docsys lint` before every commit; errors block, warnings accumulate\n\
          - `docsys refs --repo .` when code references documentation\n\
-         - a page about code pins the region it promises about (`docsys pin`); the code\n\
-           cites the page with `// doc: <id>` at the start of a comment above that\n\
-           region — the id, never a path: unique across the whole tree, drafts under\n\
-           `work/` included\n\
+         - a page about code pins the region it promises about (`docsys pin`); the pin\n\
+           is the whole binding: `docsys backlinks <code-file>` names the pages that\n\
+           describe a file, so the code carries no comment for it\n\
          - inside docs a page is linked as `[[dir/id]]` — the full path from the\n\
            docs root (R-070)\n\
          - a page pinned to code (`verifies:`) that lint reports stale is re-read\n\
@@ -322,7 +321,7 @@ mod tests {
         assert!(s.contains("- P/R-031 — ") && !s.contains("- R-031:"), "{s}");
         assert!(s.contains("- P/R-025 — ") && !s.contains("- R-025:"), "{s}");
         assert!(s.contains("R-081:"), "{s}");
-        assert!(s.contains("doc: <id>"));
+        assert!(s.contains("docsys backlinks <code-file>"), "{s}");
         let lines = s.lines().count();
         assert!(
             lines <= 200,
@@ -428,13 +427,15 @@ mod tests_teach {
     }
 
     /// A newcomer learns how a page and its code bind each other from the block
-    /// itself: the pin on the promised region, the citation above it (backlog M1).
+    /// itself: the pin is the one binding, read from the code's side by
+    /// `backlinks`; nothing asks for a citation in the code.
     #[test]
     fn the_block_says_how_a_page_and_its_code_bind() {
         let flat = agents_md().replace('\n', " ");
         assert!(
-            flat.contains("a page about code pins the region it promises about (`docsys pin`); the code cites the page with `// doc: <id>` at the start of a comment above that region"),
+            flat.contains("a page about code pins the region it promises about (`docsys pin`); the pin is the whole binding: `docsys backlinks <code-file>` names the pages that describe a file"),
             "{flat}"
         );
+        assert!(!flat.contains("// doc:"), "{flat}");
     }
 }

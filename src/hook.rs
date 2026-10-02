@@ -992,8 +992,9 @@ A permanent page you write from evidence, or change in substance, carries
 `verification: unverified` (+ sources); a maintainer verifies it in another
 session — `verified_by:` and `confirmed:` name someone in .docmeta.yml
 `maintainers:` (R-208). Nothing you write is the truth yet; say so in the page.
-Inside docs a page is linked as [[dir/id]] (full path); `doc: <id>` is how
-code cites a page. An id is unique across the whole tree, drafts included.
+Inside docs a page is linked as [[dir/id]] (full path). A page about code pins
+its region (docsys pin); docsys backlinks <code-file> names the pages that
+describe a file. An id is unique across the whole tree, drafts included.
 End of session: journal line (≤5 lines, links not content). Gate: docsys lint.
 Judgment calls follow the procedures: docsys rules --procedures.
 </session-doc-routing>

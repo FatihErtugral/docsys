@@ -454,3 +454,78 @@ fn the_children_of_a_dispatched_command_resolve_the_pin_themselves() {
         let _ = fs::remove_dir_all(d);
     }
 }
+
+/// "Which pages describe this file": `backlinks` with a code path lists the
+/// pages that pin it, symbol by symbol, and the pages whose sources name it —
+/// the binding's other direction, with nothing written into the code (N0).
+#[test]
+fn backlinks_of_a_code_file_names_the_pages_that_describe_it() {
+    let home = tmp("describe-home");
+    let path = path_with(&tmp("describe-path"));
+    let r = repo("describe");
+    fs::create_dir_all(r.join("src")).unwrap();
+    fs::write(
+        r.join("src/retry.rs"),
+        "pub fn delay_for(a: u32) -> u32 {\n    a * 2\n}\n\npub fn should_retry(a: u32) -> bool {\n    a < 6\n}\n",
+    )
+    .unwrap();
+    fs::create_dir_all(r.join("docs/reference")).unwrap();
+    fs::write(
+        r.join("docs/reference/retry.md"),
+        "---\nid: retry\ntype: reference\nverification: unverified\nsources: [src/retry.rs]\n---\n# Retry\n\nThis page states the retry policy; read it first.\n",
+    )
+    .unwrap();
+    git(&r, &["add", "-A"]);
+    git(
+        &r,
+        &[
+            "-c",
+            "core.hooksPath=/dev/null",
+            "commit",
+            "-qm",
+            "code and a page",
+        ],
+    );
+    let x = run(
+        &r,
+        &path,
+        &home,
+        &[],
+        &[
+            "pin",
+            "reference/retry",
+            "src/retry.rs",
+            "--symbol",
+            "should_retry",
+        ],
+    );
+    assert_eq!(x.code, 0, "{}{}", x.out, x.err);
+    // from a subdirectory, the path as the shell completes it there
+    let x = run(
+        &r.join("src"),
+        &path,
+        &home,
+        &[],
+        &["backlinks", "retry.rs"],
+    );
+    assert_eq!(x.code, 0, "{}{}", x.out, x.err);
+    assert!(
+        x.out.contains("# pages that describe src/retry.rs"),
+        "{}",
+        x.out
+    );
+    assert!(
+        x.out
+            .contains("reference/retry.md pins src/retry.rs#should_retry"),
+        "{}",
+        x.out
+    );
+    assert!(
+        x.out.contains("reference/retry.md rests on it (sources:)"),
+        "{}",
+        x.out
+    );
+    for d in [r, home] {
+        let _ = fs::remove_dir_all(d);
+    }
+}

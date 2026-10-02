@@ -69,7 +69,7 @@ Usage:
   docsys ledger  fix [--root <dir>]          # a ledger's em-dash field markers ( — deferred: ) to R-108's ASCII ( -- ); field text untouched
   docsys journal add <text…> [--title <t>] [--date <d>] [--link <path>] [--root docs]
   docsys page    new <category|type> <id> [--title <t>] [--unverified] [--root docs]   # from _templates/, or a permanent skeleton; --unverified: a page written from evidence, for a maintainer to verify (R-208)
-  docsys backlinks <path|id> [--repo .] [--root docs]      # pages (and code) pointing at a page
+  docsys backlinks <path|id|code-file> [--repo .] [--root docs]   # pages (and code) pointing at a page; for a code file, the pages that pin it or rest on it
   docsys mentions [<path|id>] [--root docs]                 # prose naming a page without a link
   docsys graph   [--format dot|json|jsoncanvas] [--repo .] [--root docs]
   docsys adopt   --obsidian …                # + .obsidian settings and a stale-work .base view
@@ -406,6 +406,21 @@ fn emit_export(done: &docsys::export::ProductOutcome, out: Option<&std::path::Pa
             ExitCode::SUCCESS
         }
     }
+}
+
+/// `arg` as a file of the repository, relative to its top: the path as the
+/// shell completes it where the command runs, or relative to the top.
+fn code_file(arg: &str, repo: &std::path::Path) -> Option<String> {
+    let top = repo.canonicalize().ok()?;
+    let here = std::env::current_dir().ok()?.join(arg);
+    let path = here
+        .canonicalize()
+        .ok()
+        .filter(|p| p.is_file())
+        .or_else(|| top.join(arg).canonicalize().ok().filter(|p| p.is_file()))?;
+    path.strip_prefix(&top)
+        .ok()
+        .map(|p| p.to_string_lossy().replace('\\', "/"))
 }
 
 fn main() -> ExitCode {
@@ -896,8 +911,15 @@ fn main() -> ExitCode {
             let repo = opts.repo.as_deref();
             let result = match cmd {
                 "backlinks" => match opts.positional.first() {
+                    // a code file, not a page: the pages that describe it
+                    Some(w) if !docsys::graph::is_page(&tree, w) => {
+                        match code_file(w, repo_or_cwd.as_path()) {
+                            Some(rel) => Ok(docsys::graph::describing(&tree, &rel)),
+                            None => docsys::graph::backlinks(&tree, repo, w),
+                        }
+                    }
                     Some(w) => docsys::graph::backlinks(&tree, repo, w),
-                    None => Err("backlinks needs a page path or id".to_string()),
+                    None => Err("backlinks needs a page path or id, or a code file".to_string()),
                 },
                 "mentions" => {
                     docsys::graph::mentions(&tree, opts.positional.first().map(String::as_str))

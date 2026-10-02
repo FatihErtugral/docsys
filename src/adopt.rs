@@ -621,8 +621,8 @@ pub fn run_placed(
          \x20      `/docsys-seed <feature>`; what only people know with `/docsys-interview`.\n\
          2. [ ] Write pages by type — reference, howto, explanation — with\n\
          \x20      `docsys page new <type> <id> --unverified`.\n\
-         3. [ ] Bind each page about code to its region, as the rules block in\n\
-         \x20      `AGENTS.md` says (`docsys pin`).\n\
+         3. [ ] Bind each page about code to the region it promises about with\n\
+         \x20      `docsys pin`.\n\
          4. [ ] Name the maintainers in `.docmeta.yml` (`maintainers:`) and keep the CI\n\
          \x20      workflow green.\n\
          5. [ ] Start the verify flow: a maintainer reads each page against its\n\

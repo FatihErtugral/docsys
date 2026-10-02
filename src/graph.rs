@@ -35,6 +35,46 @@ fn find_page<'a>(tree: &'a DocTree, what: &str) -> Option<&'a crate::tree::Page>
 }
 
 /// Pages linking to `what`, and — with a repository — code files citing its id.
+/// The pages that describe a code file, `file` relative to the repository:
+/// the pins on it, symbol by symbol, and the pages whose `sources:` name it —
+/// the binding read from the code's side, with nothing written into the code.
+pub fn describing(tree: &DocTree, file: &str) -> String {
+    let mut out = format!("# pages that describe {file}\n");
+    let mut n = 0usize;
+    for p in &tree.pages {
+        let Some(fm) = &p.fm else { continue };
+        for pin in crate::fresh::pins_of(fm)
+            .iter()
+            .filter(|pin| pin.path == file)
+        {
+            let region = pin
+                .symbol
+                .as_ref()
+                .map_or(file.to_string(), |s| format!("{file}#{s}"));
+            out.push_str(&format!("{} pins {region}\n", p.rel));
+            n += 1;
+        }
+        let rests = fm
+            .fields
+            .get("sources")
+            .and_then(crate::fm::Value::as_list)
+            .is_some_and(|l| l.iter().any(|s| s.trim() == file));
+        if rests {
+            out.push_str(&format!("{} rests on it (sources:)\n", p.rel));
+            n += 1;
+        }
+    }
+    if n == 0 {
+        out.push_str("-- no page pins it or rests on it\n");
+    }
+    out
+}
+
+/// Whether `what` names a page of the tree.
+pub fn is_page(tree: &DocTree, what: &str) -> bool {
+    find_page(tree, what).is_some()
+}
+
 pub fn backlinks(tree: &DocTree, repo: Option<&Path>, what: &str) -> Result<String, String> {
     let page = find_page(tree, what).ok_or_else(|| format!("no page at or with id `{what}`"))?;
     let target = link_path_of(tree, &page.rel).unwrap_or_default();

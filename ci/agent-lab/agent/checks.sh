@@ -250,27 +250,6 @@ M-stranger)
     if [ -n "$syms" ]; then row "$id" S3-pins pass "symbols: $(printf '%s' "$syms" | tr '\n' ' ')"
     elif [ "$whole" -gt 0 ]; then row "$id" S3-pins partial "src/retry.ts pinned whole"
     else row "$id" S3-pins fail "no pin on src/retry.ts"; fi
-    # citations: `doc: <id>` opening a comment, in the comment block right above a pinned declaration
-    cited=""
-    for s in $syms; do
-      ok=$(awk -v id="$id" -v sym="$s" '
-        { line[NR] = $0 }
-        END {
-          for (i = 1; i <= NR; i++) if (line[i] ~ ("(function|const|class|let|var) " sym "[^A-Za-z0-9_]")) { d = i; break }
-          if (!d) { print "no"; exit }
-          for (j = d - 1; j >= 1; j--) {
-            l = line[j]; sub(/^[ \t]+/, "", l)
-            if (l !~ /^(\/\/|\/\*|\*)/) break
-            c = l; sub(/^(\/\/|\/\*|\*)[ \t]*/, "", c)
-            if (c ~ ("^doc: " id "([^A-Za-z0-9_-]|$)")) { print "yes"; exit }
-          }
-          print "no"
-        }' src/retry.ts)
-      [ "$ok" = yes ] && cited="$cited $s"
-    done
-    if [ -n "$cited" ]; then row "$id" S4-citations pass "doc: $id above:$cited"
-    elif grep -q "doc: $id" src/*.ts; then row "$id" S4-citations partial "doc: $id cited, not above a pinned region"
-    else row "$id" S4-citations fail "no doc: $id in the code"; fi
     grep -q '^verification: unverified' "$p" && row "$id" S5-unverified pass "unverified" || row "$id" S5-unverified fail "$(grep '^verification:' "$p" || echo 'no verification field')"
     if grep -qE '^sources: \[.+\]|^sources:$' "$p" && ! grep -q '"rule":"R-059"' "$OUT/lint.json" 2>/dev/null; then row "$id" S6-sources pass "$(grep -A3 '^sources:' "$p" | tr '\n' ' ')"; else row "$id" S6-sources fail "$(grep '^sources:' "$p" || echo 'no sources')"; fi
   done < "$READ/pages.txt"

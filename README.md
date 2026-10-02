@@ -60,8 +60,8 @@ lessons → `howto/`.
 
 Two contracts carry everything:
 
-- **The identifier is the contract, the filename is cosmetic.** Code cites
-  documentation as `doc: <id>`; rename the file, nothing breaks (R-062).
+- **The identifier is the contract, the filename is cosmetic.** Code that cites
+  documentation cites `doc: <id>`; rename the file, nothing breaks (R-062).
 - **Deterministic work belongs to the tool, judgment to the model.** Links,
   frontmatter, uniqueness, budgets, block movement → `docsys`. "Which type is
   this?", "does permanent value remain?" → an agent, following the fifteen
@@ -424,7 +424,7 @@ flowchart LR
 | `docsys adopt [--repo .] [--root docs] [--lang <code>] [--obsidian] [--rules-file <path>] [--report-dir <dir> \| --no-report] [--ci-runner <labels>] [--ci-install cargo\|release] [--ci-sha256 <target>=<hex>,…] [--verify-on-approval pull-request\|direct\|off]` | One-command integration: docmeta (or the full init skeleton on a fresh project) with the tree's `namespace:`, agent assets, `settings.json` (written when absent, merged into when present — D-086), AGENTS.md managed block, the git pre-commit gate (hard when lint and `refs` are both clean, warn-mode while the tree or the code carries debt, hardened by a later run — D-088), `.github/workflows/docsys.yml` when `.github/` exists, and an `ADOPTION.md` report whose checklist carries every judgment call. Idempotent. |
 | `docsys seed plan [--target <feature>] [--since <date>] [--memory <dir>]` · `docsys seed apply --plan <file> [--force]` · `docsys seed gaps [--since <date>]` | Brownfield seeding: evidence from history and code, refused when a page covers the feature; the approved rows land under `work/` as tokens and verbatim quotations (D-053, D-058). |
 | `docsys debt close <n> [--note <line>]` · `docsys journal add <text> [--title <t>] [--date <d>] [--link <path>]` · `docsys page new <kind> <id> [--title <t>] [--unverified]` | Capture, mechanical: a repaid debt leaves the ledger with its journal line; an entry at its date; a page from its template (D-063); `--unverified` writes `verification: unverified` and `sources: []` on a permanent page — a page from evidence, for a maintainer to verify (R-208, D-092). |
-| `docsys backlinks <path\|id> [--repo .]` · `docsys mentions [<path\|id>]` · `docsys graph [--format dot\|json\|jsoncanvas] [--repo .]` | Derived navigation, never written into a page: who points at a page (code included), who names it without linking, the whole map (D-064). |
+| `docsys backlinks <path\|id> [--repo .]` · `docsys mentions [<path\|id>]` · `docsys graph [--format dot\|json\|jsoncanvas] [--repo .]` | Derived navigation, never written into a page: who points at a page (code included), and for a code file the pages that pin it or rest on it; who names it without linking; the whole map (D-064, D-121). |
 | `docsys adopt --obsidian` | The docs root as an Obsidian vault: absolute links, `_archive/` ignored, `_templates/` as templates, a `stale-work.base` view (D-065). Caveats: `aliases:` means retired ids here; keep Linter's `yaml-timestamp` off. |
 | `docsys lint [--root docs] [--repo <dir>] [--json]` | Full tree validation: frontmatter, ids, links, journal discipline, templates, list grammars — both profiles. Inside a git repository (`--repo`, or detected) also the freshness rules: `verifies:` pins recomputed (R-111), `updated:` behind history (R-106), drafts untouched beyond `stale_active_days` (R-085). Errors exit 1, warnings don't. |
 | `docsys lookup <word…> [--root docs] [--json]` | A question's first hop: every page, local and consumed (`@namespace/id`), that names every word, best first — identifier, title, tags, summary, body — with `status:` on a draft and `unverified` on an unaudited page. `raw/` is never listed. No hit exits 1: "not in the base" (D-074). |
@@ -603,6 +603,7 @@ docsys journal add "Wire format settled; details on the page" --link reference/w
 docsys debt close 3 --note "measured twice, held"     # item leaves the ledger, journal records it
 docsys page new feature dark-mode                      # from _templates/feature.md
 docsys backlinks token-ttl --repo .                    # pages and code pointing at a page
+docsys backlinks src/auth.rs                           # pages that describe a code file
 docsys mentions                                        # prose naming a page without a link
 docsys graph --format jsoncanvas --repo . > docs/map.canvas
 docsys adopt --obsidian                                # the docs root as an Obsidian vault
