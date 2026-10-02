@@ -216,22 +216,6 @@ fn rel(repo: &Path, path: &Path) -> String {
         .unwrap_or_else(|_| path.to_string_lossy().replace('\\', "/"))
 }
 
-/// A 0.15 relay: comments, the `command -v` guard, and one `exec docsys hook`
-/// line — the shape every docsys template had before the 0.16 guard.
-fn relay_shape(text: &str) -> bool {
-    let lines: Vec<&str> = text
-        .lines()
-        .map(str::trim)
-        .filter(|l| !l.is_empty() && !l.starts_with('#'))
-        .collect();
-    matches!(
-        lines.as_slice(),
-        [guard, exec] if *guard == "command -v docsys >/dev/null || exit 0"
-            && exec.starts_with("exec docsys hook ")
-            && exec.contains("--root \"${DOCS_ROOT:-")
-    )
-}
-
 /// The frontmatter with the 0.5 record added right after `verified_rev:`, in
 /// the order `verify` writes it: the body's blocks, then the sources.
 fn add_record(text: &str, blocks: &[String], sources: &[(String, String)]) -> Option<String> {
@@ -505,12 +489,14 @@ fn common(ctx: &Ctx, u: &mut Upgrade, apply: bool) -> Result<(), String> {
             continue;
         }
         let file = rel(repo, &path);
-        if relay_shape(&text) {
+        // a relay byte for byte as a release wrote it; any touch, a comment
+        // included, makes it its owner's (D-117)
+        if let Some(release) = crate::agents::released(hook, &text, "") {
             u.item(
                 "auto",
                 "hook-scripts",
                 &file,
-                "refreshed: starts in the project directory, names the tree's root, names the pinned docsys to a binary from before pins".to_string(),
+                format!("refreshed: a text docsys {release} wrote, untouched — it now starts in the project directory, names the tree's root, and names the pinned docsys to a binary from before pins"),
             );
             if apply {
                 fs::write(&path, &fresh).map_err(|e| e.to_string())?;
@@ -714,7 +700,7 @@ fn common(ctx: &Ctx, u: &mut Upgrade, apply: bool) -> Result<(), String> {
                 "auto",
                 "assets",
                 &file,
-                format!("refreshed: the text docsys {release} wrote, untouched"),
+                format!("refreshed: a text docsys {release} wrote, untouched"),
             );
             if apply {
                 fs::write(&path, &want).map_err(|e| e.to_string())?;
@@ -745,7 +731,7 @@ fn common(ctx: &Ctx, u: &mut Upgrade, apply: bool) -> Result<(), String> {
                     "auto",
                     "kb-contract",
                     &file,
-                    format!("refreshed: the text docsys {release} wrote, untouched"),
+                    format!("refreshed: a text docsys {release} wrote, untouched"),
                 );
                 if apply {
                     fs::write(&path, &want).map_err(|e| e.to_string())?;
@@ -1053,16 +1039,6 @@ pub fn commit(repo: &Path, u: &Upgrade) -> Result<(), String> {
 #[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn a_0_15_relay_has_the_template_shape() {
-        let old = "#!/usr/bin/env bash\n# docsys-template: 0.15.1\n# a comment\ncommand -v docsys >/dev/null || exit 0\nexec docsys hook stop --root \"${DOCS_ROOT:-docs}\" --stdin\n";
-        assert!(relay_shape(old));
-        assert!(!relay_shape(
-            &old.replace("exec docsys", "my-check && exec docsys")
-        ));
-        assert!(!relay_shape("#!/bin/sh\nexit 0\n"));
-    }
 
     #[test]
     fn the_record_goes_right_after_the_revision() {

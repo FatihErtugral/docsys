@@ -9,16 +9,16 @@ Upgrading to docsys 0.16.0:
   tree in one commit. The items it lists for a person are theirs to finish.
 
 auto    hook-wires         .claude/settings.json  4 change(s): every docsys wire to `"$CLAUDE_PROJECT_DIR"/.claude/hooks/<name>.sh`, duplicates folded
-auto    hook-scripts       .claude/hooks/pre-commit-docs.sh  refreshed: starts in the project directory, names the tree's root, names the pinned docsys to a binary from before pins
+auto    hook-scripts       .claude/hooks/pre-commit-docs.sh  refreshed: a text docsys 0.12.0 wrote, untouched — it now starts in the project directory, names the tree's root, and names the pinned docsys to a binary from before pins
 manual  hook-scripts       .claude/hooks/stop-docs-reminder.sh  edited by its owner — the diff to this version's relay is below
-auto    hook-scripts       .claude/hooks/post-edit-updated.sh  refreshed: starts in the project directory, names the tree's root, names the pinned docsys to a binary from before pins
-auto    hook-scripts       .claude/hooks/session-intent.sh  refreshed: starts in the project directory, names the tree's root, names the pinned docsys to a binary from before pins
+auto    hook-scripts       .claude/hooks/post-edit-updated.sh  refreshed: a text docsys 0.5.0 wrote, untouched — it now starts in the project directory, names the tree's root, and names the pinned docsys to a binary from before pins
+auto    hook-scripts       .claude/hooks/session-intent.sh  refreshed: a text docsys 0.12.0 wrote, untouched — it now starts in the project directory, names the tree's root, and names the pinned docsys to a binary from before pins
 auto    git-gate           .git/hooks/pre-commit  the docsys block rewritten for this version, its mode kept — this clone only: every clone runs `docsys upgrade --apply` once
 auto    ci-workflow        .github/workflows/docsys.yml  the 0.15 workflow, untouched: regenerated with its mode, pinned to this version
 auto    rules-block        AGENTS.md  the generated block refreshed in place
 auto    assets             .claude/commands/docsys-upgrade.md  written: new in this version
 manual  assets             .claude/commands/docsys-sync.md  edited by its owner — the diff to this version's text is below
-auto    assets             .claude/skills/docsys/SKILL.md  refreshed: the text docsys 0.15.0 wrote, untouched
+auto    assets             .claude/skills/docsys/SKILL.md  refreshed: a text docsys 0.15.0 wrote, untouched
 manual  verified-record    docs/reference/expiry.md  the body changed since @REV@ — never recorded blind; a maintainer reads it and verifies it again: `docsys verify reference/expiry.md`
 auto    verified-record    docs/reference/refresh.md  the body @REV@ holds is the body now: `verified_blocks` recorded
 manual  pins               docs/reference/expiry.md  `src/auth.rs#expire`: stale before the upgrade, still stale — re-read the page against it: `docsys pin --refresh reference/expiry.md`

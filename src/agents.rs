@@ -1367,6 +1367,30 @@ pub fn owned_assets(kb: bool) -> Vec<(&'static str, &'static str, bool)> {
     out
 }
 
+/// A relay as the released hashes read it: without its template stamp and
+/// with its root default read as `docs` — the two things a render varies.
+fn relay_norm(text: &str) -> String {
+    let mut out: String = text
+        .split_inclusive('\n')
+        .filter(|l| !l.starts_with("# docsys-template:"))
+        .collect();
+    let open = "${DOCS_ROOT:-";
+    let mut at = 0;
+    while let Some(i) = out.get(at..).and_then(|s| s.find(open)).map(|i| at + i) {
+        let start = i + open.len();
+        let Some(end) = out
+            .get(start..)
+            .and_then(|s| s.find('}'))
+            .map(|j| start + j)
+        else {
+            break;
+        };
+        out.replace_range(start..end, "docs");
+        at = start + "docs".len();
+    }
+    out
+}
+
 /// The texts docsys releases wrote for the assets it owns, as data (R-173):
 /// `asset <TAB> sha256 <TAB> release`.
 const RELEASED: &str = include_str!("../migrations/assets-released.tsv");
@@ -1375,7 +1399,11 @@ const RELEASED: &str = include_str!("../migrations/assets-released.tsv");
 /// knowledge base's `AGENTS.md`), the tree's generated preamble set aside;
 /// `None` when no release wrote it — the file is its owner's.
 pub fn released(asset: &str, text: &str, preamble: &str) -> Option<&'static str> {
-    let bare = crate::migrate::without_preamble(text, preamble);
+    let bare = if asset.starts_with("hooks/") {
+        relay_norm(text)
+    } else {
+        crate::migrate::without_preamble(text, preamble)
+    };
     let hashes = [
         crate::fresh::sha256_hex(text.as_bytes()),
         crate::fresh::sha256_hex(bare.as_bytes()),

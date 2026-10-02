@@ -723,9 +723,30 @@ fn an_asset_an_older_release_wrote_is_refreshed() {
     let out = docsys(&repo, &["upgrade"]);
     assert!(
         String::from_utf8_lossy(&out.stdout).contains(
-            "auto    assets             .claude/skills/docsys/SKILL.md  refreshed: the text docsys 0.1.0 wrote, untouched"
+            "auto    assets             .claude/skills/docsys/SKILL.md  refreshed: a text docsys 0.1.0 wrote, untouched"
         ),
         "{out:?}"
     );
+    let _ = fs::remove_dir_all(&repo);
+}
+
+/// A relay its owner touched — a comment line is a touch — is the owner's:
+/// shown as a diff, never rewritten (D-117).
+#[test]
+fn a_relay_with_an_owners_comment_is_never_rewritten() {
+    let (repo, _) = build("relay-comment");
+    let relay = repo.join(".claude/hooks/post-edit-updated.sh");
+    let owned = fs::read_to_string(&relay).unwrap() + "# owner: keep this relay quiet in CI\n";
+    fs::write(&relay, &owned).unwrap();
+    git(&repo, &["commit", "-qam", "the owner edits a relay"]);
+    let out = docsys(&repo, &["upgrade", "--apply", "--commit"]);
+    assert!(out.status.success(), "{out:?}");
+    assert!(
+        String::from_utf8_lossy(&out.stdout).contains(
+            "manual  hook-scripts       .claude/hooks/post-edit-updated.sh  edited by its owner"
+        ),
+        "{out:?}"
+    );
+    assert_eq!(fs::read_to_string(&relay).unwrap(), owned);
     let _ = fs::remove_dir_all(&repo);
 }

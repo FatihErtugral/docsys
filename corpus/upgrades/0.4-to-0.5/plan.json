@@ -20,7 +20,7 @@
       "strategy": "auto",
       "step": "hook-scripts",
       "file": ".claude/hooks/pre-commit-docs.sh",
-      "what": "refreshed: starts in the project directory, names the tree's root, names the pinned docsys to a binary from before pins",
+      "what": "refreshed: a text docsys 0.12.0 wrote, untouched — it now starts in the project directory, names the tree's root, and names the pinned docsys to a binary from before pins",
       "command": null
     },
     {
@@ -34,14 +34,14 @@
       "strategy": "auto",
       "step": "hook-scripts",
       "file": ".claude/hooks/post-edit-updated.sh",
-      "what": "refreshed: starts in the project directory, names the tree's root, names the pinned docsys to a binary from before pins",
+      "what": "refreshed: a text docsys 0.5.0 wrote, untouched — it now starts in the project directory, names the tree's root, and names the pinned docsys to a binary from before pins",
       "command": null
     },
     {
       "strategy": "auto",
       "step": "hook-scripts",
       "file": ".claude/hooks/session-intent.sh",
-      "what": "refreshed: starts in the project directory, names the tree's root, names the pinned docsys to a binary from before pins",
+      "what": "refreshed: a text docsys 0.12.0 wrote, untouched — it now starts in the project directory, names the tree's root, and names the pinned docsys to a binary from before pins",
       "command": null
     },
     {
@@ -83,7 +83,7 @@
       "strategy": "auto",
       "step": "assets",
       "file": ".claude/skills/docsys/SKILL.md",
-      "what": "refreshed: the text docsys 0.15.0 wrote, untouched",
+      "what": "refreshed: a text docsys 0.15.0 wrote, untouched",
       "command": null
     },
     {

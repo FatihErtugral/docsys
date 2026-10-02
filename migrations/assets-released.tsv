@@ -1,5 +1,6 @@
 # The texts docsys releases wrote for the assets it owns: asset <TAB> sha256 of the text <TAB> the first release that wrote it.
 # `docsys upgrade` refreshes a file whose text, the tree's generated preamble set aside, is one of these; any other text is its owner's.
+# A relay is hashed without its `# docsys-template:` line and with its root default read as `docs`, the two things a render varies.
 commands/docsys-sync.md	8fb7a55c2b3b40971fe14683fd8c6f401d0e4883d533a5697e351d1bd7838fa5	0.1.0
 skills/docsys/SKILL.md	9c83c788f4dfb340726ad7387ee77a846ba73d7e81a776842256ace04b48f36e	0.1.0
 skills/docsys-export/SKILL.md	c929b1fa4b9e120ad418d6fcce2b5119b2c88b02841a7acb927f216ee89cf9a3	0.4.0
@@ -23,3 +24,23 @@ skills/docsys/SKILL.md	5873468cae03b16ba8b19b2b37297ce745ee0f183837fedca53fa93c6
 skills/kb-ingest/SKILL.md	3ea02e676b39bde3b3fd4f451d52334e07de3fe46a818bdca893d5ec82eadac8	0.15.0
 skills/kb-audit/SKILL.md	1b33a4eb85a8a7ef2a300f9ef6def1c905b73c6bf65ec120d2c00a13e97aa672	0.15.0
 AGENTS.md	5f27df0ba6286ccc0a37b624af024dea90ead00884f9510bf52868f07f74771d	0.15.0
+hooks/pre-commit-docs.sh	cb666c1b13cc74fa0d2a9f9be41153426172d496a7406e1b9a29b6ea73671e42	0.1.0
+hooks/stop-docs-reminder.sh	ae37dbbace546262b40acf3456efeb41dc4e73f5292fe836c0bb0cd3f816ff33	0.1.0
+hooks/post-edit-updated.sh	9c2cb01d0bfad4bada79d1c7ad8fb0cc5d493d3cc3691bb4ea92dc14a822016b	0.1.0
+hooks/session-intent.sh	16819511b652b3a600bb602b2a3c0623e72a2a7e6addf0b79f933367ac4cd725	0.1.0
+hooks/pre-commit-docs.sh	5874a6434b491012625ef4659f2f3f7abb17ffa4290ef731b5fb06ca38a8c5ad	0.4.0
+hooks/stop-docs-reminder.sh	f20a9159ef3f8f07f63cfd556ef1011cfd59e7b1fce74d5235d289b0f0f23319	0.4.2
+hooks/pre-commit-docs.sh	b74f38777b5e6f6c79f5fab340b06da539f67934a8534e289fe99eda090f2296	0.4.4
+hooks/pre-commit-docs.sh	96efcf2f961eb2504afab6daa8f2a2a17cf6e4db626c9348e26deb65bc8b2712	0.4.6
+hooks/stop-docs-reminder.sh	2aeb7834cc4fb2b02b683a8cb7b52cdee1cf676e82ba5855ae857ce89f7dcb30	0.4.6
+hooks/post-edit-updated.sh	3414f99ff413553b5f1f43aa979833a79cdb7ade2cc31d75d4b6b2fbb36a78c4	0.4.6
+hooks/pre-commit-docs.sh	e101d113a52e823dac93ba5e8a2efd1524e9d542a51c06f9577da888a57a0867	0.4.7
+hooks/pre-commit-docs.sh	21ee4c17d69e58d675250e578d3a2f6ce0aae27ba7ef905886265a73b699a118	0.4.10
+hooks/pre-commit-docs.sh	a614a7b485f520a36c199181537d9e61e48c7337c3412f1dcb870e3c8a48553e	0.4.12
+hooks/pre-commit-docs.sh	3e763aa98c2a896ef064373037ce25fae5a6a498f4a6efa55482fb568f693848	0.5.0
+hooks/stop-docs-reminder.sh	e778ec3208ced66d983755baa4274ea137205e2988636ec0c7bef4b0060d0c58	0.5.0
+hooks/post-edit-updated.sh	e53fa86eb9d56ddfccae96955cef805db27546feceaacff14e49b4641e871e8d	0.5.0
+hooks/session-intent.sh	deb4a80e280f36e748d52eabb36a906f7c9245cef81f9c90f54342319f782d5d	0.5.0
+hooks/pre-commit-docs.sh	b136cb8499bcc3d9f5dab81c9a81a8f715a75cc01adc17672f4543e342af7a8f	0.12.0
+hooks/session-intent.sh	46a0a2dd14634a906f10f747e583c187b161280e7092f781f36b801a4789a35b	0.12.0
+hooks/stop-docs-reminder.sh	a03d1fa79a2c88218734b885f3d970b82cf9466f6da18803c8d058d3aa87d5e8	0.15.0
