@@ -360,8 +360,16 @@ fn preview(ctx: &Ctx, u: &mut Upgrade) {
             })
             .collect()
     };
-    let now = key(&crate::lint_in(root, Some(repo)).0);
-    let next = key(&crate::era::preview(u.to, || crate::lint_in(root, Some(repo))).0);
+    // lint and refs alike: a move changes what both report
+    let findings = || {
+        let mut all = key(&crate::lint_in(root, Some(repo)).0);
+        if let Ok(tree) = DocTree::load(root) {
+            all.extend(key(&crate::refs::run(repo, &tree)));
+        }
+        all
+    };
+    let now = findings();
+    let next = crate::era::preview(u.to, findings);
     let added: Vec<&String> = next.difference(&now).collect();
     let removed: Vec<&String> = now.difference(&next).collect();
     u.preview.push(format!(

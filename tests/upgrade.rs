@@ -935,3 +935,29 @@ fn an_untracked_asset_holding_this_versions_text_goes_into_the_commit() {
     assert_eq!(git(&repo, &["status", "--porcelain"]), "");
     let _ = fs::remove_dir_all(&repo);
 }
+
+/// The preview lists what the tree loses as well as what it gains, `refs`
+/// included: a false citation 0.4 read mid-comment is gone under 0.5 (D-117).
+#[test]
+fn the_preview_lists_the_findings_the_move_takes_away() {
+    let (repo, _) = build("preview-gone");
+    fs::write(
+        repo.join("src/limits.ts"),
+        "// see the provider doc: it caps the rate\nexport const limit = 10;\n",
+    )
+    .unwrap();
+    git(&repo, &["add", "-A"]);
+    git(
+        &repo,
+        &["-c", "core.hooksPath=/dev/null", "commit", "-qm", "a limit"],
+    );
+    let out = docsys(&repo, &["upgrade"]);
+    let plan = String::from_utf8_lossy(&out.stdout);
+    assert!(
+        plan.lines()
+            .any(|l| l.starts_with("- ERROR R-076 src/limits.ts [it]")),
+        "{plan}"
+    );
+    assert!(!plan.contains(", 0 gone"), "{plan}");
+    let _ = fs::remove_dir_all(&repo);
+}
