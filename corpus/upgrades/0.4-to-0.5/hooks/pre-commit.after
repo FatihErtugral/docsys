@@ -13,12 +13,11 @@ if [ -z "${DOCSYS_SKIP:-}" ] && command -v docsys >/dev/null; then
     echo "docsys: this tree pins docsys $docsys_pin; install: cargo install docsys --version $docsys_pin --locked" >&2
     docsys_gate_status=1
   else
-    docsys lint --repo . --root docs || docsys_gate_status=1
-    DOCSYS_NOTICED=1 docsys refs --repo . --root docs || docsys_gate_status=1
-    DOCSYS_NOTICED=1 docsys gate --repo . --root docs || docsys_gate_status=1
+    docsys gate --repo . --root docs || docsys_gate_status=1
+    docsys refs --repo . --root docs || docsys_gate_status=1
   fi
   if [ "$docsys_gate_status" -ne 0 ] && [ "$docsys_gate_exit" -ne 0 ]; then exit 1; fi
 elif [ -n "${DOCSYS_SKIP:-}" ] && command -v docsys >/dev/null; then
-  docsys gate --repo . --root docs --skipped >/dev/null 2>&1 || :
+  docsys gate --repo . --root docs --skipped >/dev/null || echo "docsys: this skipped commit is not recorded — the line above says why" >&2
 fi
 # --- end of the docsys gate ---

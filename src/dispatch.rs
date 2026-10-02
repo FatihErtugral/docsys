@@ -88,8 +88,9 @@ pub fn install_command(home: &Path, v: &str) -> String {
 /// binary is to run: no pin, the pin is this version, or the guard is set.
 /// Otherwise it exits with the pinned binary's code, or with 1 and one line
 /// when the version is not installed and may not be installed here — an
-/// agent hook (`installs: false`) never waits for a compile.
-pub fn run_pinned(root: &Path, installs: bool) -> Result<(), std::process::ExitCode> {
+/// agent hook (`installs: false`) never waits for a compile. `quiet` keeps
+/// the failure lines for the call that says them for a whole commit.
+pub fn run_pinned(root: &Path, installs: bool, quiet: bool) -> Result<(), std::process::ExitCode> {
     if std::env::var_os(GUARD).is_some() {
         return Ok(());
     }
@@ -120,7 +121,9 @@ pub fn run_pinned(root: &Path, installs: bool) -> Result<(), std::process::ExitC
         };
         let allowed = installs && std::env::var_os(NO_AUTO_INSTALL).is_none() && cargo();
         if !allowed {
-            eprintln!("docsys: this tree pins docsys {pin}; install it: {command}");
+            if !quiet {
+                eprintln!("docsys: this tree pins docsys {pin}; install it: {command}");
+            }
             return Err(std::process::ExitCode::from(1));
         }
         eprintln!("docsys: this tree pins docsys {pin}; installing it once…");
@@ -129,10 +132,17 @@ pub fn run_pinned(root: &Path, installs: bool) -> Result<(), std::process::ExitC
             .arg(home.join("versions").join(&pin))
             .stdin(Stdio::null())
             .stdout(Stdio::null())
+            .stderr(if quiet {
+                Stdio::null()
+            } else {
+                Stdio::inherit()
+            })
             .status()
             .is_ok_and(|s| s.success());
         if !installed || !bin.is_file() {
-            eprintln!("docsys: docsys {pin} could not be installed; install it: {command}");
+            if !quiet {
+                eprintln!("docsys: docsys {pin} could not be installed; install it: {command}");
+            }
             return Err(std::process::ExitCode::from(1));
         }
     }

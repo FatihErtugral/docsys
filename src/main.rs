@@ -470,6 +470,12 @@ fn main() -> ExitCode {
     }
     // A pinned tree runs its own docsys (D-120). `upgrade` is how a newer one
     // moves the pin; a hook dispatches too, but never waits for an install.
+    // Inside a git hook a gate chains several docsys calls — this version's
+    // block and the one 0.15 wrote alike — and only `gate` says what concerns
+    // the commit as a whole: the version notice and a pin that cannot run.
+    let quiet = std::env::var_os("GIT_EXEC_PATH").is_some()
+        && std::env::var_os("GIT_INDEX_FILE").is_some()
+        && cmd != "gate";
     let pinned_root = match cmd {
         "upgrade" => None,
         "hook" => Some(
@@ -483,21 +489,21 @@ fn main() -> ExitCode {
         _ => here.as_ref().map(|p| p.root.clone()),
     };
     if let Some(root) = pinned_root {
-        if let Err(code) = docsys::dispatch::run_pinned(&root, cmd != "hook") {
+        if let Err(code) = docsys::dispatch::run_pinned(&root, cmd != "hook", quiet) {
             return code;
         }
     }
-    // R-171: a version difference in one line, naming what resolves it, once
-    // per run — the gate's later calls carry DOCSYS_NOTICED. A tree that has
-    // not moved is served by its own rules (D-118).
+    // R-171: a version difference in one line, naming what resolves it; once
+    // per commit inside a git hook (above). A tree that has not moved is
+    // served by its own rules (D-118).
     if let Some(p) = here
         .as_ref()
         .filter(|p| p.root.join(".docmeta.yml").is_file())
     {
         let tree = docsys::era::Era::at(&p.root).0;
         let ours = docsys::upgrade::implemented();
-        let noticed = std::env::var_os("DOCSYS_NOTICED").is_some();
-        if cmd != "upgrade" && tree < ours && !noticed {
+        if quiet {
+        } else if cmd != "upgrade" && tree < ours {
             eprintln!("docsys: this tree declares docsys/0.{tree} and is served by its rules; `docsys upgrade` moves it to docsys/0.{ours} when the repository is ready");
         } else if tree > ours {
             eprintln!("docsys: this tree declares docsys/0.{tree}; this docsys implements docsys/0.{ours} — install a newer docsys");

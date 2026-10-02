@@ -232,7 +232,7 @@ fn two_trees_with_two_pins_each_run_their_own_docsys() {
     let said = String::from_utf8_lossy(&commit.stdout).into_owned()
         + &String::from_utf8_lossy(&commit.stderr);
     assert!(commit.status.success(), "{said}");
-    assert!(said.contains("docsys 7.7.7 ran: lint"), "{said}");
+    assert!(said.contains("docsys 7.7.7 ran: gate"), "{said}");
     for d in [a, b, home] {
         let _ = fs::remove_dir_all(d);
     }

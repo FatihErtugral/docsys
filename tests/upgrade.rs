@@ -495,31 +495,96 @@ fn a_clone_with_the_old_gate_is_told_to_run_the_upgrade_once() {
     let _ = fs::remove_dir_all(&repo);
 }
 
-/// R-171 once per run: a commit through the gate runs lint, refs and gate,
-/// and a 0.4 tree hears the notice once, from lint.
+/// One commit, each line once: the version notice and every finding, whether
+/// the clone's gate is this version's block or still the one 0.15 wrote —
+/// an old block cannot be asked to cooperate (R-171).
 #[test]
-fn a_commit_in_a_0_4_tree_prints_the_notice_once() {
-    let (repo, _) = build("notice-once");
-    // `adopt` brings the clone's gate to this version and leaves the tree at 0.4
-    let out = docsys(&repo, &["adopt"]);
+fn a_commit_says_each_thing_once_under_either_gate() {
+    let commit = |repo: &Path| -> String {
+        let out = Command::new("git")
+            .args(["-c", "commit.gpgsign=false", "commit", "-qm", "a change"])
+            .env("PATH", path())
+            .current_dir(repo)
+            .output()
+            .unwrap();
+        String::from_utf8_lossy(&out.stdout).into_owned() + &String::from_utf8_lossy(&out.stderr)
+    };
+    let count = |said: &str, start: &str| said.lines().filter(|l| l.starts_with(start)).count();
+    for rewritten in [false, true] {
+        let (repo, _) = build(&format!("once-{rewritten}"));
+        if rewritten {
+            // `adopt` brings the clone's gate to this version, the tree stays 0.4
+            let out = docsys(&repo, &["adopt"]);
+            assert!(out.status.success(), "{out:?}");
+        }
+        fs::write(repo.join("notes.txt"), "a change\n").unwrap();
+        git(&repo, &["add", "-A"]);
+        let said = commit(&repo);
+        assert_eq!(
+            count(&said, "docsys: this tree declares docsys/0.4"),
+            1,
+            "{said}"
+        );
+        if rewritten {
+            // the stale pin of the case, once
+            assert_eq!(count(&said, "ERROR R-111 reference/expiry.md"), 1, "{said}");
+        }
+        let _ = fs::remove_dir_all(&repo);
+    }
+}
+
+/// A pinned tree whose version is not installed, with no cargo to install it:
+/// the one line naming the command comes once per commit, and a skipped
+/// commit says that its record was not written instead of losing it in
+/// silence (R-151).
+#[test]
+fn an_uninstalled_pin_is_named_once_and_a_lost_skip_record_is_said() {
+    let (repo, _) = build("pin-once");
+    let out = docsys(&repo, &["upgrade", "--apply", "--commit"]);
     assert!(out.status.success(), "{out:?}");
-    git(&repo, &["add", "-A"]);
-    let out = Command::new("git")
-        .args(["-c", "commit.gpgsign=false", "commit", "-qm", "adopt again"])
-        .env("PATH", path())
-        .current_dir(&repo)
-        .output()
-        .unwrap();
-    let stderr = String::from_utf8_lossy(&out.stderr);
-    assert_eq!(
-        stderr
-            .lines()
-            .filter(|l| l.starts_with("docsys: this tree declares docsys/0.4"))
-            .count(),
-        1,
-        "{stderr}"
+    fs::write(repo.join("docs/.docsys-version"), "0.16.9\n").unwrap();
+    git(
+        &repo,
+        &["-c", "core.hooksPath=/dev/null", "commit", "-qam", "pin"],
     );
-    let _ = fs::remove_dir_all(&repo);
+    // git and a shell, this build as `docsys`, and no cargo
+    let tools = tmp("pin-once-tools");
+    for tool in ["git", "sh", "bash", "head", "sed", "cat"] {
+        let p = Command::new("sh")
+            .args(["-c", &format!("command -v {tool}")])
+            .output()
+            .unwrap();
+        let p = String::from_utf8_lossy(&p.stdout).trim().to_string();
+        std::os::unix::fs::symlink(p, tools.join(tool)).unwrap();
+    }
+    let path = format!("{}:{}", bin().parent().unwrap().display(), tools.display());
+    let home = tmp("pin-once-home");
+    fs::write(repo.join("notes.txt"), "a change\n").unwrap();
+    git(&repo, &["add", "-A"]);
+    let run = |skip: bool| -> String {
+        let mut c = Command::new("git");
+        c.args(["-c", "commit.gpgsign=false", "commit", "-qm", "a change"])
+            .env("PATH", &path)
+            .env("DOCSYS_HOME", &home)
+            .current_dir(&repo);
+        if skip {
+            c.env("DOCSYS_SKIP", "1");
+        }
+        let out = c.output().unwrap();
+        String::from_utf8_lossy(&out.stdout).into_owned() + &String::from_utf8_lossy(&out.stderr)
+    };
+    let said = run(false);
+    let line = "docsys: this tree pins docsys 0.16.9; install it: ";
+    assert_eq!(said.matches(line).count(), 1, "{said}");
+    let said = run(true);
+    assert_eq!(said.matches(line).count(), 1, "{said}");
+    assert!(
+        said.contains("docsys: this skipped commit is not recorded"),
+        "{said}"
+    );
+    for d in [repo, tools, home] {
+        let _ = fs::remove_dir_all(d);
+    }
 }
 
 /// The separators move with the tree; afterwards they are `ledger fix`'s, the

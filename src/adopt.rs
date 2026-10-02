@@ -15,11 +15,11 @@ const GATE_END: &str = "# --- end of the docsys gate";
 /// The git pre-commit block. Every check runs, every failure counts, and the
 /// mode decides whether a failure stops the commit: an earlier block let
 /// `docsys refs`' exit code mask a lint failure (no -e, the last command
-/// decided) — found by the agent lab. `lint` takes `--repo .` like the others
-/// (D-099), and a pinned tree under a docsys from before pins is named in one
-/// line instead of a flood of findings that binary cannot read (D-120). A version notice is printed once per commit: `lint`
-/// prints it, the calls after it carry `DOCSYS_NOTICED` (R-171). The template
-/// stamp names a block behind the binary.
+/// decided) — found by the agent lab. `gate` lints the tree itself, so the
+/// block does not run `lint` too and each finding is said once; a pinned tree
+/// under a docsys from before pins is named in one line (D-120). A skipped
+/// commit whose record cannot be written says so. The template stamp names a
+/// block behind the binary.
 const GATE_BLOCK: &str = r#"
 # --- docsys documentation gate ---------------------------------------------
 # docsys-template: @VERSION@
@@ -33,13 +33,12 @@ if [ -z "${DOCSYS_SKIP:-}" ] && command -v docsys >/dev/null; then
     echo "docsys: this tree pins docsys $docsys_pin; install: cargo install docsys --version $docsys_pin --locked" >&2
     docsys_gate_status=1
   else
-    docsys lint --repo . --root @ROOT@ || docsys_gate_status=1
-    DOCSYS_NOTICED=1 docsys refs --repo . --root @ROOT@ || docsys_gate_status=1
-    DOCSYS_NOTICED=1 docsys gate --repo . --root @ROOT@ || docsys_gate_status=1
+    docsys gate --repo . --root @ROOT@ || docsys_gate_status=1
+    docsys refs --repo . --root @ROOT@ || docsys_gate_status=1
   fi
   if [ "$docsys_gate_status" -ne 0 ] && [ "$docsys_gate_exit" -ne 0 ]; then exit 1; fi
 elif [ -n "${DOCSYS_SKIP:-}" ] && command -v docsys >/dev/null; then
-  docsys gate --repo . --root @ROOT@ --skipped >/dev/null 2>&1 || :
+  docsys gate --repo . --root @ROOT@ --skipped >/dev/null || echo "docsys: this skipped commit is not recorded — the line above says why" >&2
 fi
 # --- end of the docsys gate ---
 "#;

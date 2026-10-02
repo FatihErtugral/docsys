@@ -109,7 +109,7 @@ fn adopt_wires_the_project_dir_form_and_bakes_the_trees_root() {
     }
     let gate = fs::read_to_string(r.join(".git/hooks/pre-commit")).unwrap();
     assert!(
-        gate.contains("docsys lint --repo . --root documentation"),
+        gate.contains("docsys gate --repo . --root documentation"),
         "{gate}"
     );
     assert!(
