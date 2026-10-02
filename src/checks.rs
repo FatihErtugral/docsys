@@ -28,6 +28,7 @@ const R030: RuleId = RuleId("R-030");
 const R034: RuleId = RuleId("R-034");
 const R035: RuleId = RuleId("R-035");
 const R041: RuleId = RuleId("R-041");
+const R045: RuleId = RuleId("R-045");
 const R048: RuleId = RuleId("R-048");
 const R050: RuleId = RuleId("R-050");
 const R054: RuleId = RuleId("R-054");
@@ -762,6 +763,143 @@ fn check_graduated_frozen(tree: &DocTree, r: &mut Report) {
                 rel,
                 "content",
                 "a graduated file received a content change — knowledge added here stays outside agent context; put it on the permanent page it graduated to".to_string(),
+            ));
+        }
+    }
+}
+
+/// R-045 (D-109): an open ledger item HEAD holds that the working tree lost
+/// with no counterpart is reported at the gate, for a human to assess. Per
+/// date, a counterpart is an item of that date still in the ledger — the
+/// same one, reworded (D-052) or closed — or in one of its `_archive/`
+/// slices; a repaid debt's is the journal entry `debt close` writes, which
+/// carries the item's text (D-039). History already landed is the log's.
+fn check_vanished_items(tree: &DocTree, r: &mut Report) {
+    let git = |args: &[&str]| {
+        crate::git::cmd(&tree.root)
+            .args(args)
+            .output()
+            .ok()
+            .filter(|o| o.status.success())
+            .map(|o| String::from_utf8_lossy(&o.stdout).into_owned())
+    };
+    let ledgers: Vec<&str> = LEDGERS
+        .iter()
+        .map(|(l, _)| *l)
+        .filter(|l| match tree.profile {
+            Profile::Project => l.starts_with("work/"),
+            Profile::KnowledgeBase => l.starts_with("wiki/"),
+        })
+        .collect();
+    let Some(prefix) = git(&["rev-parse", "--show-prefix"]) else {
+        return;
+    };
+    let prefix = prefix.trim().to_string();
+    let mut args = vec!["status", "--porcelain=v1", "--no-renames", "--"];
+    args.extend(&ledgers);
+    let Some(status) = git(&args) else {
+        return;
+    };
+    // `- [ ] 2026-09-03 text` → (open, date, text after the checkbox)
+    let items = |text: &str| -> Vec<(bool, String, String)> {
+        text.lines()
+            .filter_map(|l| {
+                let open = l.starts_with("- [ ] ");
+                (open || l.starts_with("- [x] ")).then(|| {
+                    let item = l.get(6..).unwrap_or("").trim_end().to_string();
+                    let date = item.get(..10).filter(|d| is_iso_date(d)).unwrap_or("");
+                    (open, date.to_string(), item)
+                })
+            })
+            .collect()
+    };
+    let read = |rel: &str| std::fs::read_to_string(tree.root.join(rel)).unwrap_or_default();
+    for line in status.lines() {
+        let (Some(xy), Some(path)) = (line.get(..2), line.get(3..)) else {
+            continue;
+        };
+        let path = path.trim().trim_matches('"');
+        let rel = path.strip_prefix(prefix.as_str()).unwrap_or(path);
+        if !ledgers.contains(&rel) || xy == "??" || xy.contains('A') {
+            continue;
+        }
+        let Some(head) = git(&["show", &format!("HEAD:{prefix}{rel}")]) else {
+            continue;
+        };
+        let mut now = items(&read(rel));
+        for slice in archive_slices(&tree.root, rel) {
+            now.extend(items(&read(&slice)));
+        }
+        let journal = if rel == "work/debt.md" {
+            let mut j = read("work/journal.md");
+            if let Ok(entries) = std::fs::read_dir(tree.root.join("work/journal")) {
+                for e in entries.filter_map(Result::ok) {
+                    j.push_str(&std::fs::read_to_string(e.path()).unwrap_or_default());
+                }
+            }
+            j
+        } else {
+            String::new()
+        };
+        // every HEAD item first claims itself — unchanged, or closed in place
+        // with its field appended — and a debt its repayment entry
+        let mut gone: Vec<(String, String)> = Vec::new();
+        for (open, date, item) in items(&head) {
+            if open && journal.contains(item.as_str()) {
+                continue;
+            }
+            match now
+                .iter()
+                .position(|(_, _, n)| n.starts_with(item.as_str()))
+            {
+                Some(i) => {
+                    now.remove(i);
+                }
+                None if open => gone.push((date, item)),
+                None => {}
+            }
+        }
+        // what is left of a date pairs with the item it shares most words
+        // with; an item nothing pairs with is reported
+        for (_, date, n) in &now {
+            let words: BTreeSet<&str> = n.split_whitespace().collect();
+            let shared = |item: &str| {
+                item.split_whitespace()
+                    .filter(|w| words.contains(w))
+                    .count()
+            };
+            let best = gone
+                .iter()
+                .enumerate()
+                .filter(|(_, (d, _))| d == date)
+                .max_by_key(|(i, (_, item))| (shared(item), std::cmp::Reverse(*i)))
+                .map(|(i, _)| i);
+            if let Some(i) = best {
+                gone.remove(i);
+            }
+        }
+        for (date, item) in gone {
+            let text = item
+                .get(date.len()..)
+                .unwrap_or("")
+                .split(" -- ")
+                .next()
+                .unwrap_or("");
+            let words: Vec<&str> = text.split_whitespace().take(5).collect();
+            let subject = format!("{date} {}", words.join(" ")).trim().to_string();
+            let how = if rel == "work/debt.md" {
+                "a repaid debt leaves through `docsys debt close <n>` (the journal records it)"
+            } else {
+                "an answered question is closed in place (`- [x] … -- answered: …`)"
+            };
+            r.findings.push(Finding::warn(
+                R045,
+                rel,
+                &subject,
+                format!(
+                    "an open item HEAD holds is gone with no counterpart — {how}, or moves to \
+                     an `_archive/` slice; a deletion loses the record (R-045)"
+                ),
             ));
         }
     }
@@ -2132,6 +2270,7 @@ pub fn run_with(tree: &DocTree, ctx: &Context) -> Report {
     } else {
         check_graduated_frozen(tree, &mut r);
     }
+    check_vanished_items(tree, &mut r);
     if tree.pages.is_empty() {
         r.findings.push(Finding::warn(
             R011,

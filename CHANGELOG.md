@@ -15,6 +15,12 @@ by the release workflow — the tag's section becomes the GitHub release body.
   `_archive/` slices — at the label positions only, in the tree's declared
   `list_labels` form; a dash inside field text stays. It writes only what
   changed and prints it; a second run changes nothing.
+- An open ledger item that vanished is reported at the gate (R-045, D-109):
+  inside a repository, lint compares `work/debt.md`, `work/questions.md` and
+  `wiki/open-questions.md` with `HEAD`, and an open item deleted with no
+  counterpart — the item closed in place, a rewording of the same date, an
+  `_archive/` slice, or for debt the journal entry `debt close` writes — is a
+  warning naming its date and first words.
 
 ### Changed
 
