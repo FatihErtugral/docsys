@@ -1,0 +1,45 @@
+# docsys documentation workflow — written by `docsys adopt`; edit freely, it is not regenerated.
+name: docsys
+
+on:
+  push:
+  pull_request:
+    types: [opened, synchronize, reopened, closed]
+
+jobs:
+  docs:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - run: cargo install docsys
+      - run: docsys lint --root @ROOT@ --repo .
+      - run: docsys refs --repo . --root @ROOT@
+      - if: github.event_name == 'pull_request'
+        run: docsys gate --repo . --root @ROOT@ --range "origin/${{ github.base_ref }}...HEAD"
+
+  # A code review's approval is a maintainer's word (D-095): when a pull request
+  # merges, every page it touched that carries `verification:` is recorded as
+  # verified by each approver whose @login is in .docmeta.yml maintainers:, in a
+  # commit under that approver's identity. Approvers outside the list are skipped.
+  verify-on-approval:
+    if: github.event_name == 'pull_request' && github.event.pull_request.merged == true
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.pull_request.base.ref }}
+          fetch-depth: 0
+      - run: cargo install docsys
+      - env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          range="${{ github.event.pull_request.base.sha }}...${{ github.sha }}"
+          for login in $(gh api "repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/reviews" --jq '[.[] | select(.state == "APPROVED") | .user.login] | unique | .[]'); do
+            docsys verify --range "$range" --by "@$login" --commit --root @ROOT@ || echo "@$login: not a declared maintainer — skipped"
+          done
+          git push

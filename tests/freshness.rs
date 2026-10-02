@@ -495,7 +495,7 @@ fn adopt_writes_the_ci_workflow_and_hardens_the_gate_once_clean() {
         done.summary
     );
     let wf = fs::read_to_string(repo.join(".github/workflows/docsys.yml")).unwrap();
-    assert!(wf.contains("docsys lint --root docs --repo ."), "{wf}");
+    assert!(wf.contains("docsys lint --repo . --root docs"), "{wf}");
     assert!(
         wf.contains("--range \"origin/${{ github.base_ref }}...HEAD\""),
         "{wf}"

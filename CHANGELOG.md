@@ -56,6 +56,12 @@ by the release workflow — the tag's section becomes the GitHub release body.
   binary, and prints the pages each staled and the docs files and lines a
   refresh then changed. Manual: it needs a clone, and writes only throwaway
   worktrees.
+- `docsys adopt --ci-runner <label>[,<label>…]`, `--ci-install cargo|release`
+  with `--ci-sha256 <target>=<hex>,…`, and `--verify-on-approval
+  pull-request|direct|off` (D-105, D-111): the runner labels, how the
+  runners get docsys, and where the verify-on-approval job puts its records.
+  `--ci-install release` without sha256 values is refused before anything
+  is written.
 
 ### Changed
 
@@ -138,6 +144,24 @@ by the release workflow — the tag's section becomes the GitHub release body.
   upgrade` or a refresh moves it into an acknowledgement; a malformed
   acknowledgement is reported (R-113). A docsys/0.4 tree keeps `hash:` in the
   page and never writes `.verifies/`, exactly as 0.15.1.
+- The workflow `adopt` writes is pinned and least-privileged (D-111): it
+  runs on pull requests and pushes to the default branch, with
+  `permissions: contents: read` that only the verify job widens, cancels a
+  superseded run, and installs `cargo install docsys --version <v> --locked`,
+  cached by version, on `ubuntu-latest`. Line 1 records its parameters and a
+  hash of the file, so a file nobody edited can be regenerated with them and
+  an edited one stays its owner's. A re-adopt keeps an existing workflow, as
+  before.
+- The verify-on-approval job commits its records on `docsys/verify-<number>`
+  and opens a follow-up pull request by default, instead of pushing to the
+  base branch, which a protected branch refuses (D-105); `--verify-on-approval
+  direct` keeps the push, `off` writes no job. The ADOPTION checklist names
+  the repository setting that lets Actions open pull requests, and every
+  `maintainers:` entry without the `@login` a host approval is matched by.
+- `docsys verify --range … --by @login` exits 0 with `skipped: @login is not
+  a declared maintainer` when no maintainer entry carries that login (it
+  exited 2), so the workflow drops its `|| echo` and any other failure fails
+  the job (D-105).
 
 ### Fixed
 
@@ -214,6 +238,8 @@ by the release workflow — the tag's section becomes the GitHub release body.
   files, which kept non-ASCII letters (R-120). A record title with nothing
   to fold names the record by its source id, then `item`. Existing files are
   never renamed.
+- The workflow `adopt` writes for a tree at the repository's top passes
+  `--root .`; 0.15 wrote an empty `--root` there.
 
 ## [0.15.1] - 2026-09-04
 

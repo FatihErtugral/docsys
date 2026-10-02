@@ -27,7 +27,7 @@ Usage:
   docsys status  [--root <dir>] [--repo <dir>] [--json]   # the digest: inbox, pages by state, open items, consumed, skills, findings
   docsys forget  <page-id|page-path|record-path> --reason <text> [--root <dir>]   # a page to _archive/ with a tombstone, a record to raw/_forgotten/; the ledger says why
   docsys verify  <page> [--by <handle|@login>] [--commit] [--revoke] [--root docs]   # a maintainer's record in one step: who from git identity, rev from HEAD, sources checked; --revoke: back to unverified
-  docsys verify  --range <a>...<b> (--by @login | --from-trailers) [--commit] [--root docs]   # every page the range touched, under the review approver's identity: a login a host adapter passes, or the Reviewed-by:/Approved-by: trailer in git (D-095)
+  docsys verify  --range <a>...<b> (--by @login | --from-trailers) [--commit] [--root docs]   # every page the range touched, under the review approver's identity: a login a host adapter passes, or the Reviewed-by:/Approved-by: trailer in git (D-095); a login on no maintainer entry is a skip, exit 0 (D-105)
   docsys check   <page> --by <agent|session> [--against <evidence>]… [--commit] [--root docs]   # a machine's reading of every claim against its evidence, recorded beside — never as — a maintainer's verification (§21, docsys/0.5)
   docsys raw     move <record> <domain> [--root <dir>]   # a note from raw/inbox/ to raw/<domain>/, through git, bytes untouched; every citing page's sources: rewritten (R-027)
   docsys assistant [--root .] [--projects <dir>]… [--domains a,b] [--since 30.days] [--limit 3]
@@ -41,6 +41,9 @@ Usage:
   docsys adopt   [--repo .] [--root docs] [--lang <code>]  # one-command adoption
   docsys adopt   … [--rules-file <path>] [--report-dir <dir> | --no-report]
                                              # where the rules block and ADOPTION.md go; by default, where their markers are (D-110)
+  docsys adopt   … [--ci-runner <label>[,<label>…]] [--ci-install cargo | --ci-install release --ci-sha256 <target>=<hex>,…]
+                   [--verify-on-approval pull-request|direct|off]
+                                             # the workflow written when .github/ exists: ubuntu-latest, cargo, a follow-up pull request by default (D-105, D-111)
   docsys agents  [--dir .claude] [--force]   # install hooks + skills + /docsys-sync, /docsys-seed, /docsys-interview
   docsys agents  --kb [--root <base>] [--dir .claude] [--force]  # knowledge-base layer
   docsys graduate plan <work-file>  [--root <dir>]
@@ -126,6 +129,10 @@ struct Opts {
     rule: Option<String>,
     command: Option<String>,
     against: Vec<String>,
+    ci_runner: Option<String>,
+    ci_install: Option<String>,
+    ci_sha256: Option<String>,
+    verify_on_approval: Option<String>,
     positional: Vec<String>,
 }
 
@@ -183,6 +190,10 @@ fn parse_opts(args: &[String]) -> Result<Opts, String> {
         rule: None,
         command: None,
         against: Vec::new(),
+        ci_runner: None,
+        ci_install: None,
+        ci_sha256: None,
+        verify_on_approval: None,
         positional: Vec::new(),
     };
     let mut it = args.iter();
@@ -260,6 +271,22 @@ fn parse_opts(args: &[String]) -> Result<Opts, String> {
                 ))
             }
             "--no-report" => o.no_report = true,
+            "--ci-runner" => {
+                o.ci_runner = Some(it.next().ok_or("--ci-runner needs a value")?.clone())
+            }
+            "--ci-install" => {
+                o.ci_install = Some(it.next().ok_or("--ci-install needs a value")?.clone())
+            }
+            "--ci-sha256" => {
+                o.ci_sha256 = Some(it.next().ok_or("--ci-sha256 needs a value")?.clone())
+            }
+            "--verify-on-approval" => {
+                o.verify_on_approval = Some(
+                    it.next()
+                        .ok_or("--verify-on-approval needs a value")?
+                        .clone(),
+                )
+            }
             "--projects" => o
                 .projects
                 .push(PathBuf::from(it.next().ok_or("--projects needs a value")?)),
@@ -490,6 +517,19 @@ fn main() -> ExitCode {
             }
         }
         ("adopt", None) => {
+            // the workflow flags are refused before anything is written
+            let ci = match docsys::workflow::Ci::from_flags(
+                opts.ci_runner.as_deref(),
+                opts.ci_install.as_deref(),
+                opts.ci_sha256.as_deref(),
+                opts.verify_on_approval.as_deref(),
+            ) {
+                Ok(ci) => ci,
+                Err(e) => {
+                    eprintln!("adopt: {e}");
+                    return ExitCode::from(2);
+                }
+            };
             let repo = opts.repo.clone().unwrap_or_else(|| PathBuf::from("."));
             let root = if opts.root.is_absolute() {
                 opts.root.clone()
@@ -510,6 +550,7 @@ fn main() -> ExitCode {
                 rules_file: opts.rules_file.clone(),
                 report_dir: opts.report_dir.clone(),
                 no_report: opts.no_report,
+                ci,
             };
             match docsys::adopt::run_placed(&repo, &root, &opts.lang, &place) {
                 Ok(done) => {
@@ -969,7 +1010,11 @@ next: review, `git add -A && git commit`, then open an agent session here."
                 opts.from_trailers,
                 opts.commit,
             ) {
-                Ok(done) => {
+                Ok(docsys::verify::Range::NotAMaintainer(login)) => {
+                    println!("skipped: @{login} is not a declared maintainer");
+                    ExitCode::SUCCESS
+                }
+                Ok(docsys::verify::Range::Pages(done)) => {
                     for v in &done {
                         if v.notes.iter().any(|n| n.starts_with("skipped")) {
                             println!("skipped: {} — {}", v.page, v.notes.join("; "));

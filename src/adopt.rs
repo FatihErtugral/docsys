@@ -3,6 +3,7 @@
 //! checklist an agent burns down in a single session. Adoption must not be a
 //! conversation.
 
+use crate::workflow::{self, Ci, Verify};
 use crate::{agents, lint, refs, rules, tree::DocTree};
 use std::fmt::Write as _;
 use std::fs;
@@ -53,7 +54,6 @@ fn gate_block(root_rel: &str, hard: bool) -> String {
 const WARN_MODE_LINE: &str =
     "# Warn-mode until the adoption debt is triaged; `docsys adopt` hardens it once lint is clean.";
 const HARD_MODE_LINE: &str = "# Hard gate: lint errors and dangling references stop the commit.";
-const CI_MARKER: &str = "docsys documentation workflow";
 
 /// `namespace:` in the tree's `.docmeta.yml` — the repository's directory
 /// name as a local-id — written when absent, kept when present (D-075).
@@ -105,62 +105,67 @@ fn ensure_namespace(root: &Path, repo: &Path) -> String {
     format!("{ns} (written)")
 }
 
+/// What adopt did about the CI workflow, and what the checklist needs to know.
+struct CiOutcome {
+    summary: String,
+    /// the file holds a verify-on-approval job (D-105)
+    verify_job: bool,
+    /// and that job opens a follow-up pull request
+    opens_pull_requests: bool,
+}
+
 /// `.github/workflows/docsys.yml` when the repository has a `.github/`: lint
-/// and refs on every push, the code-without-docs question over a pull
-/// request's range (D-072). Written once, never regenerated — it is the
-/// project's file after that; nothing where no GitHub layout exists.
-fn ensure_ci_workflow(repo: &Path, root_rel: &str) -> &'static str {
+/// and refs on the default branch and every pull request, the
+/// code-without-docs question over a pull request's range (D-072), the
+/// verification of a merged one's approvals (D-105), shaped by the flags
+/// (D-111). Written once: an existing file is kept, whatever the flags say;
+/// nothing where no GitHub layout exists.
+fn ensure_ci_workflow(repo: &Path, root_rel: &str, ci: Option<&Ci>) -> CiOutcome {
     if !repo.join(".github").is_dir() {
-        return "skipped (no .github/)";
+        return CiOutcome {
+            summary: "skipped (no .github/)".to_string(),
+            verify_job: false,
+            opens_pull_requests: false,
+        };
     }
-    let dir = repo.join(".github/workflows");
-    let file = dir.join("docsys.yml");
+    let file = repo.join(workflow::PATH);
     if file.exists() {
-        return "kept";
+        let existing = fs::read_to_string(&file).unwrap_or_default();
+        let note = if ci.is_some() {
+            " — the --ci-* and --verify-on-approval flags shape a new workflow only"
+        } else {
+            ""
+        };
+        return CiOutcome {
+            summary: format!("kept{note}"),
+            verify_job: existing.contains("\n  verify-on-approval:\n"),
+            opens_pull_requests: existing.contains("gh pr create"),
+        };
     }
-    let text = format!(
-        "# {CI_MARKER} — written by `docsys adopt`; edit freely, it is not regenerated.\n\
-         name: docsys\n\n\
-         on:\n  push:\n  pull_request:\n    types: [opened, synchronize, reopened, closed]\n\n\
-         jobs:\n  docs:\n    runs-on: ubuntu-latest\n    steps:\n\
-         \x20     - uses: actions/checkout@v5\n\
-         \x20       with:\n\
-         \x20         fetch-depth: 0\n\
-         \x20     - run: cargo install docsys\n\
-         \x20     - run: docsys lint --root {root_rel} --repo .\n\
-         \x20     - run: docsys refs --repo . --root {root_rel}\n\
-         \x20     - if: github.event_name == 'pull_request'\n\
-         \x20       run: docsys gate --repo . --root {root_rel} --range \"origin/${{{{ github.base_ref }}}}...HEAD\"\n\
-         \n\
-         \x20 # A code review's approval is a maintainer's word (D-095): when a pull request\n\
-         \x20 # merges, every page it touched that carries `verification:` is recorded as\n\
-         \x20 # verified by each approver whose @login is in .docmeta.yml maintainers:, in a\n\
-         \x20 # commit under that approver's identity. Approvers outside the list are skipped.\n\
-         \x20 verify-on-approval:\n\
-         \x20   if: github.event_name == 'pull_request' && github.event.pull_request.merged == true\n\
-         \x20   runs-on: ubuntu-latest\n\
-         \x20   permissions:\n\
-         \x20     contents: write\n\
-         \x20     pull-requests: read\n\
-         \x20   steps:\n\
-         \x20     - uses: actions/checkout@v5\n\
-         \x20       with:\n\
-         \x20         ref: ${{{{ github.event.pull_request.base.ref }}}}\n\
-         \x20         fetch-depth: 0\n\
-         \x20     - run: cargo install docsys\n\
-         \x20     - env:\n\
-         \x20         GH_TOKEN: ${{{{ github.token }}}}\n\
-         \x20       run: |\n\
-         \x20         range=\"${{{{ github.event.pull_request.base.sha }}}}...${{{{ github.sha }}}}\"\n\
-         \x20         for login in $(gh api \"repos/${{{{ github.repository }}}}/pulls/${{{{ github.event.pull_request.number }}}}/reviews\" --jq '[.[] | select(.state == \"APPROVED\") | .user.login] | unique | .[]'); do\n\
-         \x20           docsys verify --range \"$range\" --by \"@$login\" --commit --root {root_rel} || echo \"@$login: not a declared maintainer — skipped\"\n\
-         \x20         done\n\
-         \x20         git push\n"
-    );
-    if fs::create_dir_all(&dir).is_err() || fs::write(&file, text).is_err() {
-        return "failed";
+    let ci = ci.cloned().unwrap_or_default();
+    let verify = ci.verify;
+    let text = workflow::render(&workflow::Workflow {
+        version: agents::TEMPLATE_VERSION.to_string(),
+        branch: workflow::default_branch(repo),
+        root: root_rel.to_string(),
+        ci,
+    });
+    let written = file
+        .parent()
+        .is_some_and(|dir| fs::create_dir_all(dir).is_ok())
+        && fs::write(&file, text).is_ok();
+    if !written {
+        return CiOutcome {
+            summary: "failed".to_string(),
+            verify_job: false,
+            opens_pull_requests: false,
+        };
     }
-    "written"
+    CiOutcome {
+        summary: format!("written (verify-on-approval: {})", verify.name()),
+        verify_job: verify != Verify::Off,
+        opens_pull_requests: verify == Verify::PullRequest,
+    }
 }
 
 #[derive(Debug)]
@@ -173,8 +178,8 @@ pub struct AdoptOutcome {
     pub printed: Vec<String>,
 }
 
-/// Where adopt puts what it writes outside the tree (D-110); paths are
-/// relative to the repository.
+/// Where adopt puts what it writes outside the tree (D-110), and the shape of
+/// the workflow (D-111); paths are relative to the repository.
 #[derive(Debug, Default, Clone)]
 pub struct Placement {
     /// `--rules-file`: the file the docsys:rules block goes to
@@ -183,6 +188,8 @@ pub struct Placement {
     pub report_dir: Option<PathBuf>,
     /// `--no-report`: the report is printed, nothing is written
     pub no_report: bool,
+    /// the workflow flags; `None` when none was given
+    pub ci: Option<Ci>,
 }
 
 fn md_count(dir: &Path) -> usize {
@@ -519,9 +526,12 @@ pub fn run_placed(
     };
     summary.push(format!("git pre-commit gate: {gate} ({mode})"));
 
-    // 4b · CI: the same questions on every push and pull request
-    let ci = ensure_ci_workflow(repo, &root_rel);
-    summary.push(format!("ci workflow (.github/workflows/docsys.yml): {ci}"));
+    // 4b · CI: the same questions on the default branch and every pull request
+    let ci = ensure_ci_workflow(repo, &root_rel, place.ci.as_ref());
+    summary.push(format!(
+        "ci workflow (.github/workflows/docsys.yml): {}",
+        ci.summary
+    ));
 
     // 5 · evidence: current findings + the existing layer
     let (lint_report, _) = lint(root);
@@ -595,12 +605,36 @@ pub fn run_placed(
          - [ ] When errors reach zero, run `docsys adopt` again: the pre-commit gate\n\
          \x20     hardens by itself (lint errors then stop the commit).\n",
     );
-    if ci.starts_with("skipped") {
+    if ci.summary.starts_with("skipped") {
         md.push_str(
             "- [ ] No `.github/` here: run `docsys lint --root <root> --repo .`, `docsys refs`\n\
              \x20     and `docsys gate --range <base>...HEAD` in the CI you have; `docsys adopt`\n\
              \x20     writes the GitHub workflow once `.github/` exists.\n",
         );
+    }
+    if ci.opens_pull_requests {
+        md.push_str(
+            "- [ ] The verify-on-approval job opens a follow-up pull request with the\n\
+             \x20     records. Turn on Settings > Actions > General > Workflow permissions >\n\
+             \x20     \"Allow GitHub Actions to create and approve pull requests\", or delete the\n\
+             \x20     workflow and run `docsys adopt --verify-on-approval direct` (or `off`).\n",
+        );
+    }
+    if ci.verify_job {
+        let without: Vec<String> = crate::checks::maintainer_handles(&tree)
+            .into_iter()
+            .filter(|m| m.login.is_none())
+            .map(|m| m.handle)
+            .collect();
+        if !without.is_empty() {
+            let _ = write!(
+                md,
+                "- [ ] The verify-on-approval job knows a maintainer by the `@login` a host\n\
+                 \x20     approval carries, and these `maintainers:` entries carry no `@login`: {}.\n\
+                 \x20     Write each as `handle <email> @login` in .docmeta.yml.\n",
+                without.join(", ")
+            );
+        }
     }
     if rules_printed {
         md.push_str(

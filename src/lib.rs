@@ -39,6 +39,7 @@ pub mod status;
 pub mod symbols;
 pub mod tree;
 pub mod verify;
+pub mod workflow;
 
 use model::Severity;
 use std::path::Path;

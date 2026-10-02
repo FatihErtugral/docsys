@@ -1,0 +1,37 @@
+# docsys-template: 9.9.9 sha256:@HASH@ branch=main runner=ubuntu-24.04 install=cargo verify=off root=documentation
+# docsys documentation workflow, written by `docsys adopt` (D-111). Line 1 records how
+# it was rendered and a hash of everything else in this file: while the hash holds,
+# docsys may regenerate it; once the file is edited, it is yours.
+name: docsys
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, closed]
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  docs:
+    if: github.event.action != 'closed'
+    runs-on: ubuntu-24.04
+    concurrency:
+      group: docsys-${{ github.event.pull_request.number || github.ref }}
+      cancel-in-progress: true
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - uses: actions/cache@v4
+        id: docsys-bin
+        with:
+          path: ~/.cargo/bin/docsys
+          key: docsys-9.9.9-${{ runner.os }}-${{ runner.arch }}
+      - if: steps.docsys-bin.outputs.cache-hit != 'true'
+        run: cargo install docsys --version 9.9.9 --locked
+      - run: docsys lint --repo . --root documentation
+      - run: docsys refs --repo . --root documentation
+      - if: github.event_name == 'pull_request'
+        run: docsys gate --repo . --root documentation --range "origin/${{ github.base_ref }}...HEAD"

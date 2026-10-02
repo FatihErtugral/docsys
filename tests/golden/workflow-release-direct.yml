@@ -1,0 +1,93 @@
+# docsys-template: 9.9.9 sha256:@HASH@ branch=trunk runner=self-hosted,linux,x64 install=release verify=direct root=.
+# docsys documentation workflow, written by `docsys adopt` (D-111). Line 1 records how
+# it was rendered and a hash of everything else in this file: while the hash holds,
+# docsys may regenerate it; once the file is edited, it is yours.
+name: docsys
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, closed]
+  push:
+    branches: [trunk]
+
+permissions:
+  contents: read
+
+jobs:
+  docs:
+    if: github.event.action != 'closed'
+    runs-on: [self-hosted, linux, x64]
+    concurrency:
+      group: docsys-${{ github.event.pull_request.number || github.ref }}
+      cancel-in-progress: true
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - name: docsys 9.9.9, the release archive checked against its sha256
+        shell: bash
+        run: |
+          case "$(uname -s)-$(uname -m)" in
+            Linux-x86_64) target=x86_64-unknown-linux-musl sum=9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08 ;;
+            Darwin-arm64) target=aarch64-apple-darwin sum=2c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7ae ;;
+            *) echo "docsys: this workflow holds no sha256 for a $(uname -s)-$(uname -m) runner" >&2; exit 1 ;;
+          esac
+          name="docsys-v9.9.9-$target"
+          curl -fsSL -o "$RUNNER_TEMP/$name.tar.gz" "@RELEASES@/v9.9.9/$name.tar.gz"
+          got=$(cd "$RUNNER_TEMP" && { sha256sum "$name.tar.gz" 2>/dev/null || shasum -a 256 "$name.tar.gz"; } | cut -d ' ' -f 1)
+          if [ "$got" != "$sum" ]; then
+            echo "docsys: $name.tar.gz hashes to $got, not the $sum this workflow pins" >&2
+            exit 1
+          fi
+          tar -xzf "$RUNNER_TEMP/$name.tar.gz" -C "$RUNNER_TEMP"
+          echo "$RUNNER_TEMP/$name" >> "$GITHUB_PATH"
+      - run: docsys lint --repo . --root .
+      - run: docsys refs --repo . --root .
+      - if: github.event_name == 'pull_request'
+        run: docsys gate --repo . --root . --range "origin/${{ github.base_ref }}...HEAD"
+
+  # A code review's approval is a maintainer's word (D-095, D-105). When a pull
+  # request merges, every page it touched that carries `verification:` is recorded
+  # as verified by each approver whose @login is on a .docmeta.yml maintainers:
+  # entry, in a commit under that approver's identity. `docsys verify` skips any
+  # other approver and fails on anything else. The records are pushed to the
+  # base branch; a branch that refuses direct pushes needs
+  # `docsys adopt --verify-on-approval pull-request`.
+  verify-on-approval:
+    if: github.event_name == 'pull_request' && github.event.pull_request.merged == true
+    runs-on: [self-hosted, linux, x64]
+    permissions:
+      contents: write
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.pull_request.base.ref }}
+          fetch-depth: 0
+      - name: docsys 9.9.9, the release archive checked against its sha256
+        shell: bash
+        run: |
+          case "$(uname -s)-$(uname -m)" in
+            Linux-x86_64) target=x86_64-unknown-linux-musl sum=9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08 ;;
+            Darwin-arm64) target=aarch64-apple-darwin sum=2c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7ae ;;
+            *) echo "docsys: this workflow holds no sha256 for a $(uname -s)-$(uname -m) runner" >&2; exit 1 ;;
+          esac
+          name="docsys-v9.9.9-$target"
+          curl -fsSL -o "$RUNNER_TEMP/$name.tar.gz" "@RELEASES@/v9.9.9/$name.tar.gz"
+          got=$(cd "$RUNNER_TEMP" && { sha256sum "$name.tar.gz" 2>/dev/null || shasum -a 256 "$name.tar.gz"; } | cut -d ' ' -f 1)
+          if [ "$got" != "$sum" ]; then
+            echo "docsys: $name.tar.gz hashes to $got, not the $sum this workflow pins" >&2
+            exit 1
+          fi
+          tar -xzf "$RUNNER_TEMP/$name.tar.gz" -C "$RUNNER_TEMP"
+          echo "$RUNNER_TEMP/$name" >> "$GITHUB_PATH"
+      - env:
+          GH_TOKEN: ${{ github.token }}
+          NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          range="${{ github.event.pull_request.base.sha }}...${{ github.sha }}"
+          logins=$(gh api "repos/${{ github.repository }}/pulls/$NUMBER/reviews" --jq '[.[] | select(.state == "APPROVED") | .user.login] | unique | .[]')
+          for login in $logins; do
+            docsys verify --range "$range" --by "@$login" --commit --root .
+          done
+          git push

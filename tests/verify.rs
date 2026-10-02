@@ -390,10 +390,17 @@ fn a_review_approval_verifies_every_page_the_change_touched_under_the_approver()
     git(&repo, &["config", "user.email", "bot@ci.invalid"]);
     git(&repo, &["config", "user.name", "ci-bot"]);
     let range = format!("{base}...HEAD");
-    let err =
-        docsys::verify::verify_range(&root, &range, Some("@nobody"), false, true).unwrap_err();
-    assert!(err.contains("no declared maintainer's login"), "{err}");
-    let done = docsys::verify::verify_range(&root, &range, Some("@ayse-gh"), false, true).unwrap();
+    let outside =
+        docsys::verify::verify_range(&root, &range, Some("@nobody"), false, true).unwrap();
+    assert!(
+        matches!(&outside, docsys::verify::Range::NotAMaintainer(l) if l == "nobody"),
+        "{outside:?}"
+    );
+    let docsys::verify::Range::Pages(done) =
+        docsys::verify::verify_range(&root, &range, Some("@ayse-gh"), false, true).unwrap()
+    else {
+        panic!("@ayse-gh is a maintainer");
+    };
     let verified: Vec<&str> = done
         .iter()
         .filter(|v| v.committed)
@@ -427,7 +434,11 @@ fn a_review_approval_verifies_every_page_the_change_touched_under_the_approver()
         errors(&root, &repo)
     );
     // running it again: nothing to do
-    let again = docsys::verify::verify_range(&root, &range, Some("@ayse-gh"), false, true).unwrap();
+    let docsys::verify::Range::Pages(again) =
+        docsys::verify::verify_range(&root, &range, Some("@ayse-gh"), false, true).unwrap()
+    else {
+        panic!("@ayse-gh is a maintainer");
+    };
     assert!(
         again
             .iter()
@@ -517,7 +528,11 @@ fn a_reviewed_by_trailer_is_the_word_on_any_host() {
     // the maintainer's trailer verifies, under her identity, whoever runs it
     git(&repo, &["config", "user.email", "bot@ci.invalid"]);
     git(&repo, &["config", "user.name", "ci-bot"]);
-    let done = docsys::verify::verify_range(&root, &range, None, true, true).unwrap();
+    let docsys::verify::Range::Pages(done) =
+        docsys::verify::verify_range(&root, &range, None, true, true).unwrap()
+    else {
+        panic!("the trailer names a maintainer by e-mail");
+    };
     assert!(
         done.iter().any(|v| v.committed && v.by == "ayse"),
         "{done:?}"
@@ -539,4 +554,83 @@ fn a_reviewed_by_trailer_is_the_word_on_any_host() {
     );
     let _ = fs::remove_dir_all(&repo);
     let _ = fs::remove_dir_all(&repo2);
+}
+
+#[test]
+fn an_approver_outside_the_maintainers_is_skipped_and_anything_else_fails() {
+    // D-105: the workflow runs `verify --range` once per approver, so one outside
+    // the list is a skip, not a failure — and nothing needs `|| echo` any more
+    let (repo, root) = project("outsider");
+    let dm = root.join(".docmeta.yml");
+    fs::write(
+        &dm,
+        fs::read_to_string(&dm).unwrap().replace(
+            "maintainers: [ayse <ayse@example.com>, mehmet]",
+            "maintainers: [ayse <ayse@example.com> @ayse-gh, mehmet]",
+        ),
+    )
+    .unwrap();
+    let today = docsys::migrate::today();
+    commit_as(&repo, "bot@ci.invalid", "base");
+    let rev = |r: &str| {
+        String::from_utf8(
+            Command::new("git")
+                .args(["rev-parse", r])
+                .current_dir(&repo)
+                .output()
+                .unwrap()
+                .stdout,
+        )
+        .unwrap()
+        .trim()
+        .to_string()
+    };
+    let base = rev("HEAD");
+    write(
+        &root,
+        "reference/token-ttl.md",
+        &format!("---\nid: token-ttl\ntype: reference\nverification: unverified\nsources: []\nupdated: {today}\n---\n# Token TTL\n\nThis page states the lifetime; read it before caching a token.\n\nTwelve hours.\n"),
+    );
+    commit_as(&repo, "junior@example.com", "docs: token ttl");
+    let head = rev("HEAD");
+    let range = format!("{base}...HEAD");
+    let run = |args: &[&str]| {
+        Command::new(env!("CARGO_BIN_EXE_docsys"))
+            .args(args)
+            .current_dir(&repo)
+            .output()
+            .unwrap()
+    };
+    let out = run(&["verify", "--range", &range, "--by", "@outsider", "--commit"]);
+    assert_eq!(
+        out.status.code(),
+        Some(0),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert_eq!(
+        String::from_utf8_lossy(&out.stdout),
+        "skipped: @outsider is not a declared maintainer\n"
+    );
+    assert_eq!(rev("HEAD"), head, "a skip commits nothing");
+    // a range git cannot read still fails
+    let out = run(&["verify", "--range", "nowhere...HEAD", "--by", "@ayse-gh"]);
+    assert_eq!(out.status.code(), Some(2));
+    // and so does a record commit that did not land
+    let hook = repo.join(".git/hooks/pre-commit");
+    fs::write(&hook, "#!/bin/sh\nexit 1\n").unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(&hook, fs::Permissions::from_mode(0o755)).unwrap();
+    }
+    let out = run(&["verify", "--range", &range, "--by", "@ayse-gh", "--commit"]);
+    assert_eq!(out.status.code(), Some(2));
+    assert!(
+        String::from_utf8_lossy(&out.stderr).contains("did not land"),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert_eq!(rev("HEAD"), head);
+    let _ = fs::remove_dir_all(&repo);
 }

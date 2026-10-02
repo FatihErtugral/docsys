@@ -228,6 +228,17 @@ fn write_record(
     Some(crate::hook::bump_updated(&rebuilt, today).unwrap_or(rebuilt))
 }
 
+/// What `verify --range` came to.
+#[derive(Debug)]
+pub enum Range {
+    /// every page the range touched that carries `verification:`
+    Pages(Vec<Verified>),
+    /// `--by @login` is on no maintainer entry: a host adapter runs once per
+    /// approver, so an approver outside the list is skipped, not a failure
+    /// (D-105)
+    NotAMaintainer(String),
+}
+
 /// `docsys verify --range <a>...<b> --by @login [--commit]` (D-095): every
 /// permanent page the range touched that carries `verification:` and whose
 /// body is not what a verification already holds — the review approved
@@ -238,7 +249,7 @@ pub fn verify_range(
     by: Option<&str>,
     from_trailers: bool,
     commit: bool,
-) -> Result<Vec<Verified>, String> {
+) -> Result<Range, String> {
     let tree = DocTree::load(root).map_err(|e| e.to_string())?;
     if !tree.docmeta_present {
         return Err(format!("`{}` has no .docmeta.yml", root.display()));
@@ -252,6 +263,15 @@ pub fn verify_range(
     } else {
         by
     };
+    if let Some(login) = by.and_then(|b| b.trim().strip_prefix('@')) {
+        let l = login.to_lowercase();
+        if !crate::checks::maintainer_handles(&tree)
+            .iter()
+            .any(|m| m.login.as_deref() == Some(l.as_str()))
+        {
+            return Ok(Range::NotAMaintainer(login.to_string()));
+        }
+    }
     who(&tree, &repo, by)?;
     let root_rel = root_prefix(&repo, root);
     let changed = git(&repo, &["diff", "--name-only", range])
@@ -328,7 +348,7 @@ pub fn verify_range(
             }
         }
     }
-    Ok(done)
+    Ok(Range::Pages(done))
 }
 
 /// The review's word without a host (D-095): `Reviewed-by:` / `Approved-by:`

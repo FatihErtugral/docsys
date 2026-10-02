@@ -1,0 +1,85 @@
+# docsys-template: 9.9.9 sha256:@HASH@ branch=main runner=ubuntu-latest install=cargo verify=pull-request root=docs
+# docsys documentation workflow, written by `docsys adopt` (D-111). Line 1 records how
+# it was rendered and a hash of everything else in this file: while the hash holds,
+# docsys may regenerate it; once the file is edited, it is yours.
+name: docsys
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, closed]
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  docs:
+    if: github.event.action != 'closed'
+    runs-on: ubuntu-latest
+    concurrency:
+      group: docsys-${{ github.event.pull_request.number || github.ref }}
+      cancel-in-progress: true
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - uses: actions/cache@v4
+        id: docsys-bin
+        with:
+          path: ~/.cargo/bin/docsys
+          key: docsys-9.9.9-${{ runner.os }}-${{ runner.arch }}
+      - if: steps.docsys-bin.outputs.cache-hit != 'true'
+        run: cargo install docsys --version 9.9.9 --locked
+      - run: docsys lint --repo . --root docs
+      - run: docsys refs --repo . --root docs
+      - if: github.event_name == 'pull_request'
+        run: docsys gate --repo . --root docs --range "origin/${{ github.base_ref }}...HEAD"
+
+  # A code review's approval is a maintainer's word (D-095, D-105). When a pull
+  # request merges, every page it touched that carries `verification:` is recorded
+  # as verified by each approver whose @login is on a .docmeta.yml maintainers:
+  # entry, in a commit under that approver's identity. `docsys verify` skips any
+  # other approver and fails on anything else. The records go to a branch
+  # docsys/verify-<number> and reach the base through a follow-up pull request,
+  # whose own merge finds nothing left to verify.
+  verify-on-approval:
+    if: github.event_name == 'pull_request' && github.event.pull_request.merged == true
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.pull_request.base.ref }}
+          fetch-depth: 0
+      - uses: actions/cache@v4
+        id: docsys-bin
+        with:
+          path: ~/.cargo/bin/docsys
+          key: docsys-9.9.9-${{ runner.os }}-${{ runner.arch }}
+      - if: steps.docsys-bin.outputs.cache-hit != 'true'
+        run: cargo install docsys --version 9.9.9 --locked
+      - env:
+          GH_TOKEN: ${{ github.token }}
+          BASE: ${{ github.event.pull_request.base.ref }}
+          NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          range="${{ github.event.pull_request.base.sha }}...${{ github.sha }}"
+          logins=$(gh api "repos/${{ github.repository }}/pulls/$NUMBER/reviews" --jq '[.[] | select(.state == "APPROVED") | .user.login] | unique | .[]')
+          branch="docsys/verify-$NUMBER"
+          git switch -c "$branch"
+          before=$(git rev-parse HEAD)
+          for login in $logins; do
+            docsys verify --range "$range" --by "@$login" --commit --root docs
+          done
+          if [ "$(git rev-parse HEAD)" = "$before" ]; then
+            echo "docsys: no page to record"
+            exit 0
+          fi
+          git push origin "$branch"
+          if ! gh pr create --base "$BASE" --head "$branch" --title "docs: verification records from #$NUMBER" --body "The approvals on #$NUMBER, recorded by docsys verify for each approver who is a declared maintainer."; then
+            echo "docsys: the records are on $branch, but GitHub refused the pull request. Turn on Settings > Actions > General > Workflow permissions > Allow GitHub Actions to create and approve pull requests, then open it from $branch." >&2
+            exit 1
+          fi

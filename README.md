@@ -195,7 +195,8 @@ two acts apart (§3.2, D-092):
 - Only an independent session sets `verified`, recording `verified_by:` and
   `verified_rev:` (R-025, R-028); a `verified` page whose body then changes is
   an error until it is `unverified` again (R-024, D-077).
-- `.docmeta.yml` may declare `maintainers:` — `handle` or `handle <email>`.
+- `.docmeta.yml` may declare `maintainers:` — `handle`, `handle <email>`, or
+  `handle <email> @login` with the login a host's review approval carries.
   Then `confirmed:` on a work file and `verified_by:` on a page must name one
   of them, and where history exists the commit that recorded it must be that
   maintainer's own (R-208). This is the code review's authority extended to
@@ -220,9 +221,21 @@ two acts apart (§3.2, D-092):
   host that keeps approvals in its own review table, an adapter passes the
   login instead (`--by @login`, the login on the maintainer entry — `ayse
   <ayse@example.com> @ayse-gh`); the GitHub workflow `adopt` writes when
-  `.github/` exists does exactly that once per declared approver when a pull
-  request merges. Approvers who are not maintainers are skipped by name.
+  `.github/` exists does exactly that once per approver when a pull request
+  merges. An approver who is not a maintainer is skipped
+  (`skipped: @login is not a declared maintainer`, exit 0); any other failure
+  fails the job. `adopt` lists the entries without `@login` on its checklist,
+  because a host approval can never match them.
   Nothing else changes for the reviewer: they approve the change, as before.
+- **Where the records land** is `adopt --verify-on-approval <mode>` (D-105):
+  `pull-request`, the default, commits them on `docsys/verify-<number>` and
+  opens a follow-up pull request against the base — the repository must let
+  GitHub Actions create pull requests, and the job fails naming that setting
+  when it does not; `direct` pushes them to the base branch, which a protected
+  branch refuses; `off` writes no job. The lightest flow needs none of it: a
+  maintainer runs `docsys verify` on the branch before the pull request
+  merges, the body hash survives a squash, and the host's squash trailer
+  carries their act (D-101, D-102).
 
 ```yaml
 # .docmeta.yml
@@ -268,7 +281,16 @@ flowchart LR
   pages verified against the old one fail by name.
 - **CI** — `adopt` writes `.github/workflows/docsys.yml` (lint, refs, and
   `gate --range` on a pull request), and the pre-commit gate is hard as soon
-  as the tree lints clean (D-072).
+  as the tree lints clean (D-072). The workflow runs on pull requests and
+  pushes to the default branch with `permissions: contents: read`, cancels a
+  superseded run, and installs the docsys version that wrote it:
+  `cargo install docsys --version <v> --locked`, cached, on `ubuntu-latest`.
+  `--ci-runner <label>[,<label>…]` names other runners, and
+  `--ci-install release --ci-sha256 <target>=<hex>,…` installs the release
+  archive instead, checked against the sha256 values you copy from the
+  release page — for runners without a Rust toolchain. Line 1 records these
+  parameters and a hash of the file: a file nobody edited can be regenerated
+  with them, and an edited one is yours (D-111).
 
 ## Export — a document for a reader, out of a large tree
 
@@ -398,7 +420,7 @@ flowchart LR
 
 | Command | What it does |
 |---|---|
-| `docsys adopt [--repo .] [--root docs] [--lang <code>] [--obsidian] [--rules-file <path>] [--report-dir <dir> \| --no-report]` | One-command integration: docmeta (or the full init skeleton on a fresh project) with the tree's `namespace:`, agent assets, `settings.json` (written when absent, merged into when present — D-086), AGENTS.md managed block, the git pre-commit gate (hard when lint and `refs` are both clean, warn-mode while the tree or the code carries debt, hardened by a later run — D-088), `.github/workflows/docsys.yml` when `.github/` exists, and an `ADOPTION.md` report whose checklist carries every judgment call. Idempotent. |
+| `docsys adopt [--repo .] [--root docs] [--lang <code>] [--obsidian] [--rules-file <path>] [--report-dir <dir> \| --no-report] [--ci-runner <labels>] [--ci-install cargo\|release] [--ci-sha256 <target>=<hex>,…] [--verify-on-approval pull-request\|direct\|off]` | One-command integration: docmeta (or the full init skeleton on a fresh project) with the tree's `namespace:`, agent assets, `settings.json` (written when absent, merged into when present — D-086), AGENTS.md managed block, the git pre-commit gate (hard when lint and `refs` are both clean, warn-mode while the tree or the code carries debt, hardened by a later run — D-088), `.github/workflows/docsys.yml` when `.github/` exists, and an `ADOPTION.md` report whose checklist carries every judgment call. Idempotent. |
 | `docsys seed plan [--target <feature>] [--since <date>] [--memory <dir>]` · `docsys seed apply --plan <file> [--force]` · `docsys seed gaps [--since <date>]` | Brownfield seeding: evidence from history and code, refused when a page covers the feature; the approved rows land under `work/` as tokens and verbatim quotations (D-053, D-058). |
 | `docsys debt close <n> [--note <line>]` · `docsys journal add <text> [--title <t>] [--date <d>] [--link <path>]` · `docsys page new <kind> <id> [--title <t>] [--unverified]` | Capture, mechanical: a repaid debt leaves the ledger with its journal line; an entry at its date; a page from its template (D-063); `--unverified` writes `verification: unverified` and `sources: []` on a permanent page — a page from evidence, for a maintainer to verify (R-208, D-092). |
 | `docsys backlinks <path\|id> [--repo .]` · `docsys mentions [<path\|id>]` · `docsys graph [--format dot\|json\|jsoncanvas] [--repo .]` | Derived navigation, never written into a page: who points at a page (code included), who names it without linking, the whole map (D-064). |
@@ -475,9 +497,10 @@ happen without being asked:
 - editing a page under `docs/` bumps its `updated:` by itself
 - committing code without touching docs is asked about once, naming what
   moved; the same commit again proceeds
-- and CI asks the same questions of every push and pull request: `adopt`
-  writes `.github/workflows/docsys.yml` when the repository has a `.github/`,
-  and the git pre-commit gate is hard as soon as the tree lints clean
+- and CI asks the same questions of every pull request and every push to
+  the default branch: `adopt` writes `.github/workflows/docsys.yml` when the
+  repository has a `.github/`, and the git pre-commit gate is hard as soon as
+  the tree lints clean
 
 `docsys lint --root docs` is the check CI runs: errors exit 1, warnings do
 not. Everything else — feeling the severity doctrine on a clean tree, seeding

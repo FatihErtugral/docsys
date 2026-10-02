@@ -1,0 +1,19 @@
+# docsys documentation workflow — written by `docsys adopt`; edit freely, it is not regenerated.
+name: docsys
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  docs:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - run: cargo install docsys
+      - run: docsys lint --root @ROOT@ --repo .
+      - run: docsys refs --repo . --root @ROOT@
+      - if: github.event_name == 'pull_request'
+        run: docsys gate --repo . --root @ROOT@ --range "origin/${{ github.base_ref }}...HEAD"
