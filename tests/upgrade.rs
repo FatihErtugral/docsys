@@ -279,6 +279,17 @@ fn a_0_4_tree_moves_to_the_expected_0_5_tree_and_a_second_run_changes_nothing() 
     );
     expect_text("expected.tsv", &findings(&repo.join("docs"), &repo));
 
+    // the block record the move wrote is the one `verify` reads back whole
+    let shown = docsys(&repo, &["verify", "--show", "reference/refresh"]);
+    assert!(
+        String::from_utf8_lossy(&shown.stdout).contains(
+            "3/3 blocks as verified by maintainer at @REV@ — nothing to re-read"
+                .replace("@REV@", &rev)
+                .as_str()
+        ),
+        "{shown:?}"
+    );
+
     // a second run: nothing automatic, nothing written, no commit
     let head = git(&repo, &["rev-parse", "HEAD"]);
     let out = docsys(&repo, &["upgrade", "--apply", "--commit"]);

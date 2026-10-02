@@ -94,8 +94,14 @@ fn relay_shape(text: &str) -> bool {
     )
 }
 
-/// The frontmatter with the 0.5 hashes added right after `verified_rev:`.
-fn add_hashes(text: &str, hash: &str, sources: &[(String, String)]) -> Option<String> {
+/// The frontmatter with the 0.5 record added right after `verified_rev:`, in
+/// the order `verify` writes it: the body's hash, its blocks, the sources.
+fn add_hashes(
+    text: &str,
+    hash: &str,
+    blocks: &[String],
+    sources: &[(String, String)],
+) -> Option<String> {
     let mut out = Vec::new();
     let mut done = false;
     let mut in_fm = false;
@@ -110,6 +116,9 @@ fn add_hashes(text: &str, hash: &str, sources: &[(String, String)]) -> Option<St
         }
         if in_fm && !done && line.starts_with("verified_rev:") {
             out.push(format!("verified_hash: \"{hash}\""));
+            if !blocks.is_empty() {
+                out.push(format!("verified_blocks: [{}]", blocks.join(", ")));
+            }
             if !sources.is_empty() {
                 out.push("verified_sources:".to_string());
                 for (s, h) in sources {
@@ -331,7 +340,8 @@ pub fn run(repo: &Path, root: &Path, claude: &Path, apply: bool) -> Result<Upgra
                 );
                 continue;
             };
-            let now_hash = crate::fresh::content_hash(&crate::fresh::body_text(&page.text));
+            let body = crate::fresh::body_text(&page.text);
+            let now_hash = crate::fresh::content_hash(&body);
             if crate::fresh::content_hash(&crate::fresh::body_text(&then)) != now_hash {
                 u.item(
                     "manual",
@@ -375,7 +385,7 @@ pub fn run(repo: &Path, root: &Path, claude: &Path, apply: bool) -> Result<Upgra
                 "verified-hash",
                 &file,
                 format!(
-                    "the body {rev} holds is the body now: `verified_hash` recorded{}",
+                    "the body {rev} holds is the body now: `verified_hash` and its blocks recorded{}",
                     if sources.is_empty() {
                         String::new()
                     } else {
@@ -386,7 +396,13 @@ pub fn run(repo: &Path, root: &Path, claude: &Path, apply: bool) -> Result<Upgra
             if apply {
                 let path = root.join(&page.rel);
                 let text = fs::read_to_string(&path).map_err(|e| e.to_string())?;
-                if let Some(new) = add_hashes(&text, &now_hash, &sources) {
+                // the blocks the maintainer read are the blocks now (R-212)
+                let blocks = if Era(u.to).block_records() {
+                    crate::blocks::hashes(&body)
+                } else {
+                    Vec::new()
+                };
+                if let Some(new) = add_hashes(&text, &now_hash, &blocks, &sources) {
                     fs::write(&path, new).map_err(|e| e.to_string())?;
                     u.written.push(file);
                 }
@@ -722,9 +738,15 @@ mod tests {
     #[test]
     fn the_hashes_go_right_after_the_revision() {
         let text = "---\nid: a\nverification: verified\nverified_by: ayse\nverified_rev: abc\nsources: []\n---\nBody.\n";
-        let out = add_hashes(text, "sha256:x", &[("@up/x".into(), "fnv:1".into())]).unwrap();
-        assert!(out.contains("verified_rev: abc\nverified_hash: \"sha256:x\"\nverified_sources:\n  - source: \"@up/x\"\n    hash: \"fnv:1\"\nsources: []\n"), "{out}");
-        assert!(add_hashes("---\nid: a\n---\nBody.\n", "h", &[]).is_none());
+        let out = add_hashes(
+            text,
+            "sha256:x",
+            &["941ba81fbfec".into(), "28949667d156".into()],
+            &[("@up/x".into(), "fnv:1".into())],
+        )
+        .unwrap();
+        assert!(out.contains("verified_rev: abc\nverified_hash: \"sha256:x\"\nverified_blocks: [941ba81fbfec, 28949667d156]\nverified_sources:\n  - source: \"@up/x\"\n    hash: \"fnv:1\"\nsources: []\n"), "{out}");
+        assert!(add_hashes("---\nid: a\n---\nBody.\n", "h", &[], &[]).is_none());
     }
 
     #[test]

@@ -6,7 +6,7 @@ auto    hook-scripts       .claude/hooks/post-edit-updated.sh  refreshed: starts
 auto    hook-scripts       .claude/hooks/session-intent.sh  refreshed: starts in the project directory, names the tree's root, says when the tree needs a newer docsys
 auto    git-gate           .git/hooks/pre-commit  the docsys block rewritten for this version, its mode kept — this clone only: every clone runs `docsys upgrade --apply` once
 manual  verified-hash      docs/reference/expiry.md  the body changed since @REV@ — never hashed blind; a maintainer verifies it again
-auto    verified-hash      docs/reference/refresh.md  the body @REV@ holds is the body now: `verified_hash` recorded
+auto    verified-hash      docs/reference/refresh.md  the body @REV@ holds is the body now: `verified_hash` and its blocks recorded
 manual  pins               docs/reference/expiry.md  `src/auth.rs#expire`: stale before the upgrade, still stale — re-read, then `docsys pin --refresh reference/expiry.md`
 auto    pins               docs/reference/refresh.md  `src/auth.rs#refresh_token`: acknowledged beside the page
 auto    ledger-separators  docs/work/debt.md  work/debt.md line 3

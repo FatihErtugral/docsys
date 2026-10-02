@@ -46,8 +46,8 @@ stderr. Move one repository when it is ready:
   mechanical and `--commit` makes it one commit. A file a docsys template
   wrote and nobody edited is regenerated; an edited one — a relay, a skill, a
   command, the CI workflow with its runner and install — is never rewritten,
-  only shown as a diff. A verified page gains `verified_hash` only when its
-  body at `verified_rev` is its body now; a pin's hash becomes its
+  only shown as a diff. A verified page gains `verified_hash` and its block
+  record only when its body at `verified_rev` is its body now; a pin's hash becomes its
   acknowledgement only where it holds and its declaration reads the same
   region; everything else is listed with its page. The conformance case
   `corpus/upgrades/0.4-to-0.5` locks the move file by file, and a second run
