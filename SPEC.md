@@ -206,6 +206,7 @@ shared across profiles.
 | Permanent layer | `reference/` `howto/` `explanation/` `tutorial/` | `wiki/<domain>/<type>/` |
 | Grouping axis | none | domain |
 | Extra field | `verification` (optional, §3.2) | `verification` (required) |
+| Record layer | `raw/` (optional) | `raw/` |
 
 **R-021** WITHDRAWN — a special case of R-022: absent a reference there is no
 dependency, so no tree can require the existence of a tree of another profile.
@@ -215,12 +216,13 @@ dependency, so no tree can require the existence of a tree of another profile.
 
 ### 3.1 The knowledge-base profile
 
-**R-023** `lint` · MUST — In the `knowledge-base` profile, `raw/` is
-**content-immutable**, not path-immutable. The bytes of an existing file are
-never changed and no file is deleted, but relocation is permitted and expected:
-new files enter through `raw/inbox/` and move to `raw/<domain>/` once processed.
-Removing a secret or content whose deletion is legally required is not a
-violation.
+**R-023** `lint` · MUST — `raw/` is **content-immutable**, not path-immutable —
+the knowledge base's record layer, and a project's optional one (D-112). The
+bytes of an existing file are never changed and no file is deleted, but
+relocation is permitted and expected: new files enter through `raw/inbox/` and
+move to `raw/<domain>/` once processed. In a project, records stay where they
+land; `raw move`'s domains are the knowledge base's. Removing a secret or
+content whose deletion is legally required is not a violation.
 
 **R-027** `cmd` · MUST — Relocating a file under `raw/` MUST rewrite every
 `sources:` entry that pointed at the old path. A relocation that severs the
@@ -812,7 +814,8 @@ into the token invents an identifier that was never written.
 
 **R-076** `lint` · MUST — A local `doc: <local-id>` that matches no `id`, no
 alias, and no `defines:` family **is an error** in the live layer, and **is
-reported** in the historical one (the journal, its archive slices, `_archive/`):
+reported** in the historical one (the journal, its archive slices, `_archive/`,
+and `raw/` records):
 a dated record cannot be corrected by editing it, and the legitimate repairs —
 a tombstone for a renamed identifier (R-066), a page distilled at last — are
 exactly what the report names. An error nobody may honestly clear is an error

@@ -121,6 +121,17 @@ by the release workflow — the tag's section becomes the GitHub release body.
   files, which kept non-ASCII letters (R-120). A record title with nothing
   to fold names the record by its source id, then `item`. Existing files are
   never renamed.
+### Changed
+
+- `raw/` is a project's optional record layer (D-112; SPEC §3, R-023,
+  R-076). A record under a project's `raw/` gets the knowledge base's
+  treatment: a dangling link or `doc:` reference in it is reported instead
+  of blocking, and the path scan skips it. **R-023 is newly enforced in
+  projects**: a tracked record whose bytes change, or that is deleted, is an
+  error at the gate; a record not yet committed stays mutable. `status` in a
+  project prints `records: N (M cited by no page)` and no inbox line; `inbox
+  add` in a project without `raw/` names `mkdir -p <root>/raw/inbox` or the
+  knowledge-base profile. `raw move` stays the knowledge base's.
 
 ## [0.15.1] - 2026-09-04
 

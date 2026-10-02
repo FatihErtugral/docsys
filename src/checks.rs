@@ -1580,16 +1580,13 @@ fn check_doc_refs(tree: &DocTree, r: &mut Report) {
             for token in doc_tokens_on_line(text_line) {
                 inspected += 1;
                 // R-194: the journal records moments; a dated entry citing what
-                // was true then is history, not a broken reference. In the
-                // knowledge-base profile the record layer is `raw/` (R-023).
-                let historical = match tree.profile {
-                    Profile::Project => {
-                        page.rel == "work/journal.md"
+                // was true then is history, not a broken reference. So is a
+                // record under `raw/` (R-023), in either profile (D-112).
+                let historical = page.kind == Kind::Raw
+                    || (tree.profile == Profile::Project
+                        && (page.rel == "work/journal.md"
                             || page.rel.starts_with("work/journal/")
-                            || page.rel.starts_with("_archive/")
-                    }
-                    Profile::KnowledgeBase => page.rel.starts_with("raw/"),
-                };
+                            || page.rel.starts_with("_archive/")));
                 match resolve_doc_token(&idx, &token) {
                     Ok(Resolved::Permanent) => {}
                     Ok(Resolved::Graduated) if historical => {}
@@ -2336,9 +2333,8 @@ pub fn run_with(tree: &DocTree, ctx: &Context) -> Report {
     if let (Some(repo), Some(h)) = (&ctx.repo, &ctx.history) {
         crate::fresh::check_history(tree, repo, h, &mut r);
     }
-    if tree.profile == Profile::KnowledgeBase {
-        check_raw_immutability(tree, &mut r);
-    } else {
+    check_raw_immutability(tree, &mut r);
+    if tree.profile == Profile::Project {
         check_graduated_frozen(tree, &mut r);
     }
     if crate::era::Era::of(tree).vanished_items() {

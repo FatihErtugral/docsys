@@ -79,8 +79,16 @@ pub fn since_bound(since: &str) -> String {
 
 pub fn add(root: &Path, p: &Provenance, body: &str) -> Result<String, String> {
     if !root.join("raw").is_dir() {
+        if crate::hook::is_knowledge_base(root) {
+            return Err(format!(
+                "`{}` has no raw/ — a knowledge base (`docsys init --profile knowledge-base`) receives records",
+                root.display()
+            ));
+        }
+        // a project's record layer is optional (D-112): the person starts it
         return Err(format!(
-            "`{}` has no raw/ — a knowledge base (`docsys init --profile knowledge-base`) receives records",
+            "`{0}` keeps no records yet — `mkdir -p {0}/raw/inbox` to keep them in this project, \
+             or capture into a knowledge base (`docsys init --profile knowledge-base`)",
             root.display()
         ));
     }

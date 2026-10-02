@@ -31,8 +31,8 @@ pub struct Moved {
 pub fn raw_move(root: &Path, record: &str, domain: &str) -> Result<Moved, String> {
     if !crate::hook::is_knowledge_base(root) {
         return Err(format!(
-            "`{}` is not a knowledge base (profile: knowledge-base) — records live under a \
-             base's raw/, and `raw move` relocates records",
+            "`{}` is not a knowledge base (profile: knowledge-base) — `raw move` relocates a \
+             base's records into its domains; a project's records stay where they land (R-023)",
             root.display()
         ));
     }

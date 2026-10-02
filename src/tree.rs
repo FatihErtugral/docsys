@@ -19,7 +19,8 @@ pub enum Kind {
     Router,
     /// README.md — exempt (R-050)
     Readme,
-    /// knowledge-base `raw/` — the content-immutable record layer (R-023)
+    /// `raw/` — the content-immutable record layer (R-023): a knowledge
+    /// base's, and a project's optional one (D-112)
     Raw,
     /// anything else outside reserved dirs
     Other,
@@ -91,6 +92,7 @@ fn classify(rel: &str, extra_tracked: &[String], profile: Profile) -> Kind {
     match first {
         "index.md" => Kind::Router,
         "README.md" => Kind::Readme,
+        "raw" => Kind::Raw,
         _ if PERMANENT_DIRS.contains(&first) => Kind::Permanent,
         "work" => {
             let second = parts.next().unwrap_or("");
@@ -350,6 +352,11 @@ mod tests_more {
             "declared category"
         );
         assert_eq!(c("work/notes/x.md"), Kind::Other);
+        assert_eq!(
+            c("raw/inbox/n.md"),
+            Kind::Raw,
+            "a project's records (D-112)"
+        );
         assert_eq!(c("roadmap.md"), Kind::Other);
         assert_eq!(
             c("other/index.md"),

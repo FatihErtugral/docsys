@@ -4,7 +4,7 @@
 //! digest an assistant reads before it says good morning; the tool composes
 //! no prose.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::Path;
 
@@ -25,6 +25,9 @@ pub struct Status {
     pub namespace: Option<String>,
     pub inbox: usize,
     pub inbox_oldest: Option<String>,
+    /// a project's records under `raw/` (D-112), and how many no page cites
+    pub records: usize,
+    pub records_uncited: usize,
     pub permanent: usize,
     pub unverified: Vec<String>,
     /// tracked work files by status (project profile)
@@ -54,20 +57,9 @@ fn count_open(path: &Path) -> usize {
         .unwrap_or(0)
 }
 
-pub fn status(root: &Path, repo: Option<&Path>) -> Result<Status, String> {
-    let tree = DocTree::load(root).map_err(|e| e.to_string())?;
-    if !tree.docmeta_present {
-        return Err(format!("`{}` has no .docmeta.yml", root.display()));
-    }
-    let mut s = Status {
-        profile: match tree.profile {
-            Profile::KnowledgeBase => "knowledge-base".into(),
-            Profile::Project => "project".into(),
-        },
-        namespace: tree.docmeta_str("namespace").map(|n| n.trim().to_string()),
-        ..Status::default()
-    };
-    // the inbox: notes waiting, the oldest by the date its name carries
+/// A knowledge base's inbox: the notes waiting, and the oldest by the date
+/// its name carries.
+fn inbox(root: &Path) -> (usize, Option<String>) {
     let mut dates: Vec<String> = fs::read_dir(root.join("raw/inbox"))
         .map(|it| {
             it.filter_map(Result::ok)
@@ -81,10 +73,66 @@ pub fn status(root: &Path, repo: Option<&Path>) -> Result<Status, String> {
                 .collect()
         })
         .unwrap_or_default();
-    s.inbox = dates.len();
+    let n = dates.len();
     dates.retain(|d| crate::model::is_iso_date(d));
     dates.sort();
-    s.inbox_oldest = dates.first().cloned();
+    (n, dates.first().cloned())
+}
+
+/// A project's records (D-112), forgotten ones aside, and how many of them
+/// no page's `sources:` names — root-relative, or repository-relative as
+/// R-059 also resolves in a project.
+fn records(tree: &DocTree, repo: Option<&Path>) -> (usize, usize) {
+    let root_rel = repo
+        .and_then(|r| {
+            let (root, r) = (tree.root.canonicalize().ok()?, r.canonicalize().ok()?);
+            let rel = root
+                .strip_prefix(r)
+                .ok()?
+                .to_string_lossy()
+                .replace('\\', "/");
+            (!rel.is_empty()).then(|| format!("{rel}/"))
+        })
+        .unwrap_or_default();
+    let cited: BTreeSet<&str> = tree
+        .pages
+        .iter()
+        .filter(|p| p.kind != Kind::Raw)
+        .filter_map(|p| p.fm.as_ref()?.fields.get("sources")?.as_list())
+        .flatten()
+        .map(|e| {
+            let e = e.trim().trim_start_matches("./");
+            e.strip_prefix(root_rel.as_str()).unwrap_or(e)
+        })
+        .collect();
+    let records: Vec<&str> = tree
+        .pages
+        .iter()
+        .filter(|p| p.kind == Kind::Raw && !p.rel.starts_with("raw/_forgotten/"))
+        .map(|p| p.rel.as_str())
+        .collect();
+    let uncited = records.iter().filter(|r| !cited.contains(*r)).count();
+    (records.len(), uncited)
+}
+
+pub fn status(root: &Path, repo: Option<&Path>) -> Result<Status, String> {
+    let tree = DocTree::load(root).map_err(|e| e.to_string())?;
+    if !tree.docmeta_present {
+        return Err(format!("`{}` has no .docmeta.yml", root.display()));
+    }
+    let mut s = Status {
+        profile: match tree.profile {
+            Profile::KnowledgeBase => "knowledge-base".into(),
+            Profile::Project => "project".into(),
+        },
+        namespace: tree.docmeta_str("namespace").map(|n| n.trim().to_string()),
+        ..Status::default()
+    };
+    match tree.profile {
+        Profile::KnowledgeBase => (s.inbox, s.inbox_oldest) = inbox(root),
+        // a project has no ingest organ: its records wait for nothing (D-112)
+        Profile::Project => (s.records, s.records_uncited) = records(&tree, repo),
+    }
     for page in &tree.pages {
         let Some(fm) = &page.fm else { continue };
         match page.kind {
@@ -218,10 +266,17 @@ pub fn render(s: &Status, root: &Path) -> String {
         .clone()
         .unwrap_or_else(|| root.display().to_string());
     out.push_str(&format!("{name} ({})\n", s.profile));
-    match (s.inbox, &s.inbox_oldest) {
-        (0, _) => out.push_str("inbox: empty\n"),
-        (n, Some(d)) => out.push_str(&format!("inbox: {n} note(s), oldest {d}\n")),
-        (n, None) => out.push_str(&format!("inbox: {n} note(s)\n")),
+    if s.profile == "knowledge-base" {
+        match (s.inbox, &s.inbox_oldest) {
+            (0, _) => out.push_str("inbox: empty\n"),
+            (n, Some(d)) => out.push_str(&format!("inbox: {n} note(s), oldest {d}\n")),
+            (n, None) => out.push_str(&format!("inbox: {n} note(s)\n")),
+        }
+    } else if s.records > 0 {
+        out.push_str(&format!(
+            "records: {} ({} cited by no page)\n",
+            s.records, s.records_uncited
+        ));
     }
     if s.profile == "knowledge-base" {
         out.push_str(&format!(
@@ -358,8 +413,17 @@ pub fn render_json(s: &Status) -> String {
         .iter()
         .map(|e| format!("\"{}\"", esc(e)))
         .collect();
+    // a project's records (D-112); a knowledge base's output is unchanged
+    let records = if s.profile == "knowledge-base" {
+        String::new()
+    } else {
+        format!(
+            ",\"records\":{},\"records_uncited\":{}",
+            s.records, s.records_uncited
+        )
+    };
     format!(
-        "{{\"profile\":\"{}\",\"namespace\":{},\"inbox\":{},\"inbox_oldest\":{},\"permanent\":{},\"unverified\":[{}],\"work\":{{{}}},\"questions_open\":{},\"debt_open\":{},\"consumed\":[{}],\"skills_compiled\":{},\"errors\":{},\"warnings\":{},\"by_rule\":{{{}}},\"sources_moved\":{},\"forgotten\":{},\"rev_gone\":{},\"first_errors\":[{}]}}\n",
+        "{{\"profile\":\"{}\",\"namespace\":{},\"inbox\":{},\"inbox_oldest\":{}{records},\"permanent\":{},\"unverified\":[{}],\"work\":{{{}}},\"questions_open\":{},\"debt_open\":{},\"consumed\":[{}],\"skills_compiled\":{},\"errors\":{},\"warnings\":{},\"by_rule\":{{{}}},\"sources_moved\":{},\"forgotten\":{},\"rev_gone\":{},\"first_errors\":[{}]}}\n",
         esc(&s.profile),
         s.namespace
             .as_ref()
