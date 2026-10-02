@@ -187,7 +187,8 @@ pub fn agents_md() -> String {
          - a pin is worth keeping when a change to its region would likely make the\n\
            page false: pin a symbol (`Class.method`), never a large file whole — every\n\
            unrelated edit to it stales the page (R-111 read with R-151)\n\
-         - when docsys is wrong or in your way: `docsys feedback`\n\n"
+         - when docsys is wrong or in your way: `docsys feedback --draft`, then ask the\n\
+           person before filing it — filing publishes\n\n"
     );
     out.push_str(VERSION_SECTION);
     out.push_str("\nJudgment stays with you, but inside these rules:\n");
@@ -390,7 +391,9 @@ mod tests_teach {
         }
         assert!(block.contains("`debt.md` open: `- [ ] YYYY-MM-DD <debt> -- deferred:"));
         assert!(block.contains("`questions.md` closed:"));
-        assert!(block.contains("when docsys is wrong or in your way: `docsys feedback`"));
+        assert!(block.contains(
+            "when docsys is wrong or in your way: `docsys feedback --draft`, then ask the\nperson before filing it — filing publishes"
+        ));
         assert!(block.contains("never a large file whole"));
         assert!(
             block.lines().count() <= 200,

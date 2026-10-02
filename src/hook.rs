@@ -985,9 +985,7 @@ before it becomes a decision.
 Intent → command: knowledge only people have (an interview, a thread, a
 decision someone made) → /docsys-interview, the answers land verbatim under
 work/; existing code with no pages → /docsys-seed <feature>; pages that drifted
-from the code → /docsys-sync. Pin a region only when a change to it would
-likely make the page false — a symbol, never a large file whole. When docsys is
-wrong or in your way: docsys feedback --draft, and ask the person before filing.
+from the code → /docsys-sync.
 
 Contract-surface changes update their documentation in the SAME session.
 A permanent page you write from evidence, or change in substance, carries
@@ -1286,18 +1284,25 @@ mod render_tests {
 mod tests_routing {
     use super::*;
 
-    /// The first turn routes intents to the commands that serve them (D-114).
+    /// The first turn routes intents to the commands that serve them; the pin
+    /// and feedback lines live in the always-loaded block, once (D-114).
     #[test]
-    fn the_routing_names_the_command_for_each_intent_and_the_feedback_channel() {
+    fn the_routing_names_the_command_for_each_intent_and_nothing_the_block_says() {
         for want in [
             "/docsys-interview",
             "/docsys-seed <feature>",
             "/docsys-sync",
-            "a symbol, never a large file whole",
-            "docsys feedback --draft",
         ] {
             assert!(ROUTING.contains(want), "project routing lacks `{want}`");
         }
+        for once in [
+            "a symbol, never a large file whole",
+            "docsys feedback --draft",
+        ] {
+            assert!(!ROUTING.contains(once), "project routing repeats `{once}`");
+        }
+        // a knowledge base's contract is its owner's file: the routing is the
+        // feedback line's one home there
         assert!(KB_ROUTING.contains("docsys feedback --draft"));
     }
 }

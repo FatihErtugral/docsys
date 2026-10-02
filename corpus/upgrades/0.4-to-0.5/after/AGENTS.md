@@ -20,7 +20,8 @@ from the `add`; what landed is `git show HEAD:<file>`, not the tree
 - a pin is worth keeping when a change to its region would likely make the
 page false: pin a symbol (`Class.method`), never a large file whole — every
 unrelated edit to it stales the page (R-111 read with R-151)
-- when docsys is wrong or in your way: `docsys feedback`
+- when docsys is wrong or in your way: `docsys feedback --draft`, then ask the
+person before filing it — filing publishes
 
 Version: a tree that pins its docsys in `.docsys-version` (beside `.docmeta.yml`)
 runs that version on every docsys call, installed on first use. The pin moves
