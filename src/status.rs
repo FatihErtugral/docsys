@@ -9,6 +9,7 @@ use std::fs;
 use std::path::Path;
 
 use crate::fm::Value;
+use crate::items;
 use crate::model::Severity;
 use crate::tree::{DocTree, Kind, Profile};
 
@@ -161,9 +162,14 @@ pub fn status(root: &Path, repo: Option<&Path>) -> Result<Status, String> {
             _ => {}
         }
     }
-    s.questions_open = count_open(&root.join("work/questions.md"))
-        + count_open(&root.join("wiki/open-questions.md"));
-    s.debt_open = count_open(&root.join("work/debt.md"));
+    // a docsys/0.5 list is a directory of item files (D-124); a ledger a
+    // branch from before the move still wrote counts too, until it moves
+    let kb = tree.profile == Profile::KnowledgeBase;
+    let open_in = |list: items::List| {
+        count_open(&root.join(list.ledger(kb))) + items::open(root, list, kb).len()
+    };
+    s.questions_open = open_in(items::List::Questions);
+    s.debt_open = open_in(items::List::Debt);
     // consumed namespaces: the materializations and when they were fetched
     let fed = root.join(".federation");
     let mut ns_dirs: Vec<_> = fs::read_dir(&fed)

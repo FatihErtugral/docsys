@@ -5,7 +5,7 @@
   "notes": [
     {
       "release": "0.16.0",
-      "text": "- Nothing has to move on the day 0.16.0 is installed: a docsys/0.4 tree keeps\n  its findings, its file formats and its hooks.\n- Every clone must install docsys >= 0.16.0 before pulling this change; a gate\n  under .git/hooks cannot warn an old binary.\n- `docsys upgrade` prints the plan; `docsys upgrade --apply --commit` moves the\n  tree in one commit. The items it lists for a person are theirs to finish."
+      "text": "- Nothing has to move on the day 0.16.0 is installed: a docsys/0.4 tree keeps\n  its findings, its file formats and its hooks.\n- Every clone must install docsys >= 0.16.0 before pulling this change; a gate\n  under .git/hooks cannot warn an old binary.\n- `docsys upgrade` prints the plan; `docsys upgrade --apply --commit` moves the\n  tree in one commit. The items it lists for a person are theirs to finish.\n- A branch opened before the move runs the same `docsys upgrade --apply\n  --commit` once before it merges: it converts the branch's own additions the\n  same way, and the merge is clean. A branch merged without it is caught by\n  lint, and a re-run moves its lines."
     }
   ],
   "items": [
@@ -157,6 +157,20 @@
       "command": null
     },
     {
+      "strategy": "auto",
+      "step": "ledgers",
+      "file": "docs/work/debt.md",
+      "what": "1 open item(s) into work/debt/; the ledger goes (D-124)",
+      "command": null
+    },
+    {
+      "strategy": "auto",
+      "step": "ledgers",
+      "file": "docs/work/questions.md",
+      "what": "no open item; the ledger goes (D-124)",
+      "command": null
+    },
+    {
       "strategy": "manual",
       "step": "code-citations",
       "file": "src/auth.rs:8",
@@ -186,10 +200,11 @@
     }
   ],
   "preview": [
-    "judged by docsys/0.5 as the tree is now: 3 new finding(s), 0 gone — the steps below clear their part",
+    "judged by docsys/0.5 as the tree is now: 4 new finding(s), 0 gone — the steps below clear their part",
     "+ WARN R-050 reference/expiry.md [updated] `updated:` is not kept on docsys/0.5 — a page's date is its last content change in history; `docsys upgrade --apply` removes the line",
     "+ WARN R-050 reference/refresh.md [updated] `updated:` is not kept on docsys/0.5 — a page's date is its last content change in history; `docsys upgrade --apply` removes the line",
-    "+ WARN R-108 work/debt.md [line-3] entry does not match its item grammar — a field marker is written ` — `; separators are ASCII ` -- ` (`docsys ledger fix` rewrites them)"
+    "+ WARN R-108 work/debt.md [legacy] a docsys/0.4 ledger on a docsys/0.5 tree — `docsys upgrade --apply` moves its items into work/debt/ (D-124)",
+    "+ WARN R-108 work/questions.md [legacy] a docsys/0.4 ledger on a docsys/0.5 tree — `docsys upgrade --apply` moves its items into work/questions/ (D-124)"
   ],
   "diffs": [
     {
@@ -198,7 +213,7 @@
     },
     {
       "file": ".claude/commands/docsys-sync.md",
-      "diff": "--- .claude/commands/docsys-sync.md\n+++ .claude/commands/docsys-sync.md\n@@ -5,13 +5,13 @@\n \n # /docsys-sync — documentation drift check\n \n-Manual, never automatic; run it before a release. Report; propose `docs/work/debt.md` items as a diff\n+Manual, never automatic. Report; propose `docs/work/debt.md` items as a diff\n and wait for approval. Commit nothing.\n \n 1. Mechanical pass: `docsys lint --root docs --repo .` and `docsys refs --repo .` —\n    include both outputs (one line each if green). Freshness errors are drift\n-   by definition: a stale pin names the region that moved, `updated:` behind\n-   history names a hand edit, an untouched draft names abandonment.\n+   by definition: a stale pin names the region that moved, an untouched draft\n+   names abandonment.\n 2. Drift suspects: `docsys seed plan --repo . --root docs --since <date of\n    the newest journal entry>` — every feature history touched since, with\n    its coverage. For each covered feature with commits, `git show --stat\n"
+      "diff": "--- .claude/commands/docsys-sync.md\n+++ .claude/commands/docsys-sync.md\n@@ -1,17 +1,17 @@\n ---\n-description: Scan code↔doc drift and un-graduated done work; propose debt items as a diff\n+description: Scan code↔doc drift and un-graduated done work; propose debt items\n allowed-tools: Bash(git log:*), Bash(git diff:*), Bash(git show:*), Bash(docsys *), Read, Grep, Glob, Edit\n ---\n \n # /docsys-sync — documentation drift check\n \n-Manual, never automatic; run it before a release. Report; propose `docs/work/debt.md` items as a diff\n-and wait for approval. Commit nothing.\n+Manual, never automatic. Report; propose debt items (`docsys debt add`) and\n+wait for approval. Commit nothing.\n \n 1. Mechanical pass: `docsys lint --root docs --repo .` and `docsys refs --repo .` —\n    include both outputs (one line each if green). Freshness errors are drift\n-   by definition: a stale pin names the region that moved, `updated:` behind\n-   history names a hand edit, an untouched draft names abandonment.\n+   by definition: a stale pin names the region that moved, an untouched draft\n+   names abandonment.\n 2. Drift suspects: `docsys seed plan --repo . --root docs --since <date of\n    the newest journal entry>` — every feature history touched since, with\n    its coverage. For each covered feature with commits, `git show --stat\n"
     }
   ],
   "written": []

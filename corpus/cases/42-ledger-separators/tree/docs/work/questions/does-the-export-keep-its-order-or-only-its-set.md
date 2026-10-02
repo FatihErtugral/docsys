@@ -1,0 +1,1 @@
+- [ ] 2026-09-03 does the export keep its order — or only its set?

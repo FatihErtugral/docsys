@@ -120,19 +120,6 @@ fn procedure_head(id: &str) -> Option<String> {
     Some(out)
 }
 
-/// R-108's item grammar, one line per ledger, from the rule's own table.
-fn ledger_grammar() -> String {
-    SPEC.lines()
-        .skip_while(|l| !l.starts_with("**R-108**"))
-        .filter(|l| l.starts_with("| `debt.md`") || l.starts_with("| `questions.md`"))
-        .take(4)
-        .filter_map(|l| {
-            let cells: Vec<&str> = l.split('|').map(str::trim).collect();
-            Some(format!("- {}: {}\n", cells.get(1)?, cells.get(2)?))
-        })
-        .collect()
-}
-
 pub fn agents_md() -> String {
     let mut rules: Vec<(String, String)> = Vec::new();
     let mut current: Option<(String, String)> = None;
@@ -209,10 +196,13 @@ pub fn agents_md() -> String {
         out.push_str(&procedure_head(id).unwrap_or_default());
     }
     out.push_str(
-        "- not known → a dated `work/questions.md` item (R-108), never a guess left on a page\n\
-         - agent memory is a question for the person, never a source (D-062)\n",
+        "- not known → `docsys question add <question>` (R-108), never a guess left on\n\
+           a page\n\
+         - agent memory is a question for the person, never a source (D-062)\n\
+         - work deferred on purpose → `docsys debt add <debt> --deferred <reason>\n\
+           --repay-when <trigger>`; once repaid, `docsys debt close <item> --note <how>`,\n\
+           and the commit carries the `Resolved:` line it prints (R-108)\n",
     );
-    out.push_str(&ledger_grammar());
     out.push_str("\nWhen you verify:\n");
     out.push_str(&procedure_head(VERIFY).unwrap_or_default());
     out.push_str(
@@ -222,7 +212,7 @@ pub fn agents_md() -> String {
     out.push_str(
         "\nWhen a decision procedure exists, follow it: `docsys rules --procedures`.\n\
          When no option fits, the escape is always legitimate — an honest \"I don't\n\
-         know\" (an `_unsorted/` file, a `questions.md` item) is cheaper than a\n\
+         know\" (an `_unsorted/` file, a question item) is cheaper than a\n\
          confident guess.\n",
     );
     out
@@ -389,8 +379,18 @@ mod tests_teach {
                 .trim();
             assert!(block.contains(question), "{id}: `{question}` missing");
         }
-        assert!(block.contains("`debt.md` open: `- [ ] YYYY-MM-DD <debt> -- deferred:"));
-        assert!(block.contains("`questions.md` closed:"));
+        assert!(
+            block.contains("`docsys question add <question>`"),
+            "{block}"
+        );
+        assert!(
+            block.contains("`docsys debt close <item> --note <how>`"),
+            "{block}"
+        );
+        assert!(
+            !block.contains("debt.md") && !block.contains("questions.md"),
+            "{block}"
+        );
         assert!(block.contains(
             "when docsys is wrong or in your way: `docsys feedback --draft`, then ask the\nperson before filing it — filing publishes"
         ));

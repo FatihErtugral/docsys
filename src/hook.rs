@@ -446,11 +446,6 @@ pub fn record_undocumented_commit(
     files: &[String],
     today: &str,
 ) -> Result<(), String> {
-    let path = root.join("work/debt.md");
-    let mut text = fs::read_to_string(&path).unwrap_or_else(|_| "# Debt\n".to_string());
-    if !text.ends_with('\n') {
-        text.push('\n');
-    }
     let shown: Vec<&str> = files.iter().take(5).map(String::as_str).collect();
     let more = files.len().saturating_sub(shown.len());
     let tail = if more > 0 {
@@ -458,17 +453,28 @@ pub fn record_undocumented_commit(
     } else {
         String::new()
     };
-    text.push_str(&format!(
-        "- [ ] {today} committed without documentation (DOCSYS_SKIP): {}{tail} -- deferred: the session bypassed the gate -- repay when: the next session in this tree names the work and records it\n",
+    let line = format!(
+        "- [ ] {today} committed without documentation (DOCSYS_SKIP): {}{tail} -- deferred: the session bypassed the gate -- repay when: the next session in this tree names the work and records it",
         shown.join(", ")
-    ));
+    );
+    // its own file on a docsys/0.5 tree (D-124)
+    if crate::era::Era::at(root).item_files() {
+        return crate::items::add(root, crate::items::List::Debt, false, &line).map(|_| ());
+    }
+    let path = root.join("work/debt.md");
+    let mut text = fs::read_to_string(&path).unwrap_or_else(|_| "# Debt\n".to_string());
+    if !text.ends_with('\n') {
+        text.push('\n');
+    }
+    text.push_str(&line);
+    text.push('\n');
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent).map_err(|e| e.to_string())?;
     }
     fs::write(&path, text).map_err(|e| e.to_string())
 }
 
-const REQUIRE: &str = "commit_policy: require — nothing lands without its documentation. Name the work (feature | bug | improvement | research), record it — a work file under work/<category>/ or, at minimum, a journal entry linking these files and saying why — stage it, and run the SAME commit again, `git add` included. DOCSYS_SKIP=1 bypasses once and leaves a debt item in work/debt.md.\nThis whole Bash call was blocked — a `git add` in it did not run either.\n";
+const REQUIRE: &str = "commit_policy: require — nothing lands without its documentation. Name the work (feature | bug | improvement | research), record it — a work file under work/<category>/ or, at minimum, a journal entry linking these files and saying why — stage it, and run the SAME commit again, `git add` included. DOCSYS_SKIP=1 bypasses once and leaves a debt item.\nThis whole Bash call was blocked — a `git add` in it did not run either.\n";
 
 /// The edited file and the session's working directory a payload names —
 /// where a hook looks for its tree (D-098).
@@ -942,7 +948,7 @@ raw/ is content-immutable: an existing record is never edited or deleted, and
 the hook blocks the attempt. A wiki page whose body changes is unverified
 again. Gate: docsys lint (inside the repository).
 Speak the person's language, turn by turn — the one they just wrote in; every
-file under wiki/ (pages, indexes, open-questions.md) keeps the base's declared
+file under wiki/ (pages, indexes, open questions) keeps the base's declared
 language, whatever the session's own language setting says; code identifiers
 are never translated.
 When docsys is wrong or in your way: docsys feedback --draft, and ask the

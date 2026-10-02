@@ -251,13 +251,14 @@ fn every_generated_markdown_file_opens_with_the_declared_preamble() {
     let mut dm = fs::read_to_string(docs.join(".docmeta.yml")).unwrap();
     dm.push_str("generated_preamble: \"<!-- restricted-context:public -->\"\n");
     fs::write(docs.join(".docmeta.yml"), dm).unwrap();
-    // the tree existed before the key: templates and the ledger come from adopt's scaffold
+    // the tree existed before the key: templates come from adopt's scaffold
     let _ = fs::remove_dir_all(docs.join("_templates"));
-    let _ = fs::remove_file(docs.join("work/questions.md"));
     docsys::adopt::run(&repo, &docs, "en").unwrap();
+    // an item file is generated too (D-124)
+    docsys::capture::question_add(&docs, "Who owns it?", None, None).unwrap();
     let marker = "<!-- restricted-context:public -->";
     for rel in [
-        "docs/work/questions.md",
+        "docs/work/questions/who-owns-it.md",
         "docs/_templates/feature.md",
         ".claude/commands/docsys-sync.md",
         ".claude/commands/docsys-seed.md",

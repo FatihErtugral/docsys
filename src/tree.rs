@@ -70,7 +70,7 @@ pub const PERMANENT_DIRS: [&str; 4] = ["reference", "howto", "explanation", "tut
 /// Knowledge-base layout (R-020 table): `raw/` is the flowing record layer;
 /// permanent pages live at `wiki/<domain>/<type>/`; navigation is
 /// `wiki/index.md` plus the domain indexes (registered decision D-030).
-fn classify_kb(rel: &str) -> Kind {
+fn classify_kb(rel: &str, era: crate::era::Era) -> Kind {
     let parts: Vec<&str> = rel.split('/').collect();
     match parts.as_slice() {
         ["README.md"] => Kind::Readme,
@@ -78,15 +78,18 @@ fn classify_kb(rel: &str) -> Kind {
         ["wiki", "index.md"] | ["wiki", _, "index.md"] => Kind::Router,
         // the base's questions ledger: R-108 grammar, like work/questions.md (D-090)
         ["wiki", "open-questions.md"] => Kind::ListFile,
+        // one file per open question (D-124)
+        ["wiki", "open-questions", _] if era.item_files() => Kind::ListFile,
         ["wiki", _, ty, ..] if PERMANENT_DIRS.contains(ty) => Kind::Permanent,
         _ => Kind::Other,
     }
 }
 
-fn classify(rel: &str, extra_tracked: &[String], profile: Profile, records: bool) -> Kind {
+fn classify(rel: &str, extra_tracked: &[String], profile: Profile, era: crate::era::Era) -> Kind {
     if profile == Profile::KnowledgeBase {
-        return classify_kb(rel);
+        return classify_kb(rel, era);
     }
+    let records = era.project_records();
     let mut parts = rel.split('/');
     let first = parts.next().unwrap_or("");
     match first {
@@ -99,6 +102,8 @@ fn classify(rel: &str, extra_tracked: &[String], profile: Profile, records: bool
             match second {
                 "journal.md" | "debt.md" | "questions.md" => Kind::ListFile,
                 "journal" => Kind::ListFile,
+                // one file per open item (D-124)
+                "debt" | "questions" if era.item_files() => Kind::ListFile,
                 _ if CORE_TRACKED.contains(&second)
                     || extra_tracked.iter().any(|c| c == second) =>
                 {
@@ -171,9 +176,8 @@ impl DocTree {
             Some("knowledge-base") => Profile::KnowledgeBase,
             _ => Profile::Project,
         };
-        // a project's records are a layer of their own from 0.5 (D-112, D-118)
-        let records = crate::era::Era::of_spec(docmeta.get("spec").and_then(fm::Value::as_str))
-            .project_records();
+        // what a path is depends on the spec the tree declares (D-118)
+        let era = crate::era::Era::of_spec(docmeta.get("spec").and_then(fm::Value::as_str));
 
         // R-077's `scan_exclude` is the owner's word on tooling and archived
         // sub-projects; the docs-side walk honors it too (D-030) — a template
@@ -201,7 +205,7 @@ impl DocTree {
                 continue;
             }
             let text = fs::read_to_string(&path)?;
-            let kind = classify(&rel, &extra_tracked, profile, records);
+            let kind = classify(&rel, &extra_tracked, profile, era);
             let fm = fm::parse(&text);
             pages.push(Page {
                 rel,
@@ -336,7 +340,7 @@ mod tests_more {
     #[test]
     fn project_layout_classification() {
         let extra = vec!["experiments".to_string()];
-        let c = |rel: &str| classify(rel, &extra, Profile::Project, true);
+        let c = |rel: &str| classify(rel, &extra, Profile::Project, crate::era::Era(5));
         assert_eq!(c("index.md"), Kind::Router);
         assert_eq!(c("README.md"), Kind::Readme);
         for d in ["reference", "howto", "explanation", "tutorial"] {
@@ -346,6 +350,18 @@ mod tests_more {
         assert_eq!(c("work/debt.md"), Kind::ListFile);
         assert_eq!(c("work/questions.md"), Kind::ListFile);
         assert_eq!(c("work/journal/2026-08-01.md"), Kind::ListFile);
+        assert_eq!(c("work/debt/flaky-retry.md"), Kind::ListFile);
+        assert_eq!(c("work/questions/why-two.md"), Kind::ListFile);
+        assert_eq!(
+            classify(
+                "work/debt/x.md",
+                &extra,
+                Profile::Project,
+                crate::era::Era(4)
+            ),
+            Kind::Other,
+            "a docsys/0.4 tree keeps its ledgers (D-118)"
+        );
         assert_eq!(c("work/features/x.md"), Kind::Tracked);
         assert_eq!(c("work/postmortems/x.md"), Kind::Tracked);
         assert_eq!(c("work/research/x.md"), Kind::Tracked);
@@ -370,7 +386,7 @@ mod tests_more {
 
     #[test]
     fn knowledge_base_layout_classification() {
-        let c = |rel: &str| classify(rel, &[], Profile::KnowledgeBase, true);
+        let c = |rel: &str| classify(rel, &[], Profile::KnowledgeBase, crate::era::Era(5));
         assert_eq!(c("README.md"), Kind::Readme);
         assert_eq!(c("raw/inbox/n.md"), Kind::Raw);
         assert_eq!(c("wiki/index.md"), Kind::Router);

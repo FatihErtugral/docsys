@@ -1,0 +1,1 @@
+- [ ] 2026-09-02 the cache key ignores the locale -- deferred: one locale today -- repay when: a second locale ships

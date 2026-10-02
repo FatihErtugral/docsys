@@ -806,7 +806,116 @@ fn common(ctx: &Ctx, u: &mut Upgrade, apply: bool) -> Result<(), String> {
     if Era(u.to).directory_routes() && !kb {
         routes(ctx, u, apply)?;
     }
+    // a re-run on a moved tree absorbs what a branch from before the move
+    // still wrote; the move itself runs this after the separators
+    if Era::of(&ctx.tree).item_files() {
+        ledgers(ctx, u, apply)?;
+    }
     Ok(())
+}
+
+/// ledgers: each open item of a docsys/0.4 ledger into its own file, its
+/// line verbatim; what else the ledger held — closed items, prose — into a
+/// frozen slice under `_archive/`, every line as written; the ledger goes
+/// (D-124). An open item a branch from before the move appended to a slice
+/// leaves it the same way.
+fn ledgers(ctx: &Ctx, u: &mut Upgrade, apply: bool) -> Result<(), String> {
+    use crate::items::List;
+    let lists: &[List] = if ctx.kb {
+        &[List::Questions]
+    } else {
+        &[List::Debt, List::Questions]
+    };
+    for &list in lists {
+        let ledger = list.ledger(ctx.kb);
+        let mut sources = vec![ledger.to_string()];
+        sources.extend(crate::checks::archive_slices(ctx.root, ledger));
+        for rel in sources {
+            let path = ctx.root.join(&rel);
+            let Ok(text) = fs::read_to_string(&path) else {
+                continue;
+            };
+            let is_ledger = rel == ledger;
+            let open: Vec<&str> = text.lines().filter(|l| l.starts_with("- [ ] ")).collect();
+            if open.is_empty() && !is_ledger {
+                continue;
+            }
+            let rest: String = text
+                .split_inclusive('\n')
+                .filter(|l| !l.starts_with("- [ ] "))
+                .collect();
+            // a title and blank lines are no record; anything else is kept
+            let kept = rest
+                .lines()
+                .any(|l| !l.trim().is_empty() && !l.starts_with("# "));
+            let file = format!("{}{rel}", ctx.prefix);
+            let slice = if is_ledger && kept {
+                Some(free_slice(ctx.root, ledger))
+            } else {
+                None
+            };
+            let mut what = if open.is_empty() {
+                "no open item".to_string()
+            } else {
+                format!("{} open item(s) into {}/", open.len(), list.dir(ctx.kb))
+            };
+            match &slice {
+                Some(s) => what.push_str(&format!(", the rest frozen in {s}")),
+                None if is_ledger => what.push_str("; the ledger goes"),
+                None => {}
+            }
+            if !is_ledger {
+                what.push_str(" — a branch from before the move appended them");
+            }
+            u.item("auto", "ledgers", &file, format!("{what} (D-124)"));
+            if !apply {
+                continue;
+            }
+            // an item already in its file — a merge that kept both sides —
+            // is not written twice
+            let have = crate::items::open(ctx.root, list, ctx.kb);
+            for line in &open {
+                if have.iter().any(|i| i.line == *line) {
+                    continue;
+                }
+                let item = crate::items::add(ctx.root, list, ctx.kb, line)?;
+                u.written.push(format!("{}{item}", ctx.prefix));
+            }
+            if let Some(s) = &slice {
+                let target = ctx.root.join(s);
+                if let Some(dir) = target.parent() {
+                    fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+                }
+                fs::write(&target, &rest).map_err(|e| e.to_string())?;
+                u.written.push(format!("{}{s}", ctx.prefix));
+            }
+            if is_ledger {
+                fs::remove_file(&path).map_err(|e| e.to_string())?;
+            } else {
+                fs::write(&path, &rest).map_err(|e| e.to_string())?;
+            }
+            u.written.push(file);
+        }
+    }
+    Ok(())
+}
+
+/// The archive slice a moved ledger's remainder goes to: `_archive/<ledger>`,
+/// or a dated name beside it when a slice already holds that name.
+fn free_slice(root: &Path, ledger: &str) -> String {
+    let first = format!("_archive/{ledger}");
+    if !root.join(&first).exists() {
+        return first;
+    }
+    let stem = first.trim_end_matches(".md");
+    let today = crate::migrate::today();
+    let mut name = format!("{stem}-{today}.md");
+    let mut n = 2;
+    while root.join(&name).exists() {
+        name = format!("{stem}-{today}-{n}.md");
+        n += 1;
+    }
+    name
 }
 
 /// routes: the index routes the type directories, so a new page adds no line
@@ -1076,6 +1185,9 @@ fn move_0_4_to_0_5(ctx: &Ctx, u: &mut Upgrade, apply: bool) -> Result<(), String
             u.written.push(file);
         }
     }
+
+    // ledgers: one file per open item, after the separators are ASCII (D-124)
+    ledgers(ctx, u, apply)?;
 
     // code-citations: a `doc:` 0.15 read mid-comment that 0.5 reads as prose
     if !kb {

@@ -419,8 +419,11 @@ pub fn render(w: &Workflow) -> String {
     format!("{STAMP}{} sha256:{hash} {params}\n{body}", w.version)
 }
 
-/// The branch pushes are checked on: `origin/HEAD`'s, else the current one,
-/// else `main`.
+/// The branch pushes are checked on: `origin/HEAD`'s, else a local `main` or
+/// `master`, else the current one, else `main`. Never the current branch
+/// while the repository has its own: an upgrade run on a feature branch
+/// writes what the same upgrade writes on the base, so the branch merges
+/// cleanly (D-124).
 pub fn default_branch(repo: &Path) -> String {
     let ask = |args: &[&str]| {
         crate::git::cmd(repo)
@@ -438,6 +441,20 @@ pub fn default_branch(repo: &Path) -> String {
         "refs/remotes/origin/HEAD",
     ])
     .and_then(|r| r.strip_prefix("origin/").map(str::to_string))
+    .or_else(|| {
+        ["main", "master"]
+            .into_iter()
+            .map(str::to_string)
+            .find(|b| {
+                ask(&[
+                    "rev-parse",
+                    "--verify",
+                    "--quiet",
+                    &format!("refs/heads/{b}"),
+                ])
+                .is_some()
+            })
+    })
     .or_else(|| ask(&["symbolic-ref", "--quiet", "--short", "HEAD"]))
     .unwrap_or_else(|| "main".to_string())
 }

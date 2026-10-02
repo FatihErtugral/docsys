@@ -397,7 +397,7 @@ fn the_installed_layer_names_the_sources_beyond_the_inbox() {
         "docsys assistant",
         "docsys raw move",
         "every file under `wiki/`",
-        "questions ledger",
+        "`docsys question add`",
     ] {
         assert!(agents.contains(needle), "AGENTS.md lacks `{needle}`");
     }
@@ -406,8 +406,8 @@ fn the_installed_layer_names_the_sources_beyond_the_inbox() {
         "docsys raw move",
         "@namespace/id",
         "R-027",
-        "(noise) stays too, with one dated line",
-        "- [ ] YYYY-MM-DD",
+        "(noise) stays too, with one open question",
+        "`docsys question add`",
         "unless the person you are working with is a declared maintainer",
     ] {
         assert!(ingest.contains(needle), "kb-ingest lacks `{needle}`");

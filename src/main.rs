@@ -65,7 +65,10 @@ Usage:
                                              # brownfield: feature inventory, or one feature's history as evidence
   docsys seed    gaps [--since <date>] [--repo .] [--root docs]      # the inventory as JSON, for /docsys-interview
   docsys seed    apply --plan <file> [--repo .] [--root docs] [--force]  # land the approved rows under work/
-  docsys debt    close <n> [--note <line>] [--root docs]   # repaid: item leaves the ledger, journal records it
+  docsys debt    add <debt…> --deferred <reason> --repay-when <trigger> [--date <d>] [--root docs]   # work deferred on purpose: one dated item (R-108)
+  docsys debt    close <item> --note <how> [--root docs]   # repaid: the item leaves; the commit carries the `Resolved:` line it prints (D-124)
+  docsys question add <question…> [--context <c>] [--date <d>] [--root docs]   # not known: one dated item, never a guess on a page (R-108)
+  docsys question close <item> --answer <line> [--root docs]   # answered: the item leaves; the commit carries `Answered:` (D-124)
   docsys ledger  fix [--root <dir>]          # a ledger's em-dash field markers ( — deferred: ) to R-108's ASCII ( -- ); field text untouched
   docsys journal add <text…> [--title <t>] [--date <d>] [--link <path>] [--root docs]
   docsys page    new <category|type> <id> [--title <t>] [--unverified] [--root docs]   # from _templates/, or a permanent skeleton; --unverified: a page written from evidence, for a maintainer to verify (R-208)
@@ -112,6 +115,10 @@ struct Opts {
     since: Option<String>,
     memory: Option<PathBuf>,
     note: Option<String>,
+    deferred: Option<String>,
+    repay_when: Option<String>,
+    answer: Option<String>,
+    context: Option<String>,
     date: Option<String>,
     link: Option<String>,
     format: Option<String>,
@@ -175,6 +182,10 @@ fn parse_opts(args: &[String]) -> Result<Opts, String> {
         since: None,
         memory: None,
         note: None,
+        deferred: None,
+        repay_when: None,
+        answer: None,
+        context: None,
         date: None,
         link: None,
         format: None,
@@ -241,6 +252,12 @@ fn parse_opts(args: &[String]) -> Result<Opts, String> {
                 o.memory = Some(PathBuf::from(it.next().ok_or("--memory needs a value")?))
             }
             "--note" => o.note = Some(it.next().ok_or("--note needs a value")?.clone()),
+            "--deferred" => o.deferred = Some(it.next().ok_or("--deferred needs a value")?.clone()),
+            "--repay-when" => {
+                o.repay_when = Some(it.next().ok_or("--repay-when needs a value")?.clone())
+            }
+            "--answer" => o.answer = Some(it.next().ok_or("--answer needs a value")?.clone()),
+            "--context" => o.context = Some(it.next().ok_or("--context needs a value")?.clone()),
             "--reason" => o.note = Some(it.next().ok_or("--reason needs a value")?.clone()),
             "--date" => o.date = Some(it.next().ok_or("--date needs a value")?.clone()),
             "--link" => o.link = Some(it.next().ok_or("--link needs a value")?.clone()),
@@ -433,6 +450,7 @@ fn main() -> ExitCode {
                 || c == "hook"
                 || c == "seed"
                 || c == "debt"
+                || c == "question"
                 || c == "ledger"
                 || c == "journal"
                 || c == "page"
@@ -441,8 +459,9 @@ fn main() -> ExitCode {
                 || c == "raw" =>
         {
             match r.split_first() {
-                Some((s, r2)) => (c.as_str(), Some(s.as_str()), r2),
-                None => (c.as_str(), None, &[]),
+                // a flag is no sub-command: `docsys journal --since <d>`
+                Some((s, r2)) if !s.starts_with('-') => (c.as_str(), Some(s.as_str()), r2),
+                _ => (c.as_str(), None, r),
             }
         }
         Some((c, r)) => (c.as_str(), None, r),
@@ -829,22 +848,52 @@ fn main() -> ExitCode {
                 }
             }
         }
-        ("debt", Some("close")) => {
-            let Some(n) = opts
-                .positional
-                .first()
-                .and_then(|p| p.parse::<usize>().ok())
-            else {
-                eprintln!("debt close needs the item number: `docsys debt close <n>`");
+        ("debt", Some("close")) | ("question", Some("close")) => {
+            let Some(which) = opts.positional.first() else {
+                eprintln!("{cmd} close needs the item: its file name or its number");
                 return ExitCode::from(2);
             };
-            match docsys::capture::debt_close(&opts.root, n, opts.note.as_deref()) {
+            let done = if cmd == "debt" {
+                docsys::capture::debt_close(&opts.root, which, opts.note.as_deref())
+            } else {
+                docsys::capture::question_close(&opts.root, which, opts.answer.as_deref())
+            };
+            match done {
                 Ok(msg) => {
                     println!("{msg}");
                     ExitCode::SUCCESS
                 }
                 Err(e) => {
-                    eprintln!("debt close: {e}");
+                    eprintln!("{cmd} close: {e}");
+                    ExitCode::from(1)
+                }
+            }
+        }
+        ("debt", Some("add")) | ("question", Some("add")) => {
+            let text = opts.positional.join(" ");
+            let done = if cmd == "debt" {
+                docsys::capture::debt_add(
+                    &opts.root,
+                    &text,
+                    opts.deferred.as_deref(),
+                    opts.repay_when.as_deref(),
+                    opts.date.as_deref(),
+                )
+            } else {
+                docsys::capture::question_add(
+                    &opts.root,
+                    &text,
+                    opts.context.as_deref(),
+                    opts.date.as_deref(),
+                )
+            };
+            match done {
+                Ok(msg) => {
+                    println!("{msg}");
+                    ExitCode::SUCCESS
+                }
+                Err(e) => {
+                    eprintln!("{cmd} add: {e}");
                     ExitCode::from(1)
                 }
             }

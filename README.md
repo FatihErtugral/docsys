@@ -424,7 +424,8 @@ flowchart LR
 |---|---|
 | `docsys adopt [--repo .] [--root docs] [--lang <code>] [--obsidian] [--rules-file <path>] [--report-dir <dir> \| --no-report] [--ci-runner <labels>] [--ci-install cargo\|release] [--ci-sha256 <target>=<hex>,…] [--verify-on-approval pull-request\|direct\|off]` | One-command integration: docmeta (or the full init skeleton on a fresh project) with the tree's `namespace:`, agent assets, `settings.json` (written when absent, merged into when present — D-086), AGENTS.md managed block, the git pre-commit gate (hard when lint and `refs` are both clean, warn-mode while the tree or the code carries debt, hardened by a later run — D-088), `.github/workflows/docsys.yml` when `.github/` exists, and an `ADOPTION.md` report whose checklist carries every judgment call. Idempotent. |
 | `docsys seed plan [--target <feature>] [--since <date>] [--memory <dir>]` · `docsys seed apply --plan <file> [--force]` · `docsys seed gaps [--since <date>]` | Brownfield seeding: evidence from history and code, refused when a page covers the feature; the approved rows land under `work/` as tokens and verbatim quotations (D-053, D-058). |
-| `docsys debt close <n> [--note <line>]` · `docsys journal add <text> [--title <t>] [--date <d>] [--link <path>]` · `docsys page new <kind> <id> [--title <t>] [--unverified]` | Capture, mechanical: a repaid debt leaves the ledger with its journal line; an entry at its date; a page from its template (D-063); `--unverified` writes `verification: unverified` and `sources: []` on a permanent page — a page from evidence, for a maintainer to verify (R-208, D-092). |
+| `docsys debt add <debt> --deferred <reason> --repay-when <trigger>` · `docsys debt close <item> --note <how>` · `docsys question add <question> [--context <c>]` · `docsys question close <item> --answer <line>` | Debt and questions, one file per open item (R-108, D-124): two branches that each add one never touch the same file; closing removes the file and prints the `Resolved:` or `Answered:` line its commit carries. On a docsys/0.4 tree they write the one-file ledgers, as before. |
+| `docsys journal add <text> [--title <t>] [--date <d>] [--link <path>]` · `docsys page new <kind> <id> [--title <t>] [--unverified]` | Capture, mechanical: an entry at its date; a page from its template (D-063); `--unverified` writes `verification: unverified` and `sources: []` on a permanent page — a page from evidence, for a maintainer to verify (R-208, D-092). |
 | `docsys backlinks <path\|id> [--repo .]` · `docsys mentions [<path\|id>]` · `docsys graph [--format dot\|json\|jsoncanvas] [--repo .]` | Derived navigation, never written into a page: who points at a page (code included), and for a code file the pages that pin it or rest on it; who names it without linking; the whole map (D-064, D-121). |
 | `docsys adopt --obsidian` | The docs root as an Obsidian vault: absolute links, `_archive/` ignored, `_templates/` as templates, a `stale-work.base` view (D-065). Caveats: `aliases:` means retired ids here; keep Linter's `yaml-timestamp` off. |
 | `docsys lint [--root docs] [--repo <dir>] [--json]` | Full tree validation: frontmatter, ids, links, journal discipline, templates, list grammars — both profiles. Inside a git repository (`--repo`, or detected) also the freshness rules: `verifies:` pins recomputed (R-111), drafts untouched beyond `stale_active_days` (R-085). Errors exit 1, warnings don't. |
@@ -452,7 +453,7 @@ flowchart LR
 | `docsys gate [--repo .] [--root docs] [--range <a>...<b>]` · `docsys doctor [--repo .] [--root docs] [--dir .claude]` | The commit-time question the binary computes (lint + code-without-docs); with `--range`, the same question over a pull request, failing when unanswered — what the CI workflow runs. And the liveness check: every hook present, executable, wired under the right event, up to date (D-040, D-047). |
 | `docsys feedback` · `docsys feedback --draft [--type bug\|false-positive\|need] [--rule R-xxx] [--command "docsys …"] [--out <file>]` | When docsys is wrong or in the way: the issue format, and an issue drafted with the facts the tool knows — version, OS, the tree's profile and spec, the rule's text, the command's output, a redacted `.docmeta.yml` — and TODO where only a person writes. Files nothing; names the template to open (D-116). On a docsys/0.5 tree `lint`, `refs` and `gate` point to it under a finding of a rule that reads free text. |
 | `docsys upgrade [--apply] [--commit] [--force] [--json] [--root docs] [--dir .claude]` | Moves the tree to this docsys: its spec one version per commit (§16, D-117), then its pin (D-120). The default is the plan: the release notes it crosses, every step `auto`, `manual` or `info`, the findings the move adds and removes, and a diff for every file its owner edited. `--apply` writes what is mechanical and `--commit` makes it one commit per spec, its message carrying the notes and the step every other clone takes; a dirty working tree is refused (`--force` overrides). An edited relay, skill, command or CI workflow is never rewritten. `--json` prints the plan as data, each item with the command that completes it, for `/docsys-upgrade` — where an agent finishes the items with the person, reading, never verifying (D-104). A 0.4 tree that does not move keeps 0.15.1's findings and formats (D-118). |
-| `docsys ledger fix [--root docs]` | Rewrites the em-dash field markers of `work/debt.md`, `work/questions.md` and `wiki/open-questions.md` to R-108's ASCII ` -- `, at the label positions only (D-108). |
+| `docsys ledger fix [--root docs]` | Rewrites the em-dash field markers of the debt and question items (and a docsys/0.4 tree's ledgers) to R-108's ASCII ` -- `, at the label positions only (D-108). |
 | `docsys pin --gc [--repo .] [--root docs]` | On a docsys/0.5 tree, removes the pin acknowledgements under `.verifies/` that no current region needs any more (D-119). |
 | `docsys --version` | The binary, the spec it implements, and inside a pinned tree the pin; the relays and the git gate ask it (D-099, D-120). |
 
@@ -576,7 +577,7 @@ agent session in that directory and try the loop:
 ### 3 · A project with no documentation at all — seeding
 
 ```sh
-docsys adopt                                   # skeleton, hooks, templates, questions ledger
+docsys adopt                                   # skeleton, hooks, templates
 docsys seed plan --repo . --root docs           # feature inventory: what history names, what is covered
 docsys seed plan --repo . --root docs --target weather   # one feature's history as evidence
 ```
@@ -603,7 +604,7 @@ readable on day one, verified by a maintainer later (D-092).
 
 ```sh
 docsys journal add "Wire format settled; details on the page" --link reference/wire
-docsys debt close 3 --note "measured twice, held"     # item leaves the ledger, journal records it
+docsys debt close 3 --note "measured twice, held"     # the item's file leaves; its commit carries Resolved:
 docsys page new feature dark-mode                      # from _templates/feature.md
 docsys backlinks token-ttl --repo .                    # pages and code pointing at a page
 docsys backlinks src/auth.rs                           # pages that describe a code file

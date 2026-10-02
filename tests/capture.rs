@@ -60,54 +60,41 @@ fn ledger_fix_rewrites_dashed_markers_once_and_leaves_field_text() {
         "# Questions, 2025\n\n- [x] 2025-03-01 which region first — answered: the nearest one\n",
     )
     .unwrap();
-    assert_eq!(
-        r108(&root),
-        vec!["work/debt.md line-3", "work/questions.md line-4"]
-    );
+    let debt = "work/debt/the-retry-budget-is-a-guess.md";
+    let question = "work/questions/does-the-export-keep-its-order-or-only-its-set.md";
+    assert_eq!(r108(&root), vec![format!("{debt} line-1")]);
 
     let said = ledger_fix(&root);
     assert_eq!(
         said.trim_end(),
-        "fixed: work/debt.md line 3\nfixed: work/questions.md line 4\n\
-         fixed: _archive/work/questions-2025.md line 3"
+        format!("fixed: {debt} line 1\nfixed: _archive/work/questions-2025.md line 3")
     );
     assert!(r108(&root).is_empty(), "{:?}", r108(&root));
-    let debt = fs::read_to_string(root.join("work/debt.md")).unwrap();
-    assert!(debt.contains(
+    assert_eq!(
+        fs::read_to_string(root.join(debt)).unwrap(),
         "- [ ] 2026-09-01 the retry budget is a guess -- deferred: no traffic yet -- repay when: the first week under load\n"
-    ));
-    let questions = fs::read_to_string(root.join("work/questions.md")).unwrap();
-    // the open question's dash is its own text, not a marker
-    assert!(
-        questions.contains("- [ ] 2026-09-03 does the export keep its order — or only its set?\n")
     );
-    assert!(questions.contains(
-        "- [x] 2026-09-04 who owns the retry budget -- answered: the service that sends the request\n"
-    ));
+    // the open question's dash is its own text, not a marker
+    assert_eq!(
+        fs::read_to_string(root.join(question)).unwrap(),
+        "- [ ] 2026-09-03 does the export keep its order — or only its set?\n"
+    );
     let slice = fs::read_to_string(root.join("_archive/work/questions-2025.md")).unwrap();
     assert!(slice.contains("which region first -- answered: the nearest one"));
 
     // a second run changes nothing, byte for byte
-    let before: Vec<String> = [
-        "work/debt.md",
-        "work/questions.md",
-        "_archive/work/questions-2025.md",
-    ]
-    .iter()
-    .map(|f| fs::read_to_string(root.join(f)).unwrap())
-    .collect();
+    let before: Vec<String> = [debt, question, "_archive/work/questions-2025.md"]
+        .iter()
+        .map(|f| fs::read_to_string(root.join(f)).unwrap())
+        .collect();
     assert_eq!(
         ledger_fix(&root).trim_end(),
         "ledger: every field marker is already ASCII"
     );
-    let after: Vec<String> = [
-        "work/debt.md",
-        "work/questions.md",
-        "_archive/work/questions-2025.md",
-    ]
-    .iter()
-    .map(|f| fs::read_to_string(root.join(f)).unwrap())
-    .collect();
+    let after: Vec<String> = [debt, question, "_archive/work/questions-2025.md"]
+        .iter()
+        .map(|f| fs::read_to_string(root.join(f)).unwrap())
+        .collect();
     assert_eq!(before, after);
     let _ = fs::remove_dir_all(&base);
 }
@@ -124,12 +111,13 @@ fn ledger_fix_reads_the_declared_labels() {
     fs::write(root.join("index.md"), "# Docs\n").unwrap();
     let item =
         "- [ ] 2026-09-01 a guess — WHY: no load yet — WHEN: load arrives — deferred: kept\n";
-    fs::write(root.join("work/debt.md"), format!("# Debt\n\n{item}")).unwrap();
+    fs::create_dir_all(root.join("work/debt")).unwrap();
+    fs::write(root.join("work/debt/a-guess.md"), item).unwrap();
     docsys::capture::ledger_fix(&root).unwrap();
     // the local forms are the markers; the canonical word is field text here
     assert_eq!(
-        fs::read_to_string(root.join("work/debt.md")).unwrap(),
-        "# Debt\n\n- [ ] 2026-09-01 a guess -- WHY: no load yet -- WHEN: load arrives — deferred: kept\n"
+        fs::read_to_string(root.join("work/debt/a-guess.md")).unwrap(),
+        "- [ ] 2026-09-01 a guess -- WHY: no load yet -- WHEN: load arrives — deferred: kept\n"
     );
     assert!(r108(&root).is_empty(), "{:?}", r108(&root));
     let _ = fs::remove_dir_all(&root);

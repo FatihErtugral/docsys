@@ -320,12 +320,15 @@ fn apply_lands_the_approved_rows_under_work_and_is_idempotent() {
         "{pm}"
     );
     assert!(pm.contains(&format!("> — git:{sha}")), "{pm}");
-    let debt = fs::read_to_string(docs.join("work/debt.md")).unwrap();
-    assert!(debt.contains("- [ ] 2026-08-29 geocoder attribution missing -- deferred: no OSM yet -- repay when: OSM ships"), "{debt}");
-    let q = fs::read_to_string(docs.join("work/questions.md")).unwrap();
-    assert!(
-        q.contains("- [ ] 2026-08-29 Is the 7-day strip a product decision?"),
-        "{q}"
+    // each item its own file (D-124)
+    let debt = fs::read_to_string(docs.join("work/debt/geocoder-attribution-missing.md")).unwrap();
+    assert_eq!(debt, "- [ ] 2026-08-29 geocoder attribution missing -- deferred: no OSM yet -- repay when: OSM ships\n");
+    let q =
+        fs::read_to_string(docs.join("work/questions/is-the-7-day-strip-a-product-decision.md"))
+            .unwrap();
+    assert_eq!(
+        q,
+        "- [ ] 2026-08-29 Is the 7-day strip a product decision?\n"
     );
     // the seeded tree lints with no errors — seeding never makes a tree red
     assert_eq!(lint_errors(&docs), 0);
@@ -344,8 +347,8 @@ fn apply_lands_the_approved_rows_under_work_and_is_idempotent() {
         "work/research/weather.md",
         "work/journal.md",
         "work/postmortems/caps-stale.md",
-        "work/debt.md",
-        "work/questions.md",
+        "work/debt/geocoder-attribution-missing.md",
+        "work/questions/is-the-7-day-strip-a-product-decision.md",
     ]
     .iter()
     .map(|r| fs::read_to_string(docs.join(r)).unwrap())
@@ -356,8 +359,8 @@ fn apply_lands_the_approved_rows_under_work_and_is_idempotent() {
         "work/research/weather.md",
         "work/journal.md",
         "work/postmortems/caps-stale.md",
-        "work/debt.md",
-        "work/questions.md",
+        "work/debt/geocoder-attribution-missing.md",
+        "work/questions/is-the-7-day-strip-a-product-decision.md",
     ]
     .iter()
     .map(|r| fs::read_to_string(docs.join(r)).unwrap())

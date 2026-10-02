@@ -87,14 +87,14 @@ pub fn render_relay(template: &str, root_arg: &str) -> String {
 }
 
 const DOC_SYNC: &str = r#"---
-description: Scan code↔doc drift and un-graduated done work; propose debt items as a diff
+description: Scan code↔doc drift and un-graduated done work; propose debt items
 allowed-tools: Bash(git log:*), Bash(git diff:*), Bash(git show:*), Bash(docsys *), Read, Grep, Glob, Edit
 ---
 
 # /docsys-sync — documentation drift check
 
-Manual, never automatic. Report; propose `docs/work/debt.md` items as a diff
-and wait for approval. Commit nothing.
+Manual, never automatic. Report; propose debt items (`docsys debt add`) and
+wait for approval. Commit nothing.
 
 1. Mechanical pass: `docsys lint --root docs --repo .` and `docsys refs --repo .` —
    include both outputs (one line each if green). Freshness errors are drift
@@ -316,13 +316,12 @@ free.
 For each file in `raw/inbox/`:
 
 1. **Classify the domain** against `domains:` in `.docmeta.yml`. Fits none?
-   Leave the note in the inbox and record the proposal in
-   `wiki/open-questions.md` — never force a note into the nearest domain, and
+   Leave the note in the inbox and record the proposal as an open question
+   (`docsys question add`) — never force a note into the nearest domain, and
    never invent a domain for a single note. A note that holds nothing to
-   keep (noise) stays too, with one dated line in `wiki/open-questions.md`
-   naming it, so the inbox never grows in silence; deleting is never yours.
-   An open-questions line is `- [ ] YYYY-MM-DD …` (R-108), in the base's
-   language; the file's header is not yours to rewrite.
+   keep (noise) stays too, with one open question naming it, so the inbox
+   never grows in silence; deleting is never yours. The question is written
+   in the base's language.
 2. **Pick the type** — `reference` (facts, values), `howto` (steps),
    `explanation` (why), `tutorial` (guided first run). Never mix types on one
    page (R-031); if a page starts holding steps AND concepts, split it.
@@ -374,9 +373,9 @@ For each `verification: unverified` page (or the ones named):
    `verification: verified` and records the audit (R-028): `verified_by:` and
    `verified_rev:` (the base's current revision; the page must be committed
    as it is). Without that record the claim is unauditable.
-4. **Not faithful** → leave/return it to `unverified` and append one line to
-   `wiki/open-questions.md` naming the specific discrepancy —
-   `- [ ] YYYY-MM-DD …` (R-108), in the base's language. Never edit the
+4. **Not faithful** → leave/return it to `unverified` and add an open
+   question (`docsys question add`) naming the specific discrepancy, in the
+   base's language. Never edit the
    page's claims to make them pass — that is authoring, and it would need
    another audit.
 5. Gate: `docsys lint --root <base>`.
@@ -437,7 +436,7 @@ A personal knowledge base: plain markdown and git, no database, no lock-in.
 - Address: (unset — how the assistant addresses the person: name, formal or informal)
 - Tone: (unset — plain and brief, warm, formal; humor or none)
 - Languages: the conversation mirrors the person's language, turn by turn;
-  every file under `wiki/` — pages, indexes, `open-questions.md` — keeps the
+  every file under `wiki/` — pages, indexes, open questions — keeps the
   base's `default_content_language`, whatever language the person or the
   session's own settings speak; code identifiers, commands and quotations
   are never translated
@@ -452,11 +451,11 @@ capture → `raw/inbox/` · ingest → a wiki page + archived source · audit �
 Rules that are not mechanical:
 - Nothing is verified by the session that wrote it.
 - A changed page is `unverified` again.
-- A note that fits no domain stays in the inbox; a domain is proposed in
-  `wiki/open-questions.md` and earns its place only after several notes.
-- `wiki/open-questions.md` is the base's questions ledger: one dated line
-  per item, `- [ ] YYYY-MM-DD …` (R-108); lint reads its grammar and
-  `status` counts it — never rewrite the file, append to it.
+- A note that fits no domain stays in the inbox; a domain is proposed as an
+  open question and earns its place only after several notes.
+- An open question is one file under `wiki/open-questions/`, written by
+  `docsys question add`; `status` counts them, and an answered one leaves
+  with its commit's `Answered:` line (R-108).
 - Never invent. "Not in the base" is a complete answer.
 
 ## Sources beyond the inbox

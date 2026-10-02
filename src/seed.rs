@@ -1481,6 +1481,29 @@ pub fn apply(
                     .map_err(|e| e.to_string())?;
                 done.push(format!("postmortem: work/postmortems/{slug}.md ({sha})"));
             }
+            Row::Debt { date, text: item } | Row::Question { date, text: item }
+                if crate::era::Era::at(root).item_files() =>
+            {
+                // one file per item (D-124); the same item lands once
+                let list = if matches!(row, Row::Debt { .. }) {
+                    crate::items::List::Debt
+                } else {
+                    crate::items::List::Questions
+                };
+                let line = format!("- [ ] {date} {item}");
+                if crate::items::open(root, list, false)
+                    .iter()
+                    .any(|i| i.line.trim() == line)
+                {
+                    done.push(format!("{}: item already present", list.dir(false)));
+                    continue;
+                }
+                let rel = crate::items::add(root, list, false, &line)?;
+                done.push(format!(
+                    "{rel}: {date} {}",
+                    item.chars().take(60).collect::<String>()
+                ));
+            }
             Row::Debt { date, text: item } | Row::Question { date, text: item } => {
                 let (file, title) = if matches!(row, Row::Debt { .. }) {
                     ("work/debt.md", "# Debt\n")

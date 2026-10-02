@@ -101,7 +101,7 @@ fn adopt_wires_the_project_dir_form_and_bakes_the_trees_root() {
         sync.contains("docsys lint --root documentation --repo ."),
         "{sync}"
     );
-    assert!(sync.contains("`documentation/work/debt.md`"), "{sync}");
+    assert!(sync.contains("<sha> -- documentation/`"), "{sync}");
     let settings = fs::read_to_string(r.join(".claude/settings.json")).unwrap();
     for name in [
         "session-intent",

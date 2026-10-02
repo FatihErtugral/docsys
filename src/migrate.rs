@@ -557,7 +557,8 @@ pub fn init_profile(root: &Path, lang: &str, profile: &str) -> Result<(), String
                 "work/journal.md",
                 format!("# Journal\n\n## {date} - initialized\n- documentation tree created\n"),
             )?;
-            w("work/debt.md", "# Debt\n".to_string())?;
+            // debt and questions are one file per open item, created with
+            // the first one (R-043, D-124)
             scaffold_list_files_and_templates(root)?;
         }
         "knowledge-base" => {
@@ -906,7 +907,7 @@ pub fn scaffold_list_files_and_templates(root: &Path) -> Result<Vec<&'static str
     let mut written = Vec::new();
     let pre = generated_preamble(root);
     let q = root.join("work/questions.md");
-    if !q.exists() {
+    if !q.exists() && !crate::era::Era::at(root).item_files() {
         fs::create_dir_all(root.join("work")).map_err(|e| e.to_string())?;
         fs::write(&q, with_preamble("# Questions\n", &pre)).map_err(|e| e.to_string())?;
         written.push("work/questions.md");

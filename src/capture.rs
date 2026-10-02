@@ -9,10 +9,165 @@ use crate::seed::insert_journal_entry;
 use std::fs;
 use std::path::Path;
 
-/// `debt close <n>`: remove the n-th open item (1-based, in file order) and
-/// record the repayment as a journal entry dated today (D-039). The item's
-/// own text is the entry; `note` is the caller's one line on top of it.
-pub fn debt_close(root: &Path, n: usize, note: Option<&str>) -> Result<String, String> {
+/// The lists of the tree at `root`: whether it keeps one file per item
+/// (D-124), and whether it is a knowledge base.
+fn lists_of(root: &Path) -> (bool, bool) {
+    (
+        crate::era::Era::at(root).item_files(),
+        crate::hook::is_knowledge_base(root),
+    )
+}
+
+/// A ledger with `line` appended — the docsys/0.4 form (D-118).
+fn append_to_ledger(root: &Path, ledger: &str, title: &str, line: &str) -> Result<(), String> {
+    let path = root.join(ledger);
+    let mut text = fs::read_to_string(&path).unwrap_or_else(|_| title.to_string());
+    if !text.ends_with('\n') {
+        text.push('\n');
+    }
+    text.push_str(line);
+    text.push('\n');
+    if let Some(dir) = path.parent() {
+        fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+    }
+    fs::write(&path, text).map_err(|e| e.to_string())
+}
+
+fn item_date(date: Option<&str>) -> Result<String, String> {
+    match date {
+        Some(d) if crate::model::is_iso_date(d) => Ok(d.to_string()),
+        Some(d) => Err(format!("`{d}` is not a YYYY-MM-DD date")),
+        None => Ok(today()),
+    }
+}
+
+/// `debt add`: a deferred debt, dated, with why it waits and what repays it
+/// (R-108) — its own file on a docsys/0.5 tree (D-124).
+pub fn debt_add(
+    root: &Path,
+    text: &str,
+    deferred: Option<&str>,
+    repay_when: Option<&str>,
+    date: Option<&str>,
+) -> Result<String, String> {
+    let text = text.trim();
+    let (Some(deferred), Some(repay)) = (
+        deferred.map(str::trim).filter(|s| !s.is_empty()),
+        repay_when.map(str::trim).filter(|s| !s.is_empty()),
+    ) else {
+        return Err("a debt says why it waits and what repays it: --deferred <reason> --repay-when <trigger> (R-108)".into());
+    };
+    if text.is_empty() {
+        return Err("nothing to add".into());
+    }
+    let tree = crate::tree::DocTree::load(root).map_err(|e| e.to_string())?;
+    let line = format!(
+        "- [ ] {} {text} -- {}: {deferred} -- {}: {repay}",
+        item_date(date)?,
+        crate::checks::label_of(&tree, "deferred"),
+        crate::checks::label_of(&tree, "repay when")
+    );
+    let (items, kb) = lists_of(root);
+    if items {
+        let rel = crate::items::add(root, crate::items::List::Debt, kb, &line)?;
+        return Ok(format!("added: {rel}"));
+    }
+    append_to_ledger(root, "work/debt.md", "# Debt\n", &line)?;
+    Ok("added: work/debt.md".to_string())
+}
+
+/// `question add`: what is not known, dated, never a guess on a page (R-108)
+/// — its own file on a docsys/0.5 tree (D-124).
+pub fn question_add(
+    root: &Path,
+    text: &str,
+    context: Option<&str>,
+    date: Option<&str>,
+) -> Result<String, String> {
+    let text = text.trim();
+    if text.is_empty() {
+        return Err("nothing to add".into());
+    }
+    let mut line = format!("- [ ] {} {text}", item_date(date)?);
+    if let Some(c) = context.map(str::trim).filter(|c| !c.is_empty()) {
+        line.push_str(&format!(" -- {c}"));
+    }
+    let (items, kb) = lists_of(root);
+    let list = crate::items::List::Questions;
+    if items {
+        let rel = crate::items::add(root, list, kb, &line)?;
+        return Ok(format!("added: {rel}"));
+    }
+    append_to_ledger(root, list.ledger(kb), "# Questions\n", &line)?;
+    Ok(format!("added: {}", list.ledger(kb)))
+}
+
+/// `question close`: an answered question leaves its file and the commit
+/// carries `Answered:` (D-124); on a docsys/0.4 tree the n-th open line is
+/// checked off with its answer, as R-108 had it.
+pub fn question_close(root: &Path, which: &str, answer: Option<&str>) -> Result<String, String> {
+    let answer = answer
+        .map(str::trim)
+        .filter(|a| !a.is_empty())
+        .ok_or("an answered question says its answer: --answer <link or one line> (R-108)")?;
+    let (items, kb) = lists_of(root);
+    let list = crate::items::List::Questions;
+    if items {
+        return crate::items::close(root, list, kb, which, answer);
+    }
+    let n: usize = which
+        .parse()
+        .map_err(|_| format!("`{which}` is not an item number"))?;
+    let ledger = list.ledger(kb);
+    let path = root.join(ledger);
+    let text = fs::read_to_string(&path).map_err(|_| format!("{ledger} does not exist"))?;
+    let tree = crate::tree::DocTree::load(root).map_err(|e| e.to_string())?;
+    let label = crate::checks::label_of(&tree, "answered");
+    let mut seen = 0usize;
+    let mut closed = None;
+    let mut out = String::with_capacity(text.len());
+    for line in text.split_inclusive('\n') {
+        if closed.is_none() && line.starts_with("- [ ] ") {
+            seen += 1;
+            if seen == n {
+                let body = line.trim_end().trim_start_matches("- [ ] ");
+                closed = Some(body.to_string());
+                out.push_str(&format!("- [x] {body} -- {label}: {answer}\n"));
+                continue;
+            }
+        }
+        out.push_str(line);
+    }
+    let item =
+        closed.ok_or_else(|| format!("{ledger} has {seen} open item(s); there is no item {n}"))?;
+    fs::write(&path, out).map_err(|e| e.to_string())?;
+    Ok(format!("answered: {item}"))
+}
+
+/// `debt close <item>`: on a docsys/0.5 tree the item's file goes and the
+/// commit carries `Resolved:` (D-124); on a 0.4 tree, `debt_close_ledger`.
+pub fn debt_close(root: &Path, which: &str, note: Option<&str>) -> Result<String, String> {
+    let (items, kb) = lists_of(root);
+    if items {
+        return crate::items::close(
+            root,
+            crate::items::List::Debt,
+            kb,
+            which,
+            note.unwrap_or(""),
+        );
+    }
+    let n: usize = which
+        .parse()
+        .map_err(|_| format!("`{which}` is not an item number — `docsys debt close <n>`"))?;
+    debt_close_ledger(root, n, note)
+}
+
+/// `debt close <n>` on a docsys/0.4 tree: remove the n-th open item (1-based,
+/// in file order) and record the repayment as a journal entry dated today
+/// (D-039). The item's own text is the entry; `note` is the caller's one line
+/// on top of it.
+fn debt_close_ledger(root: &Path, n: usize, note: Option<&str>) -> Result<String, String> {
     let path = root.join("work/debt.md");
     let text = fs::read_to_string(&path).map_err(|_| "work/debt.md does not exist".to_string())?;
     let mut open_seen = 0usize;
@@ -93,6 +248,20 @@ pub fn ledger_fix_with(root: &Path, write: bool) -> Result<String, String> {
             .collect();
         let mut files = vec![ledger.to_string()];
         files.extend(crate::checks::archive_slices(root, ledger));
+        // a docsys/0.5 list is a directory of item files (D-124)
+        if crate::era::Era::of(&tree).item_files() {
+            let dir = ledger.trim_end_matches(".md");
+            if let Ok(entries) = fs::read_dir(root.join(dir)) {
+                let mut names: Vec<String> = entries
+                    .flatten()
+                    .filter_map(|e| e.file_name().to_str().map(str::to_string))
+                    .filter(|n| n.ends_with(".md"))
+                    .map(|n| format!("{dir}/{n}"))
+                    .collect();
+                names.sort();
+                files.extend(names);
+            }
+        }
         for rel in files {
             let path = root.join(&rel);
             let Ok(text) = fs::read_to_string(&path) else {
@@ -306,15 +475,89 @@ mod tests {
         root
     }
 
+    /// A docsys/0.4 tree, kept as 0.15.1 kept it (D-118).
+    fn tree04(name: &str) -> std::path::PathBuf {
+        let root = tree(name);
+        let meta = root.join(".docmeta.yml");
+        let text = fs::read_to_string(&meta).unwrap();
+        fs::write(&meta, text.replace("spec: docsys/0.5", "spec: docsys/0.4")).unwrap();
+        root
+    }
+
+    #[test]
+    fn an_item_is_its_own_file_and_closing_it_names_the_trailer() {
+        let root = tree("items");
+        let out = debt_add(
+            &root,
+            "Retries are unbounded",
+            Some("no owner"),
+            Some("next outage"),
+            Some("2026-10-01"),
+        )
+        .unwrap();
+        assert_eq!(out, "added: work/debt/retries-are-unbounded.md");
+        assert_eq!(
+            fs::read_to_string(root.join("work/debt/retries-are-unbounded.md")).unwrap(),
+            "- [ ] 2026-10-01 Retries are unbounded -- deferred: no owner -- repay when: next outage\n"
+        );
+        assert!(
+            debt_add(&root, "x", None, Some("y"), None).is_err(),
+            "a debt says why it waits"
+        );
+        let out = question_add(
+            &root,
+            "Who owns the retry budget?",
+            Some("[[reference/retry]]"),
+            Some("2026-10-02"),
+        )
+        .unwrap();
+        assert_eq!(out, "added: work/questions/who-owns-the-retry-budget.md");
+        let out = debt_close(&root, "retries-are-unbounded", Some("bounded at three")).unwrap();
+        assert!(out.ends_with("\nResolved: bounded at three"), "{out}");
+        assert!(!root.join("work/debt/retries-are-unbounded.md").exists());
+        assert!(
+            question_close(&root, "1", None).is_err(),
+            "an answer is required"
+        );
+        let out = question_close(&root, "1", Some("the platform team")).unwrap();
+        assert!(out.ends_with("\nAnswered: the platform team"), "{out}");
+        assert!(!root
+            .join("work/questions/who-owns-the-retry-budget.md")
+            .exists());
+        assert!(!root.join("work/debt.md").exists() && !root.join("work/questions.md").exists());
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn a_0_4_tree_keeps_its_ledgers() {
+        let root = tree04("ledgers");
+        debt_add(
+            &root,
+            "Retries are unbounded",
+            Some("no owner"),
+            Some("next outage"),
+            Some("2026-10-01"),
+        )
+        .unwrap();
+        question_add(&root, "Who owns it?", None, Some("2026-10-02")).unwrap();
+        assert!(fs::read_to_string(root.join("work/debt.md")).unwrap().ends_with("- [ ] 2026-10-01 Retries are unbounded -- deferred: no owner -- repay when: next outage\n"));
+        question_close(&root, "1", Some("the platform team")).unwrap();
+        assert!(fs::read_to_string(root.join("work/questions.md"))
+            .unwrap()
+            .ends_with("- [x] 2026-10-02 Who owns it? -- answered: the platform team\n"));
+        assert!(!root.join("work/debt").exists());
+        let _ = fs::remove_dir_all(&root);
+    }
+
     #[test]
     fn a_closed_debt_leaves_the_ledger_and_lands_in_the_journal() {
-        let root = tree("debt");
+        let root = tree04("debt");
         fs::write(
             root.join("work/debt.md"),
             "# Debt\n\nPreamble.\n\n- [ ] 2026-08-01 first -- deferred: a -- repay when: b\n- [ ] 2026-08-02 second -- deferred: c -- repay when: d\n",
         )
         .unwrap();
-        let out = debt_close(&root, 1, Some("measured twice, held")).unwrap();
+        let out = debt_close(&root, "1", Some("measured twice, held")).unwrap();
         assert!(out.contains("closed: 2026-08-01 first"), "{out}");
         let ledger = fs::read_to_string(root.join("work/debt.md")).unwrap();
         assert!(!ledger.contains("first"), "{ledger}");
@@ -325,7 +568,7 @@ mod tests {
         // newest first: the repayment sits above the init entry
         let heads: Vec<&str> = journal.lines().filter(|l| l.starts_with("## ")).collect();
         assert!(heads[0].contains("repaid: first"), "{heads:?}");
-        assert!(debt_close(&root, 5, None)
+        assert!(debt_close(&root, "5", None)
             .unwrap_err()
             .contains("no item 5"));
         let _ = fs::remove_dir_all(&root);

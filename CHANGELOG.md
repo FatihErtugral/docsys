@@ -19,6 +19,10 @@ declares `spec: docsys/0.5`; a tree that declares `docsys/0.4` is served as
   under .git/hooks cannot warn an old binary.
 - `docsys upgrade` prints the plan; `docsys upgrade --apply --commit` moves the
   tree in one commit. The items it lists for a person are theirs to finish.
+- A branch opened before the move runs the same `docsys upgrade --apply
+  --commit` once before it merges: it converts the branch's own additions the
+  same way, and the merge is clean. A branch merged without it is caught by
+  lint, and a re-run moves its lines.
 
 ### Added
 
@@ -54,6 +58,12 @@ declares `spec: docsys/0.5`; a tree that declares `docsys/0.4` is served as
 - A pin's evidence lives beside the page under `.verifies/`; a refresh never
   writes the page, and pull requests that refresh pins merge cleanly (D-119).
 - A pinned symbol resolves to its declaration, never to a use (D-106).
+- Debt and questions are one file per open item, written by `docsys debt add`
+  and `docsys question add`; closing removes the file and prints the
+  `Resolved:` or `Answered:` line its commit carries, and `upgrade` moves each
+  open item of the old ledgers into its own file and the rest, as written,
+  under `_archive/` (R-108, D-124). D-109's vanished-item check is retired
+  with the ledgers.
 - A router line may route a directory, and every page under it is reachable;
   `adopt` routes the four type directories, so a new page adds no line to
   `index.md`, and `upgrade` appends the routes and keeps every line (R-034,
@@ -61,8 +71,7 @@ declares `spec: docsys/0.5`; a tree that declares `docsys/0.4` is served as
 - A page's date is its last content change in history: nothing writes
   `updated:`, a page that still carries it is reported, and `upgrade` removes
   the lines (R-050, D-122; R-052 and R-106 withdrawn).
-- R-108 reads ledger separators as written (D-108); an open item that vanished
-  is reported (R-045, D-109).
+- R-108 reads ledger separators as written (D-108).
 - A code-side `doc:` counts at the start of a comment only (R-072, D-107); a
   wiki-link inside inline code is quoted material (R-071).
 - A project's `raw/` is a record layer (R-023, D-112).
@@ -74,6 +83,9 @@ declares `spec: docsys/0.5`; a tree that declares `docsys/0.4` is served as
   `ADOPTION.md` stay where they are, and `init` writes only absent files (D-110).
 
 ### Fixed
+
+- The CI workflow names the repository's own base branch when no remote says
+  which: a local `main` or `master` before the branch checked out.
 
 - docsys works from any directory of the repository, and a hook finds its
   tree from its payload (D-098).

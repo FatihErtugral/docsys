@@ -274,8 +274,8 @@ verification; `verification:` is the current state.
 whose domain is not declared **is reported**; content that fits no declared
 domain stays in `raw/inbox/` rather than being forced into the nearest one. What
 the base cannot settle by itself — a domain proposal, a discrepancy an audit
-found, a note left in the inbox with its reason — is one dated line in
-`wiki/open-questions.md`, a list file under R-108's grammar (`- [ ] YYYY-MM-DD …`)
+found, a note left in the inbox with its reason — is one dated item under
+`wiki/open-questions/`, an item file under R-108's grammar (`- [ ] YYYY-MM-DD …`)
 and, like every file under `wiki/`, in the base's declared language (D-090).
 
 **R-029** `lint` · MUST — In `wiki/<domain>/<type>/`, the directory's type
@@ -395,10 +395,10 @@ its entries are links and one-sentence hooks, never content.
 **R-210** `lint` · SHOULD — A permanent page states what is known. When
 `.docmeta.yml` declares `uncertainty_markers:` — the tree's own words for a
 guess, in its own language (D-025) — a permanent page carrying one outside code
-and quotations **is reported**: what is not known is a dated `questions.md`
-item (R-108), and a guess left on a permanent page reads as a fact to the next
+and quotations **is reported**: what is not known is a dated question item
+(R-108), and a guess left on a permanent page reads as a fact to the next
 agent that loads it. The smaller text tried first was the procedures' escape
-("questions.md item"); a real tree still carried its guesses on permanent pages.
+("question item"); a real tree still carried its guesses on permanent pages.
 
 **R-211** `lint` · SHOULD — A `reference` page holds the current state, not its
 history. When `.docmeta.yml` declares `history_headings:` — the headings the
@@ -420,13 +420,14 @@ work/
 ├── features/       work requiring a design decision
 ├── postmortems/    an incident with a lesson
 ├── research/       explored, no decision reached
-├── debt.md         deliberately deferred
-└── questions.md    not known
+├── debt/           deliberately deferred — one file per open item
+└── questions/      not known — one file per open item
 ```
 
 **R-041** `lint` · MUST — Files under `features/`, `postmortems/`, and
-`research/` are *tracked work* and carry `status` (§8). `journal.md`,
-`debt.md`, `questions.md`, journal archive slices under `journal/`, and archived
+`research/` are *tracked work* and carry `status` (§8). `journal.md`, the
+item files under `debt/` and `questions/` (R-108), journal archive slices under
+`journal/`, and archived
 list-file slices under `_archive/` (R-108) are *list files*: they hold many
 independent items, do not track the life of one unit of work, and MUST NOT
 carry `status`.
@@ -436,7 +437,7 @@ carry `status`.
 graduation target.
 
 **R-043** `advisory` · SHOULD — A directory is created when its first file is
-needed. Only `journal.md` and `debt.md` are created at initialization. An empty
+needed. Only `journal.md` is created at initialization. An empty
 directory reads as an obligation and produces filler content.
 
 ### 4.3 Tracked-work templates
@@ -482,58 +483,51 @@ this table instead of inferring:
 | `Recurrence` — the invariant and its test | `reference/` |
 | `Lesson` | `howto/` when procedural, else `explanation/` |
 | `Learned` | `explanation/` |
-| `Question`, `Why no decision` — still open at closure | a **fresh** `questions.md` item (R-108 grammar) linking back; the section itself is retained. Writing the item is model authorship, licensed as in R-099 — a section cannot move byte-exactly into a one-line grammar |
+| `Question`, `Why no decision` — still open at closure | a **fresh** question item (R-108) linking back; the section itself is retained. Writing the item is model authorship, licensed as in R-099 — a section cannot move byte-exactly into a one-line grammar |
 | `Question`, `Why no decision` — closed with reasoning | `explanation/` |
 
 List files are not templated — they hold many independent items, not sections —
 but each has an **item grammar**:
 
-**R-108** `lint` · MUST — A list-file entry MUST match its item grammar; a
+**R-108** `lint` · MUST — A list entry MUST match its item grammar; a
 non-matching entry **is reported**. The check is applicable (R-011) only when
-the file has at least one entry. `journal.md` is governed by R-100/R-101. The
-other two use `- [ ]` for open and `- [x]` for closed entries:
+the list has at least one entry. The journal is governed by R-100/R-101. Debt
+and questions are directories of **item files**: each open item is one file —
+`work/debt/<slug>.md`, `work/questions/<slug>.md`, and in the knowledge-base
+profile `wiki/open-questions/<slug>.md` — holding the item's one line, so two
+branches that each add an item never touch the same file (D-124):
 
-| File | Item grammar |
+| List | Item grammar |
 |---|---|
-| `debt.md` open | `- [ ] YYYY-MM-DD <debt> -- deferred: <reason> -- repay when: <trigger>` |
-| `debt.md` closed | `- [x] YYYY-MM-DD <debt> -- deferred: <reason> -- repay when: <trigger> -- resolved: <note or link>` |
-| `questions.md` open | `- [ ] YYYY-MM-DD <question>` optionally ` -- <context or link>` |
-| `questions.md` closed | `- [x] YYYY-MM-DD <question> -- answered: <link or one line>` |
+| debt | `- [ ] YYYY-MM-DD <debt> -- deferred: <reason> -- repay when: <trigger>` |
+| questions | `- [ ] YYYY-MM-DD <question>` optionally ` -- <context or link>` |
 
 An open item carries its opening date so its age can be measured (D-039).
-`debt.md` holds items only: a heading or a paragraph after its first item **is
-an error**. It is always one of three things written in the wrong form — a
-closed debt kept as prose (it leaves the file; the journal line records the
-repayment), a lesson (it goes to `work/postmortems/`), or an open debt without
-its line (it becomes a dated `- [ ]` item). Prose before the first item is the
-file's own preamble and is free. A list item without a checkbox — `- text`,
-before or after the first item — is not preamble: it **is an error** in both
-files, because it reads as an entry to a person and as nothing to every check
-(no date, no `debt close` number, no age). Blocking is R-151's criterion met
-exactly: a ledger that reads as a list while its content lives in prose or in
-checkbox-less bullets is silently wrong, and the fix is one deletion or one
-move.
+Prose before the item is the file's own preamble and is free. A second item, a
+closed `- [x]` item, a list item without a checkbox, or text after the item
+**is an error**: each is a debt or a question written where no check, no
+`debt close` and no age measurement can see it, which is R-151's second
+criterion met exactly, and the fix is one move. A closed item leaves: its file
+is deleted, and the commit that deletes it carries the closure as a trailer —
+`Resolved: <note or link>` for a debt, `Answered: <link or one line>` for a
+question. History keeps the item; a list of closed items is a second archive
+nobody reads. A docsys/0.4 tree kept each list in one file, `debt.md` or
+`questions.md`, closed items included; those files stay readable as frozen
+slices under `_archive/`.
 
 The field labels above are canonical, not literal: `.docmeta.yml` MAY declare
-`list_labels: [deferred=<local form>, repay when=<local form>, resolved=<local
-form>, answered=<local form>]`, exactly as `headings` does for template sections
-(D-025). A tree writing its documentation in another language must not be forced
-to embed English words in its own prose to satisfy a checker; the tool knows no
-language, so the tree declares its own.
+`list_labels: [deferred=<local form>, repay when=<local form>]`, exactly as
+`headings` does for template sections (D-025). A tree writing its documentation
+in another language must not be forced to embed English words in its own prose
+to satisfy a checker; the tool knows no language, so the tree declares its own.
+The trailers are structural tokens, fixed like section headings (R-120).
 
 The field markers are the literal strings ` -- deferred: `, ` -- repay when: `,
-` -- resolved: `, ` -- answered: `, and bare ` -- `. They are matched **in the
-declared order, at the first occurrence of each, left to right**; the last
-field takes the remainder of the line, so field text may contain hyphens and
-dashes freely. All separators are ASCII — one canonical spelling, because two
-equivalent spellings make identical entries diff differently.
-
-Closed entries remain valid indefinitely. When a list file grows past the
-journal limit (R-103's threshold applies), closed entries MAY be moved in bulk
-to an archive slice under `_archive/` — the location R-041 already names; the
-slice remains a list file and its entries stay subject to this grammar. The R-093 question is
-asked before the sweep — a closed entry whose `resolved:` points nowhere may be
-the only record of the answer.
+and bare ` -- `. They are matched **in the declared order, at the first
+occurrence of each, left to right**; the last field takes the remainder of the
+line, so field text may contain hyphens and dashes freely. All separators are
+ASCII — one canonical spelling, because two equivalent spellings make
+identical entries diff differently.
 
 > A debt entry without a repayment trigger is never repaid — it is a wish, not a
 > debt. A question without a date cannot be aged, and an unaged question list
@@ -1102,7 +1096,7 @@ dirty working tree unless explicitly forced, and **on completion** MUST leave no
 state in which two authoritative copies of the same content both pass lint — the
 prepared-but-not-yet-shrunk state *during* a graduation (R-092, R-099) is the
 in-flight state atomicity governs, not a violation of this clause. List-file
-appends (a journal line, a `questions.md` item) are single-file writes and are
+appends (a journal line, a question item) are single-file writes and are
 exempt from the dirty-tree refusal: they are the capture path (R-004), and an
 escape hatch that needs `--force` is not an escape hatch.
 
@@ -1532,7 +1526,7 @@ saying why; and the end of a turn in which code changed without its record
 **holds the session** once, so the knowledge is captured while the session
 that has it still exists — the commit may come later, from another session or
 from a person at a terminal. `DOCSYS_SKIP=1` still bypasses once; under
-`require` the bypass leaves a dated debt item in `work/debt.md` (derived, not
+`require` the bypass leaves a dated debt item under `work/debt/` (derived, not
 authored — R-156), so an undocumented commit is visible, never silent
 (R-151's second criterion: silently wrong). The first turn of a session names
 the tree's own state — permanent pages, work in flight, the policy — before the
@@ -1621,7 +1615,7 @@ style preference.
 This is the normative content R-163 renders — one procedure per `agent`-tagged
 rule, indented so none parses as a rule declaration. Procedures name the
 `project` profile's surfaces; in the `knowledge-base` profile, read
-`questions.md` as `wiki/open-questions.md`, "the journal" as a note in
+`work/questions/` as `wiki/open-questions/`, "the journal" as a note in
 `raw/inbox/` — the profile's capture surface — and the type directories as
 `wiki/<domain>/<type>/`.
 
@@ -1635,7 +1629,7 @@ rule, indented so none parses as a rule declaration. Procedures name the
     DEFAULT  : the escape — a default type would make explanation/ the
                dumping ground and silence the R-046 signal
     ESCAPE   : answers more than one → split (R-031); answers none, or cannot
-               be split cleanly → _unsorted/ + a questions.md item
+               be split cleanly → _unsorted/ + a question item
     VERIFY   : audit type-mixing review (reads each page against the table)
     NEVER    : force content into the nearest type
 
@@ -1645,7 +1639,7 @@ rule, indented so none parses as a rule declaration. Procedures name the
     OPTIONS  : yes → do not verify — leave for another session
                no  → check every claim against sources:, then set verified
     DEFAULT  : do not verify
-    ESCAPE   : authorship unclear → do not verify + questions.md item
+    ESCAPE   : authorship unclear → do not verify + question item
     VERIFY   : R-028 record; audit checks verifier differs from author
     NEVER    : verify your own output
 
@@ -1669,7 +1663,7 @@ rule, indented so none parses as a rule declaration. Procedures name the
                no  → write it; it is what the code cannot say
     DEFAULT  : do not write it — a duplicate becomes a trusted lie when the
                code changes (R-002); an omission is only an omission
-    ESCAPE   : cannot tell who owns it → do not write + questions.md item
+    ESCAPE   : cannot tell who owns it → do not write + question item
     VERIFY   : audit duplicate-source-of-truth check
     NEVER    : copy a signature or a parameter list
 
@@ -1702,7 +1696,7 @@ rule, indented so none parses as a rule declaration. Procedures name the
                quoted  → keep it inside its fence or quotation
     DEFAULT  : the escape — replacing quoted evidence destroys it, and
                fencing a live pointer merely hides it from lint
-    ESCAPE   : unsure → leave the text untouched + questions.md item naming
+    ESCAPE   : unsure → leave the text untouched + question item naming
                the file and line
     VERIFY   : R-075 lint on paths outside fences
     NEVER    : rewrite quoted evidence — a trace is a record, not prose
@@ -1726,7 +1720,7 @@ rule, indented so none parses as a rule declaration. Procedures name the
                no  → prepare the destination (R-099), then move (R-090)
     DEFAULT  : treat as new — a duplicate is caught by audit, a loss is not
     ESCAPE   : cannot tell whether two blocks say the same → move nothing,
-               leave the block where it is + questions.md item; the work file
+               leave the block where it is + question item; the work file
                stays active until the question closes (one home, R-002)
     VERIFY   : audit duplicate check; R-056 resolution of graduated_to
     NEVER    : shrink the source before the destination exists. In the
@@ -1738,7 +1732,7 @@ rule, indented so none parses as a rule declaration. Procedures name the
     QUESTION : does any still-true information here exist nowhere else?
     OPTIONS  : yes → graduate it first, per R-049 · no → archive
     DEFAULT  : graduate first
-    ESCAPE   : cannot judge whether it is still true → questions.md item, and
+    ESCAPE   : cannot judge whether it is still true → question item, and
                do not archive yet
     VERIFY   : R-047 tombstone check; audit
     NEVER    : archive unique knowledge
@@ -1773,7 +1767,7 @@ rule, indented so none parses as a rule declaration. Procedures name the
                existing → the page's current language (P/R-122)
     DEFAULT  : default_content_language
     ESCAPE   : an existing page is already mixed → pick its dominant
-               language + questions.md item; never "fix" wholesale
+               language + question item; never "fix" wholesale
     VERIFY   : audit language spot-check
     NEVER    : switch an existing page's language
 
@@ -1783,7 +1777,7 @@ rule, indented so none parses as a rule declaration. Procedures name the
     OPTIONS  : that language → continue in it
     DEFAULT  : the page's existing language
     ESCAPE   : genuinely mixed → continue in the dominant language, and the
-               questions.md item flags the page for a deliberate one-language
+               question item flags the page for a deliberate one-language
                pass — the mixed state is a debt, not a norm; fixing it
                wholesale mid-edit is a human decision, not a side effect
     VERIFY   : audit language spot-check

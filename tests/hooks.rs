@@ -602,9 +602,17 @@ fn under_require_the_gate_refuses_every_time_and_a_bypass_leaves_debt() {
     git(&repo, &["add", "lib.rs"]);
     let (code, _) = run_hook(&repo, commit_payload(), &[("DOCSYS_SKIP", "1")]);
     assert_eq!(code, 0);
-    let debt = fs::read_to_string(repo.join("docs/work/debt.md")).unwrap();
+    // its own file on a docsys/0.5 tree (D-124)
+    let items: Vec<_> = fs::read_dir(repo.join("docs/work/debt"))
+        .unwrap()
+        .flatten()
+        .map(|e| e.path())
+        .collect();
+    assert_eq!(items.len(), 1, "{items:?}");
+    let debt = fs::read_to_string(items.first().unwrap()).unwrap();
     assert!(
-        debt.contains("committed without documentation (DOCSYS_SKIP): lib.rs"),
+        debt.starts_with("- [ ] ")
+            && debt.contains("committed without documentation (DOCSYS_SKIP): lib.rs"),
         "{debt}"
     );
     assert!(

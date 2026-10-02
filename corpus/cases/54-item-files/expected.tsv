@@ -1,0 +1,8 @@
+EXIT	1
+WARN	R-108	work/debt.md	legacy
+WARN	R-108	work/debt/no-trigger.md	line-1
+ERROR	R-108	work/debt/two.md	line-2
+ERROR	R-108	work/questions/bullet.md	line-1
+ERROR	R-108	work/questions/closed.md	line-1
+ERROR	R-108	work/questions/empty.md	item
+ERROR	R-108	work/questions/prose.md	line-5

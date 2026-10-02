@@ -594,22 +594,25 @@ fn after_the_move_the_separators_are_ledger_fixs() {
     let (repo, _) = build("separators");
     let out = docsys(&repo, &["upgrade", "--apply", "--commit"]);
     assert!(out.status.success(), "{out:?}");
-    let debt = repo.join("docs/work/debt.md");
+    // an item written by hand with dashes, after the move (D-124)
+    let debt = repo.join("docs/work/debt/a-second-item.md");
     let dashed = "- [ ] 2026-09-03 A second item — deferred: later — repay when: soon\n";
-    fs::write(&debt, fs::read_to_string(&debt).unwrap() + dashed).unwrap();
-    git(&repo, &["commit", "-qam", "a dashed item"]);
+    fs::write(&debt, dashed).unwrap();
+    git(&repo, &["add", "-A"]);
+    git(&repo, &["commit", "-qm", "a dashed item"]);
     let out = docsys(&repo, &["upgrade", "--apply"]);
     assert!(out.status.success(), "{out:?}");
     assert!(
         !String::from_utf8_lossy(&out.stdout).contains("ledger-separators"),
         "{out:?}"
     );
-    assert!(fs::read_to_string(&debt).unwrap().ends_with(dashed));
+    assert_eq!(fs::read_to_string(&debt).unwrap(), dashed);
     let out = docsys(&repo, &["ledger", "fix"]);
     assert!(out.status.success(), "{out:?}");
-    assert!(fs::read_to_string(&debt)
-        .unwrap()
-        .ends_with("- [ ] 2026-09-03 A second item -- deferred: later -- repay when: soon\n"));
+    assert_eq!(
+        fs::read_to_string(&debt).unwrap(),
+        "- [ ] 2026-09-03 A second item -- deferred: later -- repay when: soon\n"
+    );
     let _ = fs::remove_dir_all(&repo);
 }
 
@@ -995,6 +998,118 @@ fn a_late_branchs_date_line_is_absorbed_by_a_re_run() {
     let again = docsys(&repo, &["upgrade", "--apply"]);
     assert!(
         !String::from_utf8_lossy(&again.stdout).contains("dates"),
+        "{again:?}"
+    );
+    let _ = fs::remove_dir_all(&repo);
+}
+
+/// N4: a branch opened before the move appends to the old ledgers. Run on
+/// the branch, the same upgrade makes the same files, and the branch merges
+/// cleanly; merged without it, git carries the line into the frozen slice,
+/// and after the person keeps both sides a re-run moves exactly that item
+/// into its own file. Every closed item and line of prose stays as written
+/// (D-124).
+#[test]
+fn a_late_branchs_ledger_lines_are_absorbed_and_the_frozen_slice_keeps_its_bytes() {
+    let (repo, _) = build("late-ledger");
+    let debt = repo.join("docs/work/debt.md");
+    let kept = "# Debt\n\nItems the team chose to defer.\n\n- [x] 2026-08-20 a closed one -- deferred: a -- repay when: b -- resolved: done\n";
+    let before = "- [ ] 2026-09-01 open before -- deferred: c -- repay when: d\n";
+    fs::write(&debt, format!("{kept}{before}")).unwrap();
+    git(&repo, &["commit", "-qam", "the ledger"]);
+    let late = "- [ ] 2026-09-04 added on the branch -- deferred: e -- repay when: f\n";
+    let other = "- [ ] 2026-09-05 added on another branch -- deferred: g -- repay when: h\n";
+    for (branch, line) in [("upgraded", late), ("plain", other)] {
+        git(&repo, &["checkout", "-qb", branch]);
+        fs::write(&debt, fs::read_to_string(&debt).unwrap() + line).unwrap();
+        git(&repo, &["commit", "-qam", "a branch adds a debt"]);
+        git(&repo, &["checkout", "-q", "main"]);
+    }
+    let out = docsys(&repo, &["upgrade", "--apply", "--commit"]);
+    assert!(out.status.success(), "{out:?}");
+    let slice = repo.join("docs/_archive/work/debt.md");
+    assert_eq!(
+        fs::read_to_string(&slice).unwrap(),
+        kept,
+        "the rest, as written"
+    );
+    let item = repo.join("docs/work/debt/open-before.md");
+    assert_eq!(fs::read_to_string(&item).unwrap(), before);
+
+    // the branch runs the same upgrade before it merges: no conflict
+    git(&repo, &["checkout", "-q", "upgraded"]);
+    let out = docsys(&repo, &["upgrade", "--apply", "--commit"]);
+    assert!(out.status.success(), "{out:?}");
+    git(&repo, &["checkout", "-q", "main"]);
+    git(&repo, &["merge", "-q", "--no-edit", "upgraded"]);
+    let added = repo.join("docs/work/debt/added-on-the-branch.md");
+    assert_eq!(fs::read_to_string(&added).unwrap(), late);
+    git(
+        &repo,
+        &["rm", "-q", "docs/work/debt/added-on-the-branch.md"],
+    );
+    git(&repo, &["commit", "-qm", "repaid", "-m", "Resolved: done"]);
+
+    // the other merges as it is: git carries its line wherever it follows
+    // the ledger, and a conflict is resolved by keeping both sides
+    let merged = Command::new("git")
+        .args(["merge", "-q", "--no-edit", "plain"])
+        .current_dir(&repo)
+        .output()
+        .unwrap();
+    if !merged.status.success() {
+        let conflicted = git(&repo, &["diff", "--name-only", "--diff-filter=U"]);
+        for f in conflicted.lines() {
+            let p = repo.join(f);
+            match fs::read_to_string(&p) {
+                Ok(text) => {
+                    let both: String = text
+                        .lines()
+                        .filter(|l| {
+                            !l.starts_with("<<<<<<<")
+                                && !l.starts_with("=======")
+                                && !l.starts_with(">>>>>>>")
+                        })
+                        .map(|l| format!("{l}\n"))
+                        .collect();
+                    fs::write(&p, both).unwrap();
+                }
+                Err(_) => {
+                    git(&repo, &["checkout", "--theirs", "--", f]);
+                }
+            }
+        }
+        git(&repo, &["add", "-A"]);
+        git(&repo, &["commit", "-q", "--no-edit"]);
+    }
+    let lint = docsys(&repo, &["lint"]);
+    assert!(
+        String::from_utf8_lossy(&lint.stdout).contains("`docsys upgrade --apply` moves"),
+        "{lint:?}"
+    );
+    let out = docsys(&repo, &["upgrade", "--apply"]);
+    assert!(out.status.success(), "{out:?}");
+    let absorbed = repo.join("docs/work/debt/added-on-another-branch.md");
+    assert_eq!(
+        fs::read_to_string(&absorbed).unwrap(),
+        other,
+        "the branch's item, once"
+    );
+    assert!(!added.exists(), "the item closed on main stays closed");
+    assert_eq!(fs::read_to_string(&item).unwrap(), before);
+    assert!(
+        !repo.join("docs/work/debt/open-before-2.md").exists(),
+        "never twice"
+    );
+    assert_eq!(
+        fs::read_to_string(&slice).unwrap(),
+        kept,
+        "the slice is back to its bytes"
+    );
+    assert!(!debt.exists());
+    let again = docsys(&repo, &["upgrade", "--apply"]);
+    assert!(
+        !String::from_utf8_lossy(&again.stdout).contains("ledgers"),
         "{again:?}"
     );
     let _ = fs::remove_dir_all(&repo);

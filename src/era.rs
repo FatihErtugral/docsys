@@ -113,12 +113,6 @@ impl Era {
         self.v05()
     }
 
-    /// D-109: an open ledger item that vanished with no counterpart is
-    /// reported at the gate (R-045). Before: not checked.
-    pub fn vanished_items(self) -> bool {
-        self.v05()
-    }
-
     /// R-208: a scalar `maintainers:` names nobody, and is reported.
     /// Before: read silently as an empty list.
     pub fn scalar_maintainers(self) -> bool {
@@ -148,6 +142,13 @@ impl Era {
     /// D-123: a router line may route a directory, and every page under it
     /// is reachable. Before: a router line routes one page.
     pub fn directory_routes(self) -> bool {
+        self.v05()
+    }
+
+    /// D-124: debt and questions are directories of one-item files, and a
+    /// closed item leaves with its file. Before: one ledger file per list,
+    /// closed items included.
+    pub fn item_files(self) -> bool {
         self.v05()
     }
 

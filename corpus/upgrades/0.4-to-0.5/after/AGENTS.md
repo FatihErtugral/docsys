@@ -66,12 +66,12 @@ When you write a page:
 - P/R-123 — a term that might be translated
   QUESTION : is it on R-123's list?
   OPTIONS  : yes → keep the original form · no → translate freely
-- not known → a dated `work/questions.md` item (R-108), never a guess left on a page
+- not known → `docsys question add <question>` (R-108), never a guess left on
+a page
 - agent memory is a question for the person, never a source (D-062)
-- `debt.md` open: `- [ ] YYYY-MM-DD <debt> -- deferred: <reason> -- repay when: <trigger>`
-- `debt.md` closed: `- [x] YYYY-MM-DD <debt> -- deferred: <reason> -- repay when: <trigger> -- resolved: <note or link>`
-- `questions.md` open: `- [ ] YYYY-MM-DD <question>` optionally ` -- <context or link>`
-- `questions.md` closed: `- [x] YYYY-MM-DD <question> -- answered: <link or one line>`
+- work deferred on purpose → `docsys debt add <debt> --deferred <reason>
+--repay-when <trigger>`; once repaid, `docsys debt close <item> --note <how>`,
+and the commit carries the `Resolved:` line it prints (R-108)
 
 When you verify:
 - P/R-025 — verify a knowledge-base page
@@ -83,6 +83,6 @@ word in the session is recorded with `docsys verify <page>` (D-096)
 
 When a decision procedure exists, follow it: `docsys rules --procedures`.
 When no option fits, the escape is always legitimate — an honest "I don't
-know" (an `_unsorted/` file, a `questions.md` item) is cheaper than a
+know" (an `_unsorted/` file, a question item) is cheaper than a
 confident guess.
 <!-- docsys:rules:end -->
