@@ -43,6 +43,14 @@ by the release workflow — the tag's section becomes the GitHub release body.
 
 ### Changed
 
+- The block `rules --agents-md` writes teaches what an agent decides while it
+  writes or verifies a page (D-114): the question and options of P/R-031,
+  P/R-033, P/R-045, P/R-102, P/R-123 and P/R-025 verbatim from the spec, R-108's
+  item grammar, when a pin is worth keeping, and `docsys feedback`. The first
+  turn routes intents to commands — `/docsys-interview` for knowledge only
+  people have, `/docsys-seed` for code with no pages, `/docsys-sync` for drift.
+  `docsys adopt` (or `docsys upgrade`) refreshes the block where its markers
+  are.
 - One docsys serves trees at different spec versions (D-118): a tree that
   declares `docsys/0.4` gets exactly 0.15.1's findings and file formats, and
   every 0.5 rule or format — everything this release newly enforces included

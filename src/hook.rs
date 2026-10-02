@@ -941,6 +941,8 @@ Speak the person's language, turn by turn — the one they just wrote in; every
 file under wiki/ (pages, indexes, open-questions.md) keeps the base's declared
 language, whatever the session's own language setting says; code identifiers
 are never translated.
+When docsys is wrong or in your way: docsys feedback --draft, and ask the
+person before filing.
 Character and boundaries: AGENTS.md → ## Character.
 </session-doc-routing>
 ";
@@ -981,6 +983,12 @@ public surface → reference/ updated, and always record WHY; research = a quest
 with no decision yet → work/research/ (Question · Tried · Learned · Why no
 decision), no code; idea → journal or roadmap line, never the permanent layer
 before it becomes a decision.
+Intent → command: knowledge only people have (an interview, a thread, a
+decision someone made) → /docsys-interview, the answers land verbatim under
+work/; existing code with no pages → /docsys-seed <feature>; pages that drifted
+from the code → /docsys-sync. Pin a region only when a change to it would
+likely make the page false — a symbol, never a large file whole. When docsys is
+wrong or in your way: docsys feedback --draft, and ask the person before filing.
 
 Contract-surface changes update their documentation in the SAME session.
 A permanent page you write from evidence, or change in substance, carries
@@ -1271,5 +1279,26 @@ mod render_tests {
         assert!(out.starts_with("{\n  \"a\": [\n    1,\n"), "{out}");
         assert!(out.contains("  \"b\": {},\n  \"c\": [],\n"), "{out}");
         assert!(out.ends_with("}\n"), "{out}");
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+mod tests_routing {
+    use super::*;
+
+    /// The first turn routes intents to the commands that serve them (D-114).
+    #[test]
+    fn the_routing_names_the_command_for_each_intent_and_the_feedback_channel() {
+        for want in [
+            "/docsys-interview",
+            "/docsys-seed <feature>",
+            "/docsys-sync",
+            "a symbol, never a large file whole",
+            "docsys feedback --draft",
+        ] {
+            assert!(ROUTING.contains(want), "project routing lacks `{want}`");
+        }
+        assert!(KB_ROUTING.contains("docsys feedback --draft"));
     }
 }

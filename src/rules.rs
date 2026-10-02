@@ -89,6 +89,50 @@ pub fn spec_version() -> &'static str {
         .trim()
 }
 
+/// A procedure's title, QUESTION and OPTIONS lines from §14.3, verbatim and
+/// dedented — what an agent needs at the moment it decides (D-114).
+fn procedure_head(id: &str) -> Option<String> {
+    let body = section("### 14.3 The authored procedures")?;
+    let mut lines = body
+        .lines()
+        .skip_while(|l| !l.trim_start().starts_with(&format!("{id} — ")));
+    let title = lines.next()?.trim();
+    let mut out = format!("- {title}\n");
+    let mut keep = false;
+    for l in lines {
+        let t = l.strip_prefix("    ").unwrap_or(l);
+        if t.starts_with("P/R-") || t.trim().is_empty() {
+            break;
+        }
+        if t.starts_with("QUESTION") {
+            keep = true;
+        } else if t.starts_with("DEFAULT") {
+            break;
+        } else if !t.starts_with(' ') && !t.starts_with("OPTIONS") {
+            keep = t.starts_with("QUESTION");
+        }
+        if keep {
+            out.push_str("  ");
+            out.push_str(t.trim_end());
+            out.push('\n');
+        }
+    }
+    Some(out)
+}
+
+/// R-108's item grammar, one line per ledger, from the rule's own table.
+fn ledger_grammar() -> String {
+    SPEC.lines()
+        .skip_while(|l| !l.starts_with("**R-108**"))
+        .filter(|l| l.starts_with("| `debt.md`") || l.starts_with("| `questions.md`"))
+        .take(4)
+        .filter_map(|l| {
+            let cells: Vec<&str> = l.split('|').map(str::trim).collect();
+            Some(format!("- {}: {}\n", cells.get(1)?, cells.get(2)?))
+        })
+        .collect()
+}
+
 pub fn agents_md() -> String {
     let mut rules: Vec<(String, String)> = Vec::new();
     let mut current: Option<(String, String)> = None;
@@ -139,12 +183,34 @@ pub fn agents_md() -> String {
          - a page pinned to code (`verifies:`) that lint reports stale is re-read\n\
            against the code, then `docsys pin --refresh <page>` — never refreshed blind\n\
          - a blocked Bash call is blocked whole: `git add … && git commit` re-runs\n\
-           from the `add`; what landed is `git show HEAD:<file>`, not the tree\n\n\
+           from the `add`; what landed is `git show HEAD:<file>`, not the tree\n\
+         - a pin is worth keeping when a change to its region would likely make the\n\
+           page false: pin a symbol (`Class.method`), never a large file whole — every\n\
+           unrelated edit to it stales the page (R-111 read with R-151)\n\
+         - when docsys is wrong or in your way: `docsys feedback --draft`, then ask the\n\
+           person before filing it — filing publishes\n\n\
          Judgment stays with you, but inside these rules:\n"
     );
     for (id, sentence) in &rules {
         out.push_str(&format!("- {id}: {sentence}\n"));
     }
+    // The procedures an agent needs at the moment it writes or verifies a
+    // page, their question and options verbatim from §14.3 (D-114).
+    out.push_str("\nWhen you write a page:\n");
+    for id in ["P/R-031", "P/R-033", "P/R-045", "P/R-102", "P/R-123"] {
+        out.push_str(&procedure_head(id).unwrap_or_default());
+    }
+    out.push_str(
+        "- not known → a dated `work/questions.md` item (R-108), never a guess left on a page\n\
+         - agent memory is a question for the person, never a source (D-062)\n",
+    );
+    out.push_str(&ledger_grammar());
+    out.push_str("\nWhen you verify:\n");
+    out.push_str(&procedure_head("P/R-025").unwrap_or_default());
+    out.push_str(
+        "- read every claim against `sources:` and the code it names; a maintainer's own\n\
+           word in the session is recorded with `docsys verify <page>` (D-096)\n",
+    );
     out.push_str(
         "\nWhen a decision procedure exists, follow it: `docsys rules --procedures`.\n\
          When no option fits, the escape is always legitimate — an honest \"I don't\n\
@@ -276,5 +342,51 @@ mod tests_more {
         let err = check_budget(1).unwrap_err();
         assert!(err.contains("below the floor"), "{err}");
         assert!(procedures().unwrap().starts_with("# Decision procedures"));
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+mod tests_teach {
+    use super::*;
+
+    /// The block teaches the procedures an agent needs while it writes and
+    /// verifies (D-114) — their QUESTION lines exactly as §14.3 has them —
+    /// within the budget (R-165).
+    #[test]
+    fn the_block_carries_the_writing_and_verifying_procedures_verbatim() {
+        let block = agents_md();
+        let authored = procedures().unwrap();
+        for id in [
+            "P/R-031", "P/R-033", "P/R-045", "P/R-102", "P/R-123", "P/R-025",
+        ] {
+            let question = authored
+                .lines()
+                .skip_while(|l| !l.trim_start().starts_with(&format!("{id} — ")))
+                .find(|l| l.trim_start().starts_with("QUESTION"))
+                .unwrap()
+                .trim();
+            assert!(block.contains(question), "{id}: `{question}` missing");
+        }
+        assert!(block.contains("`debt.md` open: `- [ ] YYYY-MM-DD <debt> -- deferred:"));
+        assert!(block.contains("`questions.md` closed:"));
+        assert!(block.contains("docsys feedback --draft"));
+        assert!(block.contains("never a large file whole"));
+        assert!(
+            block.lines().count() <= 200,
+            "{} lines",
+            block.lines().count()
+        );
+        // nothing past DEFAULT: the generator renders, it does not invent (R-163)
+        assert!(!block.contains("DEFAULT"), "{block}");
+    }
+
+    #[test]
+    fn a_rule_sentence_names_its_tag_and_first_sentence() {
+        assert_eq!(
+            rule_sentence("R-071").as_deref(),
+            Some("R-071 (lint · MUST): Every link target MUST resolve.")
+        );
+        assert_eq!(rule_sentence("R-999"), None);
     }
 }

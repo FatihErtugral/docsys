@@ -1,5 +1,5 @@
 //! `docsys agents` — installs the agent layer into a project: hooks that keep
-//! documentation alive during sessions, the /doc-sync command, and the thin
+//! documentation alive during sessions, the /docsys-sync command, and the thin
 //! skill. Every hook WARNS and never blocks (R-150: hard blocking gets hooks
 //! disabled entirely, which removes the protection completely), and every
 //! warning names what needs to change (R-152).
@@ -144,6 +144,16 @@ approval gates. Never re-implement what a command does; never skip a gate.
   local and consumed (`@namespace/id`), naming the words — then the page.
 - Judgment calls follow the authored procedures: `docsys rules --procedures`.
   When no option fits, take the escape; never force.
+- Which command for which intent: knowledge only people have → `/docsys-interview`
+  (the answers land verbatim under `work/`); existing code with no pages →
+  `/docsys-seed <feature>`; pages that drifted from the code → `/docsys-sync`.
+- Pin a region (`docsys pin`) when a change to it would likely make the page
+  false: a symbol, `Class.method` for a member, never a large file whole —
+  every unrelated edit to it stales the page.
+- Not known → a dated `work/questions.md` item, never a guess left on a page.
+  Agent memory is a question for the person, never a source (D-062).
+- When docsys is wrong or in your way: `docsys feedback --draft`, fill it, and
+  ask the person before filing it — filing publishes.
 
 ## Set up (new tree)
 
@@ -179,7 +189,8 @@ Anyone writes — you included — and nothing you write is the truth yet. A
 permanent page you author from evidence, or change in substance, carries
 `verification: unverified` and `sources:` (what it rests on); `docsys page
 new <type> <id> --unverified` writes that frontmatter. Only an independent
-session sets `verified` (R-025), recording `verified_by:` and `verified_rev:`
+session sets `verified` (R-025), after reading every claim against its
+sources and the code they name, recording `verified_by:` and `verified_rev:`
 (R-028) — `docsys verify <page>` writes that record for whoever runs it (a
 maintainer, from their git identity; refused otherwise), and `docsys verify
 <page> --revoke` takes a page back to `unverified` when its body moved; a

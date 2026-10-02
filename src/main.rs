@@ -39,7 +39,7 @@ Usage:
   docsys adopt   [--repo .] [--root docs] [--lang <code>]  # one-command adoption
   docsys adopt   … [--rules-file <path>] [--report-dir <dir> | --no-report]
                                              # where the rules block and ADOPTION.md go; by default, where their markers are (D-110)
-  docsys agents  [--dir .claude] [--force]   # install hooks + skill + /doc-sync
+  docsys agents  [--dir .claude] [--force]   # install hooks + skills + /docsys-sync, /docsys-seed, /docsys-interview
   docsys agents  --kb [--root <base>] [--dir .claude] [--force]  # knowledge-base layer
   docsys graduate plan <work-file>  [--root <dir>]
   docsys graduate apply --plan <file> [--root <dir>] [--force]
