@@ -15,8 +15,8 @@ if [ -z "${DOCSYS_SKIP:-}" ] && command -v docsys >/dev/null; then
     docsys_gate_status=1
   else
     docsys lint --repo . --root docs || docsys_gate_status=1
-    docsys refs --repo . --root docs || docsys_gate_status=1
-    docsys gate --repo . --root docs || docsys_gate_status=1
+    DOCSYS_NOTICED=1 docsys refs --repo . --root docs || docsys_gate_status=1
+    DOCSYS_NOTICED=1 docsys gate --repo . --root docs || docsys_gate_status=1
   fi
   if [ "$docsys_gate_status" -ne 0 ] && [ "$docsys_gate_exit" -ne 0 ]; then exit 1; fi
 elif [ -n "${DOCSYS_SKIP:-}" ] && command -v docsys >/dev/null; then

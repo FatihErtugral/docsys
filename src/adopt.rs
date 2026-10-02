@@ -18,7 +18,9 @@ const GATE_END: &str = "# --- end of the docsys gate";
 /// decided) — found by the agent lab. `lint` takes `--repo .` like the others
 /// (D-099), and a tree that declares a newer spec than the installed docsys
 /// implements is named in one line instead of a flood of findings an older
-/// binary cannot read. The template stamp names a block behind the binary.
+/// binary cannot read. A version notice is printed once per commit: `lint`
+/// prints it, the calls after it carry `DOCSYS_NOTICED` (R-171). The template
+/// stamp names a block behind the binary.
 const GATE_BLOCK: &str = r#"
 # --- docsys documentation gate ---------------------------------------------
 # docsys-template: @VERSION@
@@ -34,8 +36,8 @@ if [ -z "${DOCSYS_SKIP:-}" ] && command -v docsys >/dev/null; then
     docsys_gate_status=1
   else
     docsys lint --repo . --root @ROOT@ || docsys_gate_status=1
-    docsys refs --repo . --root @ROOT@ || docsys_gate_status=1
-    docsys gate --repo . --root @ROOT@ || docsys_gate_status=1
+    DOCSYS_NOTICED=1 docsys refs --repo . --root @ROOT@ || docsys_gate_status=1
+    DOCSYS_NOTICED=1 docsys gate --repo . --root @ROOT@ || docsys_gate_status=1
   fi
   if [ "$docsys_gate_status" -ne 0 ] && [ "$docsys_gate_exit" -ne 0 ]; then exit 1; fi
 elif [ -n "${DOCSYS_SKIP:-}" ] && command -v docsys >/dev/null; then

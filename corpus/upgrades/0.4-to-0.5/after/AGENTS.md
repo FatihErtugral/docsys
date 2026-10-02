@@ -20,25 +20,18 @@ from the `add`; what landed is `git show HEAD:<file>`, not the tree
 - a pin is worth keeping when a change to its region would likely make the
 page false: pin a symbol (`Class.method`), never a large file whole — every
 unrelated edit to it stales the page (R-111 read with R-151)
-- when docsys is wrong or in your way: `docsys feedback --draft`, then ask the
-person before filing it — filing publishes
+- when docsys is wrong or in your way: `docsys feedback`
 
 Judgment stays with you, but inside these rules:
-- R-025: Only an independent session may set `verified`.
-- R-031: A page MUST NOT mix types.
 - R-032: A page MUST open with one or two sentences that establish its own context ("This page describes X; read it when Y").
-- R-033: Documentation MUST NOT restate what the code already states.
-- R-045: A command MUST NOT delete authored content; obsolete content moves to `_archive/`.
 - R-046: `_unsorted/` is temporary.
 - R-074: Documentation MUST NOT contain source paths as references.
 - R-081: `done` and the file-level transition to `graduated` are set only on explicit human confirmation, recorded as `confirmed:` in the file's frontmatter (§5.2).
 - R-092: Order matters.
 - R-093: Before archiving anything, the question is asked: does this information exist anywhere else? If not, and it is still true, it graduates first.
 - R-096: Compilation MUST NOT invent steps.
-- R-102: Measurements, tables, algorithms, API lists, register maps, and rejected alternatives MUST NOT be written to the journal.
 - R-121: Content language is free and declared as `default_content_language` in `.docmeta.yml`.
 - R-122: When editing an existing page, its language is preserved.
-- R-123: Code identifiers, protocol names, library and product names, and quotations are never translated.
 
 When you write a page:
 - P/R-031 — choose the type of a permanent page

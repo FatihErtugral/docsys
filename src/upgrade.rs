@@ -437,8 +437,13 @@ pub fn run(repo: &Path, root: &Path, claude: &Path, apply: bool) -> Result<Upgra
         }
     }
 
-    // ledger-separators: the em-dash markers to ASCII (D-108)
-    let ledger = crate::capture::ledger_fix_with(root, apply)?;
+    // ledger-separators: the em-dash markers to ASCII (D-108), on the move;
+    // afterwards R-108's message names `docsys ledger fix`
+    let ledger = if moving {
+        crate::capture::ledger_fix_with(root, apply)?
+    } else {
+        String::new()
+    };
     for line in ledger.lines().filter(|l| l.starts_with("fixed: ")) {
         let file_rel = line
             .trim_start_matches("fixed: ")

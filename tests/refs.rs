@@ -122,7 +122,9 @@ fn agents_install_writes_assets_and_respects_existing() {
     let again = docsys::agents::install(&dir, false).unwrap();
     assert_eq!(again.skipped.len(), 9);
     let skill = fs::read_to_string(dir.join("skills/docsys/SKILL.md")).unwrap();
-    assert!(skill.contains("docsys rules --procedures"));
+    // the skill holds its procedures; the rules block holds the rules (one home)
+    assert!(skill.contains("docsys migrate inventory"));
+    assert!(!skill.contains("docsys rules --procedures"));
     let export = fs::read_to_string(dir.join("skills/docsys-export/SKILL.md")).unwrap();
     assert!(export.contains("--audience"));
     assert!(export.contains("R-122/R-123"));

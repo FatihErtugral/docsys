@@ -449,3 +449,56 @@ fn a_clone_with_the_old_gate_is_told_to_run_the_upgrade_once() {
     assert_eq!(snapshot(&repo, &rev, false), tracked, "only the gate moves");
     let _ = fs::remove_dir_all(&repo);
 }
+
+/// R-171 once per run: a commit through the gate runs lint, refs and gate,
+/// and a 0.4 tree hears the notice once, from lint.
+#[test]
+fn a_commit_in_a_0_4_tree_prints_the_notice_once() {
+    let (repo, _) = build("notice-once");
+    // `adopt` brings the clone's gate to this version and leaves the tree at 0.4
+    let out = docsys(&repo, &["adopt"]);
+    assert!(out.status.success(), "{out:?}");
+    git(&repo, &["add", "-A"]);
+    let out = Command::new("git")
+        .args(["-c", "commit.gpgsign=false", "commit", "-qm", "adopt again"])
+        .env("PATH", path())
+        .current_dir(&repo)
+        .output()
+        .unwrap();
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert_eq!(
+        stderr
+            .lines()
+            .filter(|l| l.starts_with("docsys: this tree declares docsys/0.4"))
+            .count(),
+        1,
+        "{stderr}"
+    );
+    let _ = fs::remove_dir_all(&repo);
+}
+
+/// The separators move with the tree; afterwards they are `ledger fix`'s, the
+/// one command R-108's message names.
+#[test]
+fn after_the_move_the_separators_are_ledger_fixs() {
+    let (repo, _) = build("separators");
+    let out = docsys(&repo, &["upgrade", "--apply", "--commit"]);
+    assert!(out.status.success(), "{out:?}");
+    let debt = repo.join("docs/work/debt.md");
+    let dashed = "- [ ] 2026-09-03 A second item — deferred: later — repay when: soon\n";
+    fs::write(&debt, fs::read_to_string(&debt).unwrap() + dashed).unwrap();
+    git(&repo, &["commit", "-qam", "a dashed item"]);
+    let out = docsys(&repo, &["upgrade", "--apply"]);
+    assert!(out.status.success(), "{out:?}");
+    assert!(
+        !String::from_utf8_lossy(&out.stdout).contains("ledger-separators"),
+        "{out:?}"
+    );
+    assert!(fs::read_to_string(&debt).unwrap().ends_with(dashed));
+    let out = docsys(&repo, &["ledger", "fix"]);
+    assert!(out.status.success(), "{out:?}");
+    assert!(fs::read_to_string(&debt)
+        .unwrap()
+        .ends_with("- [ ] 2026-09-03 A second item -- deferred: later -- repay when: soon\n"));
+    let _ = fs::remove_dir_all(&repo);
+}

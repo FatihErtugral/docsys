@@ -187,17 +187,23 @@ pub fn agents_md() -> String {
          - a pin is worth keeping when a change to its region would likely make the\n\
            page false: pin a symbol (`Class.method`), never a large file whole — every\n\
            unrelated edit to it stales the page (R-111 read with R-151)\n\
-         - when docsys is wrong or in your way: `docsys feedback --draft`, then ask the\n\
-           person before filing it — filing publishes\n\n\
+         - when docsys is wrong or in your way: `docsys feedback`\n\n\
          Judgment stays with you, but inside these rules:\n"
     );
+    // The procedures an agent needs at the moment it writes or verifies a
+    // page, their question and options verbatim from §14.3 (D-114); a rule
+    // that has one is stated there, not twice
+    const WRITE: [&str; 5] = ["P/R-031", "P/R-033", "P/R-045", "P/R-102", "P/R-123"];
+    const VERIFY: &str = "P/R-025";
     for (id, sentence) in &rules {
+        let p = format!("P/{id}");
+        if WRITE.contains(&p.as_str()) || p == VERIFY {
+            continue;
+        }
         out.push_str(&format!("- {id}: {sentence}\n"));
     }
-    // The procedures an agent needs at the moment it writes or verifies a
-    // page, their question and options verbatim from §14.3 (D-114).
     out.push_str("\nWhen you write a page:\n");
-    for id in ["P/R-031", "P/R-033", "P/R-045", "P/R-102", "P/R-123"] {
+    for id in WRITE {
         out.push_str(&procedure_head(id).unwrap_or_default());
     }
     out.push_str(
@@ -206,7 +212,7 @@ pub fn agents_md() -> String {
     );
     out.push_str(&ledger_grammar());
     out.push_str("\nWhen you verify:\n");
-    out.push_str(&procedure_head("P/R-025").unwrap_or_default());
+    out.push_str(&procedure_head(VERIFY).unwrap_or_default());
     out.push_str(
         "- read every claim against `sources:` and the code it names; a maintainer's own\n\
            word in the session is recorded with `docsys verify <page>` (D-096)\n",
@@ -298,7 +304,9 @@ mod tests {
     #[test]
     fn agents_md_lists_agent_rules_and_fits_default_budget() {
         let s = agents_md();
-        assert!(s.contains("R-031:"), "{s}");
+        // a rule with an inline procedure is stated once, as the procedure
+        assert!(s.contains("- P/R-031 — ") && !s.contains("- R-031:"), "{s}");
+        assert!(s.contains("- P/R-025 — ") && !s.contains("- R-025:"), "{s}");
         assert!(s.contains("R-081:"), "{s}");
         assert!(s.contains("doc: <id>"));
         let lines = s.lines().count();
@@ -370,7 +378,7 @@ mod tests_teach {
         }
         assert!(block.contains("`debt.md` open: `- [ ] YYYY-MM-DD <debt> -- deferred:"));
         assert!(block.contains("`questions.md` closed:"));
-        assert!(block.contains("docsys feedback --draft"));
+        assert!(block.contains("when docsys is wrong or in your way: `docsys feedback`"));
         assert!(block.contains("never a large file whole"));
         assert!(
             block.lines().count() <= 200,

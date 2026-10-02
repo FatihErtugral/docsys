@@ -100,15 +100,10 @@ pub fn run(repo: &Path, root: &Path, claude_dir: &Path) -> Diagnosis {
         format!(".docmeta.yml at {}", root.display()),
     );
     if docmeta {
-        // R-171: a tree that has not moved is served by its own rules (D-118);
-        // one newer than this docsys cannot be read right
+        // one newer than this docsys cannot be read right (R-171's notice,
+        // printed once per run, says what to do)
         let tree = crate::era::Era::at(root).0;
         let ours = crate::upgrade::implemented();
-        if tree < ours {
-            d.lines.push(format!(
-                "info the tree declares docsys/0.{tree}, served by its own rules — `docsys upgrade` moves it to docsys/0.{ours}"
-            ));
-        }
         push(
             &mut d,
             tree <= ours,

@@ -127,13 +127,6 @@ approval gates. Never re-implement what a command does; never skip a gate.
 
 ## Always
 
-- Gate: `docsys lint --root docs` — before any commit, after any docs change.
-  Inside the repository it also checks freshness: a stale pin (R-111) is
-  re-read against the code, then `docsys pin --refresh <page>` — never
-  refreshed blind; `updated:` behind history (R-106) is one date; a draft
-  untouched past `stale_active_days` (R-085) is abandoned with a reason,
-  graduated, or worked on.
-- Never rewrite content — move it. Never translate. Never invent.
 - The work has a type — feature, bug, improvement, research — and a record:
   a work file under `work/<category>/` or, at minimum, a journal entry that
   links the files and says why. Under `commit_policy: require` (D-093) the
@@ -142,18 +135,6 @@ approval gates. Never re-implement what a command does; never skip a gate.
   is captured while the session is here.
 - A question about the tree starts with `docsys lookup <words>` — every page,
   local and consumed (`@namespace/id`), naming the words — then the page.
-- Judgment calls follow the authored procedures: `docsys rules --procedures`.
-  When no option fits, take the escape; never force.
-- Which command for which intent: knowledge only people have → `/docsys-interview`
-  (the answers land verbatim under `work/`); existing code with no pages →
-  `/docsys-seed <feature>`; pages that drifted from the code → `/docsys-sync`.
-- Pin a region (`docsys pin`) when a change to it would likely make the page
-  false: a symbol, `Class.method` for a member, never a large file whole —
-  every unrelated edit to it stales the page.
-- Not known → a dated `work/questions.md` item, never a guess left on a page.
-  Agent memory is a question for the person, never a source (D-062).
-- When docsys is wrong or in your way: `docsys feedback --draft`, fill it, and
-  ask the person before filing it — filing publishes.
 
 ## Set up (new tree)
 
@@ -188,17 +169,11 @@ the human's explicit word (P/R-081).
 Anyone writes — you included — and nothing you write is the truth yet. A
 permanent page you author from evidence, or change in substance, carries
 `verification: unverified` and `sources:` (what it rests on); `docsys page
-new <type> <id> --unverified` writes that frontmatter. Only an independent
-session sets `verified` (R-025), after reading every claim against its
-sources and the code they name, recording `verified_by:` and `verified_rev:`
-(R-028) — `docsys verify <page>` writes that record for whoever runs it (a
-maintainer, from their git identity; refused otherwise), and `docsys verify
-<page> --revoke` takes a page back to `unverified` when its body moved; a
-`verified` page whose body then changes is an error until it is `unverified`
-again (R-024). The maintainer in the session needs no second session: when
-the person you work with is a declared maintainer and says the page is right,
-run `docsys verify <page>` — it records them, not you (D-096). When
-`.docmeta.yml` declares `maintainers:`,
+new <type> <id> --unverified` writes that frontmatter. `docsys verify <page>`
+writes the record for whoever runs it (a maintainer, from their git
+identity; refused otherwise); `docsys verify --show <page>` lists what a
+re-verification reads; `docsys verify <page> --revoke` takes a page back to
+`unverified` when its body moved. When `.docmeta.yml` declares `maintainers:`,
 `verified_by:` and `confirmed:` must name one of them (R-208): the people
 who review the code are the people who vouch for the page. A reader — a
 person or an agent — sees the state and reads accordingly.

@@ -465,15 +465,17 @@ fn main() -> ExitCode {
     if let Some(p) = &here {
         opts.root = p.root.clone();
     }
-    // R-171: a version difference in one line, naming what resolves it. A tree
-    // that has not moved is served by its own rules (D-118).
+    // R-171: a version difference in one line, naming what resolves it, once
+    // per run — the gate's later calls carry DOCSYS_NOTICED. A tree that has
+    // not moved is served by its own rules (D-118).
     if let Some(p) = here
         .as_ref()
         .filter(|p| p.root.join(".docmeta.yml").is_file())
     {
         let tree = docsys::era::Era::at(&p.root).0;
         let ours = docsys::upgrade::implemented();
-        if cmd != "upgrade" && tree < ours {
+        let noticed = std::env::var_os("DOCSYS_NOTICED").is_some();
+        if cmd != "upgrade" && tree < ours && !noticed {
             eprintln!("docsys: this tree declares docsys/0.{tree} and is served by its rules; `docsys upgrade` moves it to docsys/0.{ours} when the repository is ready");
         } else if tree > ours {
             eprintln!("docsys: this tree declares docsys/0.{tree}; this docsys implements docsys/0.{ours} — install a newer docsys");
