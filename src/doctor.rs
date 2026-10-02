@@ -234,9 +234,17 @@ pub fn run(repo: &Path, root: &Path, claude_dir: &Path) -> Diagnosis {
                 push(&mut d, true, format!("{shown}/pre-commit gate reachable"));
                 let stamp = format!("# docsys-template: {}", crate::agents::TEMPLATE_VERSION);
                 if text.contains("docsys documentation gate") && !text.contains(&stamp) {
+                    // on a moved tree the per-clone step is the upgrade's; on a
+                    // 0.4 tree that command would move the tree, so adopt
+                    let fix = if root.join(".docmeta.yml").is_file()
+                        && crate::era::Era::at(root).0 >= crate::upgrade::implemented()
+                    {
+                        "`docsys upgrade --apply` rewrites it"
+                    } else {
+                        "`docsys adopt` rewrites it"
+                    };
                     d.lines.push(format!(
-                        "info {shown}/pre-commit: the docsys block is behind the binary — \
-                         `docsys upgrade` (or `docsys adopt`) rewrites it"
+                        "info {shown}/pre-commit: the docsys block is behind the binary — {fix}"
                     ));
                 }
             }

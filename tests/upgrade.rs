@@ -14,6 +14,13 @@ use std::process::{Command, Output};
 
 const CASE: &str = "corpus/upgrades/0.4-to-0.5";
 
+static TEAMMATES: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| {
+    format!(
+        "every clone must install docsys >= {} before pulling this change; a gate under .git/hooks cannot warn an old binary",
+        env!("CARGO_PKG_VERSION")
+    )
+});
+
 fn tmp(name: &str) -> PathBuf {
     let dir = std::env::temp_dir().join(format!("docsys-upgrade-{name}-{}", std::process::id()));
     let _ = fs::remove_dir_all(&dir);
@@ -243,6 +250,12 @@ fn a_0_4_tree_moves_to_the_expected_0_5_tree_and_a_second_run_changes_nothing() 
             .contains("committed: docsys: upgrade the tree to docsys/0.5"),
         "{out:?}"
     );
+    // the last line is for the teammates: what no file here can warn about
+    assert_eq!(
+        String::from_utf8_lossy(&out.stdout).lines().last(),
+        Some(TEAMMATES.as_str()),
+        "{out:?}"
+    );
     assert_eq!(
         git(&repo, &["rev-list", "--count", &format!("{head}..HEAD")]),
         "1"
@@ -296,6 +309,7 @@ fn a_0_4_tree_moves_to_the_expected_0_5_tree_and_a_second_run_changes_nothing() 
     assert!(out.status.success(), "{out:?}");
     let stdout = String::from_utf8_lossy(&out.stdout);
     assert!(!stdout.lines().any(|l| l.starts_with("auto ")), "{stdout}");
+    assert!(!stdout.contains(TEAMMATES.as_str()), "{stdout}");
     assert_eq!(git(&repo, &["rev-parse", "HEAD"]), head);
     assert_eq!(snapshot(&repo, &rev, false), got, "the second run wrote");
     let _ = fs::remove_dir_all(&repo);
@@ -379,5 +393,59 @@ fn a_0_4_tree_is_told_once_how_it_moves() {
     let out = docsys(&repo, &["upgrade", "--apply", "--commit"]);
     assert!(out.status.success(), "{out:?}");
     assert_eq!(notice(&["lint"]), Vec::<String>::new());
+    let _ = fs::remove_dir_all(&repo);
+}
+
+/// A teammate's clone after the upgrade commit: the tracked files moved, the
+/// gate under .git/hooks did not. `doctor` names the one command, and that
+/// command rewrites the block and nothing else.
+#[test]
+fn a_clone_with_the_old_gate_is_told_to_run_the_upgrade_once() {
+    let (repo, rev) = build("teammate");
+    let doctor = |repo: &Path| -> Vec<String> {
+        String::from_utf8_lossy(&docsys(repo, &["doctor"]).stdout)
+            .lines()
+            .filter(|l| l.contains("the docsys block is behind the binary"))
+            .map(str::to_string)
+            .collect()
+    };
+    // on the 0.4 tree the upgrade would move it: adopt is the command
+    let behind = doctor(&repo);
+    assert_eq!(behind.len(), 1, "{behind:?}");
+    assert!(
+        behind
+            .first()
+            .is_some_and(|l| l.ends_with("`docsys adopt` rewrites it")),
+        "{behind:?}"
+    );
+
+    let out = docsys(&repo, &["upgrade", "--apply", "--commit"]);
+    assert!(out.status.success(), "{out:?}");
+    assert_eq!(doctor(&repo), Vec::<String>::new());
+
+    // the clone that pulled it still has the 0.15 block
+    let case = Path::new(env!("CARGO_MANIFEST_DIR")).join(CASE);
+    fs::copy(
+        case.join("hooks/pre-commit"),
+        repo.join(".git/hooks/pre-commit"),
+    )
+    .unwrap();
+    let behind = doctor(&repo);
+    assert_eq!(behind.len(), 1, "{behind:?}");
+    assert!(
+        behind
+            .first()
+            .is_some_and(|l| l.ends_with("`docsys upgrade --apply` rewrites it")),
+        "{behind:?}"
+    );
+    let tracked = snapshot(&repo, &rev, false);
+    let out = docsys(&repo, &["upgrade", "--apply"]);
+    assert!(out.status.success(), "{out:?}");
+    assert_eq!(doctor(&repo), Vec::<String>::new());
+    assert_eq!(
+        fs::read_to_string(repo.join(".git/hooks/pre-commit")).unwrap(),
+        fs::read_to_string(case.join("hooks/pre-commit.after")).unwrap()
+    );
+    assert_eq!(snapshot(&repo, &rev, false), tracked, "only the gate moves");
     let _ = fs::remove_dir_all(&repo);
 }

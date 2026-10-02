@@ -575,6 +575,14 @@ fn main() -> ExitCode {
                             u.to
                         );
                     }
+                    // the one case no file in the repository can warn about: a
+                    // clone whose gate is still the old block, under an old binary
+                    if opts.apply && u.from < u.to {
+                        println!(
+                            "every clone must install docsys >= {} before pulling this change; a gate under .git/hooks cannot warn an old binary",
+                            env!("CARGO_PKG_VERSION")
+                        );
+                    }
                     ExitCode::SUCCESS
                 }
                 Err(e) => {

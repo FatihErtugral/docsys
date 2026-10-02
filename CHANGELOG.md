@@ -14,9 +14,11 @@ Nothing has to move on the day 0.16.0 is installed. A tree that declares
 formats and its hooks under 0.16.0 (D-118); each command says so in one line on
 stderr. Move one repository when it is ready:
 
-1. Install 0.16.0 on every machine that commits to the repository. From the
-   moment the tree declares `docsys/0.5`, an older docsys under the new relays
-   and gate stops with one line naming the version to install.
+1. Install 0.16.0 on every machine that commits to the repository: every clone
+   must install docsys >= 0.16.0 before pulling this change; a gate under
+   .git/hooks cannot warn an old binary. From the moment the tree declares
+   `docsys/0.5`, an older docsys under the new relays, and under a gate the
+   repository tracks, stops with one line naming the version to install.
 2. In a clean working tree, run `docsys upgrade`. It writes nothing and prints
    the plan: each item `auto` (applied by the next step), `manual` (for a
    person, never applied) or `info`; the findings the move adds and removes;
@@ -51,7 +53,10 @@ stderr. Move one repository when it is ready:
   acknowledgement only where it holds and its declaration reads the same
   region; everything else is listed with its page. The conformance case
   `corpus/upgrades/0.4-to-0.5` locks the move file by file, and a second run
-  changes nothing.
+  changes nothing. `--apply` ends with the one line for teammates: every
+  clone installs the new docsys before pulling, because a gate under
+  `.git/hooks` cannot warn an old binary; `doctor` names `docsys upgrade --apply`
+  for a clone whose gate block is behind.
 
 - `docsys check <page> --by <agent|session> [--against <evidence>]… [--commit]`
   (§21, R-214, D-104) on a docsys/0.5 tree: a machine's reading of every claim
