@@ -2,6 +2,7 @@
 //! v0 scope: `lint` over both profiles (`project`, `knowledge-base`). Every
 //! implementation-defined choice is registered in corpus/DECISIONS.md (R-193).
 
+pub mod ack;
 pub mod adopt;
 pub mod agents;
 pub mod assistant;

@@ -537,8 +537,10 @@ the only record of the answer.
 
 **R-044** `lint` · MUST — The following names are reserved and excluded from
 orphan and type checks: `_archive/`, `_templates/`, `_unsorted/`,
-`.federation/`. Files under `.federation/` are governed by §13 when federation
-is active, and do not exist otherwise.
+`.federation/`, `.verifies/`. Files under `.federation/` are governed by §13 when federation
+is active, and do not exist otherwise. Files under `.verifies/` are
+acknowledgements (R-110): not pages, never linted as pages, removed by `docsys
+pin --gc` when no pin's current region matches them.
 Files under `_archive/` are additionally excluded from resolution checks
 (R-059, R-071, R-076): an archived page is a record, not a live claim, and its
 references describe the tree as it was — erroring on them forever as their
@@ -1180,11 +1182,17 @@ A permanent page may pin itself to a region of code.
 verifies:
   - path: src/auth/refresh.rs
     symbol: refresh_token
-    hash: "sha256:a3f9c1…"
 ```
 
-**R-110** `lint` · MAY — A page MAY declare `verifies`. When the hash of the
-referenced region no longer matches, the page is reported as stale.
+**R-110** `lint` · MAY — A page MAY declare `verifies`: the code regions its
+claims rest on, each a `path` and optionally a `symbol` (R-114). A pin is fresh
+while an **acknowledgement** exists for its region as the region reads now: the
+file `.verifies/<page-id>/<region hash>` under the documentation root, written
+when someone re-read the page against that region (`docsys pin`, `docsys pin
+--refresh`). Otherwise the page is stale. The page itself holds no hash: a
+refresh writes acknowledgements, never the page — so two changes that refresh
+different regions, or the same region to the same text, merge without a
+conflict, and no page changes for bookkeeping (D-119).
 
 **R-111** `lint` · MUST — Staleness **is an error** on every run until resolved,
 naming the page and the region that moved. A pin is a promise the author made
@@ -1192,7 +1200,12 @@ about a region of code; once the region moves the page is silently wrong until
 someone re-reads it, which is R-151's criterion exactly. The cost is bounded:
 the fix is one re-read followed by `docsys pin --refresh <page>`, or dropping a
 pin that was never worth keeping (D-070). This is the only mechanism in this
-specification that detects code-documentation drift mechanically.
+specification that detects code-documentation drift mechanically. A region that
+two merged changes both moved matches neither one's acknowledgement, so the
+merged page is stale until someone reads the combination — the case a merge must
+not hide. A pin that still carries a `hash:` (a record written before 0.5) is
+checked against that hash in R-113's canonical form until `docsys upgrade` or a
+refresh moves it into an acknowledgement (D-119).
 
 **R-113** `lint` · MUST — A **content hash** is `sha256` over the canonical form
 of the content, written as `sha256:` followed by lowercase hex. The canonical
@@ -1209,6 +1222,18 @@ churn manifests, compiled skills and materializations estate-wide. Frontmatter
 is not left unguarded: for materialized pages it is reconstructed from the
 manifest and checked by R-137; `verifies` hashes cover the referenced code
 region, unchanged.
+
+A pin's **region hash** is `sha256` over the region's **token form**, not its
+canonical form: comments removed, whitespace between tokens removed, every
+string literal written with one quote character, and a comma that directly
+precedes a closing bracket dropped. What can change the code's meaning changes
+the hash; layout, comments and `doc:` citations (R-072) do not. Which syntax is a
+comment is declared per kind of file by the implementation, as symbol
+resolution is (R-114); the reference implementation's table is registered as
+D-119. An acknowledgement holds one line, `<page-id> <region hash>`, so no two
+acknowledgements of different regions or of different pages are ever the same
+file; one that is not named by a region hash or does not hold that line **is
+reported**.
 
 **R-114** `lint` · MUST — When `symbol` is absent, the hash covers the whole file
 at `path`. When `symbol` is present, the implementation MUST declare how it

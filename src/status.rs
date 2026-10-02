@@ -52,6 +52,9 @@ pub struct Status {
     /// moved since (§21, R-214)
     pub checked: usize,
     pub checked_stale: usize,
+    /// a 0.5 tree's acknowledgements whose page id pins nothing any more
+    /// (D-119) — `None` in a 0.4 tree, which keeps none
+    pub orphan_acks: Option<usize>,
     pub first_errors: Vec<String>,
 }
 
@@ -248,6 +251,24 @@ pub fn status(root: &Path, repo: Option<&Path>) -> Result<Status, String> {
             }
         }
     }
+    if crate::era::Era::of(&tree).acknowledged_pins() {
+        let pinning: std::collections::BTreeSet<String> = tree
+            .pages
+            .iter()
+            .filter(|p| p.kind == Kind::Permanent)
+            .filter_map(|p| p.fm.as_ref())
+            .filter(|fm| !crate::fresh::pins_of(fm).is_empty())
+            .filter_map(|fm| fm.fields.get("id").and_then(Value::as_str))
+            .map(|id| id.trim().to_string())
+            .collect();
+        s.orphan_acks = Some(
+            crate::ack::page_ids(root)
+                .iter()
+                .filter(|id| !pinning.contains(*id))
+                .map(|id| crate::ack::names(root, id).len())
+                .sum(),
+        );
+    }
     // what lint would say, once
     let (report, _) = crate::lint_in(root, repo);
     for f in &report.findings {
@@ -373,6 +394,11 @@ pub fn render(s: &Status, root: &Path) -> String {
             s.checked, s.checked_stale
         ));
     }
+    if let Some(n) = s.orphan_acks.filter(|n| *n > 0) {
+        out.push_str(&format!(
+            "pins: {n} acknowledgement(s) no page pins any more — `docsys pin --gc` removes them\n"
+        ));
+    }
     if s.rev_gone > 0 {
         out.push_str(&format!(
             "verification: {} verified page(s) anchored by their body hash; their revision is not in this history (a squash or a rebase) — nothing to do\n",
@@ -439,8 +465,11 @@ pub fn render_json(s: &Status) -> String {
             s.records, s.records_uncited
         )
     };
+    let acks = s.orphan_acks.map_or(String::new(), |n| {
+        format!(",\"acknowledgements_orphaned\":{n}")
+    });
     format!(
-        "{{\"profile\":\"{}\",\"namespace\":{},\"inbox\":{},\"inbox_oldest\":{}{records},\"permanent\":{},\"unverified\":[{}],\"work\":{{{}}},\"questions_open\":{},\"debt_open\":{},\"consumed\":[{}],\"skills_compiled\":{},\"errors\":{},\"warnings\":{},\"by_rule\":{{{}}},\"sources_moved\":{},\"forgotten\":{},\"rev_gone\":{},\"checked\":{},\"checked_stale\":{},\"first_errors\":[{}]}}\n",
+        "{{\"profile\":\"{}\",\"namespace\":{},\"inbox\":{},\"inbox_oldest\":{}{records},\"permanent\":{},\"unverified\":[{}],\"work\":{{{}}},\"questions_open\":{},\"debt_open\":{},\"consumed\":[{}],\"skills_compiled\":{},\"errors\":{},\"warnings\":{},\"by_rule\":{{{}}},\"sources_moved\":{},\"forgotten\":{},\"rev_gone\":{}{acks},\"checked\":{},\"checked_stale\":{},\"first_errors\":[{}]}}\n",
         esc(&s.profile),
         s.namespace
             .as_ref()

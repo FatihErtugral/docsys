@@ -68,6 +68,15 @@ impl Era {
         self.v05()
     }
 
+    /// D-119: a pin is fresh while an acknowledgement of its region's token
+    /// form exists under `.verifies/<page-id>/`; a refresh writes
+    /// acknowledgements, never the page. Before: the region's canonical hash
+    /// in the page's own `hash:` line, rewritten with `updated:` on every
+    /// refresh.
+    pub fn acknowledged_pins(self) -> bool {
+        self.v05()
+    }
+
     /// R-071: a wiki-link inside an inline code span is quoted material.
     /// Before: read as a link.
     pub fn literal_code_spans(self) -> bool {

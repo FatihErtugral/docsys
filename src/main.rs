@@ -15,6 +15,7 @@ Usage:
   docsys lint    [--root <dir>] [--repo <dir>] [--json]   # inside a git repository: pins and history too
   docsys pin     <page> <path> [--symbol <s>] [--repo .] [--root docs]   # pin a page to a code region (verifies:, §11)
   docsys pin     --refresh <page> [--repo .] [--root docs]              # recompute its pins after re-reading the page
+  docsys pin     --gc [--repo .] [--root docs]                         # docsys/0.5: remove acknowledgements no current pin region matches (D-119)
   docsys compile <howto> [--root docs] [--dir .claude] [--force]        # a howto's body as an executable skill, pinned to its source hash (R-094, R-095)
   docsys lookup  <word…> [--root docs] [--json]   # a question's first hop: pages, local and consumed (@ns/id), naming every word
   docsys consume add <path|git-url>[#subdir] [--as <ns>] [--root docs]   # one provider into this tree's consume: list
@@ -107,6 +108,7 @@ struct Opts {
     max_lines: usize,
     range: Option<String>,
     refresh: bool,
+    gc: bool,
     symbol: Option<String>,
     as_ns: Option<String>,
     source: Option<String>,
@@ -163,6 +165,7 @@ fn parse_opts(args: &[String]) -> Result<Opts, String> {
         max_lines: 200,
         range: None,
         refresh: false,
+        gc: false,
         symbol: None,
         as_ns: None,
         source: None,
@@ -239,6 +242,7 @@ fn parse_opts(args: &[String]) -> Result<Opts, String> {
             "--json" => o.json = true,
             "--range" => o.range = Some(it.next().ok_or("--range needs a value")?.clone()),
             "--refresh" => o.refresh = true,
+            "--gc" => o.gc = true,
             "--symbol" => o.symbol = Some(it.next().ok_or("--symbol needs a value")?.clone()),
             "--as" => o.as_ns = Some(it.next().ok_or("--as needs a value")?.clone()),
             "--source" => o.source = Some(it.next().ok_or("--source needs a value")?.clone()),
@@ -1143,7 +1147,15 @@ next: review, `git add -A && git commit`, then open an agent session here."
         },
         ("pin", None) => {
             let (repo, root) = (repo_or_cwd.clone(), opts.root.clone());
-            let result = if opts.refresh {
+            let result = if opts.gc {
+                docsys::fresh::gc(&root, &repo).map(|done| {
+                    if done.is_empty() {
+                        "pin --gc: nothing to remove".to_string()
+                    } else {
+                        done.join("\n")
+                    }
+                })
+            } else if opts.refresh {
                 match opts.positional.first() {
                     Some(page) => docsys::fresh::refresh(&root, &repo, page),
                     None => Err("pin --refresh needs <page>".to_string()),
@@ -1154,7 +1166,8 @@ next: review, `git add -A && git commit`, then open an agent session here."
                         docsys::fresh::pin(&root, &repo, page, path, opts.symbol.as_deref())
                     }
                     _ => Err(
-                        "pin needs <page> <path> [--symbol <s>], or --refresh <page>".to_string(),
+                        "pin needs <page> <path> [--symbol <s>], --refresh <page>, or --gc"
+                            .to_string(),
                     ),
                 }
             };

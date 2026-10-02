@@ -13,7 +13,7 @@
 //! made, the freshness field is the one thing a reader cannot check by hand,
 //! and the fix is always one field or one command.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::Path;
 
@@ -365,7 +365,7 @@ pub struct Pin {
 }
 
 impl Pin {
-    fn label(&self) -> String {
+    pub fn label(&self) -> String {
         match &self.symbol {
             Some(s) => format!("{}#{s}", self.path),
             None => self.path.clone(),
@@ -396,9 +396,9 @@ pub fn pins_of(fm: &Frontmatter) -> Vec<Pin> {
         .unwrap_or_default()
 }
 
-/// The hash a pin should carry now, or why it cannot be computed. A 0.4 tree
-/// resolves a symbol by D-069, a later one by D-106 (D-118).
-fn current_hash(repo: &Path, pin: &Pin, era: Era) -> Result<String, (RuleId, String)> {
+/// The text a pin covers now, or why it cannot be read. A 0.4 tree resolves a
+/// symbol by D-069, a later one by D-106 (D-118).
+fn region_now(repo: &Path, pin: &Pin, era: Era) -> Result<String, (RuleId, String)> {
     let file = repo.join(&pin.path);
     let source = fs::read_to_string(&file).map_err(|_| {
         (
@@ -411,26 +411,73 @@ fn current_hash(repo: &Path, pin: &Pin, era: Era) -> Result<String, (RuleId, Str
         )
     })?;
     let symbol = pin.symbol.as_deref();
-    let text = if era.declaration_pins() {
+    if era.declaration_pins() {
         declared_region(&source, &pin.path, symbol)
     } else {
         region(&source, &pin.path, symbol)
     }
-    .map_err(|e| (R114, e))?;
-    Ok(content_hash(&text))
+    .map_err(|e| (R114, e))
 }
 
-/// R-110/R-111/R-113/R-114 over every pinned permanent page.
+/// The canonical hash a pin's `hash:` line carries (R-113's content hash).
+fn current_hash(repo: &Path, pin: &Pin, era: Era) -> Result<String, (RuleId, String)> {
+    region_now(repo, pin, era).map(|text| content_hash(&text))
+}
+
+/// The region hash an acknowledgement is named by (R-113's token form, D-119).
+fn region_hash_now(repo: &Path, pin: &Pin, era: Era) -> Result<String, (RuleId, String)> {
+    region_now(repo, pin, era).map(|text| crate::ack::region_hash(&text, &pin.path))
+}
+
+fn page_id(fm: &Frontmatter) -> Option<String> {
+    fm.fields
+        .get("id")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string)
+}
+
+/// R-110/R-111/R-113/R-114 over every pinned permanent page. In a 0.5 tree a
+/// pin is fresh while an acknowledgement of its region exists (D-119); a pin
+/// that still carries `hash:` is a record from before 0.5 and is checked
+/// against it, in R-113's canonical form, until a refresh or `docsys
+/// upgrade` moves it into an acknowledgement.
 pub fn check_pins(tree: &DocTree, repo: &Path, r: &mut Report) {
     let era = Era::of(tree);
+    let acknowledged = era.acknowledged_pins();
     let mut inspected = 0usize;
     for page in &tree.pages {
         if page.kind != Kind::Permanent {
             continue;
         }
         let Some(fm) = &page.fm else { continue };
+        let id = page_id(fm);
         for pin in pins_of(fm) {
             inspected += 1;
+            if acknowledged && pin.hash.is_empty() {
+                match region_hash_now(repo, &pin, era) {
+                    Err((rule, msg)) => {
+                        r.findings
+                            .push(Finding::err(rule, &page.rel, &pin.label(), msg))
+                    }
+                    Ok(now) if !id.as_deref().is_some_and(|i| crate::ack::holds(&tree.root, i, &now)) => {
+                        r.findings.push(Finding::err(
+                            R111,
+                            &page.rel,
+                            &pin.label(),
+                            format!(
+                                "stale: `{}` reads differently from every acknowledgement of this \
+                                 page — re-read the page against it, then `docsys pin --refresh {}`",
+                                pin.label(),
+                                page.rel
+                            ),
+                        ))
+                    }
+                    Ok(_) => {}
+                }
+                continue;
+            }
             if !pin.hash.starts_with("sha256:") || pin.hash.len() != 71 {
                 r.findings.push(Finding::err(
                     R113,
@@ -1259,7 +1306,8 @@ fn locate(root: &Path, page: &str) -> Result<String, String> {
 }
 
 /// The page text with its `verifies:` block replaced and `updated:` set to
-/// `today` — the author re-read the page against the code it pins.
+/// `today` — the author re-read the page against the code it pins. A pin
+/// without a hash (a 0.5 tree's, D-119) is written without the line.
 fn rewrite(text: &str, pins: &[Pin], today: &str) -> Result<String, String> {
     let lines: Vec<&str> = text.lines().collect();
     if lines.first() != Some(&"---") {
@@ -1296,7 +1344,9 @@ fn rewrite(text: &str, pins: &[Pin], today: &str) -> Result<String, String> {
             if let Some(s) = &p.symbol {
                 out.push(format!("    symbol: {s}"));
             }
-            out.push(format!("    hash: \"{}\"", p.hash));
+            if !p.hash.is_empty() {
+                out.push(format!("    hash: \"{}\"", p.hash));
+            }
         }
     }
     out.push("---".to_string());
@@ -1310,7 +1360,63 @@ fn rewrite(text: &str, pins: &[Pin], today: &str) -> Result<String, String> {
     Ok(joined)
 }
 
-/// `docsys pin <page> <path> [--symbol <s>]`: add or refresh one pin.
+/// The page text with every pin's `hash:` line removed and nothing else
+/// touched — a record from before 0.5 leaving for an acknowledgement (D-119).
+/// `None` when no pin carries one. A pin written `hash:` first hands its
+/// list marker to the line after it.
+fn strip_pin_hashes(text: &str) -> Option<String> {
+    let mut out = String::with_capacity(text.len());
+    let mut frontmatter = false;
+    let mut verifies = false;
+    let mut promote = false;
+    let mut changed = false;
+    for (n, line) in text.split_inclusive('\n').enumerate() {
+        let bare = line.trim_end_matches(['\n', '\r']);
+        if n == 0 {
+            if bare != "---" {
+                return None;
+            }
+            frontmatter = true;
+            out.push_str(line);
+            continue;
+        }
+        if frontmatter && bare == "---" {
+            frontmatter = false;
+            verifies = false;
+        } else if frontmatter && bare.starts_with("verifies:") {
+            verifies = true;
+        } else if frontmatter && verifies {
+            if bare.starts_with("    hash:") {
+                changed = true;
+                continue;
+            }
+            if bare.starts_with("  - hash:") {
+                changed = true;
+                promote = true;
+                continue;
+            }
+            if let Some(rest) = line.strip_prefix("    ").filter(|_| promote) {
+                promote = false;
+                out.push_str("  - ");
+                out.push_str(rest);
+                continue;
+            }
+            promote = false;
+            verifies = bare.starts_with("  - ") || bare.starts_with("    ");
+        }
+        out.push_str(line);
+    }
+    changed.then_some(out)
+}
+
+fn short(hash: &str) -> &str {
+    hash.get(..12).unwrap_or(hash)
+}
+
+/// `docsys pin <page> <path> [--symbol <s>]`: add or refresh one pin. In a
+/// 0.5 tree the re-read is recorded as an acknowledgement (D-119): the page
+/// changes only when the pin is new — a content change, so `updated:` moves —
+/// or when a hash from before 0.5 leaves it.
 pub fn pin(
     root: &Path,
     repo: &Path,
@@ -1332,18 +1438,43 @@ pub fn pin(
         symbol: symbol.clone(),
         hash: String::new(),
     };
-    new.hash = current_hash(repo, &new, Era::at(root)).map_err(|(_, m)| m)?;
-    let mut pins = pins_of(&fm);
-    match pins
-        .iter_mut()
-        .find(|p| p.path == new.path && p.symbol == new.symbol)
-    {
-        Some(existing) => existing.hash = new.hash.clone(),
-        None => pins.push(new.clone()),
-    }
+    let era = Era::at(root);
     let today = crate::migrate::today();
-    fs::write(&file, rewrite(&text, &pins, &today)?).map_err(|e| e.to_string())?;
-    let mut out = format!("pinned {rel} → {} {}", new.label(), new.hash);
+    let mut out = if era.acknowledged_pins() {
+        let id = page_id(&fm).ok_or_else(|| {
+            format!("{rel} has no `id` (R-050) — acknowledgements are kept by page id")
+        })?;
+        let hash = region_hash_now(repo, &new, era).map_err(|(_, m)| m)?;
+        let mut pins = pins_of(&fm);
+        let known = pins
+            .iter()
+            .any(|p| p.path == new.path && p.symbol == new.symbol);
+        if known {
+            // the other pins' records from before 0.5 move with this one
+            convert_page(root, repo, &rel, true)?;
+        } else {
+            pins.push(new.clone());
+            fs::write(&file, rewrite(&text, &pins, &today)?).map_err(|e| e.to_string())?;
+        }
+        crate::ack::write(root, &id, &hash).map_err(|e| e.to_string())?;
+        format!(
+            "pinned {rel} → {}, acknowledged {}",
+            new.label(),
+            short(&hash)
+        )
+    } else {
+        new.hash = current_hash(repo, &new, era).map_err(|(_, m)| m)?;
+        let mut pins = pins_of(&fm);
+        match pins
+            .iter_mut()
+            .find(|p| p.path == new.path && p.symbol == new.symbol)
+        {
+            Some(existing) => existing.hash = new.hash.clone(),
+            None => pins.push(new.clone()),
+        }
+        fs::write(&file, rewrite(&text, &pins, &today)?).map_err(|e| e.to_string())?;
+        format!("pinned {rel} → {} {}", new.label(), new.hash)
+    };
     if new.symbol.is_none() {
         let lines = fs::read_to_string(repo.join(&path)).map_or(0, |s| s.lines().count());
         if lines > WHOLE_FILE_LINES {
@@ -1357,7 +1488,10 @@ pub fn pin(
 }
 
 /// `docsys pin --refresh <page>`: every pin recomputed after the author
-/// re-read the page; names what changed.
+/// re-read the page; names what changed. In a 0.5 tree it writes the
+/// acknowledgements of the regions that have none and removes this page's
+/// acknowledgements no current region matches — never the page, except to
+/// drop a hash from before 0.5 (D-119).
 pub fn refresh(root: &Path, repo: &Path, page: &str) -> Result<String, String> {
     let rel = locate(root, page)?;
     let file = root.join(&rel);
@@ -1368,6 +1502,40 @@ pub fn refresh(root: &Path, repo: &Path, page: &str) -> Result<String, String> {
         return Err(format!("{rel} carries no `verifies:` pin"));
     }
     let era = Era::at(root);
+    if era.acknowledged_pins() {
+        let id = page_id(&fm).ok_or_else(|| {
+            format!("{rel} has no `id` (R-050) — acknowledgements are kept by page id")
+        })?;
+        // every region first: one that cannot be read leaves everything as it was
+        let mut now = Vec::with_capacity(pins.len());
+        for p in &pins {
+            now.push((
+                p.label(),
+                region_hash_now(repo, p, era).map_err(|(_, m)| m)?,
+            ));
+        }
+        let mut written = Vec::new();
+        for (label, hash) in &now {
+            if crate::ack::write(root, &id, hash).map_err(|e| e.to_string())? {
+                written.push(label.clone());
+            }
+        }
+        let keep: BTreeSet<String> = now.iter().map(|(_, h)| h.clone()).collect();
+        let removed = crate::ack::remove_except(root, &id, &keep).map_err(|e| e.to_string())?;
+        if let Some(stripped) = strip_pin_hashes(&text) {
+            fs::write(&file, stripped).map_err(|e| e.to_string())?;
+        }
+        let gone = if removed.is_empty() {
+            String::new()
+        } else {
+            format!("; {} superseded acknowledgement(s) removed", removed.len())
+        };
+        return Ok(if written.is_empty() {
+            format!("{rel}: {} pin(s), all acknowledged{gone}", pins.len())
+        } else {
+            format!("{rel}: acknowledged {}{gone}", written.join(", "))
+        });
+    }
     let mut changed = Vec::new();
     for p in &mut pins {
         let now = current_hash(repo, p, era).map_err(|(_, m)| m)?;
@@ -1385,10 +1553,219 @@ pub fn refresh(root: &Path, repo: &Path, page: &str) -> Result<String, String> {
     })
 }
 
+/// `docsys pin --gc`: remove the acknowledgements nothing needs any more — a
+/// directory whose page id pins nothing (the page was retired, renamed or
+/// unpinned), and inside a page's directory every acknowledgement no current
+/// region of its pins matches. A page whose regions cannot all be read is
+/// left as it is and named. Running it again removes nothing.
+pub fn gc(root: &Path, repo: &Path) -> Result<Vec<String>, String> {
+    let tree = DocTree::load(root).map_err(|e| e.to_string())?;
+    let era = Era::of(&tree);
+    let mut by_id: BTreeMap<String, Vec<Pin>> = BTreeMap::new();
+    for page in &tree.pages {
+        if page.kind != Kind::Permanent {
+            continue;
+        }
+        let Some(fm) = &page.fm else { continue };
+        if let Some(id) = page_id(fm) {
+            by_id.entry(id).or_default().extend(pins_of(fm));
+        }
+    }
+    let mut out = Vec::new();
+    for id in crate::ack::page_ids(root) {
+        let Some(pins) = by_id.get(&id).filter(|p| !p.is_empty()) else {
+            let gone = crate::ack::remove_page(root, &id).map_err(|e| e.to_string())?;
+            out.push(format!(
+                "removed {}/{id}/ ({} acknowledgement(s)): no page with that id pins anything",
+                crate::ack::DIR,
+                gone.len()
+            ));
+            continue;
+        };
+        let mut keep = BTreeSet::new();
+        let mut unreadable = None;
+        for p in pins {
+            match region_hash_now(repo, p, era) {
+                Ok(h) => {
+                    keep.insert(h);
+                }
+                Err((_, m)) => {
+                    unreadable = Some(m);
+                    break;
+                }
+            }
+        }
+        if let Some(why) = unreadable {
+            out.push(format!("kept {}/{id}/: {why}", crate::ack::DIR));
+            continue;
+        }
+        for name in crate::ack::remove_except(root, &id, &keep).map_err(|e| e.to_string())? {
+            out.push(format!("removed {}/{id}/{name}", crate::ack::DIR));
+        }
+    }
+    Ok(out)
+}
+
+/// What the conversion of one pin's `hash:` found (D-119, for `docsys
+/// upgrade`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Conversion {
+    /// fresh as recorded, and the declaration reads the same lines: the
+    /// acknowledgement is written
+    Acknowledged,
+    /// fresh as recorded, but its D-106 declaration is another region — 0.15
+    /// had bound the symbol to a use; re-read the page against these lines
+    Reresolved { first: usize, last: usize },
+    /// fresh as recorded, but the symbol no longer resolves (R-114)
+    Unresolvable(String),
+    /// stale before the conversion; stale after it
+    StaleAsRecorded,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PinConversion {
+    /// the page, root-relative
+    pub page: String,
+    /// `path#symbol`
+    pub pin: String,
+    pub outcome: Conversion,
+}
+
+/// One pin carrying a 0.4 `hash:`: is it fresh as recorded (its D-069 region,
+/// canonical form), and does D-106 read the same region? The region hash is
+/// returned for an acknowledgement.
+fn convert_one(repo: &Path, pin: &Pin) -> (Conversion, Option<String>) {
+    let Ok(source) = fs::read_to_string(repo.join(&pin.path)) else {
+        return (Conversion::StaleAsRecorded, None);
+    };
+    let symbol = pin.symbol.as_deref();
+    let Ok(old) = region(&source, &pin.path, symbol) else {
+        return (Conversion::StaleAsRecorded, None);
+    };
+    if content_hash(&old) != pin.hash {
+        return (Conversion::StaleAsRecorded, None);
+    }
+    match declared_region(&source, &pin.path, symbol) {
+        Err(e) => (Conversion::Unresolvable(e), None),
+        Ok(new) if new == old => (
+            Conversion::Acknowledged,
+            Some(crate::ack::region_hash(&new, &pin.path)),
+        ),
+        Ok(_) => {
+            let (first, last) = symbol
+                .and_then(|s| crate::symbols::resolve(&source, &pin.path, s).ok())
+                .unwrap_or((1, source.lines().count()));
+            (Conversion::Reresolved { first, last }, None)
+        }
+    }
+}
+
+fn convert_page(
+    root: &Path,
+    repo: &Path,
+    rel: &str,
+    apply: bool,
+) -> Result<Vec<PinConversion>, String> {
+    let file = root.join(rel);
+    let text = fs::read_to_string(&file).map_err(|e| e.to_string())?;
+    let Some(fm) = crate::fm::parse(&text) else {
+        return Ok(Vec::new());
+    };
+    let id = page_id(&fm);
+    let mut out = Vec::new();
+    let mut acks = Vec::new();
+    for pin in pins_of(&fm).into_iter().filter(|p| !p.hash.is_empty()) {
+        let (mut outcome, hash) = convert_one(repo, &pin);
+        match (&id, hash) {
+            (Some(_), Some(h)) => acks.push(h),
+            (None, Some(_)) => {
+                outcome = Conversion::Unresolvable(format!(
+                    "{rel} has no `id` (R-050) — acknowledgements are kept by page id"
+                ))
+            }
+            _ => {}
+        }
+        out.push(PinConversion {
+            page: rel.to_string(),
+            pin: pin.label(),
+            outcome,
+        });
+    }
+    if apply && !out.is_empty() {
+        if let Some(id) = &id {
+            for h in &acks {
+                crate::ack::write(root, id, h).map_err(|e| e.to_string())?;
+            }
+        }
+        if let Some(stripped) = strip_pin_hashes(&text) {
+            fs::write(&file, stripped).map_err(|e| e.to_string())?;
+        }
+    }
+    Ok(out)
+}
+
+/// The migration of pins to acknowledgements (D-119), for `docsys upgrade`:
+/// every pin that still carries a `hash:` is checked as 0.15 recorded it. One
+/// that is fresh and whose D-106 declaration reads the same lines gets its
+/// acknowledgement; every `hash:` line leaves the page, and nothing else in
+/// it changes — `updated:` included, because a hash is bookkeeping (§2.4). No
+/// pin is ever refreshed: a stale one, or one whose declaration is another
+/// region, stays unacknowledged and is reported for a re-read (R-175). With
+/// `apply` false nothing is written. A pin without `hash:` is not touched, so
+/// a second run finds nothing.
+pub fn convert_legacy(root: &Path, repo: &Path, apply: bool) -> Result<Vec<PinConversion>, String> {
+    let tree = DocTree::load(root).map_err(|e| e.to_string())?;
+    let mut out = Vec::new();
+    for page in &tree.pages {
+        if page.kind != Kind::Permanent {
+            continue;
+        }
+        let carries = page
+            .fm
+            .as_ref()
+            .is_some_and(|fm| pins_of(fm).iter().any(|p| !p.hash.is_empty()));
+        if carries {
+            out.extend(convert_page(root, repo, &page.rel, apply)?);
+        }
+    }
+    Ok(out)
+}
+
 #[cfg(test)]
 #[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn stripping_pin_hashes_touches_nothing_else() {
+        let page = "---\nid: p\nverifies:\n  - path: a.rs\n    symbol: f\n    hash: \"sha256:x\"\n  - hash: \"sha256:y\"\n    path: b.rs\nupdated: 2026-09-01\n---\nbody\n    hash: stays\n";
+        let want = "---\nid: p\nverifies:\n  - path: a.rs\n    symbol: f\n  - path: b.rs\nupdated: 2026-09-01\n---\nbody\n    hash: stays\n";
+        assert_eq!(strip_pin_hashes(page).as_deref(), Some(want));
+        assert_eq!(strip_pin_hashes(want), None, "nothing left to strip");
+        assert_eq!(strip_pin_hashes("no frontmatter\n    hash: x\n"), None);
+    }
+
+    #[test]
+    fn a_pin_without_a_hash_is_written_without_the_line() {
+        let page = "---\nid: p\nupdated: 2026-09-01\n---\nbody\n";
+        let pins = [
+            Pin {
+                path: "a.rs".into(),
+                symbol: Some("f".into()),
+                hash: String::new(),
+            },
+            Pin {
+                path: "b.rs".into(),
+                symbol: None,
+                hash: "sha256:x".into(),
+            },
+        ];
+        let out = rewrite(page, &pins, "2026-10-02").unwrap();
+        assert_eq!(
+            out,
+            "---\nid: p\nupdated: 2026-10-02\nverifies:\n  - path: a.rs\n    symbol: f\n  - path: b.rs\n    hash: \"sha256:x\"\n---\nbody\n"
+        );
+    }
 
     #[test]
     fn sha256_matches_the_published_vectors() {

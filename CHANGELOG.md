@@ -45,6 +45,17 @@ by the release workflow — the tag's section becomes the GitHub release body.
   docsys implements stops with one line naming the minimum version and the
   install command, instead of a flood of findings an older binary cannot
   read.
+- On a docsys/0.5 tree `docsys pin --gc [--repo .] [--root docs]` (D-119)
+  removes the pin acknowledgements nothing needs any more: a directory whose
+  page id pins nothing, and inside a page's directory every acknowledgement
+  no current region of its pins matches. A page whose regions cannot all be
+  read is kept and named; a second run removes nothing. `status` counts the
+  orphaned ones.
+- `ci/pin-replay.sh <clone> <branch> <n> <old-binary> <new-binary>`: replays
+  the last n commits of a real repository that touched pinned code, once per
+  binary, and prints the pages each staled and the docs files and lines a
+  refresh then changed. Manual: it needs a clone, and writes only throwaway
+  worktrees.
 
 ### Changed
 
@@ -113,6 +124,20 @@ by the release workflow — the tag's section becomes the GitHub release body.
   it is re-read and `pin --refresh`ed — or, where the file declares no such
   symbol, it is refused (R-114). Either way the old pin certified the wrong
   region.
+- On a docsys/0.5 tree a pin's evidence lives beside the page, never in it
+  (D-119; SPEC R-110, R-111, R-113, R-044). `docsys pin` and `docsys pin
+  --refresh` write the acknowledgement `<root>/.verifies/<page-id>/<region
+  hash>`, holding the one line `<page-id> <hash>`, and a refresh never writes
+  the page — no `hash:` line, no `updated:` bump. Pull requests that refresh
+  different pins of one page, or the same region to the same text, merge,
+  squash or rebase with no conflict in any docs file; a region two merged
+  changes both moved matches neither acknowledgement and stays stale until
+  someone reads the combination. The region hash is the region's token form:
+  a reformat, a comment or an inserted `doc:` citation no longer stales a pin.
+  A pin that still carries `hash:` is checked against it until `docsys
+  upgrade` or a refresh moves it into an acknowledgement; a malformed
+  acknowledgement is reported (R-113). A docsys/0.4 tree keeps `hash:` in the
+  page and never writes `.verifies/`, exactly as 0.15.1.
 
 ### Fixed
 
