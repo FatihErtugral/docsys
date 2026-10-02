@@ -430,7 +430,7 @@ fn a_0_4_tree_is_told_once_how_it_moves() {
     assert_eq!(
         notice(&["lint"]),
         vec![format!(
-            "docsys: this tree declares docsys/0.4 and is served by its rules; `docsys upgrade` moves it to docsys/{} when the repository is ready",
+            "docsys: this tree declares docsys/0.4 and is served by its rules; `docsys upgrade` — or `/docsys-upgrade` with an agent — moves it to docsys/{} when the repository is ready",
             docsys::rules::spec_version()
         )]
     );

@@ -504,7 +504,7 @@ fn main() -> ExitCode {
         let ours = docsys::upgrade::implemented();
         if quiet {
         } else if cmd != "upgrade" && tree < ours {
-            eprintln!("docsys: this tree declares docsys/0.{tree} and is served by its rules; `docsys upgrade` moves it to docsys/0.{ours} when the repository is ready");
+            eprintln!("docsys: this tree declares docsys/0.{tree} and is served by its rules; `docsys upgrade` — or `/docsys-upgrade` with an agent — moves it to docsys/0.{ours} when the repository is ready");
         } else if tree > ours {
             eprintln!("docsys: this tree declares docsys/0.{tree}; this docsys implements docsys/0.{ours} — install a newer docsys");
         }
