@@ -600,7 +600,7 @@ pub fn repo_text_files(repo: &Path, docs_root: &Path) -> Vec<PathBuf> {
 /// clean repo into thousands of phantom findings. Returns None outside a git
 /// repository, where the directory walk remains the answer.
 fn git_listed_files(repo: &Path, docs_canon: Option<&Path>) -> Option<Vec<PathBuf>> {
-    let out = std::process::Command::new("git")
+    let out = crate::git::cmd(repo)
         .args([
             "ls-files",
             "-z",
@@ -608,7 +608,6 @@ fn git_listed_files(repo: &Path, docs_canon: Option<&Path>) -> Option<Vec<PathBu
             "--others",
             "--exclude-standard",
         ])
-        .current_dir(repo)
         .output()
         .ok()?;
     if !out.status.success() {

@@ -4,6 +4,10 @@ use std::process::ExitCode;
 
 const USAGE: &str = "docsys — documentation system tool (spec: SPEC.md)
 
+--root names a tree, `docs` by default: from any directory inside the repository the
+nearest tree above is found, and the repository is the tree's own (D-098). init, adopt
+and assistant create a tree where they are pointed.
+
 Usage:
   docsys lint    [--root <dir>] [--repo <dir>] [--json]   # inside a git repository: pins and history too
   docsys pin     <page> <path> [--symbol <s>] [--repo .] [--root docs]   # pin a page to a code region (verifies:, §11)
@@ -12,15 +16,15 @@ Usage:
   docsys lookup  <word…> [--root docs] [--json]   # a question's first hop: pages, local and consumed (@ns/id), naming every word
   docsys consume add <path|git-url>[#subdir] [--as <ns>] [--root docs]   # one provider into this tree's consume: list
   docsys consume discover <dir> [--root docs]     # the docsys trees one level under a directory, as candidates; writes nothing
-  docsys inbox   add --source <name> --id <item> [--title <t>] [--url <u>] [--date <d>] [<file>|-] [--root .]
+  docsys inbox   add --source <name> --id <item> [--title <t>] [--url <u>] [--date <d>] [<file>|-] [--root <dir>]
                                              # a connector's record into raw/inbox/, with provenance; the same item lands once
-  docsys inbox   pull <repo> [--since <date>] [--limit <n>] [--as <ns>] [--all] [--root .]
+  docsys inbox   pull <repo> [--since <date>] [--limit <n>] [--as <ns>] [--all] [--root <dir>]
                                              # the git connector: one record per commit since a date, newest first; --all keeps bookkeeping commits too
-  docsys status  [--root .] [--repo <dir>] [--json]   # the digest: inbox, pages by state, open items, consumed, skills, findings
-  docsys forget  <page-id|page-path|record-path> --reason <text> [--root .]   # a page to _archive/ with a tombstone, a record to raw/_forgotten/; the ledger says why
+  docsys status  [--root <dir>] [--repo <dir>] [--json]   # the digest: inbox, pages by state, open items, consumed, skills, findings
+  docsys forget  <page-id|page-path|record-path> --reason <text> [--root <dir>]   # a page to _archive/ with a tombstone, a record to raw/_forgotten/; the ledger says why
   docsys verify  <page> [--by <handle|@login>] [--commit] [--revoke] [--root docs]   # a maintainer's record in one step: who from git identity, rev from HEAD, sources checked; --revoke: back to unverified
   docsys verify  --range <a>...<b> (--by @login | --from-trailers) [--commit] [--root docs]   # every page the range touched, under the review approver's identity: a login a host adapter passes, or the Reviewed-by:/Approved-by: trailer in git (D-095)
-  docsys raw     move <record> <domain> [--root .]   # a note from raw/inbox/ to raw/<domain>/, through git, bytes untouched; every citing page's sources: rewritten (R-027)
+  docsys raw     move <record> <domain> [--root <dir>]   # a note from raw/inbox/ to raw/<domain>/, through git, bytes untouched; every citing page's sources: rewritten (R-027)
   docsys assistant [--root .] [--projects <dir>]… [--domains a,b] [--since 30.days] [--limit 3]
                                              # an assistant's memory in one command: base, layer, projects consumed, pages, records, digest
   docsys init    [--root <dir>] [--lang <code>] [--profile project|knowledge-base]
@@ -239,9 +243,13 @@ fn parse_opts(args: &[String]) -> Result<Opts, String> {
 }
 
 fn run_lint(o: &Opts) -> ExitCode {
-    // The repository is where pins resolve and history lives: given, or the
-    // one the root sits in. Outside any repository the tree is linted alone.
-    let repo = o.repo.clone().or_else(|| docsys::repo_of(&o.root));
+    // The repository is where pins resolve and history lives: the top level of
+    // the one given, or of the one the root sits in (D-098). Outside any
+    // repository the tree is linted alone.
+    let repo = match &o.repo {
+        Some(r) => Some(docsys::repo_of(r).unwrap_or_else(|| r.clone())),
+        None => docsys::repo_of(&o.root),
+    };
     let (report, outcome) = docsys::lint_in(&o.root, repo.as_deref());
     if o.json {
         print!("{}", to_json(&report));
@@ -324,7 +332,7 @@ fn main() -> ExitCode {
         Some((c, r)) => (c.as_str(), None, r),
         None => ("", None, &[]),
     };
-    let opts = match parse_opts(rest) {
+    let mut opts = match parse_opts(rest) {
         Ok(o) => o,
         Err(e) => {
             eprintln!("{e}");
@@ -332,6 +340,28 @@ fn main() -> ExitCode {
             return ExitCode::from(2);
         }
     };
+    // A command that works on an existing tree finds it from where it stands
+    // and takes the repository from the tree (D-098); one that creates a tree,
+    // or installs into one, takes its paths as given. A hook finds its own.
+    let creates = matches!(
+        cmd,
+        "init" | "adopt" | "assistant" | "migrate" | "agents" | "rules" | "hook"
+    );
+    let here = (!creates).then(|| {
+        docsys::place::locate(
+            &docsys::place::cwd_anchor(),
+            &opts.root,
+            opts.repo.as_deref(),
+        )
+    });
+    if let Some(p) = &here {
+        opts.root = p.root.clone();
+    }
+    let repo_or_cwd = here
+        .as_ref()
+        .and_then(|p| p.repo.clone())
+        .or_else(|| opts.repo.clone())
+        .unwrap_or_else(|| PathBuf::from("."));
     match (cmd, sub) {
         ("help", _) | ("--help", _) | ("-h", _) => {
             print!("{USAGE}");
@@ -416,12 +446,7 @@ fn main() -> ExitCode {
             }
         }
         ("seed", Some("plan")) => {
-            let repo = opts.repo.clone().unwrap_or_else(|| PathBuf::from("."));
-            let root = if opts.root.is_absolute() {
-                opts.root.clone()
-            } else {
-                repo.join(&opts.root)
-            };
+            let (repo, root) = (repo_or_cwd.clone(), opts.root.clone());
             let o = docsys::seed::Options {
                 target: opts.target.clone(),
                 since: opts.since.clone(),
@@ -530,12 +555,7 @@ fn main() -> ExitCode {
             }
         }
         ("seed", Some("gaps")) => {
-            let repo = opts.repo.clone().unwrap_or_else(|| PathBuf::from("."));
-            let root = if opts.root.is_absolute() {
-                opts.root.clone()
-            } else {
-                repo.join(&opts.root)
-            };
+            let (repo, root) = (repo_or_cwd.clone(), opts.root.clone());
             let o = docsys::seed::Options {
                 target: None,
                 since: opts.since.clone(),
@@ -553,12 +573,7 @@ fn main() -> ExitCode {
             }
         }
         ("seed", Some("apply")) => {
-            let repo = opts.repo.clone().unwrap_or_else(|| PathBuf::from("."));
-            let root = if opts.root.is_absolute() {
-                opts.root.clone()
-            } else {
-                repo.join(&opts.root)
-            };
+            let (repo, root) = (repo_or_cwd.clone(), opts.root.clone());
             let Some(plan) = opts.plan.clone() else {
                 eprintln!("seed apply needs --plan <file>");
                 return ExitCode::from(2);
@@ -577,12 +592,6 @@ fn main() -> ExitCode {
             }
         }
         ("hook", Some(event)) => {
-            let repo = opts.repo.clone().unwrap_or_else(|| PathBuf::from("."));
-            let root = if opts.root.is_absolute() {
-                opts.root.clone()
-            } else {
-                repo.join(&opts.root)
-            };
             // The payload comes on stdin from the agent harness. `stop` needs
             // none, and a human at a terminal must not be left waiting for EOF.
             let mut payload = String::new();
@@ -592,6 +601,20 @@ fn main() -> ExitCode {
             if wants && !std::io::IsTerminal::is_terminal(&std::io::stdin()) {
                 let _ = std::io::Read::read_to_string(&mut std::io::stdin(), &mut payload);
             }
+            // The tree is found from the payload — the edited file, the
+            // session's directory — not from wherever the harness started the
+            // relay (D-098).
+            let (file, cwd) = docsys::hook::payload_places(&payload);
+            let here = docsys::place::locate(
+                &docsys::place::hook_anchors(file.as_deref(), cwd.as_deref()),
+                &opts.root,
+                opts.repo.as_deref(),
+            );
+            let root = here.root;
+            let repo = here
+                .repo
+                .or_else(|| opts.repo.clone())
+                .unwrap_or_else(|| PathBuf::from("."));
             let reply = match event {
                 "pre-tool-use" => docsys::hook::pre_tool_use(
                     &repo,
@@ -920,7 +943,7 @@ next: review, `git add -A && git commit`, then open an agent session here."
             }
         },
         ("status", None) => {
-            let repo = opts.repo.clone().or_else(|| docsys::repo_of(&opts.root));
+            let repo = here.as_ref().and_then(|p| p.repo.clone());
             match docsys::status::status(&opts.root, repo.as_deref()) {
                 Ok(s) => {
                     if opts.json {
@@ -953,12 +976,7 @@ next: review, `git add -A && git commit`, then open an agent session here."
             }
         },
         ("pin", None) => {
-            let repo = opts.repo.clone().unwrap_or_else(|| PathBuf::from("."));
-            let root = if opts.root.is_absolute() {
-                opts.root.clone()
-            } else {
-                repo.join(&opts.root)
-            };
+            let (repo, root) = (repo_or_cwd.clone(), opts.root.clone());
             let result = if opts.refresh {
                 match opts.positional.first() {
                     Some(page) => docsys::fresh::refresh(&root, &repo, page),
@@ -986,12 +1004,7 @@ next: review, `git add -A && git commit`, then open an agent session here."
             }
         }
         ("gate", None) => {
-            let repo = opts.repo.clone().unwrap_or_else(|| PathBuf::from("."));
-            let root = if opts.root.is_absolute() {
-                opts.root.clone()
-            } else {
-                repo.join(&opts.root)
-            };
+            let (repo, root) = (repo_or_cwd.clone(), opts.root.clone());
             let result = match &opts.range {
                 Some(r) => docsys::gate::run_range(&repo, &root, r),
                 None => docsys::gate::run(&repo, &root),
@@ -1067,13 +1080,14 @@ next: review, `git add -A && git commit`, then open an agent session here."
             }
         }
         ("doctor", None) => {
-            let repo = opts.repo.clone().unwrap_or_else(|| PathBuf::from("."));
-            let root = if opts.root.is_absolute() {
-                opts.root.clone()
+            let (repo, root) = (repo_or_cwd.clone(), opts.root.clone());
+            // the agent layer lives at the repository, wherever the command runs
+            let dir = if opts.dir.is_relative() && repo != std::path::Path::new(".") {
+                repo.join(&opts.dir)
             } else {
-                repo.join(&opts.root)
+                opts.dir.clone()
             };
-            let d = docsys::doctor::run(&repo, &root, &opts.dir);
+            let d = docsys::doctor::run(&repo, &root, &dir);
             for l in &d.lines {
                 println!("{l}");
             }
@@ -1296,14 +1310,10 @@ next: review, `git add -A && git commit`, then open an agent session here."
                 eprintln!("refs needs --repo <dir>");
                 return ExitCode::from(2);
             };
-            // The root must be anchored to the repo: a bare `docs` next to a
-            // walk that yields `./docs/...` fails the inside-the-tree prefix
-            // test and the docs tree gets scanned as if it were code.
-            let root = if opts.root.is_absolute() {
-                opts.root.clone()
-            } else {
-                repo.join(&opts.root)
-            };
+            // The root was found from the repo (D-098, anchored as D-027 asks): a
+            // bare `docs` next to a walk that yields `./docs/...` fails the
+            // inside-the-tree prefix test and the docs tree gets scanned as code.
+            let root = opts.root.clone();
             let tree = match docsys::tree::DocTree::load(&root) {
                 Ok(t) if t.docmeta_present => t,
                 Ok(_) => {

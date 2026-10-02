@@ -3,7 +3,6 @@
 //! One grammar, one resolver, shared by lint (R-059) and by seeding.
 
 use std::path::Path;
-use std::process::Command;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Locator {
@@ -68,9 +67,7 @@ pub fn parse(entry: &str) -> Option<Locator> {
 }
 
 fn git_ok(repo: &Path, args: &[&str]) -> bool {
-    Command::new("git")
-        .arg("-C")
-        .arg(repo)
+    crate::git::cmd(repo)
         .args(args)
         .output()
         .map(|o| o.status.success())
@@ -79,17 +76,7 @@ fn git_ok(repo: &Path, args: &[&str]) -> bool {
 
 /// The repository a docs root lives in, if any.
 pub fn repo_of(root: &Path) -> Option<std::path::PathBuf> {
-    let out = Command::new("git")
-        .arg("-C")
-        .arg(root)
-        .args(["rev-parse", "--show-toplevel"])
-        .output()
-        .ok()?;
-    if !out.status.success() {
-        return None;
-    }
-    let s = String::from_utf8_lossy(&out.stdout).trim().to_string();
-    (!s.is_empty()).then(|| std::path::PathBuf::from(s))
+    crate::git::toplevel(root)
 }
 
 /// Does the locator resolve in `repo`? `Err` carries what is missing.
@@ -114,9 +101,7 @@ pub fn resolve(repo: &Path, loc: &Locator) -> Result<(), String> {
         }
         Locator::Blob { sha, path, lines } => {
             let spec = format!("{sha}:{path}");
-            let out = Command::new("git")
-                .arg("-C")
-                .arg(repo)
+            let out = crate::git::cmd(repo)
                 .args(["cat-file", "-p", &spec])
                 .output()
                 .map_err(|e| e.to_string())?;
@@ -138,6 +123,7 @@ pub fn resolve(repo: &Path, loc: &Locator) -> Result<(), String> {
 #[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 mod tests {
     use super::*;
+    use std::process::Command;
 
     #[test]
     fn grammar() {

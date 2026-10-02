@@ -16,7 +16,6 @@
 use std::collections::BTreeMap;
 use std::fs;
 use std::path::Path;
-use std::process::Command;
 
 use crate::checks::Report;
 use crate::fm::{Frontmatter, Value};
@@ -493,9 +492,7 @@ impl History {
         } else {
             root_rel.clone()
         };
-        let out = Command::new("git")
-            .arg("-C")
-            .arg(repo)
+        let out = crate::git::cmd(repo)
             .args([
                 "-c",
                 "core.quotePath=false",
@@ -658,9 +655,7 @@ fn check_record_authors(tree: &DocTree, repo: &Path, prefix: &str, r: &mut Repor
             continue;
         };
         inspected += 1;
-        let out = Command::new("git")
-            .arg("-C")
-            .arg(repo)
+        let out = crate::git::cmd(repo)
             .args(["log", "--reverse", "--format=%ae", "-S"])
             .arg(line)
             .arg("--")
@@ -705,9 +700,7 @@ fn check_verified_bodies(tree: &DocTree, repo: &Path, prefix: &str, r: &mut Repo
         };
         inspected += 1;
         let spec = format!("{}:{prefix}{}", rev.trim(), page.rel);
-        let shown = Command::new("git")
-            .arg("-C")
-            .arg(repo)
+        let shown = crate::git::cmd(repo)
             .args(["show", &spec])
             .output()
             .ok()
@@ -757,9 +750,7 @@ fn check_verified_bodies(tree: &DocTree, repo: &Path, prefix: &str, r: &mut Repo
             let Some(now) = now_text.as_deref().and_then(|t| sidecar_field(t, "hash")) else {
                 continue; // R-059 reports an unmaterialized source
             };
-            let then = Command::new("git")
-                .arg("-C")
-                .arg(repo)
+            let then = crate::git::cmd(repo)
                 .args(["show", &format!("{}:{prefix}{side_rel}", rev.trim())])
                 .output()
                 .ok()

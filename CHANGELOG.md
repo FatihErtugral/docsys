@@ -5,6 +5,27 @@ All notable changes to docsys are documented here. The format follows
 [SemVer](https://semver.org/). Release notes are extracted from this file
 by the release workflow — the tag's section becomes the GitHub release body.
 
+## [0.16.0] - unreleased
+
+### Fixed
+
+- docsys works from anywhere inside the repository (D-098). A relative
+  `--root` names a tree: every command that works on an existing tree walks
+  from where it runs up to the repository's top level and takes the nearest
+  tree, and the repository is the tree's own. A relay started in a package
+  directory no longer blocks every commit on R-160, skips the `updated:` bump,
+  counts zero pages or misreads a page change as none; a hook finds its tree
+  from the payload (the edited file, the session's `cwd`), then
+  `$CLAUDE_PROJECT_DIR`. A knowledge base at the top level is found without
+  `--root .`. From the top level every command prints what it printed before.
+- The git pre-commit gate of a linked worktree resolves pins at the
+  repository's top: git exports `GIT_DIR` to those hooks, which made the
+  repository read as the docs directory and every pin as moved. Every git
+  call now drops an inherited `GIT_DIR` unless `GIT_WORK_TREE` comes with it,
+  and keeps `GIT_INDEX_FILE` (a partial commit's index).
+- The usage text names the real default root (`docs`, found from where the
+  command runs) instead of `--root .`.
+
 ## [0.15.1] - 2026-09-04
 
 ### Fixed

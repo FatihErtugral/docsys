@@ -143,9 +143,7 @@ pub fn run(repo: &Path, root: &Path, claude_dir: &Path) -> Diagnosis {
     // live — parsing the config file missed a hooksPath set in another scope
     // or spelled in another case, and doctor pointed at the wrong directory
     // (found live, from a field log).
-    let hooks_dir = std::process::Command::new("git")
-        .arg("-C")
-        .arg(repo)
+    let hooks_dir = crate::git::cmd(repo)
         .args(["config", "--get", "core.hooksPath"])
         .output()
         .ok()

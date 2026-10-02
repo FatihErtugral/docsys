@@ -12,7 +12,6 @@
 
 use std::fs;
 use std::path::Path;
-use std::process::Command;
 
 use crate::fm::Value;
 use crate::tree::{DocTree, Kind};
@@ -27,9 +26,7 @@ pub struct Verified {
 }
 
 fn git(repo: &Path, args: &[&str]) -> Option<String> {
-    Command::new("git")
-        .arg("-C")
-        .arg(repo)
+    crate::git::cmd(repo)
         .args(args)
         .output()
         .ok()
@@ -254,8 +251,7 @@ pub fn verify_range(
     }
     if commit && !paths.is_empty() {
         let (handle, email) = who(&tree, &repo, by)?;
-        let mut cmd = Command::new("git");
-        cmd.arg("-C").arg(&repo);
+        let mut cmd = crate::git::cmd(&repo);
         if let Some(e) = &email {
             cmd.args([
                 "-c",
@@ -452,8 +448,7 @@ pub fn verify(
     if commit {
         // the record is the maintainer's own commit (R-208): their identity, even
         // when the repository's configured identity is somebody else's (CI)
-        let mut cmd = Command::new("git");
-        cmd.arg("-C").arg(&repo);
+        let mut cmd = crate::git::cmd(&repo);
         if let Some(e) = &email {
             cmd.args([
                 "-c",

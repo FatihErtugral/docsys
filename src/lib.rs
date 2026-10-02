@@ -15,6 +15,7 @@ pub mod fm;
 pub mod forget;
 pub mod fresh;
 pub mod gate;
+pub mod git;
 pub mod graduate;
 pub mod graph;
 pub mod hook;
@@ -23,6 +24,7 @@ pub mod locator;
 pub mod lookup;
 pub mod migrate;
 pub mod model;
+pub mod place;
 pub mod refs;
 pub mod relocate;
 pub mod rules;
@@ -45,15 +47,7 @@ pub enum Outcome {
 /// The repository a docs root lives in, as git sees it — `None` outside any
 /// repository, where the history checks are not applicable.
 pub fn repo_of(root: &Path) -> Option<std::path::PathBuf> {
-    let out = std::process::Command::new("git")
-        .arg("-C")
-        .arg(root)
-        .args(["rev-parse", "--show-toplevel"])
-        .output()
-        .ok()
-        .filter(|o| o.status.success())?;
-    let top = String::from_utf8_lossy(&out.stdout).trim().to_string();
-    (!top.is_empty()).then(|| std::path::PathBuf::from(top))
+    git::toplevel(root)
 }
 
 /// Lint the tree alone: no repository, so the freshness checks (§11, R-085,

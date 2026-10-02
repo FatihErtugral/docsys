@@ -629,13 +629,10 @@ fn check_sources(tree: &DocTree, r: &mut Report) {
 /// history. Relocation (the basename reappearing under `raw/`) is permitted
 /// and expected. Outside a git repository the hook layer owns the promise.
 fn check_raw_immutability(tree: &DocTree, r: &mut Report) {
-    use std::process::Command;
     let raw_count = tree.pages.iter().filter(|p| p.kind == Kind::Raw).count();
     r.inspected.insert("raw-immutable", raw_count);
     let git = |args: &[&str]| {
-        Command::new("git")
-            .arg("-C")
-            .arg(&tree.root)
+        crate::git::cmd(&tree.root)
             .args(args)
             .output()
             .ok()
@@ -688,11 +685,8 @@ fn check_raw_immutability(tree: &DocTree, r: &mut Report) {
 /// error at the gate. Frontmatter-only edits (§2.4: `updated`, a record)
 /// pass. Changes already in history are the history's — a person's revert.
 fn check_graduated_frozen(tree: &DocTree, r: &mut Report) {
-    use std::process::Command;
     let git = |args: &[&str]| {
-        Command::new("git")
-            .arg("-C")
-            .arg(&tree.root)
+        crate::git::cmd(&tree.root)
             .args(args)
             .output()
             .ok()

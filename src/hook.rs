@@ -10,7 +10,6 @@
 use crate::gate;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::process::Command;
 
 // ───────────────────────────── JSON (the subset a hook payload needs)
 
@@ -321,10 +320,7 @@ pub fn has_git_add(cmd: &str) -> bool {
 // ───────────────────────────── git, read unquoted
 
 fn git_lines(repo: &Path, args: &[&str]) -> Vec<String> {
-    Command::new("git")
-        .arg("-C")
-        .arg(repo)
-        .args(["-c", "core.quotePath=false"])
+    crate::git::cmd(repo)
         .args(args)
         .output()
         .ok()
@@ -473,6 +469,19 @@ pub fn record_undocumented_commit(
 }
 
 const REQUIRE: &str = "commit_policy: require — nothing lands without its documentation. Name the work (feature | bug | improvement | research), record it — a work file under work/<category>/ or, at minimum, a journal entry linking these files and saying why — stage it, and run the SAME commit again, `git add` included. DOCSYS_SKIP=1 bypasses once and leaves a debt item in work/debt.md.\nThis whole Bash call was blocked — a `git add` in it did not run either.\n";
+
+/// The edited file and the session's working directory a payload names —
+/// where a hook looks for its tree (D-098).
+pub fn payload_places(payload: &str) -> (Option<String>, Option<String>) {
+    let Some(j) = parse_json(payload) else {
+        return (None, None);
+    };
+    (
+        j.string_at(&["tool_input", "file_path"])
+            .map(str::to_string),
+        j.string_at(&["cwd"]).map(str::to_string),
+    )
+}
 
 pub fn is_knowledge_base(root: &Path) -> bool {
     fs::read_to_string(root.join(".docmeta.yml")).is_ok_and(|t| {

@@ -8,7 +8,6 @@
 
 use crate::model::Severity;
 use std::path::Path;
-use std::process::Command;
 
 pub struct GateOutcome {
     pub lint_errors: usize,
@@ -67,10 +66,7 @@ fn run_scoped(
         // core.quotePath=false: a non-ASCII page name arrives as itself, not
         // as "docs/g\303\274..." — which no docs-root prefix would match, so a
         // real docs change read as a code change (found with a Turkish name).
-        Command::new("git")
-            .arg("-C")
-            .arg(repo)
-            .args(["-c", "core.quotePath=false"])
+        crate::git::cmd(repo)
             .args(args)
             .output()
             .ok()

@@ -20,7 +20,6 @@
 
 use std::fs;
 use std::path::Path;
-use std::process::Command;
 
 use crate::fm::Value;
 use crate::tree::{DocTree, Kind};
@@ -38,17 +37,13 @@ pub(crate) fn relocate(repo: &Path, root: &Path, from: &str, to: &str) -> Result
     if let Some(parent) = dst.parent() {
         fs::create_dir_all(parent).map_err(|e| e.to_string())?;
     }
-    let tracked = Command::new("git")
-        .arg("-C")
-        .arg(repo)
+    let tracked = crate::git::cmd(repo)
         .args(["ls-files", "--error-unmatch", "--"])
         .arg(&src)
         .output()
         .is_ok_and(|o| o.status.success());
     if tracked {
-        let ok = Command::new("git")
-            .arg("-C")
-            .arg(repo)
+        let ok = crate::git::cmd(repo)
             .args(["mv", "-k", "--"])
             .arg(&src)
             .arg(&dst)
@@ -218,9 +213,7 @@ pub fn forget(root: &Path, target: &str, reason: &str) -> Result<Forgotten, Stri
         if fs::read_to_string(skill.join("SKILL.md"))
             .is_ok_and(|t| t.contains(crate::compile::SOURCE_KEY))
         {
-            let _ = Command::new("git")
-                .arg("-C")
-                .arg(&repo)
+            let _ = crate::git::cmd(&repo)
                 .args(["rm", "-rq", "--"])
                 .arg(&skill)
                 .status();

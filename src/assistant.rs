@@ -95,9 +95,8 @@ pub fn run(
         ));
     }
     if crate::repo_of(root).is_none() {
-        let ok = std::process::Command::new("git")
+        let ok = crate::git::foreign(Some(root))
             .args(["init", "-q"])
-            .current_dir(root)
             .status()
             .is_ok_and(|s| s.success());
         out.steps.push(if ok {

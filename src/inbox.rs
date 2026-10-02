@@ -9,7 +9,6 @@
 
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::process::Command;
 
 use crate::consume::local_id_of;
 
@@ -154,12 +153,8 @@ pub struct Commit {
 /// The commits of `repo` since `since` (inclusive), newest first; merges and
 /// empty subjects skipped.
 pub fn commits_since(repo: &Path, since: &str) -> Result<Vec<Commit>, String> {
-    let out = Command::new("git")
-        .arg("-C")
-        .arg(repo)
+    let out = crate::git::foreign(Some(repo))
         .args([
-            "-c",
-            "core.quotePath=false",
             "log",
             "--no-merges",
             "--name-only",

@@ -219,9 +219,7 @@ pub(crate) fn ensure_git_gate(repo: &Path, root_rel: &str, clean: bool) -> &'sta
     // → .git/hooks as the last resort.
     // git itself answers — a config-file text parse misses another scope or
     // another casing of the key (found live, from a field log).
-    let configured = std::process::Command::new("git")
-        .arg("-C")
-        .arg(repo)
+    let configured = crate::git::cmd(repo)
         .args(["config", "--get", "core.hooksPath"])
         .output()
         .ok()
@@ -231,9 +229,8 @@ pub(crate) fn ensure_git_gate(repo: &Path, root_rel: &str, clean: bool) -> &'sta
     let hooks_dir = match configured {
         Some(d) => d,
         None if repo.join(".githooks").is_dir() => {
-            let _ = std::process::Command::new("git")
+            let _ = crate::git::cmd(repo)
                 .args(["config", "core.hooksPath", ".githooks"])
-                .current_dir(repo)
                 .status();
             ".githooks".to_string()
         }

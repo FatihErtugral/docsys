@@ -418,12 +418,8 @@ pub fn is_git_url(loc: &str) -> bool {
 /// Shallow clone or update a provider checkout. The cache is never edited
 /// locally, so a hard reset to what the remote serves is always correct.
 fn git_sync(url: &str, cache: &Path) -> Result<(), String> {
-    use std::process::Command;
     let run = |args: &[&str], cwd: Option<&Path>| -> Result<(), String> {
-        let mut c = Command::new("git");
-        if let Some(d) = cwd {
-            c.arg("-C").arg(d);
-        }
+        let mut c = crate::git::foreign(cwd);
         let out = c.args(args).output().map_err(|e| e.to_string())?;
         if out.status.success() {
             Ok(())

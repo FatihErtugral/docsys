@@ -24,7 +24,6 @@ use crate::fm::Value;
 use crate::tree::{DocTree, Kind};
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
-use std::process::Command;
 
 pub struct Options {
     pub target: Option<String>,
@@ -55,10 +54,7 @@ pub const FIX_TYPES: [&str; 4] = ["fix", "hotfix", "bugfix", "revert"];
 // ───────────────────────────── git
 
 fn git(repo: &Path, args: &[&str]) -> Vec<String> {
-    Command::new("git")
-        .arg("-C")
-        .arg(repo)
-        .args(["-c", "core.quotePath=false"])
+    crate::git::cmd(repo)
         .args(args)
         .output()
         .ok()
@@ -1345,9 +1341,7 @@ pub fn apply(
     if let Some(pin) = plan.head.as_deref().filter(|p| !p.is_empty()) {
         // The evidence has moved when the pinned commit is no longer behind
         // HEAD — a rebase, a reset. Commits on top (the plan's own) are fine.
-        let ancestor = Command::new("git")
-            .arg("-C")
-            .arg(repo)
+        let ancestor = crate::git::cmd(repo)
             .args(["merge-base", "--is-ancestor", pin, "HEAD"])
             .status()
             .map(|s| s.success())

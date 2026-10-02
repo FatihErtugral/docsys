@@ -296,9 +296,7 @@ pub fn apply(root: &Path, plan_text: &str, force: bool) -> Result<Outcome, Strin
     refuse_knowledge_base(root)?;
     // R-097: refuse a dirty tree unless forced (only when git is present).
     if !force {
-        let dirty = std::process::Command::new("git")
-            .arg("-C")
-            .arg(root)
+        let dirty = crate::git::cmd(root)
             .args(["status", "--porcelain"])
             .output()
             .ok()
