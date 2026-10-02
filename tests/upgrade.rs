@@ -876,3 +876,40 @@ fn a_fresh_clone_of_a_githooks_repository_gets_its_gate_from_the_per_clone_step(
         let _ = fs::remove_dir_all(d);
     }
 }
+
+/// In a tree whose root is not `docs`, a skill an older release wrote with
+/// `docs` in it is refreshed to the text that names the tree's own root.
+#[test]
+fn a_refreshed_asset_names_the_trees_own_root() {
+    let repo = tmp("asset-root");
+    git(&repo, &["init", "-q", "-b", "main"]);
+    git(&repo, &["config", "user.email", "t@example.invalid"]);
+    git(&repo, &["config", "user.name", "t"]);
+    fs::write(repo.join("README.md"), "# x\n").unwrap();
+    git(&repo, &["add", "-A"]);
+    git(&repo, &["commit", "-qm", "init"]);
+    let out = docsys(&repo, &["adopt", "--root", "documentation"]);
+    assert!(out.status.success(), "{out:?}");
+    let skill = repo.join(".claude/skills/docsys/SKILL.md");
+    fs::write(&skill, include_str!("golden/docsys-skill-0.1.0.md")).unwrap();
+    git(&repo, &["add", "-A"]);
+    git(
+        &repo,
+        &[
+            "-c",
+            "core.hooksPath=/dev/null",
+            "commit",
+            "-qm",
+            "adopt, an old skill",
+        ],
+    );
+    let out = docsys(&repo, &["upgrade", "--apply", "--root", "documentation"]);
+    assert!(out.status.success(), "{out:?}");
+    let text = fs::read_to_string(&skill).unwrap();
+    assert!(
+        !text.contains("--root docs") && !text.contains(" docs/"),
+        "{text}"
+    );
+    assert!(text.contains("documentation/.docmeta.yml"), "{text}");
+    let _ = fs::remove_dir_all(&repo);
+}

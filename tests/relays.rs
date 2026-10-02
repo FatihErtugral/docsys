@@ -80,6 +80,28 @@ fn adopt_wires_the_project_dir_form_and_bakes_the_trees_root() {
     let r = repo("form");
     let (code, out) = docsys(&r, &["adopt", "--root", "documentation"]);
     assert_eq!(code, 0, "{out}");
+    // the commands and skills name the tree's root too, never `docs`
+    for asset in [
+        "commands/docsys-sync.md",
+        "commands/docsys-seed.md",
+        "commands/docsys-interview.md",
+        "skills/docsys/SKILL.md",
+        "skills/docsys-export/SKILL.md",
+    ] {
+        let text = fs::read_to_string(r.join(".claude").join(asset)).unwrap();
+        assert!(
+            !text.contains("--root docs")
+                && !text.contains("docs/work")
+                && !text.contains(" docs/"),
+            "{asset} names docs:\n{text}"
+        );
+    }
+    let sync = fs::read_to_string(r.join(".claude/commands/docsys-sync.md")).unwrap();
+    assert!(
+        sync.contains("docsys lint --root documentation --repo ."),
+        "{sync}"
+    );
+    assert!(sync.contains("`documentation/work/debt.md`"), "{sync}");
     let settings = fs::read_to_string(r.join(".claude/settings.json")).unwrap();
     for name in [
         "session-intent",

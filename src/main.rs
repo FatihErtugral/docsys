@@ -1680,7 +1680,12 @@ next: review, `git add -A && git commit`, then open an agent session here."
                 }
             }
         }
-        ("agents", None) => match docsys::agents::install(&opts.dir, opts.force) {
+        ("agents", None) => match docsys::agents::install_with_preamble(
+            &opts.dir,
+            opts.force,
+            "",
+            &opts.root.to_string_lossy(),
+        ) {
             Ok(done) => {
                 for f in &done.written {
                     println!("wrote   {}/{f}", opts.dir.display());

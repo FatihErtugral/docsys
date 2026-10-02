@@ -689,7 +689,7 @@ fn common(ctx: &Ctx, u: &mut Upgrade, apply: bool) -> Result<(), String> {
         let want = if kb {
             now.to_string()
         } else {
-            crate::migrate::with_preamble(now, preamble)
+            crate::migrate::with_preamble(&crate::agents::render_root(now, root_rel), preamble)
         };
         let file = rel(repo, &path);
         let Ok(text) = fs::read_to_string(&path) else {

@@ -704,7 +704,7 @@ pub fn install_with_preamble(
         let content = if executable {
             render_relay(content, root_arg)
         } else {
-            crate::migrate::with_preamble(content, preamble)
+            crate::migrate::with_preamble(&render_root(content, root_arg), preamble)
         };
         fs::write(&path, content).map_err(|e| e.to_string())?;
         #[cfg(unix)]
@@ -1302,6 +1302,19 @@ mod tests {
             assert!(ok, "{name} does not parse");
         }
     }
+    #[test]
+    fn a_template_names_the_trees_own_root() {
+        let text = "Run `docsys lint --root docs --repo .`; propose `docs/work/debt.md` items; `git show <sha> -- docs/`; docsys docs/x docsify --root docs-site\n";
+        assert_eq!(render_root(text, "docs"), text);
+        assert_eq!(
+            render_root(text, "documentation"),
+            "Run `docsys lint --root documentation --repo .`; propose `documentation/work/debt.md` items; `git show <sha> -- documentation/`; docsys documentation/x docsify --root docs-site\n"
+        );
+        assert_eq!(
+            render_root("`docs/work/` and --root docs\n", "."),
+            "`./work/` and --root .\n"
+        );
+    }
 }
 
 #[cfg(test)]
@@ -1364,6 +1377,46 @@ pub fn owned_assets(kb: bool) -> Vec<(&'static str, &'static str, bool)> {
             ("skills/docsys-export/SKILL.md", EXPORT_SKILL, false),
         ]);
     }
+    out
+}
+
+/// A command's or a skill's text with the tree's own root where the template
+/// says `docs`: in `--root docs` and at the start of a `docs/` path. The relays
+/// default to it the same way (D-099); a template with no root left in it reads
+/// the same in every tree.
+pub fn render_root(text: &str, root_arg: &str) -> String {
+    let root = if root_arg.is_empty() { "." } else { root_arg };
+    if root == "docs" {
+        return text.to_string();
+    }
+    let prefix = if root == "." {
+        "./".to_string()
+    } else {
+        format!("{root}/")
+    };
+    let mut out = String::with_capacity(text.len());
+    let mut rest = text;
+    while let Some(i) = rest.find("docs") {
+        let (head, tail) = rest.split_at(i);
+        out.push_str(head);
+        let before = out.chars().last();
+        let after = tail.get(4..).and_then(|s| s.chars().next());
+        let starts = before.is_none_or(|c| matches!(c, ' ' | '`' | '(' | '\'' | '"' | '\n'));
+        if starts && after == Some('/') {
+            out.push_str(&prefix);
+            rest = tail.get(5..).unwrap_or("");
+        } else if starts
+            && out.ends_with("--root ")
+            && after.is_none_or(|c| !(c.is_alphanumeric() || c == '-' || c == '_'))
+        {
+            out.push_str(root);
+            rest = tail.get(4..).unwrap_or("");
+        } else {
+            out.push_str("docs");
+            rest = tail.get(4..).unwrap_or("");
+        }
+    }
+    out.push_str(rest);
     out
 }
 
