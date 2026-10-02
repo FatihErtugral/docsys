@@ -101,6 +101,9 @@ by the release workflow — the tag's section becomes the GitHub release body.
   `git:<sha>`, `git:<sha>:<path>[@L<a>-L<b>]`, `tag:<ref>`, `@namespace/id`,
   and — where the tree has a `raw/` — a record captured with
   `docsys inbox add`.
+- A scalar `maintainers: ayse` is reported (R-208): it names no maintainer,
+  so every record check was silently off. The warning names the list forms,
+  `maintainers: [ayse]` or a block list.
 
 ### Changed
 

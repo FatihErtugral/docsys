@@ -437,6 +437,24 @@ pub(crate) fn record_handle(value: &str) -> String {
 }
 
 fn check_maintainers(tree: &DocTree, r: &mut Report) {
+    // A scalar is not a list: it names no maintainer, and R-208 would check
+    // nothing without a word.
+    if let Some(v) = tree
+        .docmeta_str("maintainers")
+        .map(str::trim)
+        .filter(|v| !v.is_empty())
+    {
+        r.findings.push(Finding::warn(
+            R208,
+            "-",
+            "maintainers",
+            format!(
+                "`maintainers: {v}` is a single value, not a list — it names no maintainer and \
+                 R-208 checks nothing; write `maintainers: [{v}]` or a block list \
+                 (`maintainers:` then `  - {v}`)"
+            ),
+        ));
+    }
     let maintainers = maintainer_handles(tree);
     if maintainers.is_empty() {
         return;
