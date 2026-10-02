@@ -2333,7 +2333,9 @@ pub fn run_with(tree: &DocTree, ctx: &Context) -> Report {
     if let (Some(repo), Some(h)) = (&ctx.repo, &ctx.history) {
         crate::fresh::check_history(tree, repo, h, &mut r);
     }
-    check_raw_immutability(tree, &mut r);
+    if tree.profile == Profile::KnowledgeBase || crate::era::Era::of(tree).project_records() {
+        check_raw_immutability(tree, &mut r);
+    }
     if tree.profile == Profile::Project {
         check_graduated_frozen(tree, &mut r);
     }

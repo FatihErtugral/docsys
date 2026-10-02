@@ -90,6 +90,12 @@ impl Era {
     pub fn scalar_maintainers(self) -> bool {
         self.v05()
     }
+
+    /// D-112: a project's `raw/` is a record layer — content-immutable at the
+    /// gate, its references historical. Before: pages like any other.
+    pub fn project_records(self) -> bool {
+        self.v05()
+    }
 }
 
 #[cfg(test)]

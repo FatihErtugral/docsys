@@ -43,7 +43,7 @@ fn build_project(name: &str) -> (PathBuf, PathBuf) {
     };
     w(
         ".docmeta.yml",
-        "spec: docsys/0.4\nprofile: project\ndefault_content_language: en\n",
+        "spec: docsys/0.5\nprofile: project\ndefault_content_language: en\n",
     );
     w(
         "index.md",

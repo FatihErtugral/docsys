@@ -9,6 +9,9 @@ by the release workflow — the tag's section becomes the GitHub release body.
 
 ### Added
 
+- `docsys adopt --rules-file <path>`, `--report-dir <dir>` and `--no-report`
+  (D-110): the file the rules block goes to, the directory `ADOPTION.md`
+  goes to, or the report printed and nothing written.
 - `docsys ledger fix [--root <dir>]` (D-108) rewrites a ledger's em-dash
   field markers (` — deferred: `) to R-108's ASCII (` -- deferred: `) in
   `work/debt.md`, `work/questions.md`, `wiki/open-questions.md` and their
@@ -45,6 +48,28 @@ by the release workflow — the tag's section becomes the GitHub release body.
   keeps the record as the last verification and tells the agent; `docsys
   verify --revoke` keeps the record too. `lookup` says when a verified page's
   body changed.
+- `adopt` on a tree that holds pages and no `.docmeta.yml` prints the page
+  count and the three ways on — migrate them, keep them in place with
+  `docsys init`, or put the tree elsewhere with `--root` — and never chooses
+  (D-110). `init` writes only the files that are absent, so keeping a tree
+  in place overwrites no page.
+- The `docsys:rules` block stays where its markers are (D-110): a re-adopt
+  updates it in place in whichever `AGENTS.md` or `CLAUDE.md` holds it,
+  never moving it. A first block goes to `AGENTS.md`, or to `CLAUDE.md` when
+  git ignores `AGENTS.md`; when git ignores both, it is printed and the
+  report's checklist names it.
+- A re-adopt finds `ADOPTION.md` wherever its managed block is — moved by
+  hand, untracked, or kept out of git through `.gitignore` — and updates it
+  there instead of writing a new one at the root (D-110).
+- On a docsys/0.5 tree `raw/` is a project's optional record layer (D-112;
+  SPEC §3, R-023, R-076). A record under a project's `raw/` gets the knowledge base's
+  treatment: a dangling link or `doc:` reference in it is reported instead
+  of blocking, and the path scan skips it. **R-023 is newly enforced in
+  0.5 projects**: a tracked record whose bytes change, or that is deleted, is an
+  error at the gate; a record not yet committed stays mutable. `status` in a
+  project prints `records: N (M cited by no page)` and no inbox line; `inbox
+  add` in a project without `raw/` names `mkdir -p <root>/raw/inbox` or the
+  knowledge-base profile. `raw move` stays the knowledge base's.
 
 ### Fixed
 
@@ -121,47 +146,6 @@ by the release workflow — the tag's section becomes the GitHub release body.
   files, which kept non-ASCII letters (R-120). A record title with nothing
   to fold names the record by its source id, then `item`. Existing files are
   never renamed.
-- `docsys adopt --rules-file <path>`, `--report-dir <dir>` and `--no-report`
-  (D-110): the file the rules block goes to, the directory `ADOPTION.md`
-  goes to, or the report printed and nothing written.
-
-### Changed
-
-- `adopt` on a tree that holds pages and no `.docmeta.yml` prints the page
-  count and the three ways on — migrate them, keep them in place with
-  `docsys init`, or put the tree elsewhere with `--root` — and never chooses
-  (D-110). `init` writes only the files that are absent, so keeping a tree
-  in place overwrites no page.
-- The `docsys:rules` block stays where its markers are (D-110): a re-adopt
-  updates it in place in whichever `AGENTS.md` or `CLAUDE.md` holds it,
-  never moving it. A first block goes to `AGENTS.md`, or to `CLAUDE.md` when
-  git ignores `AGENTS.md`; when git ignores both, it is printed and the
-  report's checklist names it.
-- A re-adopt finds `ADOPTION.md` wherever its managed block is — moved by
-  hand, untracked, or kept out of git through `.gitignore` — and updates it
-  there instead of writing a new one at the root (D-110).
-
-- `raw/` is a project's optional record layer (D-112; SPEC §3, R-023,
-  R-076). A record under a project's `raw/` gets the knowledge base's
-  treatment: a dangling link or `doc:` reference in it is reported instead
-  of blocking, and the path scan skips it. **R-023 is newly enforced in
-  projects**: a tracked record whose bytes change, or that is deleted, is an
-  error at the gate; a record not yet committed stays mutable. `status` in a
-  project prints `records: N (M cited by no page)` and no inbox line; `inbox
-  add` in a project without `raw/` names `mkdir -p <root>/raw/inbox` or the
-  knowledge-base profile. `raw move` stays the knowledge base's.
-
-### Changed
-
-- `raw/` is a project's optional record layer (D-112; SPEC §3, R-023,
-  R-076). A record under a project's `raw/` gets the knowledge base's
-  treatment: a dangling link or `doc:` reference in it is reported instead
-  of blocking, and the path scan skips it. **R-023 is newly enforced in
-  projects**: a tracked record whose bytes change, or that is deleted, is an
-  error at the gate; a record not yet committed stays mutable. `status` in a
-  project prints `records: N (M cited by no page)` and no inbox line; `inbox
-  add` in a project without `raw/` names `mkdir -p <root>/raw/inbox` or the
-  knowledge-base profile. `raw move` stays the knowledge base's.
 
 ## [0.15.1] - 2026-09-04
 

@@ -83,7 +83,7 @@ fn classify_kb(rel: &str) -> Kind {
     }
 }
 
-fn classify(rel: &str, extra_tracked: &[String], profile: Profile) -> Kind {
+fn classify(rel: &str, extra_tracked: &[String], profile: Profile, records: bool) -> Kind {
     if profile == Profile::KnowledgeBase {
         return classify_kb(rel);
     }
@@ -92,7 +92,7 @@ fn classify(rel: &str, extra_tracked: &[String], profile: Profile) -> Kind {
     match first {
         "index.md" => Kind::Router,
         "README.md" => Kind::Readme,
-        "raw" => Kind::Raw,
+        "raw" if records => Kind::Raw,
         _ if PERMANENT_DIRS.contains(&first) => Kind::Permanent,
         "work" => {
             let second = parts.next().unwrap_or("");
@@ -171,6 +171,9 @@ impl DocTree {
             Some("knowledge-base") => Profile::KnowledgeBase,
             _ => Profile::Project,
         };
+        // a project's records are a layer of their own from 0.5 (D-112, D-118)
+        let records = crate::era::Era::of_spec(docmeta.get("spec").and_then(fm::Value::as_str))
+            .project_records();
 
         // R-077's `scan_exclude` is the owner's word on tooling and archived
         // sub-projects; the docs-side walk honors it too (D-030) — a template
@@ -198,7 +201,7 @@ impl DocTree {
                 continue;
             }
             let text = fs::read_to_string(&path)?;
-            let kind = classify(&rel, &extra_tracked, profile);
+            let kind = classify(&rel, &extra_tracked, profile, records);
             let fm = fm::parse(&text);
             pages.push(Page {
                 rel,
@@ -333,7 +336,7 @@ mod tests_more {
     #[test]
     fn project_layout_classification() {
         let extra = vec!["experiments".to_string()];
-        let c = |rel: &str| classify(rel, &extra, Profile::Project);
+        let c = |rel: &str| classify(rel, &extra, Profile::Project, true);
         assert_eq!(c("index.md"), Kind::Router);
         assert_eq!(c("README.md"), Kind::Readme);
         for d in ["reference", "howto", "explanation", "tutorial"] {
@@ -367,7 +370,7 @@ mod tests_more {
 
     #[test]
     fn knowledge_base_layout_classification() {
-        let c = |rel: &str| classify(rel, &[], Profile::KnowledgeBase);
+        let c = |rel: &str| classify(rel, &[], Profile::KnowledgeBase, true);
         assert_eq!(c("README.md"), Kind::Readme);
         assert_eq!(c("raw/inbox/n.md"), Kind::Raw);
         assert_eq!(c("wiki/index.md"), Kind::Router);
