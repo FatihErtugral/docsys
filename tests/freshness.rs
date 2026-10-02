@@ -45,6 +45,18 @@ fn repo(name: &str, day: &str) -> (PathBuf, PathBuf) {
     git(&repo, &["config", "user.name", "t"]);
     let docs = repo.join("docs");
     docsys::migrate::init_profile(&docs, "en", "project").unwrap();
+    // the tests here start from a 0.4 tree, as they were written; `declare_spec`
+    // moves one on (D-118)
+    let dm = docs.join(".docmeta.yml");
+    let declared = fs::read_to_string(&dm).unwrap();
+    fs::write(
+        &dm,
+        declared.replace(
+            &format!("spec: docsys/{}\n", docsys::rules::spec_version()),
+            "spec: docsys/0.4\n",
+        ),
+    )
+    .unwrap();
     fs::create_dir_all(docs.join("reference")).unwrap();
     fs::write(
         docs.join("reference/refresh.md"),
@@ -899,7 +911,14 @@ fn cli_project(name: &str, files: &[(&str, &str)], pins: &[(&str, &str, &str)]) 
     cli_docsys(&repo, &["init", "--root", "docs"]);
     let dm = repo.join("docs/.docmeta.yml");
     let text = fs::read_to_string(&dm).unwrap();
-    fs::write(&dm, text.replace("spec: docsys/0.4", "spec: docsys/0.5")).unwrap();
+    fs::write(
+        &dm,
+        text.replace(
+            &format!("spec: docsys/{}", docsys::rules::spec_version()),
+            "spec: docsys/0.5",
+        ),
+    )
+    .unwrap();
     for (path, body) in files {
         let p = repo.join(path);
         fs::create_dir_all(p.parent().unwrap()).unwrap();

@@ -334,7 +334,11 @@ fn an_older_docsys_under_upgraded_relays_is_named_in_one_line() {
         )
     };
     let docmeta = r.join("docs/.docmeta.yml");
-    let declared = fs::read_to_string(&docmeta).unwrap();
+    let declared = fs::read_to_string(&docmeta).unwrap().replace(
+        &format!("spec: docsys/{}", docsys::rules::spec_version()),
+        "spec: docsys/0.4",
+    );
+    fs::write(&docmeta, &declared).unwrap();
 
     // control: a tree the stub implements (docsys/0.4) — no line, the relay runs
     for script in ["pre-commit-docs.sh", "session-intent.sh"] {

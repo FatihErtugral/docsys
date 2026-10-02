@@ -10,6 +10,8 @@ and assistant create a tree where they are pointed.
 
 Usage:
   docsys --version                          # the binary and the spec version it implements
+  docsys upgrade [--apply] [--commit] [--force] [--root docs] [--dir .claude]
+                                             # move this tree to the spec version this docsys implements: the plan, then --apply as one commit (D-117)
   docsys feedback [--draft] [--type bug|false-positive|need] [--rule R-xxx] [--command \"docsys …\"] [--out <file>]
                                              # docsys is wrong or in your way: the guide, or an issue drafted with the facts filled in — never filed by the tool
   docsys lint    [--root <dir>] [--repo <dir>] [--json]   # inside a git repository: pins and history too
@@ -129,6 +131,7 @@ struct Opts {
     rule: Option<String>,
     command: Option<String>,
     against: Vec<String>,
+    apply: bool,
     ci_runner: Option<String>,
     ci_install: Option<String>,
     ci_sha256: Option<String>,
@@ -190,6 +193,7 @@ fn parse_opts(args: &[String]) -> Result<Opts, String> {
         rule: None,
         command: None,
         against: Vec::new(),
+        apply: false,
         ci_runner: None,
         ci_install: None,
         ci_sha256: None,
@@ -233,6 +237,7 @@ fn parse_opts(args: &[String]) -> Result<Opts, String> {
             "--format" => o.format = Some(it.next().ok_or("--format needs a value")?.clone()),
             "--obsidian" => o.obsidian = true,
             "--draft" => o.draft = true,
+            "--apply" => o.apply = true,
             "--against" => o
                 .against
                 .push(it.next().ok_or("--against needs a value")?.clone()),
@@ -448,6 +453,20 @@ fn main() -> ExitCode {
     if let Some(p) = &here {
         opts.root = p.root.clone();
     }
+    // R-171: a version difference in one line, naming what resolves it. A tree
+    // that has not moved is served by its own rules (D-118).
+    if let Some(p) = here
+        .as_ref()
+        .filter(|p| p.root.join(".docmeta.yml").is_file())
+    {
+        let tree = docsys::era::Era::at(&p.root).0;
+        let ours = docsys::upgrade::implemented();
+        if cmd != "upgrade" && tree < ours {
+            eprintln!("docsys: this tree declares docsys/0.{tree} and is served by its rules; `docsys upgrade` moves it to docsys/0.{ours} when the repository is ready");
+        } else if tree > ours {
+            eprintln!("docsys: this tree declares docsys/0.{tree}; this docsys implements docsys/0.{ours} — install a newer docsys");
+        }
+    }
     let repo_or_cwd = here
         .as_ref()
         .and_then(|p| p.repo.clone())
@@ -468,6 +487,84 @@ fn main() -> ExitCode {
             ExitCode::SUCCESS
         }
         ("lint", None) => run_lint(&opts),
+        ("upgrade", None) => {
+            let repo = repo_or_cwd.clone();
+            if docsys::repo_of(&repo).is_none() {
+                eprintln!("upgrade: a tree moves inside a git repository — its move is one commit (R-177)");
+                return ExitCode::from(2);
+            }
+            let dir = if opts.dir.is_relative() && repo.as_path() != std::path::Path::new(".") {
+                repo.join(&opts.dir)
+            } else {
+                opts.dir.clone()
+            };
+            if opts.apply && !opts.force {
+                let dirty = docsys::git::cmd(&repo)
+                    .args(["status", "--porcelain", "--untracked-files=no"])
+                    .output()
+                    .map(|o| !o.stdout.is_empty())
+                    .unwrap_or(true);
+                if dirty {
+                    eprintln!("upgrade: the working tree has uncommitted changes — commit or stash them first, so the upgrade is one commit of its own (R-097, R-177); --force overrides");
+                    return ExitCode::from(2);
+                }
+            }
+            match docsys::upgrade::run(&repo, &opts.root, &dir, opts.apply) {
+                Ok(u) => {
+                    let head = if u.from < u.to {
+                        format!("docsys/0.{} → docsys/0.{}", u.from, u.to)
+                    } else {
+                        format!("docsys/0.{}", u.to)
+                    };
+                    println!(
+                        "docsys upgrade: {head} — {}",
+                        if opts.apply {
+                            "applied"
+                        } else {
+                            "the plan; `docsys upgrade --apply` writes it"
+                        }
+                    );
+                    for i in &u.items {
+                        println!("{:<7} {:<18} {}  {}", i.strategy, i.step, i.file, i.what);
+                    }
+                    let count = |s: &str| u.items.iter().filter(|i| i.strategy == s).count();
+                    if u.items.is_empty() {
+                        println!("-- nothing to do");
+                    } else {
+                        println!(
+                            "-- {} automatic, {} for a person, {} for information",
+                            count("auto"),
+                            count("manual"),
+                            count("info")
+                        );
+                    }
+                    for p in &u.preview {
+                        println!("{p}");
+                    }
+                    for (file, diff) in &u.diffs {
+                        println!("\n# {file}\n{diff}");
+                    }
+                    if opts.apply && opts.commit {
+                        if let Err(e) = docsys::upgrade::commit(&repo, &u) {
+                            eprintln!("upgrade: {e}");
+                            return ExitCode::from(1);
+                        }
+                        println!("committed: docsys: upgrade the tree to docsys/0.{}", u.to);
+                    } else if opts.apply && !u.written.is_empty() {
+                        println!(
+                            "now commit it as one commit (R-177): git add -- {} && git commit -m \"docsys: upgrade the tree to docsys/0.{}\"   (or run again with --commit)",
+                            u.written.join(" "),
+                            u.to
+                        );
+                    }
+                    ExitCode::SUCCESS
+                }
+                Err(e) => {
+                    eprintln!("upgrade: {e}");
+                    ExitCode::from(2)
+                }
+            }
+        }
         ("feedback", None) => {
             if !opts.draft {
                 print!("{}", docsys::feedback::guide());

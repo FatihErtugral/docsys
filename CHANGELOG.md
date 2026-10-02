@@ -7,7 +7,51 @@ by the release workflow — the tag's section becomes the GitHub release body.
 
 ## [0.16.0] - unreleased
 
+### Upgrading from 0.15.x
+
+Nothing has to move on the day 0.16.0 is installed. A tree that declares
+`spec: docsys/0.4` — every tree 0.15 wrote — keeps its findings, its file
+formats and its hooks under 0.16.0 (D-118); each command says so in one line on
+stderr. Move one repository when it is ready:
+
+1. Install 0.16.0 on every machine that commits to the repository. From the
+   moment the tree declares `docsys/0.5`, an older docsys under the new relays
+   and gate stops with one line naming the version to install.
+2. In a clean working tree, run `docsys upgrade`. It writes nothing and prints
+   the plan: each item `auto` (applied by the next step), `manual` (for a
+   person, never applied) or `info`; the findings the move adds and removes;
+   a diff for every file its owner edited.
+3. Run `docsys upgrade --apply --commit`. It writes the `auto` items and commits
+   them as one commit. It refuses uncommitted changes; `--force` overrides.
+4. Work through the `manual` items. A verified page whose body or consumed
+   sources moved since its `verified_rev` is verified again by a maintainer
+   (`docsys verify <page>`). A pin whose declaration is not the region 0.15
+   read is re-read and refreshed (`docsys pin --refresh <page>`). A `doc:`
+   citation in the middle of a comment moves to the start of its comment, or
+   stays prose. An owner-edited relay, skill, command or CI workflow takes what
+   it wants from the printed diff — in the workflow, the version pin first
+   (`cargo install docsys --version 0.16.0 --locked`).
+5. After pulling the upgrade, every other clone runs `docsys upgrade --apply`
+   once: the git gate lives in each clone's hooks directory, not in the commit.
+   A hooks directory the repository tracks is committed with the upgrade
+   instead.
+6. Push the upgrade commit and the CI pin in the same change: every clone and
+   the CI move together.
+
 ### Added
+
+- `docsys upgrade [--apply] [--commit] [--force]` (D-117, §16) moves a
+  docsys/0.4 tree to docsys/0.5. The steps are data
+  (`migrations/0.4-0.5.tsv`); the default is the plan; `--apply` writes what is
+  mechanical and `--commit` makes it one commit. A file a docsys template
+  wrote and nobody edited is regenerated; an edited one — a relay, a skill, a
+  command, the CI workflow with its runner and install — is never rewritten,
+  only shown as a diff. A verified page gains `verified_hash` only when its
+  body at `verified_rev` is its body now; a pin's hash becomes its
+  acknowledgement only where it holds and its declaration reads the same
+  region; everything else is listed with its page. The conformance case
+  `corpus/upgrades/0.4-to-0.5` locks the move file by file, and a second run
+  changes nothing.
 
 - `docsys check <page> --by <agent|session> [--against <evidence>]… [--commit]`
   (§21, R-214, D-104) on a docsys/0.5 tree: a machine's reading of every claim

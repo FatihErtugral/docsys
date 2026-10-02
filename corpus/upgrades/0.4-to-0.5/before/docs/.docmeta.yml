@@ -1,0 +1,12 @@
+spec: docsys/0.4
+profile: project
+default_content_language: en
+# The name a consumer uses for this tree — `consume: [gen]` (D-075).
+namespace: gen
+created: 2026-10-02
+
+# Who may confirm work and verify pages (R-208); empty = anyone, as before.
+maintainers: []
+
+# The commit gate: ask (asks once) | require (no commit without its documentation, R-209).
+commit_policy: ask

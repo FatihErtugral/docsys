@@ -1,0 +1,58 @@
+docsys upgrade: docsys/0.4 → docsys/0.5 — the plan; `docsys upgrade --apply` writes it
+auto    hook-wires         .claude/settings.json  4 change(s): every docsys wire to `"$CLAUDE_PROJECT_DIR"/.claude/hooks/<name>.sh`, duplicates folded
+auto    hook-scripts       .claude/hooks/pre-commit-docs.sh  refreshed: starts in the project directory, names the tree's root, says when the tree needs a newer docsys
+manual  hook-scripts       .claude/hooks/stop-docs-reminder.sh  edited by its owner — the diff to this version's relay is below
+auto    hook-scripts       .claude/hooks/post-edit-updated.sh  refreshed: starts in the project directory, names the tree's root, says when the tree needs a newer docsys
+auto    hook-scripts       .claude/hooks/session-intent.sh  refreshed: starts in the project directory, names the tree's root, says when the tree needs a newer docsys
+auto    git-gate           .git/hooks/pre-commit  the docsys block rewritten for this version, its mode kept — this clone only: every clone runs `docsys upgrade --apply` once
+manual  verified-hash      docs/reference/expiry.md  the body changed since @REV@ — never hashed blind; a maintainer verifies it again
+auto    verified-hash      docs/reference/refresh.md  the body @REV@ holds is the body now: `verified_hash` recorded
+manual  pins               docs/reference/expiry.md  `src/auth.rs#expire`: stale before the upgrade, still stale — re-read, then `docsys pin --refresh reference/expiry.md`
+auto    pins               docs/reference/refresh.md  `src/auth.rs#refresh_token`: acknowledged beside the page
+auto    ledger-separators  docs/work/debt.md  work/debt.md line 3
+auto    ci-workflow        .github/workflows/docsys.yml  the 0.15 workflow, untouched: regenerated with its mode, pinned to this version
+auto    rules-block        AGENTS.md  the generated block refreshed in place
+manual  assets             .claude/commands/docsys-sync.md  edited by its owner — the diff to this version's text is below
+auto    assets             .claude/skills/docsys/SKILL.md  refreshed: the 0.15 text, untouched
+manual  code-citations     src/auth.rs:8  `doc: expiry` sits mid-comment: from 0.5 it is prose (R-072) — move it to the start of its comment, or leave it as prose
+info    raw-records        docs/raw/  1 record(s): from 0.5 a record layer — their dangling references are reported, an edited record stops the commit (R-023)
+auto    spec-line          docs/.docmeta.yml  `spec: docsys/0.4` → `spec: docsys/0.5`
+-- 12 automatic, 5 for a person, 1 for information
+judged by docsys/0.5 as the tree is now: 1 new finding(s), 0 gone — the ledger and pin steps clear their part
++ WARN R-108 work/debt.md [line-3] entry does not match its item grammar — a field marker is written ` — `; separators are ASCII ` -- ` (`docsys ledger fix` rewrites them)
+
+# .claude/hooks/stop-docs-reminder.sh
+--- .claude/hooks/stop-docs-reminder.sh
++++ .claude/hooks/stop-docs-reminder.sh
+@@ -1,8 +1,13 @@
+ #!/usr/bin/env bash
+-# docsys-template: 0.15.1
++# docsys-template: 0.16.0
+ # stop-docs-reminder.sh — end-of-turn nudge; warns, never blocks (R-150).
+ # Reads the working tree and the commits not yet pushed (`docsys hook stop`).
+ command -v docsys >/dev/null || exit 0
+-# no nudge on the release branch
+-[ "$(git branch --show-current)" = release ] && exit 0
++cd "${CLAUDE_PROJECT_DIR:-.}" || exit 0
++docsys_spec=$(sed -n 's/^spec:[[:space:]]*docsys\/0\.\([0-9][0-9]*\).*/\1/p' "${DOCS_ROOT:-docs}/.docmeta.yml" 2>/dev/null | head -n 1)
++docsys_impl=$(docsys --version 2>/dev/null | sed -n 's/.*docsys\/0\.\([0-9][0-9]*\).*/\1/p')
++if [ -n "$docsys_spec" ] && [ "$docsys_spec" -gt "${docsys_impl:-4}" ]; then
++  echo "docsys: this tree needs docsys >= 0.16.0 (it declares docsys/0.$docsys_spec); install: cargo install docsys --version 0.16.0 --locked" >&2
++  exit 1
++fi
+ exec docsys hook stop --root "${DOCS_ROOT:-docs}" --stdin
+
+
+# .claude/commands/docsys-sync.md
+--- .claude/commands/docsys-sync.md
++++ .claude/commands/docsys-sync.md
+@@ -5,7 +5,7 @@
+ 
+ # /docsys-sync — documentation drift check
+ 
+-Manual, never automatic; run it before a release. Report; propose `docs/work/debt.md` items as a diff
++Manual, never automatic. Report; propose `docs/work/debt.md` items as a diff
+ and wait for approval. Commit nothing.
+ 
+ 1. Mechanical pass: `docsys lint --root docs --repo .` and `docsys refs --repo .` —
+

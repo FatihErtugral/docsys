@@ -1316,3 +1316,74 @@ mod wire_tests {
         assert_eq!(merge_hook_wires(&mut no_hooks, &want), Some(4));
     }
 }
+
+/// A relay as this binary writes it, by its path under `.claude/` — for
+/// `docsys upgrade`, which refreshes a relay still in a docsys template's shape.
+pub fn relay_for(rel: &str, root_arg: &str) -> Option<String> {
+    let template = match rel {
+        "hooks/pre-commit-docs.sh" => PRE_COMMIT_DOCS,
+        "hooks/stop-docs-reminder.sh" => STOP_DOCS_REMINDER,
+        "hooks/post-edit-updated.sh" => POST_EDIT_UPDATED,
+        "hooks/session-intent.sh" => SESSION_INTENT,
+        _ => return None,
+    };
+    Some(render_relay(template, root_arg))
+}
+
+/// The markdown assets docsys owns, by path under `.claude/`: this binary's
+/// text, and the text 0.15 wrote — `docsys upgrade` refreshes a file that
+/// still holds either, and leaves a file somebody edited to its owner.
+pub fn owned_assets(kb: bool) -> Vec<(&'static str, &'static str, &'static str)> {
+    if kb {
+        vec![
+            (
+                "skills/kb-capture/SKILL.md",
+                KB_CAPTURE,
+                include_str!("../migrations/assets-0.15/kb/skills/kb-capture/SKILL.md"),
+            ),
+            (
+                "skills/kb-ingest/SKILL.md",
+                KB_INGEST,
+                include_str!("../migrations/assets-0.15/kb/skills/kb-ingest/SKILL.md"),
+            ),
+            (
+                "skills/kb-audit/SKILL.md",
+                KB_AUDIT,
+                include_str!("../migrations/assets-0.15/kb/skills/kb-audit/SKILL.md"),
+            ),
+            (
+                "skills/kb-lookup/SKILL.md",
+                KB_LOOKUP,
+                include_str!("../migrations/assets-0.15/kb/skills/kb-lookup/SKILL.md"),
+            ),
+        ]
+    } else {
+        vec![
+            (
+                "commands/docsys-sync.md",
+                DOC_SYNC,
+                include_str!("../migrations/assets-0.15/project/commands/docsys-sync.md"),
+            ),
+            (
+                "commands/docsys-seed.md",
+                DOCSYS_SEED,
+                include_str!("../migrations/assets-0.15/project/commands/docsys-seed.md"),
+            ),
+            (
+                "commands/docsys-interview.md",
+                DOCSYS_INTERVIEW,
+                include_str!("../migrations/assets-0.15/project/commands/docsys-interview.md"),
+            ),
+            (
+                "skills/docsys/SKILL.md",
+                SKILL_MD,
+                include_str!("../migrations/assets-0.15/project/skills/docsys/SKILL.md"),
+            ),
+            (
+                "skills/docsys-export/SKILL.md",
+                EXPORT_SKILL,
+                include_str!("../migrations/assets-0.15/project/skills/docsys-export/SKILL.md"),
+            ),
+        ]
+    }
+}

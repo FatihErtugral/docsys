@@ -449,6 +449,9 @@ flowchart LR
 | `docsys hook pre-tool-use\|stop\|post-tool-use\|user-prompt-submit [--repo .] [--root docs]` | The hook logic itself, reading the agent harness payload on stdin (D-051). |
 | `docsys gate [--repo .] [--root docs] [--range <a>...<b>]` · `docsys doctor [--repo .] [--root docs] [--dir .claude]` | The commit-time question the binary computes (lint + code-without-docs); with `--range`, the same question over a pull request, failing when unanswered — what the CI workflow runs. And the liveness check: every hook present, executable, wired under the right event, up to date (D-040, D-047). |
 | `docsys feedback` · `docsys feedback --draft [--type bug\|false-positive\|need] [--rule R-xxx] [--command "docsys …"] [--out <file>]` | When docsys is wrong or in the way: the issue format, and an issue drafted with the facts the tool knows — version, OS, the tree's profile and spec, the rule's text, the command's output, a redacted `.docmeta.yml` — and TODO where only a person writes. Files nothing; names the template to open (D-116). On a docsys/0.5 tree `lint`, `refs` and `gate` point to it under a finding of a rule that reads free text. |
+| `docsys upgrade [--apply] [--commit] [--force] [--root docs] [--dir .claude]` | Moves a docsys/0.4 tree to docsys/0.5 (§16, D-117). The default is the plan: every step `auto`, `manual` or `info`, the findings the move adds and removes, and a diff for every file its owner edited. `--apply` writes what is mechanical and `--commit` makes it one commit; a dirty working tree is refused (`--force` overrides). An edited relay, skill, command or CI workflow is never rewritten. A 0.4 tree that does not move keeps 0.15.1's findings and formats (D-118). |
+| `docsys ledger fix [--root docs]` | Rewrites the em-dash field markers of `work/debt.md`, `work/questions.md` and `wiki/open-questions.md` to R-108's ASCII ` -- `, at the label positions only (D-108). |
+| `docsys pin --gc [--repo .] [--root docs]` | On a docsys/0.5 tree, removes the pin acknowledgements under `.verifies/` that no current region needs any more (D-119). |
 | `docsys --version` | The binary and the spec version it implements; the relays and the git gate read it (D-099). |
 
 ## Quick start
@@ -743,7 +746,9 @@ IDEAS.md              the handful of ideas everything else follows from, in plai
 src/                  the reference implementation (Rust, stdlib only — SHA-256 included)
 corpus/
 ├── DECISIONS.md      register of implementation-defined choices (R-193)
-└── cases/            conformance corpus: tree + exact expected findings
+├── cases/            conformance corpus: tree + exact expected findings
+└── upgrades/         a migration's conformance case: the tree before, its history, the tree after (R-179)
+migrations/           what `docsys upgrade` reads: the steps as data, the texts an older docsys wrote
 tests/                behavior locks for migrate · refs · graduate · adopt ·
                       doctor · hooks and kb hooks (executed for real) · seed ·
                       graph · knowledge base (git-observable) · export ·

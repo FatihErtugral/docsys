@@ -447,10 +447,11 @@ pub fn apply(
     // .docmeta.yml — only when absent; migration never clobbers configuration.
     let docmeta = root.join(".docmeta.yml");
     if !docmeta.exists() {
+        let spec = crate::rules::spec_version();
         fs::write(
             &docmeta,
             format!(
-                "spec: docsys/0.4\nprofile: project\ndefault_content_language: {lang}\ncreated: {date}\n"
+                "spec: docsys/{spec}\nprofile: project\ndefault_content_language: {lang}\ncreated: {date}\n"
             ),
         )
         .map_err(|e| e.to_string())?;
@@ -524,12 +525,13 @@ pub fn init_profile(root: &Path, lang: &str, profile: &str) -> Result<(), String
         };
         fs::write(root.join(rel), text).map_err(|e| e.to_string())
     };
+    let spec = crate::rules::spec_version();
     match profile {
         "project" => {
             fs::create_dir_all(root.join("work")).map_err(|e| e.to_string())?;
             w(
                 ".docmeta.yml",
-                format!("spec: docsys/0.4\nprofile: project\ndefault_content_language: {lang}\ncreated: {date}\n\n# Who may confirm work and verify pages (R-208); empty = anyone, as before.\nmaintainers: []\n\n# The commit gate: ask (asks once) | require (no commit without its documentation, R-209).\ncommit_policy: ask\n"),
+                format!("spec: docsys/{spec}\nprofile: project\ndefault_content_language: {lang}\ncreated: {date}\n\n# Who may confirm work and verify pages (R-208); empty = anyone, as before.\nmaintainers: []\n\n# The commit gate: ask (asks once) | require (no commit without its documentation, R-209).\ncommit_policy: ask\n"),
             )?;
             w("index.md", "# Documentation\n".to_string())?;
             w(
@@ -545,7 +547,7 @@ pub fn init_profile(root: &Path, lang: &str, profile: &str) -> Result<(), String
             w(
                 ".docmeta.yml",
                 format!(
-                    "spec: docsys/0.4\nprofile: knowledge-base\ndefault_content_language: {lang}\n\
+                    "spec: docsys/{spec}\nprofile: knowledge-base\ndefault_content_language: {lang}\n\
                      created: {date}\n\n# Declare the subjects this base sorts into (R-026).\ndomains: []\n\n# Who may verify pages (R-208); empty = anyone, as before.\nmaintainers: []\n"
                 ),
             )?;

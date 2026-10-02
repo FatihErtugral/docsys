@@ -16,8 +16,26 @@ pub struct Era(pub u32);
 const FIRST: u32 = 4;
 const V05: u32 = 5;
 
+thread_local! {
+    /// The era every gate answers with while `docsys upgrade` previews what a
+    /// tree would be judged by after the move (D-117); unset otherwise.
+    static PREVIEW: std::cell::Cell<Option<u32>> = const { std::cell::Cell::new(None) };
+}
+
+/// Run `f` as if every tree declared `docsys/0.<minor>` — the upgrade's
+/// preview of the findings the move adds and removes.
+pub fn preview<T>(minor: u32, f: impl FnOnce() -> T) -> T {
+    PREVIEW.with(|p| p.set(Some(minor)));
+    let out = f();
+    PREVIEW.with(|p| p.set(None));
+    out
+}
+
 impl Era {
     pub fn of_spec(spec: Option<&str>) -> Era {
+        if let Some(m) = PREVIEW.with(std::cell::Cell::get) {
+            return Era(m);
+        }
         spec.map(|s| s.trim().trim_matches(['"', '\'']))
             .and_then(|s| s.strip_prefix("docsys/0."))
             .and_then(|m| m.parse().ok())

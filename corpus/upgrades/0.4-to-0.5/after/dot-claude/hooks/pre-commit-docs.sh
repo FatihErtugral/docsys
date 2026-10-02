@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+# docsys-template: 0.16.0
+# pre-commit-docs.sh — PreToolUse gate on `git commit`; the decision is made
+# by `docsys hook pre-tool-use` (D-051): lint errors block, the code-without-docs
+# question is asked once per change set. DOCSYS_SKIP=1 bypasses once.
+# In a knowledge base the same relay guards raw/: an existing record is never
+# overwritten or edited through Write/Edit (R-023, D-076).
+command -v docsys >/dev/null || exit 0
+cd "${CLAUDE_PROJECT_DIR:-.}" || exit 0
+docsys_spec=$(sed -n 's/^spec:[[:space:]]*docsys\/0\.\([0-9][0-9]*\).*/\1/p' "${DOCS_ROOT:-docs}/.docmeta.yml" 2>/dev/null | head -n 1)
+docsys_impl=$(docsys --version 2>/dev/null | sed -n 's/.*docsys\/0\.\([0-9][0-9]*\).*/\1/p')
+if [ -n "$docsys_spec" ] && [ "$docsys_spec" -gt "${docsys_impl:-4}" ]; then
+  echo "docsys: this tree needs docsys >= 0.16.0 (it declares docsys/0.$docsys_spec); install: cargo install docsys --version 0.16.0 --locked" >&2
+  exit 1
+fi
+exec docsys hook pre-tool-use --root "${DOCS_ROOT:-docs}"

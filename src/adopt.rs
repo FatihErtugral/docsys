@@ -243,7 +243,7 @@ fn ensure_docmeta(root: &Path, lang: &str) -> Result<&'static str, String> {
     // Append only the missing required keys; the owner's lines stay verbatim.
     let mut prefix = String::new();
     if !existing.lines().any(|l| l.starts_with("spec:")) {
-        prefix.push_str("spec: docsys/0.4\n");
+        prefix.push_str(&format!("spec: docsys/{}\n", rules::spec_version()));
     }
     if !existing.lines().any(|l| l.starts_with("profile:")) {
         prefix.push_str("profile: project\n");
@@ -316,18 +316,7 @@ pub(crate) fn ensure_git_gate(repo: &Path, root_rel: &str, clean: bool) -> &'sta
         // behind its template, or warn-mode on a tree that is now clean
         // (D-072). A hard gate stays hard.
         let lines: Vec<&str> = existing.lines().collect();
-        let start = lines
-            .iter()
-            .position(|l| l.contains(GATE_MARKER) && l.starts_with("# ---"));
-        let end = start.and_then(|s| {
-            let rest = lines.iter().skip(s);
-            let explicit = rest.clone().position(|l| l.starts_with(GATE_END));
-            // a block from before the end line ends at its outer `fi`
-            explicit
-                .or_else(|| rest.clone().position(|l| l.trim() == "fi"))
-                .map(|i| s + i)
-        });
-        let (Some(s0), Some(e0)) = (start, end) else {
+        let Some((s0, e0)) = gate_span(&lines) else {
             return "kept";
         };
         let old_block = lines.get(s0..=e0).unwrap_or(&[]);
@@ -731,7 +720,7 @@ const RULES_FILES: [&str; 2] = ["AGENTS.md", "CLAUDE.md"];
 /// markers already are — a tracked file first, then a root one, AGENTS.md
 /// before CLAUDE.md — updated in place, never moved; else AGENTS.md, or
 /// CLAUDE.md when git ignores AGENTS.md. `None` when git ignores both.
-fn rules_target(repo: &Path, named: Option<&Path>) -> Option<PathBuf> {
+pub(crate) fn rules_target(repo: &Path, named: Option<&Path>) -> Option<PathBuf> {
     if let Some(file) = named {
         return Some(repo.join(file));
     }
@@ -942,6 +931,40 @@ pub fn obsidian(root: &Path) -> Result<Vec<String>, String> {
         written.push(rel);
     }
     Ok(written.into_iter().map(str::to_string).collect())
+}
+
+/// The first and last line of the docsys block in a pre-commit hook: from the
+/// marker line to the end line — or, for a block from before the end line, to
+/// its outer `fi`.
+fn gate_span(lines: &[&str]) -> Option<(usize, usize)> {
+    let start = lines
+        .iter()
+        .position(|l| l.contains(GATE_MARKER) && l.starts_with("# ---"))?;
+    let rest = lines.iter().skip(start);
+    let end = rest
+        .clone()
+        .position(|l| l.starts_with(GATE_END))
+        .or_else(|| rest.clone().position(|l| l.trim() == "fi"))?;
+    Some((start, start + end))
+}
+
+/// Whether the docsys block in the repository's pre-commit hook is the one this
+/// binary writes, its mode kept — `None` when there is no block. For `docsys
+/// upgrade`'s plan, which rewrites a block behind the binary and never changes
+/// its mode.
+pub(crate) fn gate_current(repo: &Path, root_rel: &str) -> Option<bool> {
+    let root_rel = if root_rel.is_empty() { "." } else { root_rel };
+    let hook = crate::git::hooks_dir(repo)?.join("pre-commit");
+    let existing = fs::read_to_string(hook).ok()?;
+    let lines: Vec<&str> = existing.lines().collect();
+    let (s0, e0) = gate_span(&lines)?;
+    let old = lines.get(s0..=e0)?;
+    let was_warn = old
+        .iter()
+        .any(|l| l.contains(" || true") || l.trim() == "docsys_gate_exit=0");
+    let fresh = gate_block(root_rel, !was_warn);
+    let fresh_lines: Vec<&str> = fresh.trim_matches('\n').lines().collect();
+    Some(old == fresh_lines.as_slice())
 }
 
 #[cfg(test)]

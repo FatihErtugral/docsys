@@ -1,6 +1,6 @@
 # docsys Specification
 
-**Version:** 0.4
+**Version:** 0.5
 **Status:** frozen core + experimental federation. Rule numbers are permanent;
 rule text may be clarified, not redefined, within a minor version. From 0.4 the
 fix policy is **deletion-first**: no change adds net normative rules — text
@@ -1802,7 +1802,7 @@ rule, indented so none parses as a rule declaration. Procedures name the
 ## 15. `.docmeta.yml`
 
 ```yaml
-spec: docsys/0.4                 # required
+spec: docsys/0.5                 # required
 profile: project                 # required — project | knowledge-base
 default_content_language: en     # required
 created: 2026-08-15              # optional

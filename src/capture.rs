@@ -72,6 +72,12 @@ pub fn debt_close(root: &Path, n: usize, note: Option<&str>) -> Result<String, S
 /// ` -- `; a dash inside field text stays. The ledgers and their `_archive/`
 /// slices; a file is written only when it changed.
 pub fn ledger_fix(root: &Path) -> Result<String, String> {
+    ledger_fix_with(root, true)
+}
+
+/// `ledger_fix`, or with `write: false` only what it would rewrite — the plan
+/// `docsys upgrade` prints before anything is written (R-176).
+pub fn ledger_fix_with(root: &Path, write: bool) -> Result<String, String> {
     let tree = crate::tree::DocTree::load(root).map_err(|e| e.to_string())?;
     if !tree.docmeta_present {
         return Err(format!("`{}` has no .docmeta.yml", root.display()));
@@ -110,7 +116,9 @@ pub fn ledger_fix(root: &Path) -> Result<String, String> {
                 fixed.push_str(&line);
             }
             if !changed.is_empty() {
-                fs::write(&path, fixed).map_err(|e| format!("{rel}: {e}"))?;
+                if write {
+                    fs::write(&path, fixed).map_err(|e| format!("{rel}: {e}"))?;
+                }
                 done.push(format!("fixed: {rel} line {}", changed.join(", ")));
             }
         }

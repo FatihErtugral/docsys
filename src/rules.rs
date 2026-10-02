@@ -240,7 +240,7 @@ pub fn check_budget(max_lines: usize) -> Result<(usize, usize), String> {
 }
 
 pub const BLOCK_BEGIN: &str = "<!-- docsys:rules:begin — generated, do not edit inside -->";
-const BLOCK_END: &str = "<!-- docsys:rules:end -->";
+pub const BLOCK_END: &str = "<!-- docsys:rules:end -->";
 
 /// The managed block itself, markers and the owner's preamble (D-056) included.
 pub fn agents_block_with(preamble: &str) -> String {

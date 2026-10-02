@@ -1,0 +1,73 @@
+# docsys-template: 0.16.0 sha256:633507cd899aba5d7ce5807040168479cc0af3dfe8ea8cf35d9f4fdac25cf464 branch=main runner=ubuntu-latest install=cargo verify=direct root=docs
+# docsys documentation workflow, written by `docsys adopt` (D-111). Line 1 records how
+# it was rendered and a hash of everything else in this file: while the hash holds,
+# docsys may regenerate it; once the file is edited, it is yours.
+name: docsys
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, closed]
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  docs:
+    if: github.event.action != 'closed'
+    runs-on: ubuntu-latest
+    concurrency:
+      group: docsys-${{ github.event.pull_request.number || github.ref }}
+      cancel-in-progress: true
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - uses: actions/cache@v4
+        id: docsys-bin
+        with:
+          path: ~/.cargo/bin/docsys
+          key: docsys-0.16.0-${{ runner.os }}-${{ runner.arch }}
+      - if: steps.docsys-bin.outputs.cache-hit != 'true'
+        run: cargo install docsys --version 0.16.0 --locked
+      - run: docsys lint --repo . --root docs
+      - run: docsys refs --repo . --root docs
+      - if: github.event_name == 'pull_request'
+        run: docsys gate --repo . --root docs --range "origin/${{ github.base_ref }}...HEAD"
+
+  # A code review's approval is a maintainer's word (D-095, D-105). When a pull
+  # request merges, every page it touched that carries `verification:` is recorded
+  # as verified by each approver whose @login is on a .docmeta.yml maintainers:
+  # entry, in a commit under that approver's identity. `docsys verify` skips any
+  # other approver and fails on anything else. The records are pushed to the
+  # base branch; a branch that refuses direct pushes needs
+  # `docsys adopt --verify-on-approval pull-request`.
+  verify-on-approval:
+    if: github.event_name == 'pull_request' && github.event.pull_request.merged == true
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.pull_request.base.ref }}
+          fetch-depth: 0
+      - uses: actions/cache@v4
+        id: docsys-bin
+        with:
+          path: ~/.cargo/bin/docsys
+          key: docsys-0.16.0-${{ runner.os }}-${{ runner.arch }}
+      - if: steps.docsys-bin.outputs.cache-hit != 'true'
+        run: cargo install docsys --version 0.16.0 --locked
+      - env:
+          GH_TOKEN: ${{ github.token }}
+          NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          range="${{ github.event.pull_request.base.sha }}...${{ github.sha }}"
+          logins=$(gh api "repos/${{ github.repository }}/pulls/$NUMBER/reviews" --jq '[.[] | select(.state == "APPROVED") | .user.login] | unique | .[]')
+          for login in $logins; do
+            docsys verify --range "$range" --by "@$login" --commit --root docs
+          done
+          git push

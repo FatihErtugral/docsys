@@ -131,7 +131,7 @@ It prints nothing.
 EOF
 printf -- '- [[reference/entry|Entry]] -- what main prints.\n' >> docs/index.md
 docsys pin reference/entry main.rs >/dev/null || fail "pin did not land"
-grep -q 'sha256:' docs/reference/entry.md || fail "pin wrote no hash"
+[ -n "$(ls docs/.verifies/entry 2>/dev/null)" ] || fail "pin wrote no acknowledgement"   # a docsys/0.5 tree: beside the page, never in it (D-119)
 git add -A && git commit -qm "entry page, pinned"
 docsys lint --root docs | grep -q -- '-- 0 error(s)' || fail "a fresh pin is not clean"
 echo 'fn main() { println!("hi") }' > main.rs

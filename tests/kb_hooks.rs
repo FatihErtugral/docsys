@@ -17,9 +17,18 @@ fn tmp(name: &str) -> PathBuf {
 }
 
 fn git(dir: &Path, args: &[&str]) {
+    // the gate a commit runs must be this build's docsys, not one installed on
+    // the machine
+    let bin = PathBuf::from(env!("CARGO_BIN_EXE_docsys"));
+    let path = format!(
+        "{}:{}",
+        bin.parent().unwrap().display(),
+        std::env::var("PATH").unwrap_or_default()
+    );
     assert!(Command::new("git")
         .args(["-c", "commit.gpgsign=false"])
         .args(args)
+        .env("PATH", path)
         .current_dir(dir)
         .status()
         .unwrap()

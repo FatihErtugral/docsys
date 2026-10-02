@@ -38,6 +38,7 @@ pub mod slug;
 pub mod status;
 pub mod symbols;
 pub mod tree;
+pub mod upgrade;
 pub mod verify;
 pub mod workflow;
 

@@ -123,7 +123,10 @@ fn docmeta_upgrade_prepends_missing_keys_and_keeps_owner_lines() {
 
     let out = docsys::adopt::run(&repo, &docs, "en").unwrap();
     let meta = fs::read_to_string(docs.join(".docmeta.yml")).unwrap();
-    assert!(meta.starts_with("spec: docsys/0.4\n"), "{meta}");
+    assert!(
+        meta.starts_with(&format!("spec: docsys/{}\n", docsys::rules::spec_version())),
+        "{meta}"
+    );
     assert!(meta.contains("profile: project\n"));
     assert!(meta.contains("default_content_language: en\n"));
     assert!(meta.ends_with("custom_key: kept-verbatim\n"), "{meta}");
