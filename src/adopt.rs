@@ -291,16 +291,22 @@ pub(crate) fn gate_clean(root: &Path, repo: &Path) -> bool {
 /// `core.hooksPath` at it (below), so the gate written there is the one a
 /// commit runs, and the one an upgrade commits.
 pub(crate) fn gate_hooks_dir(repo: &Path) -> Option<std::path::PathBuf> {
+    if tracked_hooks_unset(repo) {
+        return Some(repo.join(".githooks"));
+    }
+    crate::git::hooks_dir(repo)
+}
+
+/// A tracked `.githooks/` that nothing points git at yet — a fresh clone of
+/// a repository that keeps its gate there: git runs none of it.
+pub(crate) fn tracked_hooks_unset(repo: &Path) -> bool {
     let configured = crate::git::cmd(repo)
         .args(["config", "--get", "core.hooksPath"])
         .output()
         .ok()
         .filter(|o| o.status.success())
         .is_some_and(|o| !o.stdout.trim_ascii().is_empty());
-    if !configured && repo.join(".githooks").is_dir() {
-        return Some(repo.join(".githooks"));
-    }
-    crate::git::hooks_dir(repo)
+    !configured && repo.join(".githooks").is_dir()
 }
 
 pub(crate) fn ensure_git_gate(repo: &Path, root_rel: &str, clean: bool) -> &'static str {

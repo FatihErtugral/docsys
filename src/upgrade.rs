@@ -527,6 +527,25 @@ fn common(ctx: &Ctx, u: &mut Upgrade, apply: bool) -> Result<(), String> {
             );
             u.completed_by("docsys adopt".to_string());
         }
+        // the repository's gate is current, but this clone's git does not run it
+        Some(true) if crate::adopt::tracked_hooks_unset(repo) => {
+            u.item(
+                "auto",
+                "git-gate",
+                ".git/config",
+                "core.hooksPath = .githooks: the gate the repository tracks fires in this clone"
+                    .to_string(),
+            );
+            if apply {
+                let set = crate::git::cmd(repo)
+                    .args(["config", "core.hooksPath", ".githooks"])
+                    .status()
+                    .is_ok_and(|s| s.success());
+                if !set {
+                    return Err("core.hooksPath could not be set".to_string());
+                }
+            }
+        }
         Some(true) => {}
         Some(false) => {
             let hooks =

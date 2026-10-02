@@ -815,3 +815,64 @@ fn a_relay_with_an_owners_comment_is_never_rewritten() {
     assert_eq!(fs::read_to_string(&relay).unwrap(), owned);
     let _ = fs::remove_dir_all(&repo);
 }
+
+/// A teammate's fresh clone of a repository that tracks its gate in
+/// `.githooks/`: git does not run it until `core.hooksPath` says so. `doctor`
+/// names the one command, and that command — the per-clone step the upgrade
+/// commit names — sets it.
+#[test]
+fn a_fresh_clone_of_a_githooks_repository_gets_its_gate_from_the_per_clone_step() {
+    use std::os::unix::fs::PermissionsExt;
+    let (repo, _) = build("githooks-clone");
+    let case = Path::new(env!("CARGO_MANIFEST_DIR")).join(CASE);
+    fs::create_dir_all(repo.join(".githooks")).unwrap();
+    fs::copy(
+        case.join("hooks/pre-commit"),
+        repo.join(".githooks/pre-commit"),
+    )
+    .unwrap();
+    fs::set_permissions(
+        repo.join(".githooks/pre-commit"),
+        fs::Permissions::from_mode(0o755),
+    )
+    .unwrap();
+    git(&repo, &["add", ".githooks/pre-commit"]);
+    git(&repo, &["commit", "-qm", "the project's own hooks"]);
+    let out = docsys(&repo, &["upgrade", "--apply", "--commit"]);
+    assert!(out.status.success(), "{out:?}");
+
+    let clone = tmp("githooks-clone-2");
+    fs::remove_dir_all(&clone).unwrap();
+    let ok = Command::new("git")
+        .args(["clone", "-q"])
+        .arg(&repo)
+        .arg(&clone)
+        .status()
+        .unwrap();
+    assert!(ok.success());
+    git(&clone, &["config", "user.email", "t@example.invalid"]);
+    git(&clone, &["config", "user.name", "t"]);
+    let doctor = String::from_utf8_lossy(&docsys(&clone, &["doctor"]).stdout).into_owned();
+    assert!(
+        doctor.contains("`docsys upgrade --apply` points core.hooksPath at it"),
+        "{doctor}"
+    );
+    let out = docsys(&clone, &["upgrade", "--apply"]);
+    assert!(out.status.success(), "{out:?}");
+    assert!(
+        String::from_utf8_lossy(&out.stdout).contains("core.hooksPath"),
+        "{out:?}"
+    );
+    assert_eq!(
+        git(&clone, &["config", "--get", "core.hooksPath"]),
+        ".githooks"
+    );
+    let doctor = String::from_utf8_lossy(&docsys(&clone, &["doctor"]).stdout).into_owned();
+    assert!(
+        doctor.contains(".githooks/pre-commit gate reachable"),
+        "{doctor}"
+    );
+    for d in [repo, clone] {
+        let _ = fs::remove_dir_all(d);
+    }
+}

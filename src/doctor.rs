@@ -223,7 +223,26 @@ pub fn run(repo: &Path, root: &Path, claude_dir: &Path) -> Diagnosis {
             .unwrap_or_else(|_| hooks_dir.to_string_lossy().replace('\\', "/"))
     };
     let hook_path = hooks_dir.join("pre-commit");
+    // on a moved tree the per-clone step is the upgrade's; on a 0.4 tree that
+    // command would move the tree, so adopt
+    let moved = root.join(".docmeta.yml").is_file()
+        && crate::era::Era::at(root).0 >= crate::upgrade::implemented();
+    let tracked = repo.join(".githooks/pre-commit");
+    let unset_gate = crate::adopt::tracked_hooks_unset(repo)
+        && fs::read_to_string(&tracked).is_ok_and(|t| t.contains("docsys"));
     match fs::read_to_string(&hook_path) {
+        _ if unset_gate => push(
+            &mut d,
+            false,
+            format!(
+                "the repository's gate is .githooks/pre-commit, but this clone's git runs {shown} — {}",
+                if moved {
+                    "`docsys upgrade --apply` points core.hooksPath at it"
+                } else {
+                    "`docsys adopt` points core.hooksPath at it"
+                }
+            ),
+        ),
         Ok(text) if text.contains("docsys") => {
             if dead_above(&text, "docsys") {
                 push(
@@ -238,11 +257,7 @@ pub fn run(repo: &Path, root: &Path, claude_dir: &Path) -> Diagnosis {
                 push(&mut d, true, format!("{shown}/pre-commit gate reachable"));
                 let stamp = format!("# docsys-template: {}", crate::agents::TEMPLATE_VERSION);
                 if text.contains("docsys documentation gate") && !text.contains(&stamp) {
-                    // on a moved tree the per-clone step is the upgrade's; on a
-                    // 0.4 tree that command would move the tree, so adopt
-                    let fix = if root.join(".docmeta.yml").is_file()
-                        && crate::era::Era::at(root).0 >= crate::upgrade::implemented()
-                    {
+                    let fix = if moved {
                         "`docsys upgrade --apply` rewrites it"
                     } else {
                         "`docsys adopt` rewrites it"
