@@ -179,9 +179,9 @@ version; the minor component MUST NOT be required to match.
 ### 2.4 Definitions
 
 **Content change.** A change to a page is a *content change* unless it touches
-only: the `updated` field, the verification record (R-028), a `sources:` path
-rewrite performed under R-027, or a structural target rewrite performed by a
-migration under R-172. Every rule that reads "content change" — R-024, R-052,
+only: the `updated` field, the verification record (R-028), a `verifies:` hash
+recorded after a re-read (R-111), a `sources:` path rewrite performed under
+R-027, or a structural target rewrite performed by a migration under R-172. Every rule that reads "content change" — R-024, R-052,
 R-082, R-085, R-106 — reads this definition. This is a definition, not a rule:
 it cannot be violated, so it carries no enforcement tag and incurs no coverage
 obligation.
@@ -231,14 +231,20 @@ evidence trail of a `wiki/` page is a silent failure of the kind R-151 forbids. 
 page that undergoes a **content change** (§2.4) becomes `unverified`. The §2.4
 exclusions are what make verification recordable at all: without them the act of
 recording it, or a mechanical `sources:` path rewrite, would immediately undo it.
-Where history is available the claim is checked, not trusted: a `verified` page
-whose body no longer hashes to what it held at `verified_rev` **is an error**
-until it is `unverified` again, and a `verified_rev` that does not hold the page
-**is an error** under R-028 (D-077). The sources are checked the same way: a
-`verified` page whose consumed source (`@namespace/id`, §13) no longer hashes to
-what its materialization held at `verified_rev` **is an error** — the provider
-moved and the page has not been re-read — and a materialization with no
-committed provenance at `verified_rev` **is an error** under R-028 (D-082).
+The claim is checked, not trusted. A verification records the hash of the body it
+vouches for (`verified_hash`, R-113); a `verified` page whose body no longer
+hashes to it **is an error** until it is `unverified` again — with or without
+history, because the record carries its own evidence. A record without the hash
+is checked through history instead: a `verified` page whose body no longer hashes
+to what it held at `verified_rev` **is an error**, and a `verified_rev` that does
+not hold the page **is an error** under R-028 (D-077). Once the hash is recorded
+the revision is a pointer, not the evidence: a squash or a rebase that leaves
+`verified_rev` unreachable does not undo the verification (D-101). The sources are
+checked the same way: a `verified` page whose consumed source (`@namespace/id`,
+§13) no longer hashes to what the verification recorded for it **is an error** —
+the provider moved and the page has not been re-read; a record without source
+hashes is checked through history, and a materialization with no committed
+provenance at `verified_rev` **is an error** under R-028 (D-082).
 
 **R-025** `agent` · MUST — Only an independent session may set `verified`. The
 session that produced a page never verifies it on its own judgment. This holds
@@ -249,9 +255,14 @@ the session records it (`docsys verify <page>`) — a second session would only
 repeat what the maintainer just did (D-096).
 
 **R-028** `lint` · MUST — Setting `verified` MUST record, in the page's
-frontmatter, who verified it and which source revision was verified. Without
-this record no reviewer can establish whether verification was independent
-(R-025) or whether it predates the current content.
+frontmatter, who verified it (`verified_by`) and which source revision was
+verified (`verified_rev`), and records the hash of the body that was read
+(`verified_hash`) together with the hash of each consumed source
+(`verified_sources`). Without this record no reviewer can establish whether
+verification was independent (R-025) or whether it predates the current content.
+A record written before 0.5 carries no hashes and stays valid; R-024 checks it
+through history. A page that returns to `unverified` keeps the record as its last
+verification; `verification:` is the current state.
 
 **R-026** `lint` · MUST — `domain` values are declared in `.docmeta.yml`. A page
 whose domain is not declared **is reported**; content that fits no declared
@@ -290,9 +301,13 @@ vouch. Nothing here changes a tree that declares no maintainers.
 of them: the first word of `confirmed:` on a work file (R-081) and of
 `verified_by:` on a `verified` page (R-028). A record naming anyone else **is an
 error**. Where version-control history is available and the entry carries an
-email, the commit that introduced the record MUST be authored by that email —
-otherwise **an error**: the vouching is the maintainer's own act, not a line
-somebody typed on their behalf. An empty or absent list means anyone, as
+email, the maintainer's act MUST be in the record's history: among the commits
+that changed the record since the body last changed, one is authored by that
+email or names it in a `Co-authored-by:`, `Reviewed-by:` or `Approved-by:`
+trailer — otherwise **an error**: the vouching is the maintainer's own act, not a
+line somebody typed on their behalf. A host's squash merge that keeps the squashed
+authors as trailers keeps the act; a bookkeeping commit that leaves the body
+unchanged neither makes nor breaks it (D-102). An empty or absent list means anyone, as
 before.
 
 A permanent page in the `project` profile MAY carry `verification:`
@@ -307,9 +322,10 @@ it in another session. Readers, people and agents alike, see the state:
 (R-151). `docsys page new <type> <id> --unverified` writes the frontmatter;
 `docsys verify <page>` writes the record for a maintainer in one step — the
 handle from the git identity matched against `maintainers:`, the revision
-from `HEAD` once the page carries no uncommitted change, refused while a
-source does not resolve — and `--revoke` takes a page back to `unverified`
-after its body moved (D-094). A code review's approval is a maintainer's word
+from `HEAD` and the body hash once the page carries no uncommitted change,
+refused while a source does not resolve — and `--revoke` takes a page back to
+`unverified` after its body moved, keeping the record as the last verification
+(D-094, D-101). A code review's approval is a maintainer's word
 (D-095), and the word is read from git, not from a host: a `Reviewed-by:` or
 `Approved-by:` trailer on the change's commits whose e-mail is a declared
 maintainer's — `docsys verify --range <base>...<head> --from-trailers --commit`
@@ -317,7 +333,9 @@ records every page the change touched under that approver's identity; where a
 host holds the approval instead, an adapter passes the approver's login
 (`--by @login`, the login on the maintainer entry: `handle <email> @login`).
 The person approved, the tooling is the scribe; an approver outside the list
-records nothing.
+records nothing. A maintainer may equally verify inside the change before it
+merges: the body hash survives a squash, and the host's squash trailer carries
+their act (D-101, D-102).
 
 ## 4. Layout
 

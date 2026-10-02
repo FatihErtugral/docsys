@@ -117,7 +117,15 @@ fn caveat_of(page: &Page) -> Option<String> {
             .map(|s| format!("status: {s}"));
     }
     match fm.fields.get("verification").and_then(Value::as_str) {
-        Some("verified") | None => None,
+        // a record with its body hash says, without history, whether the
+        // page still holds what was verified (D-101)
+        Some("verified") => fm
+            .fields
+            .get("verified_hash")
+            .and_then(Value::as_str)
+            .filter(|h| *h != crate::fresh::content_hash(&crate::fresh::body_text(&page.text)))
+            .map(|_| "verified, but the body changed since".to_string()),
+        None => None,
         Some(v) => Some(v.to_string()),
     }
 }

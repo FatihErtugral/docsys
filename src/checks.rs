@@ -1999,6 +1999,9 @@ pub fn run_with(tree: &DocTree, ctx: &Context) -> Report {
     check_list_grammars(tree, &mut r);
     check_templates(tree, &mut r);
     check_sources(tree, &mut r);
+    if crate::era::Era::of(tree).anchored_verification() {
+        crate::fresh::check_verified_hashes(tree, &mut r);
+    }
     if let Some(repo) = &ctx.repo {
         crate::fresh::check_pins(tree, repo, &mut r);
         crate::compile::check_compiled(tree, repo, &mut r);

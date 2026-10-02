@@ -80,6 +80,59 @@ pub fn hooks_dir(repo: &Path) -> Option<PathBuf> {
     Some(if p.is_absolute() { p } else { repo.join(p) })
 }
 
+/// Blob contents by id, through one `git cat-file --batch` for the whole run:
+/// history checks read a few blobs per page, and a process per blob would
+/// make every lint pay for the size of the tree.
+pub struct Blobs {
+    child: std::process::Child,
+    input: std::process::ChildStdin,
+    output: std::io::BufReader<std::process::ChildStdout>,
+}
+
+impl Blobs {
+    pub fn open(repo: &Path) -> Option<Blobs> {
+        let mut child = cmd(repo)
+            .args(["cat-file", "--batch"])
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::null())
+            .spawn()
+            .ok()?;
+        let input = child.stdin.take()?;
+        let output = std::io::BufReader::new(child.stdout.take()?);
+        Some(Blobs {
+            child,
+            input,
+            output,
+        })
+    }
+
+    /// The blob's text; `None` for an id git does not hold (or the all-zero
+    /// id git writes for "no file on this side").
+    pub fn read(&mut self, id: &str) -> Option<String> {
+        use std::io::{BufRead, Read, Write};
+        if id.is_empty() || id.bytes().all(|b| b == b'0') {
+            return None;
+        }
+        writeln!(self.input, "{id}").ok()?;
+        self.input.flush().ok()?;
+        let mut header = String::new();
+        self.output.read_line(&mut header).ok()?;
+        let size: usize = header.trim_end().rsplit(' ').next()?.parse().ok()?;
+        let mut bytes = vec![0u8; size + 1];
+        self.output.read_exact(&mut bytes).ok()?;
+        bytes.truncate(size);
+        Some(String::from_utf8_lossy(&bytes).into_owned())
+    }
+}
+
+impl Drop for Blobs {
+    fn drop(&mut self) {
+        let _ = self.child.kill();
+        let _ = self.child.wait();
+    }
+}
+
 #[cfg(test)]
 #[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 mod tests {

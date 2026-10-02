@@ -7,8 +7,8 @@
 //! uncommitted change, and it refuses when a source does not resolve. It
 //! writes the record; the commit stays the person's act (`--commit` runs it
 //! under their own identity, which is what R-208's history half checks).
-//! `--revoke` is the reverse: back to `unverified`, the record removed —
-//! what a page needs after its body moved (R-024).
+//! `--revoke` is the reverse: back to `unverified`, the record kept as the last
+//! verification — what a page needs after its body moved (R-024, D-101).
 
 use std::fs;
 use std::path::Path;
@@ -131,25 +131,74 @@ fn who(tree: &DocTree, repo: &Path, by: Option<&str>) -> Result<(String, Option<
     ))
 }
 
-/// Rewrite the verification record in a page's frontmatter: the three fields
-/// replaced or inserted after `verification:`, `updated:` bumped (R-052).
-fn write_record(text: &str, record: Option<(&str, &str)>, today: &str) -> Option<String> {
+/// The record `verify` writes (R-028, D-101): who, at which revision, the
+/// hash of the body that was read, and each consumed source's hash.
+pub struct Record<'a> {
+    pub by: &'a str,
+    pub rev: &'a str,
+    pub hash: &'a str,
+    pub sources: &'a [(String, String)],
+}
+
+fn record_lines(rec: &Record) -> Vec<String> {
+    let mut out = vec![
+        "verification: verified".to_string(),
+        format!("verified_by: {}", rec.by),
+        format!("verified_rev: {}", rec.rev),
+    ];
+    // a docsys/0.4 tree gets the record 0.15 wrote: who and which revision (D-118)
+    if !rec.hash.is_empty() {
+        out.push(format!("verified_hash: \"{}\"", rec.hash));
+    }
+    if !rec.sources.is_empty() {
+        out.push("verified_sources:".to_string());
+        for (s, h) in rec.sources {
+            out.push(format!("  - source: \"{s}\""));
+            out.push(format!("    hash: \"{h}\""));
+        }
+    }
+    out
+}
+
+/// Rewrite the verification record in a page's frontmatter, `updated:`
+/// bumped (R-052). `Some` writes a new record in place of the old one; `None`
+/// sets `unverified`, and keeps the record as the last verification when
+/// `keep_last` (D-101) — the reading the next verifier compares against — or
+/// removes it, as on a docsys/0.4 tree (D-118).
+fn write_record(
+    text: &str,
+    record: Option<&Record>,
+    keep_last: bool,
+    today: &str,
+) -> Option<String> {
     let rest = text.strip_prefix("---\n")?;
     let end = rest.find("\n---\n")?;
     let (fm, tail) = rest.split_at(end);
     let mut out = Vec::new();
     let mut placed = false;
+    let mut in_sources_block = false;
     for line in fm.split('\n') {
-        if line.starts_with("verified_by:") || line.starts_with("verified_rev:") {
+        if in_sources_block {
+            if line.starts_with("  ") {
+                continue;
+            }
+            in_sources_block = false;
+        }
+        let replaced = record.is_some() || !keep_last;
+        if replaced
+            && (line.starts_with("verified_by:")
+                || line.starts_with("verified_rev:")
+                || line.starts_with("verified_hash:"))
+        {
+            continue;
+        }
+        if replaced && line.starts_with("verified_sources:") {
+            in_sources_block = true;
             continue;
         }
         if line.starts_with("verification:") {
             match record {
-                Some((by, rev)) => {
-                    out.push("verification: verified".to_string());
-                    out.push(format!("verified_by: {by}"));
-                    out.push(format!("verified_rev: {rev}"));
-                }
+                Some(rec) => out.extend(record_lines(rec)),
                 None => out.push("verification: unverified".to_string()),
             }
             placed = true;
@@ -165,11 +214,7 @@ fn write_record(text: &str, record: Option<(&str, &str)>, today: &str) -> Option
             with.push(line);
             if is_type {
                 match record {
-                    Some((by, rev)) => {
-                        with.push("verification: verified".to_string());
-                        with.push(format!("verified_by: {by}"));
-                        with.push(format!("verified_rev: {rev}"));
-                    }
+                    Some(rec) => with.extend(record_lines(rec)),
                     None => with.push("verification: unverified".to_string()),
                 }
                 if !fm.contains("\nsources:") && !fm.starts_with("sources:") {
@@ -369,11 +414,15 @@ pub fn verify(
     };
     if revoke {
         let text = fs::read_to_string(&path).map_err(|e| e.to_string())?;
-        let new = write_record(&text, None, &today).ok_or("the page has no frontmatter")?;
+        let keep = crate::era::Era::at(root).anchored_verification();
+        let new = write_record(&text, None, keep, &today).ok_or("the page has no frontmatter")?;
         fs::write(&path, new).map_err(|e| e.to_string())?;
         out.by = String::new();
-        out.notes
-            .push("back to unverified; the record removed — another audit sets it again".into());
+        out.notes.push(if keep {
+            "back to unverified; the record stays as the last verification — a maintainer verifies it again (R-025)".into()
+        } else {
+            "back to unverified; the record removed — another audit sets it again".into()
+        });
         return Ok(out);
     }
     // the person
@@ -412,21 +461,21 @@ pub fn verify(
     }
     let rev = git(&repo, &["rev-parse", "--short", "HEAD"]).ok_or("no HEAD")?;
     let text = fs::read_to_string(&path).map_err(|e| e.to_string())?;
+    let anchored = crate::era::Era::at(root).anchored_verification();
+    let hash = crate::fresh::content_hash(&crate::fresh::body_text(&text));
     if let Some(fm) = &page.fm {
         let get = |k: &str| fm.fields.get(k).and_then(Value::as_str);
         if get("verification") == Some("verified") {
-            // already verified, and the body has not moved since: nothing to do
-            let body = |t: &str| -> String {
-                t.strip_prefix("---\n")
-                    .and_then(|r| r.find("\n---\n").map(|i| r[i + 5..].to_string()))
-                    .unwrap_or_else(|| t.to_string())
+            // already verified, and the body has not moved since: nothing to do.
+            // The record's own hash answers; a record from before it, the body
+            // the revision holds — compared as lint compares (R-113).
+            let held = match get("verified_hash") {
+                Some(h) => Some(h.to_string()),
+                None => get("verified_rev")
+                    .and_then(|r| git(&repo, &["show", &format!("{r}:{repo_path}")]))
+                    .map(|t| crate::fresh::content_hash(&crate::fresh::body_text(&t))),
             };
-            let held = get("verified_rev")
-                .and_then(|r| git(&repo, &["show", &format!("{r}:{repo_path}")]))
-                .map(|t| body(&t));
-            if held.as_deref() == Some(body(&text).trim_end())
-                || held.as_deref().map(str::trim_end) == Some(body(&text).trim_end())
-            {
+            if held.as_deref() == Some(hash.as_str()) {
                 out.by = get("verified_by").unwrap_or("").to_string();
                 out.rev = get("verified_rev").unwrap_or("").to_string();
                 out.notes.push(
@@ -436,8 +485,28 @@ pub fn verify(
             }
         }
     }
-    let new =
-        write_record(&text, Some((&by, &rev)), &today).ok_or("the page has no frontmatter")?;
+    let sources: Vec<(String, String)> = if !anchored {
+        Vec::new()
+    } else {
+        page.fm
+            .as_ref()
+            .map(crate::fresh::consumed_sources)
+            .unwrap_or_default()
+            .into_iter()
+            .filter_map(|s| {
+                let h = crate::fresh::source_hash(root, &s)?;
+                Some((s, h))
+            })
+            .collect()
+    };
+    let record = Record {
+        by: &by,
+        rev: &rev,
+        hash: if anchored { &hash } else { "" },
+        sources: &sources,
+    };
+    let new = write_record(&text, Some(&record), anchored, &today)
+        .ok_or("the page has no frontmatter")?;
     fs::write(&path, new).map_err(|e| e.to_string())?;
     out.by = by.clone();
     out.rev = rev.clone();
@@ -485,18 +554,55 @@ mod tests {
     use super::*;
 
     #[test]
-    fn the_record_replaces_or_inserts_the_three_fields() {
+    fn the_record_carries_the_body_hash_and_a_revoke_keeps_it() {
+        let h = "sha256:".to_string() + &"a".repeat(64);
+        let none: Vec<(String, String)> = Vec::new();
+        let rec = Record {
+            by: "ayse",
+            rev: "abc1234",
+            hash: &h,
+            sources: &none,
+        };
         let text = "---\nid: x\ntype: reference\nverification: unverified\nsources: [a.md]\nupdated: 2026-01-01\n---\nBody.\n";
-        let out = write_record(text, Some(("ayse", "abc1234")), "2026-09-04").unwrap();
-        assert!(out.contains("verification: verified\nverified_by: ayse\nverified_rev: abc1234\nsources: [a.md]\nupdated: 2026-09-04\n---\nBody.\n"), "{out}");
-        let back = write_record(&out, None, "2026-09-05").unwrap();
+        let out = write_record(text, Some(&rec), true, "2026-09-04").unwrap();
+        assert!(out.contains(&format!("verification: verified\nverified_by: ayse\nverified_rev: abc1234\nverified_hash: \"{h}\"\nsources: [a.md]\nupdated: 2026-09-04\n---\nBody.\n")), "{out}");
+        // revoked: unverified, the record kept as the last verification
+        let back = write_record(&out, None, true, "2026-09-05").unwrap();
+        assert!(back.contains(&format!("verification: unverified\nverified_by: ayse\nverified_rev: abc1234\nverified_hash: \"{h}\"\nsources: [a.md]\nupdated: 2026-09-05\n")), "{back}");
+        // verified again: the old record is replaced, never duplicated
+        let src = vec![("@up/x".to_string(), "fnv:0123456789abcdef".to_string())];
+        let again = Record {
+            by: "bora",
+            rev: "def5678",
+            hash: &h,
+            sources: &src,
+        };
+        let twice = write_record(&back, Some(&again), true, "2026-09-06").unwrap();
+        assert_eq!(twice.matches("verified_by:").count(), 1, "{twice}");
         assert!(
-            back.contains("verification: unverified\nsources: [a.md]\nupdated: 2026-09-05\n"),
+            twice.contains("verified_by: bora\nverified_rev: def5678\n"),
+            "{twice}"
+        );
+        assert!(twice.contains("verified_sources:\n  - source: \"@up/x\"\n    hash: \"fnv:0123456789abcdef\"\nsources: [a.md]\n"), "{twice}");
+        let thrice = write_record(&twice, Some(&rec), true, "2026-09-07").unwrap();
+        assert!(!thrice.contains("verified_sources"), "{thrice}");
+        let never = "---\nid: y\ntype: howto\nupdated: 2026-01-01\n---\nSteps.\n";
+        let out = write_record(never, Some(&rec), true, "2026-09-04").unwrap();
+        assert!(out.contains(&format!("type: howto\nverification: verified\nverified_by: ayse\nverified_rev: abc1234\nverified_hash: \"{h}\"\nsources: []\nupdated: 2026-09-04\n")), "{out}");
+        // a docsys/0.4 tree: the record 0.15 wrote, and a revoke removes it (D-118)
+        let old = Record {
+            by: "ayse",
+            rev: "abc1234",
+            hash: "",
+            sources: &none,
+        };
+        let out = write_record(text, Some(&old), false, "2026-09-04").unwrap();
+        assert!(out.contains("verification: verified\nverified_by: ayse\nverified_rev: abc1234\nsources: [a.md]\n"), "{out}");
+        let back = write_record(&out, None, false, "2026-09-05").unwrap();
+        assert!(
+            back.contains("verification: unverified\nsources: [a.md]\n")
+                && !back.contains("verified_by"),
             "{back}"
         );
-        assert!(!back.contains("verified_by"), "{back}");
-        let never = "---\nid: y\ntype: howto\nupdated: 2026-01-01\n---\nSteps.\n";
-        let out = write_record(never, Some(("ayse", "abc1234")), "2026-09-04").unwrap();
-        assert!(out.contains("type: howto\nverification: verified\nverified_by: ayse\nverified_rev: abc1234\nsources: []\nupdated: 2026-09-04\n"), "{out}");
     }
 }

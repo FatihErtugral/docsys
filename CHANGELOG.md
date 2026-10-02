@@ -37,6 +37,36 @@ by the release workflow — the tag's section becomes the GitHub release body.
   honoured; it reported "failed" there before.
 - The git gate runs `docsys lint --repo .` like `refs` and `gate`, and carries
   its template version; `adopt` rewrites a block behind the binary in place.
+- One docsys serves trees at different spec versions (D-118): a tree that
+  declares `docsys/0.4` gets exactly 0.15.1's findings and file formats, and
+  every 0.5 rule or format — everything this release newly enforces included
+  — applies only to a tree that declares `docsys/0.5`. `docsys upgrade` moves a
+  repository, its CI pin included, when it is ready; nothing has to move on
+  the same day.
+- On a docsys/0.5 tree a verification survives a squash merge (D-101):
+  `docsys verify` records the body's hash (`verified_hash`) and each consumed
+  source's hash (`verified_sources`); lint checks them without history, and a
+  `verified_rev` a squash or a rebase left unreachable is no finding when the
+  hash holds — `status` counts those pages.
+- On a docsys/0.5 tree R-208 reads the maintainer's act from the record's own
+  history (D-102): any commit that changed the record since the body last
+  changed, authored by the maintainer or naming them in a `Co-authored-by:`,
+  `Reviewed-by:` or `Approved-by:` trailer — so a host's squash commit keeps
+  it, and a maintainer re-verifying with an identical `verified_by:` line is
+  seen. Newly enforced there: a verification record carried over a body nobody
+  verified again is an R-208 error.
+- On a docsys/0.5 tree `updated:` is behind history only after a content
+  change (R-106, §2.4): a commit that touched only `updated:`, the
+  verification record or a pin's hash no longer counts, so a tool's
+  bookkeeping commit leaves the page quiet.
+
+### Changed
+
+- On a docsys/0.5 tree an edit that changes a verified page's body demotes it
+  to `unverified` by itself (R-024, D-101): the PostToolUse relay writes it,
+  keeps the record as the last verification and tells the agent; `docsys
+  verify --revoke` keeps the record too. `lookup` says when a verified page's
+  body changed.
 
 ### Added
 

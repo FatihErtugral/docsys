@@ -10,6 +10,7 @@ pub mod checks;
 pub mod compile;
 pub mod consume;
 pub mod doctor;
+pub mod era;
 pub mod export;
 pub mod fm;
 pub mod forget;

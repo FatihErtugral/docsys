@@ -42,6 +42,9 @@ pub struct Status {
     pub sources_moved: usize,
     /// entries in `.forgotten.yml` (D-084)
     pub forgotten: usize,
+    /// verified pages anchored by their body hash whose `verified_rev` is not in
+    /// this history — a squash or a rebase; the hash is the evidence (D-101)
+    pub rev_gone: usize,
     pub first_errors: Vec<String>,
 }
 
@@ -165,6 +168,27 @@ pub fn status(root: &Path, repo: Option<&Path>) -> Result<Status, String> {
         }
     }
     s.forgotten = crate::forget::count(root);
+    if let Some(repo) = repo {
+        for page in tree.pages.iter().filter(|p| p.kind == Kind::Permanent) {
+            let Some(fm) = &page.fm else { continue };
+            let get = |k: &str| fm.fields.get(k).and_then(Value::as_str);
+            if get("verification") != Some("verified") || get("verified_hash").is_none() {
+                continue;
+            }
+            let Some(rev) = get("verified_rev") else {
+                continue;
+            };
+            let held = crate::git::cmd(repo)
+                .args(["cat-file", "-e", &format!("{}^{{commit}}", rev.trim())])
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null())
+                .status()
+                .is_ok_and(|st| st.success());
+            if !held {
+                s.rev_gone += 1;
+            }
+        }
+    }
     // what lint would say, once
     let (report, _) = crate::lint_in(root, repo);
     for f in &report.findings {
@@ -277,6 +301,12 @@ pub fn render(s: &Status, root: &Path) -> String {
             s.forgotten
         ));
     }
+    if s.rev_gone > 0 {
+        out.push_str(&format!(
+            "verification: {} verified page(s) anchored by their body hash; their revision is not in this history (a squash or a rebase) — nothing to do\n",
+            s.rev_gone
+        ));
+    }
     out.push_str(&format!(
         "lint: {} error(s), {} warning(s)\n",
         s.errors, s.warnings
@@ -329,7 +359,7 @@ pub fn render_json(s: &Status) -> String {
         .map(|e| format!("\"{}\"", esc(e)))
         .collect();
     format!(
-        "{{\"profile\":\"{}\",\"namespace\":{},\"inbox\":{},\"inbox_oldest\":{},\"permanent\":{},\"unverified\":[{}],\"work\":{{{}}},\"questions_open\":{},\"debt_open\":{},\"consumed\":[{}],\"skills_compiled\":{},\"errors\":{},\"warnings\":{},\"by_rule\":{{{}}},\"sources_moved\":{},\"forgotten\":{},\"first_errors\":[{}]}}\n",
+        "{{\"profile\":\"{}\",\"namespace\":{},\"inbox\":{},\"inbox_oldest\":{},\"permanent\":{},\"unverified\":[{}],\"work\":{{{}}},\"questions_open\":{},\"debt_open\":{},\"consumed\":[{}],\"skills_compiled\":{},\"errors\":{},\"warnings\":{},\"by_rule\":{{{}}},\"sources_moved\":{},\"forgotten\":{},\"rev_gone\":{},\"first_errors\":[{}]}}\n",
         esc(&s.profile),
         s.namespace
             .as_ref()
@@ -350,6 +380,7 @@ pub fn render_json(s: &Status) -> String {
         by_rule.join(","),
         s.sources_moved,
         s.forgotten,
+        s.rev_gone,
         first.join(",")
     )
 }

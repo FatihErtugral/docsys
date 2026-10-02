@@ -835,12 +835,69 @@ pub fn post_tool_use(repo: &Path, root: &Path, payload: &str, today: &str) -> Re
     } else {
         repo.join(&file)
     };
-    if let Ok(text) = fs::read_to_string(&path) {
-        if let Some(bumped) = bump_updated(&text, today) {
-            let _ = fs::write(&path, bumped);
+    let Ok(text) = fs::read_to_string(&path) else {
+        return Reply::ok();
+    };
+    let text = match bump_updated(&text, today) {
+        Some(bumped) => {
+            let _ = fs::write(&path, &bumped);
+            bumped
         }
+        None => text,
+    };
+    // R-024 by construction (D-101): an edit that changed a verified page's
+    // body makes it unverified; the record stays as the last verification,
+    // and the agent is told — the change it made is now a maintainer's to read.
+    let demoted = crate::era::Era::at(root)
+        .anchored_verification()
+        .then(|| demote_if_changed(&text))
+        .flatten();
+    if let Some(demoted) = demoted {
+        let _ = fs::write(&path, demoted);
+        return Reply {
+            code: 2,
+            stderr: format!(
+                "docsys: `{file}` was verified, and this edit changed its body — it is \
+                 `verification: unverified` now (R-024). The last verification is kept, so a \
+                 maintainer re-reads only what changed; do not set it back yourself (R-025).\n"
+            ),
+            stdout: String::new(),
+        };
     }
     Reply::ok()
+}
+
+/// The page with `verification: verified` set to `unverified` when its body
+/// no longer hashes to the record's `verified_hash`; `None` otherwise — a
+/// record without the hash is lint's to judge through history.
+pub fn demote_if_changed(text: &str) -> Option<String> {
+    let fm = crate::fm::parse(text)?;
+    let get = |k: &str| fm.fields.get(k).and_then(crate::fm::Value::as_str);
+    if get("verification") != Some("verified") {
+        return None;
+    }
+    let recorded = get("verified_hash")?;
+    if crate::fresh::content_hash(&crate::fresh::body_text(text)) == recorded {
+        return None;
+    }
+    let mut done = false;
+    let out: Vec<&str> = text
+        .lines()
+        .enumerate()
+        .map(|(i, l)| {
+            if !done && i < fm.body_start && l.trim_end() == "verification: verified" {
+                done = true;
+                "verification: unverified"
+            } else {
+                l
+            }
+        })
+        .collect();
+    let mut s = out.join("\n");
+    if text.ends_with('\n') {
+        s.push('\n');
+    }
+    done.then_some(s)
 }
 
 /// The page with its `updated:` line set to `today`; `None` when the page

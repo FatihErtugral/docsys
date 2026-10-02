@@ -1,0 +1,4 @@
+EXIT	1
+ERROR	R-024	reference/fed.md	@up/x
+ERROR	R-024	reference/moved.md	verification
+WARN	R-024	reference/late-source.md	@up/y
