@@ -779,12 +779,19 @@ is what R-152 requires.
 ### 7.2 Code to documentation
 
 **R-072** `lint` · MUST — Code MUST reference documentation by identifier, never
-by path:
+by path, and the reference opens a comment's text:
 
 ```
 // doc: token-ttl
 // doc: @svc-auth/token-ttl
 ```
+
+`doc:` counts as a reference where it opens a line's text after leading
+whitespace, or follows a comment leader directly (`//`, `/*`, `*`, `#`, `--`,
+`;`, `%`, `<!--`, after optional spaces) — the comment line, the docblock line,
+the docstring line, a trailing comment. Elsewhere in a comment, in code, or in
+a string the word is prose: "see the provider doc: it caps" names no
+identifier (D-107).
 
 **R-073** `lint` · MUST — A token containing `<`, `>`, `{` or `}` is a
 metasyntactic placeholder, not a reference: prose that documents the citation form itself

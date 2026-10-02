@@ -1017,53 +1017,65 @@ pub fn build_index(tree: &DocTree) -> ResolutionIndex {
 /// R-073's trailing-punctuation strip set (spec list + backtick, D-015).
 pub const DOC_TOKEN_PUNCT: [char; 11] = ['.', ',', ';', ':', ')', ']', '"', '\'', '?', '!', '`'];
 
-/// Extract `doc:` tokens on a line: (token, before_ok) with punctuation
-/// stripped per R-073. `before_ok` guards against `htmldoc:` lookalikes.
+/// Extract `doc:` tokens on a line, punctuation stripped per R-073. This is
+/// the docs side (D-015): a page's `doc:` counts anywhere outside quoted
+/// material, inline code included.
 pub fn doc_tokens_on_line(line: &str) -> Vec<String> {
-    let mut out = Vec::new();
-    let mut rest = line;
-    // Absolute offset of `rest` in `line`: inline-code parity must be counted
-    // from the start of the line, not from the last match (a second reference
-    // on the same line would otherwise read the wrong span).
-    let mut base = 0usize;
-    while let Some(pos) = rest.find("doc: ") {
-        let before_ok = pos == 0
-            || rest
-                .get(..pos)
-                .and_then(|s| s.chars().last())
-                .is_none_or(|c| !c.is_ascii_alphanumeric());
-        let after = rest.get(pos + 5..).unwrap_or("");
-        // R-073: a reference opened inside an inline-code span ends at the
-        // closing backtick — prose glues suffixes to it (a case ending, a
-        // possessive), and those belong to the sentence, not the identifier.
-        let opened_in_code = line
-            .get(..base + pos)
-            .is_some_and(|s| s.matches('`').count() % 2 == 1);
-        let raw = if opened_in_code {
-            after
-                .split('`')
-                .next()
-                .unwrap_or("")
-                .split_whitespace()
-                .next()
-                .unwrap_or("")
-        } else {
-            after.split_whitespace().next().unwrap_or("")
-        };
-        let token = raw.trim_end_matches(DOC_TOKEN_PUNCT);
-        // R-073: `doc: <id>` in prose documents the form; it cites nothing.
-        let token = if token.contains(['<', '>', '{', '}']) {
-            ""
-        } else {
-            token
-        };
-        base += pos + 5;
-        rest = after;
-        if before_ok && !token.is_empty() {
-            out.push(token.to_string());
-        }
+    line.match_indices("doc: ")
+        .filter_map(|(at, _)| doc_token_at(line, at))
+        .collect()
+}
+
+/// Comment leaders a code-side citation may follow (R-072). `///`, `/**`
+/// and `<!--` end in one of them; `//!` does not.
+const COMMENT_LEADERS: [&str; 9] = ["//", "//!", "/*", "*", "#", "--", ";", "%", "<!--"];
+
+/// The code side (R-072, D-107): `doc:` counts only where it opens a line's
+/// text or follows a comment leader directly, after optional spaces. Anywhere
+/// else on a line of code — mid-comment, in code, in a string — it is prose.
+pub fn code_doc_tokens_on_line(line: &str) -> Vec<String> {
+    line.match_indices("doc: ")
+        .filter(|(at, _)| {
+            let before = line.get(..*at).unwrap_or("").trim_end();
+            before.is_empty() || COMMENT_LEADERS.iter().any(|l| before.ends_with(l))
+        })
+        .filter_map(|(at, _)| doc_token_at(line, at))
+        .collect()
+}
+
+/// The token of the `doc: ` occurrence at byte `at` of `line`, if it is one.
+/// The character before must not be alphanumeric (`htmldoc:` is not a
+/// reference).
+fn doc_token_at(line: &str, at: usize) -> Option<String> {
+    let before = line.get(..at).unwrap_or("");
+    if before
+        .chars()
+        .last()
+        .is_some_and(|c| c.is_ascii_alphanumeric())
+    {
+        return None;
     }
-    out
+    let after = line.get(at + 5..).unwrap_or("");
+    // R-073: a reference opened inside an inline-code span ends at the
+    // closing backtick — prose glues suffixes to it (a case ending, a
+    // possessive), and those belong to the sentence, not the identifier.
+    // The parity is counted from the start of the line, so a second
+    // reference on the same line reads its own span.
+    let opened_in_code = before.matches('`').count() % 2 == 1;
+    let raw = if opened_in_code {
+        after
+            .split('`')
+            .next()
+            .unwrap_or("")
+            .split_whitespace()
+            .next()
+            .unwrap_or("")
+    } else {
+        after.split_whitespace().next().unwrap_or("")
+    };
+    let token = raw.trim_end_matches(DOC_TOKEN_PUNCT);
+    // R-073: `doc: <id>` in prose documents the form; it cites nothing.
+    (!token.is_empty() && !token.contains(['<', '>', '{', '}'])).then(|| token.to_string())
 }
 
 /// Resolve one token against the index. `Ok(())` when it resolves; `Err`
@@ -2141,6 +2153,45 @@ mod tests {
         );
         // glued into a word it is not a reference
         assert!(doc_tokens_on_line("xdoc: nope").is_empty());
+    }
+
+    #[test]
+    fn a_code_citation_opens_the_line_or_follows_a_comment_leader() {
+        for line in [
+            "doc: a",
+            "    doc: a",
+            "// doc: a",
+            "/// doc: a",
+            "//! doc: a",
+            "//doc: a",
+            "/* doc: a */",
+            "/** doc: a",
+            " * doc: a",
+            "# doc: a",
+            "-- doc: a",
+            "; doc: a",
+            "% doc: a",
+            "<!-- doc: a -->",
+            "x(); // doc: a",
+            "x = 1  # doc: a",
+        ] {
+            assert_eq!(code_doc_tokens_on_line(line), vec!["a"], "{line}");
+        }
+        for line in [
+            "# see the provider doc: it caps",
+            "// see doc: a for why",
+            "api_doc: a",
+            "let s = \"doc: a\";",
+            "x = doc: a",
+            "// `doc: a`",
+        ] {
+            assert!(code_doc_tokens_on_line(line).is_empty(), "{line}");
+        }
+        // the shared tokenizer still applies: placeholders and punctuation
+        assert!(code_doc_tokens_on_line("// doc: <id>").is_empty());
+        assert_eq!(code_doc_tokens_on_line("// doc: a."), vec!["a"]);
+        // the docs side is unchanged: mid-sentence is a reference there
+        assert_eq!(doc_tokens_on_line("// see doc: a for why"), vec!["a"]);
     }
 
     #[test]

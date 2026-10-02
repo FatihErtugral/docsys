@@ -56,6 +56,64 @@ fn code_refs_resolve_dangle_and_respect_scan_exclude() {
 }
 
 #[test]
+fn a_code_citation_opens_a_comment_and_doc_mid_sentence_is_prose() {
+    let repo = tmp("positional");
+    let docs = repo.join("docs");
+    fs::create_dir_all(docs.join("reference")).unwrap();
+    fs::write(
+        docs.join(".docmeta.yml"),
+        "spec: docsys/0.4\nprofile: project\ndefault_content_language: en\n",
+    )
+    .unwrap();
+    fs::write(
+        docs.join("reference/real-id.md"),
+        "---\nid: real-id\ntype: reference\nupdated: 2026-10-02\n---\nBody.\n",
+    )
+    .unwrap();
+    fs::create_dir_all(repo.join("src")).unwrap();
+    for (file, text) in [
+        ("src/line.rs", "// doc: real-id\nfn a() {}\n"),
+        ("src/trailing.rs", "fn b() {\n    x(); // doc: real-id\n}\n"),
+        (
+            "src/block.js",
+            "/**\n * doc: real-id\n */\nfunction c() {}\n",
+        ),
+        (
+            "src/doc.py",
+            "def d():\n    \"\"\"Read the page.\n\n    doc: real-id\n    \"\"\"\n",
+        ),
+        ("src/prose.sh", "# see the provider doc: it caps\nexit 0\n"),
+        ("src/config.yml", "api_doc: foo\n"),
+        ("src/string.rs", "let s = \"doc: x\";\n"),
+        ("src/ghost.rs", "// doc: ghost\n"),
+    ] {
+        fs::write(repo.join(file), text).unwrap();
+    }
+    let tree = DocTree::load(&docs).unwrap();
+    let report = refs::run(&repo, &tree);
+    let found: Vec<(String, String, String)> = report
+        .findings
+        .iter()
+        .map(|f| {
+            (
+                f.severity.tag().to_string(),
+                f.file.clone(),
+                f.subject.clone(),
+            )
+        })
+        .collect();
+    assert_eq!(
+        found,
+        vec![("ERROR".into(), "src/ghost.rs".into(), "ghost".into())],
+        "{:?}",
+        report.findings
+    );
+    // four citations of real-id and the ghost: nothing else read as one
+    assert_eq!(report.inspected.get("code-doc-refs"), Some(&5));
+    let _ = fs::remove_dir_all(&repo);
+}
+
+#[test]
 fn agents_install_writes_assets_and_respects_existing() {
     let dir = tmp("agents").join(".claude");
     let done = docsys::agents::install(&dir, false).unwrap();

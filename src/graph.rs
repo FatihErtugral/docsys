@@ -2,7 +2,10 @@
 //! page→page links, work→permanent graduation and code→page citations.
 //! Derived artifacts only — nothing here is ever written into a page (R-156).
 
-use crate::checks::{build_index, doc_tokens_on_line, link_path_of, resolve_doc_token, wiki_links};
+use crate::checks::{
+    build_index, code_doc_tokens_on_line, doc_tokens_on_line, link_path_of, resolve_doc_token,
+    wiki_links,
+};
 use crate::fm::Value;
 use crate::tree::{DocTree, Kind};
 use std::collections::{BTreeMap, BTreeSet};
@@ -76,7 +79,7 @@ pub fn backlinks(tree: &DocTree, repo: Option<&Path>, what: &str) -> Result<Stri
                 .to_string_lossy()
                 .replace('\\', "/");
             for (i, l) in text.lines().enumerate() {
-                if doc_tokens_on_line(l).iter().any(|tok| tok == id) {
+                if code_doc_tokens_on_line(l).iter().any(|tok| tok == id) {
                     out.push_str(&format!("{rel}:{} (code, doc: {id})\n", i + 1));
                     n += 1;
                 }
@@ -224,7 +227,7 @@ pub fn edges(tree: &DocTree, repo: Option<&Path>) -> (Vec<String>, Vec<Edge>) {
                 .to_string_lossy()
                 .replace('\\', "/");
             for l in text.lines() {
-                for tok in doc_tokens_on_line(l) {
+                for tok in code_doc_tokens_on_line(l) {
                     if resolve_doc_token(&idx, &tok).is_ok() {
                         if let Some(to) = by_id.get(&tok) {
                             nodes.insert(format!("code:{rel}"));

@@ -64,6 +64,15 @@ by the release workflow — the tag's section becomes the GitHub release body.
   A span is CommonMark's — a run of backticks up to the next run of the same
   length on the line — and lint, `backlinks`, `mentions` and `graph` skip it
   alike. `doc:` references in inline code still count (R-073).
+- A code-side citation is `doc:` at the start of a comment (R-072, D-107):
+  `refs`, the code citations of `backlinks` and `graph`, and `seed`'s
+  citation listing count `doc:` only where it opens a line's text or follows
+  a comment leader (`//`, `/*`, `*`, `#`, `--`, `;`, `%`, `<!--`). A sentence
+  such as "see the provider doc: it caps", `api_doc: foo` or `"doc: x"` no
+  longer fails `refs` with a dangling R-076. A citation written mid-comment
+  (`// see doc: x for why`) stops counting: move it to the start of its
+  comment. Pages are unchanged — inside the tree `doc:` counts anywhere
+  outside quoted material.
 
 ### Changed
 

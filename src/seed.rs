@@ -869,7 +869,7 @@ pub fn target(repo: &Path, root: &Path, name: &str, opts: &Options) -> Result<St
             }
         }
         for line_text in text.lines() {
-            for token in crate::checks::doc_tokens_on_line(line_text) {
+            for token in crate::checks::code_doc_tokens_on_line(line_text) {
                 let state = match crate::checks::resolve_doc_token(&idx, &token) {
                     Ok(_) => "resolves",
                     Err(crate::checks::DocRefFail::Foreign) => "foreign",
