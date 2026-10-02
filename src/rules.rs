@@ -48,6 +48,26 @@ pub fn procedures() -> Option<String> {
     Some(out)
 }
 
+/// A rule's declaration and the first sentence of its text — `R-071 (lint ·
+/// MUST): Every link target MUST resolve.` — or `None` for a number the
+/// embedded spec does not declare.
+pub fn rule_sentence(id: &str) -> Option<String> {
+    let head = format!("**{id}** ");
+    let mut lines = SPEC.lines().skip_while(|l| !l.starts_with(&head));
+    let first = lines.next()?;
+    let mut text = first.strip_prefix(&head)?.to_string();
+    for l in lines.take_while(|l| !l.trim().is_empty()) {
+        text.push(' ');
+        text.push_str(l.trim());
+    }
+    let (tag, rest) = text.split_once(" — ")?;
+    Some(format!(
+        "{id} ({}): {}",
+        tag.replace('`', "").trim(),
+        first_sentence(rest)
+    ))
+}
+
 /// First sentence of a rule's text, for the always-loaded summary. Mechanical
 /// extraction (the R-057 pattern): everything up to the first `. ` boundary.
 fn first_sentence(text: &str) -> String {

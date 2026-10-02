@@ -110,6 +110,12 @@ impl Era {
     pub fn declared_markers(self) -> bool {
         self.v05()
     }
+
+    /// D-116: `lint`, `refs` and `gate` end with a pointer to `docsys feedback`
+    /// under a finding of a rule that reads free text. Before: the findings alone.
+    pub fn finding_pointers(self) -> bool {
+        self.v05()
+    }
 }
 
 #[cfg(test)]

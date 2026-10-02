@@ -12,6 +12,7 @@ pub mod consume;
 pub mod doctor;
 pub mod era;
 pub mod export;
+pub mod feedback;
 pub mod fm;
 pub mod forget;
 pub mod fresh;

@@ -9,6 +9,13 @@ by the release workflow — the tag's section becomes the GitHub release body.
 
 ### Added
 
+- `docsys feedback` (D-116): the issue format and, with `--draft`, an issue
+  body with the facts the tool knows — version, OS, the tree's profile and
+  spec, the rule's text, a docsys command's output, a redacted `.docmeta.yml`,
+  the files a rule's findings name — and TODO where a person writes. It files
+  nothing and names the template to open; the repository carries the same
+  format as `.github/ISSUE_TEMPLATE/`. On a docsys/0.5 tree `lint`, `refs` and
+  `gate` point to it under a finding of a rule that reads free text.
 - On a docsys/0.5 tree the tree's own words for a guess and for a change
   history are reported (R-210, R-211, D-115): `uncertainty_markers:` found in
   a permanent page's prose, and `history_headings:` heading a reference page.

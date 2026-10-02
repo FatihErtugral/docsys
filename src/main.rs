@@ -10,6 +10,8 @@ and assistant create a tree where they are pointed.
 
 Usage:
   docsys --version                          # the binary and the spec version it implements
+  docsys feedback [--draft] [--type bug|false-positive|need] [--rule R-xxx] [--command \"docsys …\"] [--out <file>]
+                                             # docsys is wrong or in your way: the guide, or an issue drafted with the facts filled in — never filed by the tool
   docsys lint    [--root <dir>] [--repo <dir>] [--json]   # inside a git repository: pins and history too
   docsys pin     <page> <path> [--symbol <s>] [--repo .] [--root docs]   # pin a page to a code region (verifies:, §11)
   docsys pin     --refresh <page> [--repo .] [--root docs]              # recompute its pins after re-reading the page
@@ -116,6 +118,10 @@ struct Opts {
     rules_file: Option<PathBuf>,
     report_dir: Option<PathBuf>,
     no_report: bool,
+    draft: bool,
+    kind: Option<String>,
+    rule: Option<String>,
+    command: Option<String>,
     positional: Vec<String>,
 }
 
@@ -167,6 +173,10 @@ fn parse_opts(args: &[String]) -> Result<Opts, String> {
         rules_file: None,
         report_dir: None,
         no_report: false,
+        draft: false,
+        kind: None,
+        rule: None,
+        command: None,
         positional: Vec::new(),
     };
     let mut it = args.iter();
@@ -205,6 +215,10 @@ fn parse_opts(args: &[String]) -> Result<Opts, String> {
             "--link" => o.link = Some(it.next().ok_or("--link needs a value")?.clone()),
             "--format" => o.format = Some(it.next().ok_or("--format needs a value")?.clone()),
             "--obsidian" => o.obsidian = true,
+            "--draft" => o.draft = true,
+            "--type" => o.kind = Some(it.next().ok_or("--type needs a value")?.clone()),
+            "--rule" => o.rule = Some(it.next().ok_or("--rule needs a value")?.clone()),
+            "--command" => o.command = Some(it.next().ok_or("--command needs a value")?.clone()),
             "--agents-md" => o.agents_md = true,
             "--write" => o.plan = Some(PathBuf::from(it.next().ok_or("--write needs a value")?)),
             "--report" => o.procedures = true, // reuse: agents --report
@@ -293,6 +307,11 @@ fn run_lint(o: &Opts) -> ExitCode {
         let warns = report.findings.len() - errors;
         let units: usize = report.inspected.values().sum();
         println!("-- {errors} error(s), {warns} warning(s); {units} unit(s) inspected");
+        if docsys::era::Era::at(&o.root).finding_pointers() {
+            for p in docsys::feedback::pointers(report.findings.iter().map(|f| f.rule.0)) {
+                println!("{p}");
+            }
+        }
     }
     match outcome {
         Outcome::Clean => ExitCode::SUCCESS,
@@ -412,6 +431,54 @@ fn main() -> ExitCode {
             ExitCode::SUCCESS
         }
         ("lint", None) => run_lint(&opts),
+        ("feedback", None) => {
+            if !opts.draft {
+                print!("{}", docsys::feedback::guide());
+                return ExitCode::SUCCESS;
+            }
+            // a rule named means a finding disputed, unless the kind says otherwise
+            let kind = opts.kind.clone().unwrap_or_else(|| {
+                if opts.rule.is_some() {
+                    "false-positive".to_string()
+                } else {
+                    "bug".to_string()
+                }
+            });
+            let tree = opts
+                .root
+                .join(".docmeta.yml")
+                .is_file()
+                .then_some(opts.root.as_path());
+            let d = docsys::feedback::Draft {
+                kind: &kind,
+                rule: opts.rule.as_deref(),
+                command: opts.command.as_deref(),
+                root: tree,
+            };
+            match docsys::feedback::draft(&d) {
+                Ok(body) => {
+                    match &opts.out {
+                        Some(p) => {
+                            if let Err(e) = std::fs::write(p, &body) {
+                                eprintln!("feedback: {e}");
+                                return ExitCode::from(2);
+                            }
+                            eprintln!("draft written to {}", p.display());
+                        }
+                        None => print!("{body}"),
+                    }
+                    eprintln!(
+                        "fill the TODO parts, read it for private content, then file it at {} — an agent asks the person first: filing publishes",
+                        docsys::feedback::new_issue_url(&kind)
+                    );
+                    ExitCode::SUCCESS
+                }
+                Err(e) => {
+                    eprintln!("feedback: {e}");
+                    ExitCode::from(2)
+                }
+            }
+        }
         ("adopt", None) => {
             let repo = opts.repo.clone().unwrap_or_else(|| PathBuf::from("."));
             let root = if opts.root.is_absolute() {
@@ -1127,6 +1194,13 @@ next: review, `git add -A && git commit`, then open an agent session here."
                         "-- {} error(s), {} warning(s)",
                         g.lint_errors, g.lint_warnings
                     );
+                    if docsys::era::Era::at(&root).finding_pointers() {
+                        for p in
+                            docsys::feedback::pointers(report.findings.iter().map(|f| f.rule.0))
+                        {
+                            println!("{p}");
+                        }
+                    }
                     // Over a range there is nobody to ask once: code without
                     // documentation fails the check, as CI must.
                     let unanswered =
@@ -1413,6 +1487,11 @@ next: review, `git add -A && git commit`, then open an agent session here."
                     "-- {errors} error(s), {} warning(s); {units} unit(s) inspected",
                     report.findings.len() - errors
                 );
+                if docsys::era::Era::at(&root).finding_pointers() {
+                    for p in docsys::feedback::pointers(report.findings.iter().map(|f| f.rule.0)) {
+                        println!("{p}");
+                    }
+                }
             }
             if report
                 .findings

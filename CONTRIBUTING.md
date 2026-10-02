@@ -58,6 +58,13 @@ Linux, macOS, and Windows — all must be green.
 
 ## Reporting issues
 
+Start with `docsys feedback`: it prints the issue format — the problem or need
+in one sentence, a concrete example, the rule, the impact, a proposal with its
+trade-off, the environment — and `docsys feedback --draft [--rule R-xxx]
+[--command "docsys …"]` drafts the issue with the facts filled in and the
+personal ones left out. It files nothing; read the draft, then open it with the
+template it names (`.github/ISSUE_TEMPLATE/`).
+
 The most valuable bug report is a **minimal tree**: the smallest `docs/`
 layout (plus `.docmeta.yml`) that produces the wrong finding — it is usually
 one commit away from becoming a conformance case. Second best: the exact
