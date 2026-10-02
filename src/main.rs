@@ -9,9 +9,9 @@ nearest tree above is found, and the repository is the tree's own (D-098). init,
 and assistant create a tree where they are pointed.
 
 Usage:
-  docsys --version                          # the binary and the spec version it implements
-  docsys upgrade [--apply] [--commit] [--force] [--root docs] [--dir .claude]
-                                             # move this tree to the spec version this docsys implements: the plan, then --apply as one commit (D-117)
+  docsys --version                          # the binary, the spec it implements, and the tree's pin
+  docsys upgrade [--apply] [--commit] [--force] [--json] [--root docs] [--dir .claude]
+                                             # move this tree to this docsys: one spec per commit, then its pin; the plan first, --json for an agent (D-117, D-120, D-104)
   docsys feedback [--draft] [--type bug|false-positive|need] [--rule R-xxx] [--command \"docsys …\"] [--out <file>]
                                              # docsys is wrong or in your way: the guide, or an issue drafted with the facts filled in — never filed by the tool
   docsys lint    [--root <dir>] [--repo <dir>] [--json]   # inside a git repository: pins and history too
@@ -47,7 +47,7 @@ Usage:
   docsys adopt   … [--ci-runner <label>[,<label>…]] [--ci-install cargo | --ci-install release --ci-sha256 <target>=<hex>,…]
                    [--verify-on-approval pull-request|direct|off]
                                              # the workflow written when .github/ exists: ubuntu-latest, cargo, a follow-up pull request by default (D-105, D-111)
-  docsys agents  [--dir .claude] [--force]   # install hooks + skills + /docsys-sync, /docsys-seed, /docsys-interview
+  docsys agents  [--dir .claude] [--force]   # install hooks + skills + /docsys-sync, /docsys-seed, /docsys-interview, /docsys-upgrade
   docsys agents  --kb [--root <base>] [--dir .claude] [--force]  # knowledge-base layer
   docsys graduate plan <work-file>  [--root <dir>]
   docsys graduate apply --plan <file> [--root <dir>] [--force]
@@ -72,6 +72,9 @@ Usage:
   docsys adopt   --obsidian …                # + .obsidian settings and a stale-work .base view
   docsys hook    pre-tool-use|stop|post-tool-use|user-prompt-submit [--repo .] [--root docs]
                                              # agent-hook logic; the installed scripts relay to it
+
+A pinned tree (<root>/.docsys-version) runs its own version, installed once into
+$DOCSYS_HOME (~/.docsys); DOCSYS_NO_AUTO_INSTALL=1 prints the install command instead (D-120).
 
 Exit codes (the contract scripts and CI read):
   0  ok — clean, or warnings only (warnings inform; they never block)
