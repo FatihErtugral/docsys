@@ -176,6 +176,21 @@ impl Upgrade {
     }
 }
 
+/// The docsys version an owner's workflow installs, where a line that names
+/// docsys carries one (`DOCSYS_VERSION: v0.15.1`, `cargo install docsys
+/// --version 0.15.1`).
+fn installed_version(workflow: &str) -> Option<String> {
+    workflow
+        .lines()
+        .filter(|l| l.to_ascii_lowercase().contains("docsys"))
+        .flat_map(|l| {
+            l.split(|c: char| !(c.is_ascii_digit() || c == '.'))
+                .map(str::to_string)
+                .collect::<Vec<_>>()
+        })
+        .find(|t| crate::dispatch::parse(t).is_some())
+}
+
 /// The spec minor this binary implements.
 pub fn implemented() -> u32 {
     crate::rules::spec_version()
@@ -598,7 +613,15 @@ fn common(ctx: &Ctx, u: &mut Upgrade, apply: bool) -> Result<(), String> {
             }
         }
         Some(crate::workflow::Existing::Owned { diff }) if !diff.trim().is_empty() => {
-            u.item("manual", "ci-workflow", crate::workflow::PATH, "the workflow is yours: never rewritten — apply what you want of the diff below, the version pin first".to_string());
+            // the one line of an owner's workflow that must move with the tree:
+            // the docsys it installs
+            let text = fs::read_to_string(repo.join(crate::workflow::PATH)).unwrap_or_default();
+            let own = crate::dispatch::own();
+            let what = match installed_version(&text).filter(|v| v != own) {
+                Some(v) => format!("the workflow is yours: never rewritten — it installs docsys {v} and the tree will pin {own}: CI installs the same version in this change (the diff below reads the pin)"),
+                None => "the workflow is yours: never rewritten — apply what you want of the diff below, the version pin first".to_string(),
+            };
+            u.item("manual", "ci-workflow", crate::workflow::PATH, what);
             u.diffs.push((crate::workflow::PATH.to_string(), diff));
         }
         Some(crate::workflow::Existing::Owned { .. }) => {}

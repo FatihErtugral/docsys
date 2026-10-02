@@ -385,13 +385,21 @@ fn an_owners_workflow_is_shown_as_a_diff_and_never_rewritten() {
         .replace("runs-on: ubuntu-latest", "runs-on: [self-hosted, linux]")
         .replace(
             "      - run: cargo install docsys\n",
-            "      - run: ./tools/install-docsys.sh\n",
+            "      - run: ./tools/install-docsys.sh v0.15.1 # the docsys the tree was authored with\n",
         );
     fs::write(&wf, &owned).unwrap();
     git(&repo, &["commit", "-qam", "ci: our runner"]);
     let out = docsys(&repo, &["upgrade", "--apply", "--commit"]);
     assert!(out.status.success(), "{out:?}");
     let stdout = String::from_utf8_lossy(&out.stdout);
+    // the one line that must move with the tree is named
+    assert!(
+        stdout.contains(&format!(
+            "it installs docsys 0.15.1 and the tree will pin {}",
+            env!("CARGO_PKG_VERSION")
+        )),
+        "{stdout}"
+    );
     assert!(
         stdout.contains("manual  ci-workflow        .github/workflows/docsys.yml"),
         "{stdout}"
