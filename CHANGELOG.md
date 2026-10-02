@@ -24,6 +24,9 @@ declares `spec: docsys/0.5`; a tree that declares `docsys/0.4` is served as
 
 - `docsys upgrade [--apply] [--commit] [--force]`: a docsys/0.4 tree to
   docsys/0.5 in one commit; what needs a person is listed, never applied (D-117).
+- A tree pins the docsys it runs (`.docsys-version`): every command on it runs
+  that version, installed once on first use; the relays, the gate and the CI
+  workflow read the pin, and `upgrade` moves it (D-120).
 - `docsys --version`: the binary and the spec it implements (D-099).
 - `docsys verify --show <page>`: what a re-verification reads, block by block (D-103).
 - `docsys pin … --block <n>`: a pin bound to the block it backs (§21, R-212, D-103).

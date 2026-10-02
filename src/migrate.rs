@@ -568,7 +568,11 @@ pub fn init_profile(root: &Path, lang: &str, profile: &str) -> Result<(), String
             ))
         }
     }
-    Ok(())
+    // the tree runs the docsys that made it until `docsys upgrade` moves it (D-120)
+    w(
+        crate::dispatch::FILE,
+        format!("{}\n", crate::dispatch::own()),
+    )
 }
 
 const REPO_SKIP_DIRS: [&str; 6] = [".git", "node_modules", "target", "build", "dist", ".venv"];

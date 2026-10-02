@@ -198,18 +198,29 @@ jobs:
         run: docsys gate --repo . --root @ROOT@ --range "origin/${{ github.base_ref }}...HEAD"
 @VERIFY@"#;
 
-const INSTALL_CARGO: &str = r#"      - uses: actions/cache@v4
+const INSTALL_CARGO: &str = r#"      - name: docsys, the version the tree pins
+        id: docsys-pin
+        shell: bash
+        run: |
+          v=$(head -n 1 "@ROOT@/.docsys-version" 2>/dev/null || true)
+          echo "version=${v:-@VERSION@}" >> "$GITHUB_OUTPUT"
+      - uses: actions/cache@v4
         id: docsys-bin
         with:
           path: ~/.cargo/bin/docsys
-          key: docsys-@VERSION@-${{ runner.os }}-${{ runner.arch }}
+          key: docsys-${{ steps.docsys-pin.outputs.version }}-${{ runner.os }}-${{ runner.arch }}
       - if: steps.docsys-bin.outputs.cache-hit != 'true'
-        run: cargo install docsys --version @VERSION@ --locked
+        run: cargo install docsys --version "${{ steps.docsys-pin.outputs.version }}" --locked
 "#;
 
 const INSTALL_RELEASE: &str = r#"      - name: docsys @VERSION@, the release archive checked against its sha256
         shell: bash
         run: |
+          v=$(head -n 1 "@ROOT@/.docsys-version" 2>/dev/null || true)
+          if [ -n "$v" ] && [ "$v" != "@VERSION@" ]; then
+            echo "docsys: the tree pins docsys $v; this workflow holds the sha256 values of @VERSION@ — write those of $v" >&2
+            exit 1
+          fi
           case "$(uname -s)-$(uname -m)" in
 @ARMS@            *) echo "docsys: this workflow holds no sha256 for a $(uname -s)-$(uname -m) runner" >&2; exit 1 ;;
           esac
@@ -351,8 +362,9 @@ pub fn render(w: &Workflow) -> String {
         [one] => one.clone(),
         many => format!("[{}]", many.join(", ")),
     };
+    let root = root_of(&w.root);
     let install = match &w.ci.install {
-        Install::Cargo => fill(INSTALL_CARGO, &[("VERSION", &w.version)]),
+        Install::Cargo => fill(INSTALL_CARGO, &[("VERSION", &w.version), ("ROOT", root)]),
         Install::Release(sums) => {
             let arms: String = sums
                 .iter()
@@ -370,11 +382,11 @@ pub fn render(w: &Workflow) -> String {
                     ("VERSION", &w.version),
                     ("ARMS", &arms),
                     ("RELEASES", RELEASES),
+                    ("ROOT", root),
                 ],
             )
         }
     };
-    let root = root_of(&w.root);
     let job = |head_where: &str, pr: &str, steps: &str| {
         let head = fill(
             VERIFY_HEAD,

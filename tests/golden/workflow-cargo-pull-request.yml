@@ -24,13 +24,19 @@ jobs:
       - uses: actions/checkout@v5
         with:
           fetch-depth: 0
+      - name: docsys, the version the tree pins
+        id: docsys-pin
+        shell: bash
+        run: |
+          v=$(head -n 1 "docs/.docsys-version" 2>/dev/null || true)
+          echo "version=${v:-9.9.9}" >> "$GITHUB_OUTPUT"
       - uses: actions/cache@v4
         id: docsys-bin
         with:
           path: ~/.cargo/bin/docsys
-          key: docsys-9.9.9-${{ runner.os }}-${{ runner.arch }}
+          key: docsys-${{ steps.docsys-pin.outputs.version }}-${{ runner.os }}-${{ runner.arch }}
       - if: steps.docsys-bin.outputs.cache-hit != 'true'
-        run: cargo install docsys --version 9.9.9 --locked
+        run: cargo install docsys --version "${{ steps.docsys-pin.outputs.version }}" --locked
       - run: docsys lint --repo . --root docs
       - run: docsys refs --repo . --root docs
       - if: github.event_name == 'pull_request'
@@ -54,13 +60,19 @@ jobs:
         with:
           ref: ${{ github.event.pull_request.base.ref }}
           fetch-depth: 0
+      - name: docsys, the version the tree pins
+        id: docsys-pin
+        shell: bash
+        run: |
+          v=$(head -n 1 "docs/.docsys-version" 2>/dev/null || true)
+          echo "version=${v:-9.9.9}" >> "$GITHUB_OUTPUT"
       - uses: actions/cache@v4
         id: docsys-bin
         with:
           path: ~/.cargo/bin/docsys
-          key: docsys-9.9.9-${{ runner.os }}-${{ runner.arch }}
+          key: docsys-${{ steps.docsys-pin.outputs.version }}-${{ runner.os }}-${{ runner.arch }}
       - if: steps.docsys-bin.outputs.cache-hit != 'true'
-        run: cargo install docsys --version 9.9.9 --locked
+        run: cargo install docsys --version "${{ steps.docsys-pin.outputs.version }}" --locked
       - env:
           GH_TOKEN: ${{ github.token }}
           BASE: ${{ github.event.pull_request.base.ref }}

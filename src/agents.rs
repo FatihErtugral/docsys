@@ -60,29 +60,27 @@ exec docsys hook user-prompt-submit --root "${DOCS_ROOT:-docs}"
 "#;
 
 /// What every relay runs before it hands over to the binary (D-099). It works
-/// from the project directory whatever the session's directory is, and a tree
-/// that declares a newer spec than the installed docsys implements is refused
-/// in one line — an older binary would otherwise answer with a flood of
-/// findings about fields it cannot read. A docsys without `--version` predates
-/// it and implements docsys/0.4.
+/// from the project directory whatever the session's directory is. A docsys
+/// that answers `--version` runs the tree's pinned version by itself (D-120);
+/// one that does not predates pins, and under a pinned tree it is refused in
+/// one line naming the version — it would otherwise answer with a flood of
+/// findings about fields it cannot read.
 const RELAY_GUARD: &str = r#"cd "${CLAUDE_PROJECT_DIR:-.}" || exit 0
-docsys_spec=$(sed -n 's/^spec:[[:space:]]*docsys\/0\.\([0-9][0-9]*\).*/\1/p' "${DOCS_ROOT:-docs}/.docmeta.yml" 2>/dev/null | head -n 1)
-docsys_impl=$(docsys --version 2>/dev/null | sed -n 's/.*docsys\/0\.\([0-9][0-9]*\).*/\1/p')
-if [ -n "$docsys_spec" ] && [ "$docsys_spec" -gt "${docsys_impl:-4}" ]; then
-  echo "docsys: this tree needs docsys >= @DOCSYS_MIN@ (it declares docsys/0.$docsys_spec); install: cargo install docsys --version @DOCSYS_MIN@ --locked" >&2
+docsys_pin=$(head -n 1 "${DOCS_ROOT:-docs}/.docsys-version" 2>/dev/null)
+if [ -n "$docsys_pin" ] && ! docsys --version >/dev/null 2>&1; then
+  echo "docsys: this tree pins docsys $docsys_pin; install: cargo install docsys --version $docsys_pin --locked" >&2
   exit 1
 fi"#;
 
 /// A relay as it is written to disk: the guard in place, the tree's own root
-/// as the default (relative to the repository, never an absolute path), the
-/// minimum version this binary is, and the template stamp.
+/// as the default (relative to the repository, never an absolute path), and
+/// the template stamp.
 pub fn render_relay(template: &str, root_arg: &str) -> String {
     let root_arg = if root_arg.is_empty() { "." } else { root_arg };
     stamp(
         &template
             .replace("@DOCSYS_GUARD@", RELAY_GUARD)
-            .replace("${DOCS_ROOT:-docs}", &format!("${{DOCS_ROOT:-{root_arg}}}"))
-            .replace("@DOCSYS_MIN@", TEMPLATE_VERSION),
+            .replace("${DOCS_ROOT:-docs}", &format!("${{DOCS_ROOT:-{root_arg}}}")),
     )
 }
 
@@ -472,6 +470,16 @@ was verified (R-024): a changed body is an error until the page is
 `unverified` again.
 "#;
 
+/// The knowledge base's contract as `agents --kb` writes it, the version
+/// section included (D-120).
+pub fn kb_contract() -> String {
+    format!("{KB_AGENTS_MD}\n{}", crate::rules::VERSION_SECTION)
+}
+
+/// The contract 0.15 wrote, for `docsys upgrade` to tell an untouched copy
+/// from its owner's.
+pub const KB_CONTRACT_0_15: &str = include_str!("../migrations/assets-0.15/kb/AGENTS.md");
+
 #[derive(Debug)]
 pub struct Installed {
     pub written: Vec<String>,
@@ -579,7 +587,7 @@ pub fn install_kb(claude_dir: &Path, base_dir: &Path, force: bool) -> Result<Ins
     if agents.exists() && !force {
         out.skipped.push("AGENTS.md".to_string());
     } else {
-        fs::write(&agents, KB_AGENTS_MD).map_err(|e| e.to_string())?;
+        fs::write(&agents, kb_contract()).map_err(|e| e.to_string())?;
         out.written.push("AGENTS.md".to_string());
     }
     // The git gate, as for a project: hard when the base lints clean inside

@@ -122,7 +122,7 @@ relays_run() {
     case $hook in "    "*|"") continue ;; esac
     [ "$code" = 0 ] || fail "$name: $hook exited $code under the new docsys"
   done <<<"$out"
-  if printf '%s\n' "$out" | grep -q 'needs docsys'; then
+  if printf '%s\n' "$out" | grep -q "pins docsys"; then
     fail "$name: a relay named a version under the new docsys"
   fi
 }
@@ -146,7 +146,7 @@ base_a=$(g rev-parse HEAD)
 refresh_and_verify "$NEW_PATH"
 grep -q '^    hash: "sha256:' docs/reference/refresh.md || fail "A: the refresh did not write the pin's hash into the page (0.4 format)"
 [ ! -e docs/.verifies ] || fail "A: the refresh wrote .verifies/ on a 0.4 tree"
-! grep -q '^verified_hash:' docs/reference/refresh.md || fail "A: verify wrote a 0.5 record on a 0.4 tree"
+! grep -q '^verified_blocks:' docs/reference/refresh.md || fail "A: verify wrote a 0.5 record on a 0.4 tree"
 ci_green "$OLD_PATH" "$base_a"
 echo "the old docsys reads it: lint, refs, gate green"
 
@@ -157,7 +157,7 @@ with_new docsys upgrade --apply --commit >/dev/null || fail "B: the upgrade did 
 grep -q '^spec: docsys/0.5' docs/.docmeta.yml || fail "B: still declares 0.4"
 refresh_and_verify "$NEW_PATH"
 [ -d docs/.verifies/refresh ] || fail "B: the refresh wrote no acknowledgement"
-grep -q '^verified_hash:' docs/reference/refresh.md || fail "B: verify wrote no hash"
+grep -q '^verified_blocks:' docs/reference/refresh.md || fail "B: verify wrote no block record"
 ci_green "$NEW_PATH" "$base_b"
 relays_run "B" "$(relays "$NEW_PATH")"
 cd "$WORK/a"
@@ -174,13 +174,13 @@ while IFS=$'\t' read -r hook code lines; do
   [ "$code" = 1 ] || fail "B: $hook exited $code under the old docsys"
   [ "$lines" = 1 ] || fail "B: $hook printed $lines lines under the old docsys"
 done <<<"$out"
-printf '%s\n' "$out" | grep -q "this tree needs docsys >= " || fail "B: the line does not name the version"
+printf '%s\n' "$out" | grep -q "this tree pins docsys " || fail "B: the line does not name the version"
 printf '\nmore\n' >>README.md
 g add README.md
 if commit_err=$(with_old g commit -qm "under the old docsys" 2>&1); then
   fail "B: the git gate let the old docsys commit"
 fi
-printf '%s\n' "$commit_err" | grep -q "this tree needs docsys >= " || fail "B: the gate did not name the version: $commit_err"
+printf '%s\n' "$commit_err" | grep -q "this tree pins docsys " || fail "B: the gate did not name the version: $commit_err"
 [ "$(printf '%s\n' "$commit_err" | grep -c .)" = 1 ] || fail "B: the gate printed more than its one line: $commit_err"
 echo "every relay and the gate: one line, exit 1"
 

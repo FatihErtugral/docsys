@@ -252,10 +252,15 @@ fn adopt_writes_the_workflow_its_flags_describe_and_keeps_it_after() {
         "{first}"
     );
     assert_eq!(text.matches("runs-on: [self-hosted, linux]\n").count(), 2);
-    assert!(text.contains(&format!(
-        "cargo install docsys --version {} --locked",
-        docsys::agents::TEMPLATE_VERSION
-    )));
+    // CI installs the version the tree pins, which adopt wrote (D-120)
+    assert!(text.contains(
+        "cargo install docsys --version \"${{ steps.docsys-pin.outputs.version }}\" --locked"
+    ));
+    assert!(text.contains("v=$(head -n 1 \"docs/.docsys-version\" 2>/dev/null || true)"));
+    assert_eq!(
+        fs::read_to_string(repo.join("docs/.docsys-version")).unwrap(),
+        format!("{}\n", docsys::agents::TEMPLATE_VERSION)
+    );
     assert!(!text.contains("|| echo"), "{text}");
     // a re-adopt keeps the file, flags or not
     let again = docsys(&repo, &["adopt", "--ci-runner", "ubuntu-latest"]);
@@ -518,4 +523,48 @@ fn a_hand_edited_workflow_is_the_owners_and_only_a_diff_is_shown() {
     );
     assert!(!diff.contains("runs-on"), "{diff}");
     let _ = fs::remove_dir_all(&repo);
+}
+
+/// A release install holds the sha256 values of one version, and the tree
+/// pins one: when they part, the job fails in one line instead of installing
+/// a binary the tree does not run (D-120).
+#[test]
+fn a_release_install_fails_when_the_pin_is_not_its_version() {
+    let text = workflow::render(&params(
+        "main",
+        &["ubuntu-latest"],
+        Install::Release(vec![(
+            "x86_64-unknown-linux-musl".to_string(),
+            SUM_A.to_string(),
+        )]),
+        Verify::Off,
+        "",
+    ));
+    // the install step's own lines, up to the platform match
+    let script: String = text
+        .lines()
+        .skip_while(|l| !l.contains("the release archive checked against its sha256"))
+        .skip_while(|l| l.trim() != "run: |")
+        .skip(1)
+        .take_while(|l| !l.contains("case \"$(uname -s)-$(uname -m)\" in"))
+        .map(|l| format!("{}\n", l.trim_start()))
+        .collect();
+    assert!(script.contains(".docsys-version"), "{script}");
+    let dir = tmp("release-pin");
+    let run = |pin: &str| {
+        fs::write(dir.join(".docsys-version"), format!("{pin}\n")).unwrap();
+        Command::new("bash")
+            .args(["-c", &script])
+            .current_dir(&dir)
+            .output()
+            .unwrap()
+    };
+    let parted = run("1.2.3");
+    assert_eq!(parted.status.code(), Some(1));
+    assert_eq!(
+        String::from_utf8_lossy(&parted.stderr),
+        "docsys: the tree pins docsys 1.2.3; this workflow holds the sha256 values of 9.9.9 — write those of 1.2.3\n"
+    );
+    assert!(run("9.9.9").status.success());
+    let _ = fs::remove_dir_all(&dir);
 }

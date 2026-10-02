@@ -292,8 +292,8 @@ fn a_base_installed_from_its_own_directory_names_itself_dot() {
     let _ = fs::remove_dir_all(&b);
 }
 
-/// A tree that declares a newer spec than the installed docsys implements:
-/// the relays and the gate say so in one line and stop, instead of letting an
+/// A pinned tree under a docsys from before pins (D-120): the relays and the
+/// gate name the pinned version in one line and stop, instead of letting an
 /// older binary flood the session with findings it cannot read.
 #[test]
 fn an_older_docsys_under_upgraded_relays_is_named_in_one_line() {
@@ -333,26 +333,19 @@ fn an_older_docsys_under_upgraded_relays_is_named_in_one_line() {
             String::from_utf8_lossy(&o.stderr).into_owned(),
         )
     };
-    let docmeta = r.join("docs/.docmeta.yml");
-    let declared = fs::read_to_string(&docmeta).unwrap().replace(
-        &format!("spec: docsys/{}", docsys::rules::spec_version()),
-        "spec: docsys/0.4",
-    );
-    fs::write(&docmeta, &declared).unwrap();
+    let pin = r.join("docs/.docsys-version");
+    let pinned = fs::read_to_string(&pin).unwrap();
+    fs::remove_file(&pin).unwrap();
 
-    // control: a tree the stub implements (docsys/0.4) — no line, the relay runs
+    // control: an unpinned tree, as 0.15 wrote them — no line, the relay runs
     for script in ["pre-commit-docs.sh", "session-intent.sh"] {
         let (code, err) = run(script);
         assert_eq!(code, 0, "{script}: {err}");
         assert!(!err.contains("needs docsys"), "{script}: {err}");
     }
 
-    // the tree moved on: every relay names the minimum and stops
-    fs::write(
-        &docmeta,
-        declared.replace("spec: docsys/0.4", "spec: docsys/0.9"),
-    )
-    .unwrap();
+    // the tree pins a docsys: every relay names it and stops
+    fs::write(&pin, &pinned).unwrap();
     for script in [
         "pre-commit-docs.sh",
         "stop-docs-reminder.sh",
@@ -364,19 +357,19 @@ fn an_older_docsys_under_upgraded_relays_is_named_in_one_line() {
         assert_eq!(err.lines().count(), 1, "{script}: {err}");
         assert!(
             err.contains(&format!(
-                "this tree needs docsys >= {} (it declares docsys/0.9); install: cargo install docsys --version {} --locked",
-                env!("CARGO_PKG_VERSION"),
-                env!("CARGO_PKG_VERSION")
+                "docsys: this tree pins docsys {v}; install: cargo install docsys --version {v} --locked",
+                v = env!("CARGO_PKG_VERSION")
             )),
             "{script}: {err}"
         );
     }
     // the git gate does the same and stops the commit
-    ok(&r, &["add", "docs/.docmeta.yml"]);
-    let out = git(&r, &stub_path, &["commit", "-qm", "spec bump"]);
+    fs::write(r.join("notes.txt"), "a change to commit\n").unwrap();
+    ok(&r, &["add", "notes.txt"]);
+    let out = git(&r, &stub_path, &["commit", "-qm", "a change"]);
     assert!(!out.status.success(), "the gate let an older docsys commit");
     assert!(
-        String::from_utf8_lossy(&out.stderr).contains("this tree needs docsys >= "),
+        String::from_utf8_lossy(&out.stderr).contains("this tree pins docsys "),
         "{}",
         String::from_utf8_lossy(&out.stderr)
     );

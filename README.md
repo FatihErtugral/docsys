@@ -449,10 +449,10 @@ flowchart LR
 | `docsys hook pre-tool-use\|stop\|post-tool-use\|user-prompt-submit [--repo .] [--root docs]` | The hook logic itself, reading the agent harness payload on stdin (D-051). |
 | `docsys gate [--repo .] [--root docs] [--range <a>...<b>]` · `docsys doctor [--repo .] [--root docs] [--dir .claude]` | The commit-time question the binary computes (lint + code-without-docs); with `--range`, the same question over a pull request, failing when unanswered — what the CI workflow runs. And the liveness check: every hook present, executable, wired under the right event, up to date (D-040, D-047). |
 | `docsys feedback` · `docsys feedback --draft [--type bug\|false-positive\|need] [--rule R-xxx] [--command "docsys …"] [--out <file>]` | When docsys is wrong or in the way: the issue format, and an issue drafted with the facts the tool knows — version, OS, the tree's profile and spec, the rule's text, the command's output, a redacted `.docmeta.yml` — and TODO where only a person writes. Files nothing; names the template to open (D-116). On a docsys/0.5 tree `lint`, `refs` and `gate` point to it under a finding of a rule that reads free text. |
-| `docsys upgrade [--apply] [--commit] [--force] [--root docs] [--dir .claude]` | Moves a docsys/0.4 tree to docsys/0.5 (§16, D-117). The default is the plan: every step `auto`, `manual` or `info`, the findings the move adds and removes, and a diff for every file its owner edited. `--apply` writes what is mechanical and `--commit` makes it one commit; a dirty working tree is refused (`--force` overrides). An edited relay, skill, command or CI workflow is never rewritten. A 0.4 tree that does not move keeps 0.15.1's findings and formats (D-118). |
+| `docsys upgrade [--apply] [--commit] [--force] [--root docs] [--dir .claude]` | Moves the tree to this docsys: its spec one version per commit (§16, D-117), then its pin (D-120). The default is the plan: the release notes it crosses, every step `auto`, `manual` or `info`, the findings the move adds and removes, and a diff for every file its owner edited. `--apply` writes what is mechanical and `--commit` makes it one commit per spec, its message carrying the notes and the step every other clone takes; a dirty working tree is refused (`--force` overrides). An edited relay, skill, command or CI workflow is never rewritten. A 0.4 tree that does not move keeps 0.15.1's findings and formats (D-118). |
 | `docsys ledger fix [--root docs]` | Rewrites the em-dash field markers of `work/debt.md`, `work/questions.md` and `wiki/open-questions.md` to R-108's ASCII ` -- `, at the label positions only (D-108). |
 | `docsys pin --gc [--repo .] [--root docs]` | On a docsys/0.5 tree, removes the pin acknowledgements under `.verifies/` that no current region needs any more (D-119). |
-| `docsys --version` | The binary and the spec version it implements; the relays and the git gate read it (D-099). |
+| `docsys --version` | The binary, the spec it implements, and inside a pinned tree the pin; the relays and the git gate ask it (D-099, D-120). |
 
 ## Quick start
 
@@ -462,6 +462,14 @@ cd your-project           # any git repository, with or without documentation
 docsys adopt              # the whole setup, one command — what it writes is listed below
 docsys doctor             # is the pipeline alive? every hook present, wired, up to date
 ```
+
+A tree pins the docsys it runs: `docs/.docsys-version`, written by `adopt`
+and moved only by `docsys upgrade` (D-120). Whatever docsys you call, a
+command on a pinned tree runs the pinned version, installed once into
+`~/.docsys/versions/` (`DOCSYS_HOME` moves it) with `cargo install --locked`
+from the registry. `DOCSYS_NO_AUTO_INSTALL=1` turns that off: the command to
+run is printed instead. Two repositories on different versions work side by
+side, and a teammate who pulls a new pin runs it on the next call.
 
 No Rust toolchain? Grab a prebuilt binary for Linux (static musl,
 x86_64/aarch64), macOS (Intel/Apple Silicon), or Windows from the

@@ -104,11 +104,20 @@ pub fn run(repo: &Path, root: &Path, claude_dir: &Path) -> Diagnosis {
         // printed once per run, says what to do)
         let tree = crate::era::Era::at(root).0;
         let ours = crate::upgrade::implemented();
-        push(
-            &mut d,
-            tree <= ours,
-            format!("the tree declares docsys/0.{tree}; this docsys implements docsys/0.{ours}"),
-        );
+        let own = crate::dispatch::own();
+        match crate::dispatch::read(root) {
+            Ok(Some(pin)) => push(
+                &mut d,
+                tree <= ours && pin == own,
+                format!("the tree declares docsys/0.{tree} and pins docsys {pin}; this is docsys {own} (docsys/0.{ours})"),
+            ),
+            Ok(None) => push(
+                &mut d,
+                tree <= ours,
+                format!("the tree declares docsys/0.{tree}; this is docsys {own} (docsys/0.{ours})"),
+            ),
+            Err(e) => push(&mut d, false, e),
+        }
     }
     if docmeta {
         let (report, _) = crate::lint(root);

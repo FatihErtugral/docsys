@@ -15,8 +15,63 @@ use crate::fm::Value;
 use crate::tree::{DocTree, Kind, Profile};
 
 /// The steps of the move, as data (R-173): `step <TAB> strategy <TAB> scope
-/// <TAB> what`. Each step id is one block of `run` below.
+/// <TAB> what`. Each step id is one block below.
 pub const STEPS: &str = include_str!("../migrations/0.4-0.5.tsv");
+
+/// Where a release's upgrade note lives: its CHANGELOG section's
+/// `### Upgrading` part, embedded so `upgrade` prints the note it ships with.
+const CHANGELOG: &str = include_str!("../CHANGELOG.md");
+
+/// One spec version's move.
+pub struct Migration {
+    pub from: u32,
+    pub to: u32,
+    /// the release that brings `to`; its CHANGELOG `### Upgrading` part is
+    /// the note
+    pub release: &'static str,
+    /// the steps as data (R-173)
+    pub steps: &'static str,
+    pub apply: fn(&Ctx, &mut Upgrade, bool) -> Result<(), String>,
+}
+
+/// Every move this binary knows, in order.
+pub const MIGRATIONS: [Migration; 1] = [Migration {
+    from: 4,
+    to: 5,
+    release: "0.16.0",
+    steps: STEPS,
+    apply: move_0_4_to_0_5,
+}];
+
+/// What a step works on.
+pub struct Ctx<'a> {
+    pub repo: &'a Path,
+    pub root: &'a Path,
+    pub claude: &'a Path,
+    pub tree: DocTree,
+    pub kb: bool,
+    pub root_rel: String,
+    pub prefix: String,
+    pub preamble: String,
+}
+
+/// A release's upgrade note: the lines under `### Upgrading` in its
+/// CHANGELOG section, verbatim.
+pub fn note(release: &str) -> Option<String> {
+    let head = format!("## [{release}]");
+    let section = CHANGELOG
+        .lines()
+        .skip_while(|l| !l.starts_with(&head))
+        .skip(1)
+        .take_while(|l| !l.starts_with("## "));
+    let lines: Vec<&str> = section
+        .skip_while(|l| !l.starts_with("### Upgrading"))
+        .skip(1)
+        .take_while(|l| !l.starts_with("### "))
+        .collect();
+    let text = lines.join("\n").trim().to_string();
+    (!text.is_empty()).then_some(text)
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Item {
@@ -40,6 +95,10 @@ pub struct Upgrade {
     /// repository-relative paths the automatic steps wrote and the commit
     /// carries
     pub written: Vec<String>,
+    /// the last move: the pin moves with it
+    pub last: bool,
+    /// the upgrade notes of the releases this move crosses
+    pub notes: Vec<(String, String)>,
 }
 
 impl Upgrade {
@@ -128,26 +187,52 @@ fn add_record(text: &str, blocks: &[String], sources: &[(String, String)]) -> Op
     done.then_some(s)
 }
 
-/// The plan, or with `apply` the move itself. `claude` is the agent layer's
-/// directory.
+/// The next move of the tree: a plan, or with `apply` the move itself.
+/// `claude` is the agent layer's directory.
 pub fn run(repo: &Path, root: &Path, claude: &Path, apply: bool) -> Result<Upgrade, String> {
+    run_with(&MIGRATIONS, implemented(), repo, root, claude, apply)
+}
+
+/// One move towards `target` through `migrations`, one spec version at a
+/// time (R-177): the next migration's steps, the steps every run takes, and
+/// with the last move the pin. Run it again for the move after.
+pub fn run_with(
+    migrations: &[Migration],
+    target: u32,
+    repo: &Path,
+    root: &Path,
+    claude: &Path,
+    apply: bool,
+) -> Result<Upgrade, String> {
     let tree = DocTree::load(root).map_err(|e| e.to_string())?;
     if !tree.docmeta_present {
         return Err(format!("`{}` has no .docmeta.yml", root.display()));
     }
-    let kb = tree.profile == Profile::KnowledgeBase;
-    let mut u = Upgrade {
-        from: Era::of(&tree).0,
-        to: implemented(),
-        ..Upgrade::default()
-    };
-    if u.from > u.to {
+    let from = Era::of(&tree).0;
+    if from > target {
         return Err(format!(
-            "this tree declares docsys/0.{}; this docsys implements docsys/0.{} — install a newer docsys",
-            u.from, u.to
+            "this tree declares docsys/0.{from}; this docsys implements docsys/0.{target} — install a newer docsys"
         ));
     }
-    let moving = u.from < u.to;
+    let pin = crate::dispatch::read(root)?;
+    let own = crate::dispatch::own();
+    if let Some(p) = pin.as_deref() {
+        if crate::dispatch::parse(p) > crate::dispatch::parse(own) {
+            return Err(format!(
+                "this tree pins docsys {p}, newer than this docsys {own} — any other docsys command here runs {p}, and its own `docsys upgrade` moves the tree"
+            ));
+        }
+    }
+    let next = if from < target {
+        Some(
+            migrations
+                .iter()
+                .find(|m| m.from == from)
+                .ok_or_else(|| format!("no migration declared from docsys/0.{from}"))?,
+        )
+    } else {
+        None
+    };
     let root_rel = match crate::fresh::root_rel(repo, root) {
         r if r.is_empty() => ".".to_string(),
         r => r,
@@ -157,49 +242,146 @@ pub fn run(repo: &Path, root: &Path, claude: &Path, apply: bool) -> Result<Upgra
     } else {
         format!("{root_rel}/")
     };
-    let preamble = crate::migrate::generated_preamble(root);
+    let ctx = Ctx {
+        repo,
+        root,
+        claude,
+        kb: tree.profile == Profile::KnowledgeBase,
+        tree,
+        preamble: crate::migrate::generated_preamble(root),
+        root_rel,
+        prefix,
+    };
+    let mut u = Upgrade {
+        from,
+        to: next.map_or(from, |m| m.to),
+        last: next.is_none_or(|m| m.to == target),
+        ..Upgrade::default()
+    };
+    if let Some(m) = next {
+        preview(&ctx, &mut u);
+        common(&ctx, &mut u, apply)?;
+        (m.apply)(&ctx, &mut u, apply)?;
+        spec_line(&ctx, &mut u, apply)?;
+        if let Some(text) = note(m.release) {
+            u.notes.push((m.release.to_string(), text));
+        }
+    } else {
+        common(&ctx, &mut u, apply)?;
+    }
+    if u.last {
+        pin_step(&ctx, &mut u, pin.as_deref(), apply)?;
+    }
+    u.written.sort();
+    u.written.dedup();
+    Ok(u)
+}
 
-    // what the move changes in the findings, before the automatic steps
-    if moving {
-        let key = |r: &crate::checks::Report| -> BTreeSet<String> {
-            r.findings
-                .iter()
-                // the message too: two findings on one line under one rule are
-                // two findings
-                .map(|f| {
-                    format!(
-                        "{} {} {} [{}] {}",
-                        f.severity.tag(),
-                        f.rule,
-                        f.file,
-                        f.subject,
-                        f.message
-                    )
-                })
-                .collect()
-        };
-        let now = key(&crate::lint_in(root, Some(repo)).0);
-        let next = key(&crate::era::preview(u.to, || crate::lint_in(root, Some(repo))).0);
-        let added: Vec<&String> = next.difference(&now).collect();
-        let removed: Vec<&String> = now.difference(&next).collect();
-        u.preview.push(format!(
+/// What the move changes in the findings, before any step writes.
+fn preview(ctx: &Ctx, u: &mut Upgrade) {
+    let (repo, root) = (ctx.repo, ctx.root);
+    let key = |r: &crate::checks::Report| -> BTreeSet<String> {
+        r.findings
+            .iter()
+            // the message too: two findings on one line under one rule are
+            // two findings
+            .map(|f| {
+                format!(
+                    "{} {} {} [{}] {}",
+                    f.severity.tag(),
+                    f.rule,
+                    f.file,
+                    f.subject,
+                    f.message
+                )
+            })
+            .collect()
+    };
+    let now = key(&crate::lint_in(root, Some(repo)).0);
+    let next = key(&crate::era::preview(u.to, || crate::lint_in(root, Some(repo))).0);
+    let added: Vec<&String> = next.difference(&now).collect();
+    let removed: Vec<&String> = now.difference(&next).collect();
+    u.preview.push(format!(
             "judged by docsys/0.{} as the tree is now: {} new finding(s), {} gone — the ledger and pin steps clear their part",
             u.to,
             added.len(),
             removed.len()
         ));
-        u.preview
-            .extend(added.iter().take(25).map(|f| format!("+ {f}")));
-        if added.len() > 25 {
-            u.preview.push(format!("+ … {} more", added.len() - 25));
-        }
-        u.preview
-            .extend(removed.iter().take(25).map(|f| format!("- {f}")));
-        if removed.len() > 25 {
-            u.preview.push(format!("- … {} more", removed.len() - 25));
-        }
+    u.preview
+        .extend(added.iter().take(25).map(|f| format!("+ {f}")));
+    if added.len() > 25 {
+        u.preview.push(format!("+ … {} more", added.len() - 25));
     }
+    u.preview
+        .extend(removed.iter().take(25).map(|f| format!("- {f}")));
+    if removed.len() > 25 {
+        u.preview.push(format!("- … {} more", removed.len() - 25));
+    }
+}
 
+/// The `spec:` line, last of a move, so a failed step leaves the tree at its version.
+fn spec_line(ctx: &Ctx, u: &mut Upgrade, apply: bool) -> Result<(), String> {
+    let (repo, root) = (ctx.repo, ctx.root);
+    let path = root.join(".docmeta.yml");
+    let file = rel(repo, &path);
+    u.item(
+        "auto",
+        "spec-line",
+        &file,
+        format!("`spec: docsys/0.{}` → `spec: docsys/0.{}`", u.from, u.to),
+    );
+    if apply {
+        let text = fs::read_to_string(&path).map_err(|e| e.to_string())?;
+        let new: Vec<String> = text
+            .lines()
+            .map(|l| {
+                if l.trim_start().starts_with("spec:") {
+                    format!("spec: docsys/0.{}", u.to)
+                } else {
+                    l.to_string()
+                }
+            })
+            .collect();
+        let mut out = new.join("\n");
+        if text.ends_with('\n') {
+            out.push('\n');
+        }
+        fs::write(&path, out).map_err(|e| e.to_string())?;
+        u.written.push(file);
+    }
+    Ok(())
+}
+
+/// The pin, with the last move or alone: every docsys call here runs this
+/// version from now on (D-120).
+fn pin_step(ctx: &Ctx, u: &mut Upgrade, pin: Option<&str>, apply: bool) -> Result<(), String> {
+    let own = crate::dispatch::own();
+    if pin == Some(own) {
+        return Ok(());
+    }
+    let path = ctx.root.join(crate::dispatch::FILE);
+    let file = rel(ctx.repo, &path);
+    u.item(
+        "auto",
+        "pin",
+        &file,
+        format!(
+            "{} → `{own}`: every docsys call here runs it",
+            pin.map_or("no pin".to_string(), |p| format!("`{p}`"))
+        ),
+    );
+    if apply {
+        crate::dispatch::write(ctx.root)?;
+        u.written.push(file);
+    }
+    Ok(())
+}
+
+/// The steps every run takes: this binary's relays, gate, workflow, rules
+/// block and assets, each regenerated only where nobody edited it.
+fn common(ctx: &Ctx, u: &mut Upgrade, apply: bool) -> Result<(), String> {
+    let (repo, root, claude, kb) = (ctx.repo, ctx.root, ctx.claude, ctx.kb);
+    let (root_rel, preamble) = (ctx.root_rel.as_str(), ctx.preamble.as_str());
     // hook-wires: settings.json names each relay in the one form (D-099)
     let settings = claude.join("settings.json");
     if let Ok(text) = fs::read_to_string(&settings) {
@@ -235,7 +417,7 @@ pub fn run(repo: &Path, root: &Path, claude: &Path, apply: bool) -> Result<Upgra
         let Ok(text) = fs::read_to_string(&path) else {
             continue;
         };
-        let Some(fresh) = crate::agents::relay_for(hook, &root_rel) else {
+        let Some(fresh) = crate::agents::relay_for(hook, root_rel) else {
             continue;
         };
         if text == fresh {
@@ -247,7 +429,7 @@ pub fn run(repo: &Path, root: &Path, claude: &Path, apply: bool) -> Result<Upgra
                 "auto",
                 "hook-scripts",
                 &file,
-                "refreshed: starts in the project directory, names the tree's root, says when the tree needs a newer docsys".to_string(),
+                "refreshed: starts in the project directory, names the tree's root, names the pinned docsys to a binary from before pins".to_string(),
             );
             if apply {
                 fs::write(&path, &fresh).map_err(|e| e.to_string())?;
@@ -268,7 +450,7 @@ pub fn run(repo: &Path, root: &Path, claude: &Path, apply: bool) -> Result<Upgra
     }
 
     // git-gate: the block in this clone's pre-commit hook, its mode kept
-    match crate::adopt::gate_current(repo, &root_rel) {
+    match crate::adopt::gate_current(repo, root_rel) {
         None => u.item(
             "info",
             "git-gate",
@@ -294,7 +476,7 @@ pub fn run(repo: &Path, root: &Path, claude: &Path, apply: bool) -> Result<Upgra
                 ),
             );
             if apply {
-                let done = crate::adopt::ensure_git_gate(repo, &root_rel, false);
+                let done = crate::adopt::ensure_git_gate(repo, root_rel, false);
                 if done == "failed" {
                     return Err(format!("{file}: the gate block could not be written"));
                 }
@@ -305,8 +487,184 @@ pub fn run(repo: &Path, root: &Path, claude: &Path, apply: bool) -> Result<Upgra
         }
     }
 
+    // ci-workflow: regenerated when untouched, a diff when it is the owner's
+    match crate::workflow::classify(repo, root_rel) {
+        None => {}
+        Some(crate::workflow::Existing::Untouched { from, params }) => {
+            let path = repo.join(crate::workflow::PATH);
+            let fresh = crate::workflow::render(&params);
+            let current = fs::read_to_string(&path).unwrap_or_default();
+            if fresh != current {
+                if matches!(params.ci.install, crate::workflow::Install::Release(_)) {
+                    u.item("manual", "ci-workflow", crate::workflow::PATH, format!("a release install pins the archives of {from}: write this version's sha256 values by hand — the diff is below"));
+                    u.diffs.push((
+                        crate::workflow::PATH.to_string(),
+                        crate::diff::unified(
+                            &current,
+                            &fresh,
+                            crate::workflow::PATH,
+                            crate::workflow::PATH,
+                            3,
+                        ),
+                    ));
+                } else {
+                    u.item("auto", "ci-workflow", crate::workflow::PATH, format!("regenerated from {from} with its own parameters, pinned to this version"));
+                    if apply {
+                        fs::write(&path, fresh).map_err(|e| e.to_string())?;
+                        u.written.push(crate::workflow::PATH.to_string());
+                    }
+                }
+            }
+        }
+        Some(crate::workflow::Existing::Legacy { from, params }) => {
+            u.item("auto", "ci-workflow", crate::workflow::PATH, format!("the {from} workflow, untouched: regenerated with its mode, pinned to this version"));
+            if apply {
+                fs::write(
+                    repo.join(crate::workflow::PATH),
+                    crate::workflow::render(&params),
+                )
+                .map_err(|e| e.to_string())?;
+                u.written.push(crate::workflow::PATH.to_string());
+            }
+        }
+        Some(crate::workflow::Existing::Owned { diff }) if !diff.trim().is_empty() => {
+            u.item("manual", "ci-workflow", crate::workflow::PATH, "the workflow is yours: never rewritten — apply what you want of the diff below, the version pin first".to_string());
+            u.diffs.push((crate::workflow::PATH.to_string(), diff));
+        }
+        Some(crate::workflow::Existing::Owned { .. }) => {}
+    }
+
+    // rules-block: refreshed where its markers are (D-110, D-114)
+    if !kb {
+        match crate::adopt::rules_target(repo, None) {
+            Some(target) => {
+                let file = rel(repo, &target);
+                let text = fs::read_to_string(&target).unwrap_or_default();
+                let want = crate::rules::agents_block_with(preamble);
+                let held = match (
+                    text.find(crate::rules::BLOCK_BEGIN),
+                    text.find(crate::rules::BLOCK_END),
+                ) {
+                    (Some(a), Some(b)) if b > a => text.get(a..b + crate::rules::BLOCK_END.len()),
+                    _ => None,
+                };
+                match held {
+                    Some(block) if want.trim_end() == block.trim_end() => {}
+                    Some(_) => {
+                        u.item(
+                            "auto",
+                            "rules-block",
+                            &file,
+                            "the generated block refreshed in place".to_string(),
+                        );
+                        if apply {
+                            crate::rules::write_agents_block_with(&target, preamble)?;
+                            u.written.push(file);
+                        }
+                    }
+                    None => u.item(
+                        "info",
+                        "rules-block",
+                        &file,
+                        "no docsys rules block — `docsys adopt` writes it".to_string(),
+                    ),
+                }
+            }
+            None => u.item(
+                "info",
+                "rules-block",
+                "-",
+                "no file to hold the rules block — `docsys adopt` names one".to_string(),
+            ),
+        }
+    }
+
+    // assets: the skills and commands docsys owns, unless their owner edited them
+    for (asset, now, legacy) in crate::agents::owned_assets(kb) {
+        let path = claude.join(asset);
+        let Ok(text) = fs::read_to_string(&path) else {
+            continue;
+        };
+        let want = if kb {
+            now.to_string()
+        } else {
+            crate::migrate::with_preamble(now, preamble)
+        };
+        if text == want {
+            continue;
+        }
+        let file = rel(repo, &path);
+        let was = if kb {
+            legacy.to_string()
+        } else {
+            crate::migrate::with_preamble(legacy, preamble)
+        };
+        if text == was || text == legacy {
+            u.item(
+                "auto",
+                "assets",
+                &file,
+                "refreshed: the 0.15 text, untouched".to_string(),
+            );
+            if apply {
+                fs::write(&path, &want).map_err(|e| e.to_string())?;
+                u.written.push(file);
+            }
+        } else {
+            u.item(
+                "manual",
+                "assets",
+                &file,
+                "edited by its owner — the diff to this version's text is below".to_string(),
+            );
+            u.diffs.push((
+                file.clone(),
+                crate::diff::unified(&text, &want, &file, &file, 3),
+            ));
+        }
+    }
+
+    // kb-contract: the knowledge base's contract, while it is the text 0.15 wrote
+    if kb {
+        let path = root.join("AGENTS.md");
+        if let Ok(text) = fs::read_to_string(&path) {
+            let want = crate::agents::kb_contract();
+            let file = rel(repo, &path);
+            if text == crate::agents::KB_CONTRACT_0_15 {
+                u.item(
+                    "auto",
+                    "kb-contract",
+                    &file,
+                    "refreshed: the 0.15 text, untouched".to_string(),
+                );
+                if apply {
+                    fs::write(&path, &want).map_err(|e| e.to_string())?;
+                    u.written.push(file);
+                }
+            } else if text != want {
+                u.item(
+                    "manual",
+                    "kb-contract",
+                    &file,
+                    "the contract is its owner's — the diff to this version's text is below"
+                        .to_string(),
+                );
+                u.diffs.push((
+                    file.clone(),
+                    crate::diff::unified(&text, &want, &file, &file, 3),
+                ));
+            }
+        }
+    }
+    Ok(())
+}
+
+/// The steps of the move from docsys/0.4 to docsys/0.5 (`migrations/0.4-0.5.tsv`).
+fn move_0_4_to_0_5(ctx: &Ctx, u: &mut Upgrade, apply: bool) -> Result<(), String> {
+    let (repo, root, tree, kb) = (ctx.repo, ctx.root, &ctx.tree, ctx.kb);
+    let prefix = ctx.prefix.as_str();
     // verified-record: a record proven by history gains its own evidence (D-101)
-    if moving {
+    {
         for page in tree.pages.iter().filter(|p| p.kind == Kind::Permanent) {
             let Some(fm) = &page.fm else { continue };
             let get = |k: &str| fm.fields.get(k).and_then(Value::as_str);
@@ -400,7 +758,7 @@ pub fn run(repo: &Path, root: &Path, claude: &Path, apply: bool) -> Result<Upgra
 
     // pins: a pin's hash becomes its acknowledgement where it still holds and
     // the declaration reads the same region (D-119); everything else is listed
-    if moving {
+    {
         for c in crate::fresh::convert_legacy(root, repo, apply)? {
             let file = format!("{prefix}{}", c.page);
             // with --apply every converted page loses its pin hashes, whatever
@@ -437,13 +795,9 @@ pub fn run(repo: &Path, root: &Path, claude: &Path, apply: bool) -> Result<Upgra
         }
     }
 
-    // ledger-separators: the em-dash markers to ASCII (D-108), on the move;
-    // afterwards R-108's message names `docsys ledger fix`
-    let ledger = if moving {
-        crate::capture::ledger_fix_with(root, apply)?
-    } else {
-        String::new()
-    };
+    // ledger-separators: the em-dash markers to ASCII (D-108); after the move
+    // R-108's message names `docsys ledger fix`
+    let ledger = crate::capture::ledger_fix_with(root, apply)?;
     for line in ledger.lines().filter(|l| l.starts_with("fixed: ")) {
         let file_rel = line
             .trim_start_matches("fixed: ")
@@ -462,146 +816,9 @@ pub fn run(repo: &Path, root: &Path, claude: &Path, apply: bool) -> Result<Upgra
         }
     }
 
-    // ci-workflow: regenerated when untouched, a diff when it is the owner's
-    match crate::workflow::classify(repo, &root_rel) {
-        None => {}
-        Some(crate::workflow::Existing::Untouched { from, params }) => {
-            let path = repo.join(crate::workflow::PATH);
-            let fresh = crate::workflow::render(&params);
-            let current = fs::read_to_string(&path).unwrap_or_default();
-            if fresh != current {
-                if matches!(params.ci.install, crate::workflow::Install::Release(_)) {
-                    u.item("manual", "ci-workflow", crate::workflow::PATH, format!("a release install pins the archives of {from}: write this version's sha256 values by hand — the diff is below"));
-                    u.diffs.push((
-                        crate::workflow::PATH.to_string(),
-                        crate::diff::unified(
-                            &current,
-                            &fresh,
-                            crate::workflow::PATH,
-                            crate::workflow::PATH,
-                            3,
-                        ),
-                    ));
-                } else {
-                    u.item("auto", "ci-workflow", crate::workflow::PATH, format!("regenerated from {from} with its own parameters, pinned to this version"));
-                    if apply {
-                        fs::write(&path, fresh).map_err(|e| e.to_string())?;
-                        u.written.push(crate::workflow::PATH.to_string());
-                    }
-                }
-            }
-        }
-        Some(crate::workflow::Existing::Legacy { from, params }) => {
-            u.item("auto", "ci-workflow", crate::workflow::PATH, format!("the {from} workflow, untouched: regenerated with its mode, pinned to this version"));
-            if apply {
-                fs::write(
-                    repo.join(crate::workflow::PATH),
-                    crate::workflow::render(&params),
-                )
-                .map_err(|e| e.to_string())?;
-                u.written.push(crate::workflow::PATH.to_string());
-            }
-        }
-        Some(crate::workflow::Existing::Owned { diff }) if !diff.trim().is_empty() => {
-            u.item("manual", "ci-workflow", crate::workflow::PATH, "the workflow is yours: never rewritten — apply what you want of the diff below, the version pin first".to_string());
-            u.diffs.push((crate::workflow::PATH.to_string(), diff));
-        }
-        Some(crate::workflow::Existing::Owned { .. }) => {}
-    }
-
-    // rules-block: refreshed where its markers are (D-110, D-114)
-    if !kb {
-        match crate::adopt::rules_target(repo, None) {
-            Some(target) => {
-                let file = rel(repo, &target);
-                let text = fs::read_to_string(&target).unwrap_or_default();
-                let want = crate::rules::agents_block_with(&preamble);
-                let held = match (
-                    text.find(crate::rules::BLOCK_BEGIN),
-                    text.find(crate::rules::BLOCK_END),
-                ) {
-                    (Some(a), Some(b)) if b > a => text.get(a..b + crate::rules::BLOCK_END.len()),
-                    _ => None,
-                };
-                match held {
-                    Some(block) if want.trim_end() == block.trim_end() => {}
-                    Some(_) => {
-                        u.item(
-                            "auto",
-                            "rules-block",
-                            &file,
-                            "the generated block refreshed in place".to_string(),
-                        );
-                        if apply {
-                            crate::rules::write_agents_block_with(&target, &preamble)?;
-                            u.written.push(file);
-                        }
-                    }
-                    None => u.item(
-                        "info",
-                        "rules-block",
-                        &file,
-                        "no docsys rules block — `docsys adopt` writes it".to_string(),
-                    ),
-                }
-            }
-            None => u.item(
-                "info",
-                "rules-block",
-                "-",
-                "no file to hold the rules block — `docsys adopt` names one".to_string(),
-            ),
-        }
-    }
-
-    // assets: the skills and commands docsys owns, unless their owner edited them
-    for (asset, now, legacy) in crate::agents::owned_assets(kb) {
-        let path = claude.join(asset);
-        let Ok(text) = fs::read_to_string(&path) else {
-            continue;
-        };
-        let want = if kb {
-            now.to_string()
-        } else {
-            crate::migrate::with_preamble(now, &preamble)
-        };
-        if text == want {
-            continue;
-        }
-        let file = rel(repo, &path);
-        let was = if kb {
-            legacy.to_string()
-        } else {
-            crate::migrate::with_preamble(legacy, &preamble)
-        };
-        if text == was || text == legacy {
-            u.item(
-                "auto",
-                "assets",
-                &file,
-                "refreshed: the 0.15 text, untouched".to_string(),
-            );
-            if apply {
-                fs::write(&path, &want).map_err(|e| e.to_string())?;
-                u.written.push(file);
-            }
-        } else {
-            u.item(
-                "manual",
-                "assets",
-                &file,
-                "edited by its owner — the diff to this version's text is below".to_string(),
-            );
-            u.diffs.push((
-                file.clone(),
-                crate::diff::unified(&text, &want, &file, &file, 3),
-            ));
-        }
-    }
-
     // code-citations: a `doc:` 0.15 read mid-comment that 0.5 reads as prose
-    if moving && !kb {
-        let idx = crate::checks::build_index(&tree);
+    if !kb {
+        let idx = crate::checks::build_index(tree);
         let mut listed = 0usize;
         let mut more = 0usize;
         for f in crate::migrate::repo_text_files(repo, root) {
@@ -643,7 +860,7 @@ pub fn run(repo: &Path, root: &Path, claude: &Path, apply: bool) -> Result<Upgra
     }
 
     // raw-records: what a project's records become (D-112)
-    if moving && !kb && root.join("raw").is_dir() {
+    if !kb && root.join("raw").is_dir() {
         let n = tree
             .pages
             .iter()
@@ -652,39 +869,32 @@ pub fn run(repo: &Path, root: &Path, claude: &Path, apply: bool) -> Result<Upgra
         u.item("info", "raw-records", &format!("{prefix}raw/"), format!("{n} record(s): from 0.5 a record layer — their dangling references are reported, an edited record stops the commit (R-023)"));
     }
 
-    // spec-line: last, so a failed step leaves the tree at its version
-    if moving {
-        let path = root.join(".docmeta.yml");
-        let file = rel(repo, &path);
-        u.item(
-            "auto",
-            "spec-line",
-            &file,
-            format!("`spec: docsys/0.{}` → `spec: docsys/0.{}`", u.from, u.to),
-        );
-        if apply {
-            let text = fs::read_to_string(&path).map_err(|e| e.to_string())?;
-            let new: Vec<String> = text
-                .lines()
-                .map(|l| {
-                    if l.trim_start().starts_with("spec:") {
-                        format!("spec: docsys/0.{}", u.to)
-                    } else {
-                        l.to_string()
-                    }
-                })
-                .collect();
-            let mut out = new.join("\n");
-            if text.ends_with('\n') {
-                out.push('\n');
-            }
-            fs::write(&path, out).map_err(|e| e.to_string())?;
-            u.written.push(file);
-        }
+    Ok(())
+}
+
+/// What a person pulling the upgrade needs in this clone, whatever the release.
+pub const TEAMMATES: &str = "Teammates: after pulling, run `docsys upgrade --apply` once in your clone — the git gate is per clone.";
+
+/// The upgrade commit's message: the move, the notes it crosses, and on the
+/// last move the step every other clone takes. It also describes a pull
+/// request.
+pub fn message(u: &Upgrade) -> String {
+    let mut out = if u.last {
+        format!(
+            "docsys: upgrade the tree to docsys {}",
+            crate::dispatch::own()
+        )
+    } else {
+        format!("docsys: upgrade the tree to docsys/0.{}", u.to)
+    };
+    for (release, text) in &u.notes {
+        out.push_str(&format!("\n\nUpgrading to docsys {release}:\n{text}"));
     }
-    u.written.sort();
-    u.written.dedup();
-    Ok(u)
+    if u.last {
+        out.push_str("\n\n");
+        out.push_str(TEAMMATES);
+    }
+    out
 }
 
 /// Commit what the upgrade wrote as one commit (R-177), under the current
@@ -703,7 +913,7 @@ pub fn commit(repo: &Path, u: &Upgrade) -> Result<(), String> {
     }
     let ok = crate::git::cmd(repo)
         .args(["commit", "-q", "-m"])
-        .arg(format!("docsys: upgrade the tree to docsys/0.{}", u.to))
+        .arg(message(u))
         .status()
         .is_ok_and(|s| s.success());
     if ok {
@@ -756,6 +966,32 @@ mod tests {
                     .get(1)
                     .is_some_and(|s| ["auto", "manual", "auto/manual", "info"].contains(s)),
                 "{r}"
+            );
+        }
+    }
+
+    /// A release cannot ship a spec without the steps that move a tree to it,
+    /// nor without the note that tells a person what changes.
+    #[test]
+    fn every_spec_has_its_migration_and_its_note() {
+        assert_eq!(MIGRATIONS.last().map(|m| m.to), Some(implemented()));
+        for (a, b) in MIGRATIONS.iter().zip(MIGRATIONS.iter().skip(1)) {
+            assert_eq!(
+                a.to, b.from,
+                "a gap between docsys/0.{} and docsys/0.{}",
+                a.to, b.from
+            );
+        }
+        for m in &MIGRATIONS {
+            assert!(
+                m.steps.lines().any(|l| l.starts_with("spec-line\t")),
+                "{}",
+                m.release
+            );
+            assert!(
+                note(m.release).is_some(),
+                "CHANGELOG [{}] has no Upgrading section",
+                m.release
             );
         }
     }

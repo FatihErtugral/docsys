@@ -187,9 +187,10 @@ pub fn agents_md() -> String {
          - a pin is worth keeping when a change to its region would likely make the\n\
            page false: pin a symbol (`Class.method`), never a large file whole — every\n\
            unrelated edit to it stales the page (R-111 read with R-151)\n\
-         - when docsys is wrong or in your way: `docsys feedback`\n\n\
-         Judgment stays with you, but inside these rules:\n"
+         - when docsys is wrong or in your way: `docsys feedback`\n\n"
     );
+    out.push_str(VERSION_SECTION);
+    out.push_str("\nJudgment stays with you, but inside these rules:\n");
     // The procedures an agent needs at the moment it writes or verifies a
     // page, their question and options verbatim from §14.3 (D-114); a rule
     // that has one is stated there, not twice
@@ -225,6 +226,17 @@ pub fn agents_md() -> String {
     );
     out
 }
+
+/// The agent's standing instruction about the version a tree runs (D-120),
+/// the same in the project block and the knowledge-base contract. It names
+/// where the pin lives, never the number, so it reads the same in every
+/// release.
+pub const VERSION_SECTION: &str =
+    "Version: a tree that pins its docsys in `.docsys-version` (beside `.docmeta.yml`)\n\
+runs that version on every docsys call, installed on first use. The pin moves\n\
+only with `docsys upgrade`, never by hand. After pulling an upgrade, run\n\
+`docsys upgrade --apply` once in this clone. On a line naming `docsys upgrade`\n\
+or an install command, run `/docsys-upgrade` and ask the person first.\n";
 
 /// R-165: the always-loaded text must fit the budget; the floor is the
 /// rendered mandatory set. Returns Err with an explanation when violated.
@@ -396,5 +408,18 @@ mod tests_teach {
             Some("R-071 (lint · MUST): Every link target MUST resolve.")
         );
         assert_eq!(rule_sentence("R-999"), None);
+    }
+
+    /// The version section reads the same in every release: it names where
+    /// the pin lives, never a number (D-120).
+    #[test]
+    fn the_version_section_names_no_version() {
+        let digits_dot_digits = VERSION_SECTION
+            .as_bytes()
+            .windows(3)
+            .any(|w| matches!(w, [a, b'.', c] if a.is_ascii_digit() && c.is_ascii_digit()));
+        assert!(!digits_dot_digits, "{VERSION_SECTION}");
+        assert!(agents_md().contains(VERSION_SECTION));
+        assert!(crate::agents::kb_contract().ends_with(VERSION_SECTION));
     }
 }

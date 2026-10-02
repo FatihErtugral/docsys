@@ -22,6 +22,12 @@ page false: pin a symbol (`Class.method`), never a large file whole — every
 unrelated edit to it stales the page (R-111 read with R-151)
 - when docsys is wrong or in your way: `docsys feedback`
 
+Version: a tree that pins its docsys in `.docsys-version` (beside `.docmeta.yml`)
+runs that version on every docsys call, installed on first use. The pin moves
+only with `docsys upgrade`, never by hand. After pulling an upgrade, run
+`docsys upgrade --apply` once in this clone. On a line naming `docsys upgrade`
+or an install command, run `/docsys-upgrade` and ask the person first.
+
 Judgment stays with you, but inside these rules:
 - R-032: A page MUST open with one or two sentences that establish its own context ("This page describes X; read it when Y").
 - R-046: `_unsorted/` is temporary.

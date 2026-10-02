@@ -8,10 +8,9 @@ set -uo pipefail
 docsys_gate_exit=0
 if [ -z "${DOCSYS_SKIP:-}" ] && command -v docsys >/dev/null; then
   docsys_gate_status=0
-  docsys_spec=$(sed -n 's/^spec:[[:space:]]*docsys\/0\.\([0-9][0-9]*\).*/\1/p' "docs/.docmeta.yml" 2>/dev/null | head -n 1)
-  docsys_impl=$(docsys --version 2>/dev/null | sed -n 's/.*docsys\/0\.\([0-9][0-9]*\).*/\1/p')
-  if [ -n "$docsys_spec" ] && [ "$docsys_spec" -gt "${docsys_impl:-4}" ]; then
-    echo "docsys: this tree needs docsys >= 0.16.0 (it declares docsys/0.$docsys_spec); install: cargo install docsys --version 0.16.0 --locked" >&2
+  docsys_pin=$(head -n 1 "docs/.docsys-version" 2>/dev/null)
+  if [ -n "$docsys_pin" ] && ! docsys --version >/dev/null 2>&1; then
+    echo "docsys: this tree pins docsys $docsys_pin; install: cargo install docsys --version $docsys_pin --locked" >&2
     docsys_gate_status=1
   else
     docsys lint --repo . --root docs || docsys_gate_status=1

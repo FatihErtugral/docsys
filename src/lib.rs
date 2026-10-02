@@ -12,6 +12,7 @@ pub mod checks;
 pub mod compile;
 pub mod consume;
 pub mod diff;
+pub mod dispatch;
 pub mod doctor;
 pub mod era;
 pub mod export;

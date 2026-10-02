@@ -14,12 +14,27 @@ use std::process::{Command, Output};
 
 const CASE: &str = "corpus/upgrades/0.4-to-0.5";
 
-static TEAMMATES: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| {
-    format!(
-        "every clone must install docsys >= {} before pulling this change; a gate under .git/hooks cannot warn an old binary",
-        env!("CARGO_PKG_VERSION")
-    )
-});
+/// The release's upgrade note, read from the CHANGELOG as a person reads it:
+/// the lines under `### Upgrading` in the release's section.
+fn changelog_note(release: &str) -> String {
+    let text =
+        fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("CHANGELOG.md")).unwrap();
+    let section = text
+        .split(&format!("## [{release}]"))
+        .nth(1)
+        .unwrap()
+        .split("\n## ")
+        .next()
+        .unwrap();
+    let note = section
+        .split("### Upgrading")
+        .nth(1)
+        .unwrap()
+        .split_once('\n')
+        .unwrap()
+        .1;
+    note.split("\n### ").next().unwrap().trim().to_string()
+}
 
 fn tmp(name: &str) -> PathBuf {
     let dir = std::env::temp_dir().join(format!("docsys-upgrade-{name}-{}", std::process::id()));
@@ -246,15 +261,28 @@ fn a_0_4_tree_moves_to_the_expected_0_5_tree_and_a_second_run_changes_nothing() 
     let out = docsys(&repo, &["upgrade", "--apply", "--commit"]);
     assert!(out.status.success(), "{out:?}");
     assert!(
-        String::from_utf8_lossy(&out.stdout)
-            .contains("committed: docsys: upgrade the tree to docsys/0.5"),
+        String::from_utf8_lossy(&out.stdout).contains(&format!(
+            "committed: docsys: upgrade the tree to docsys {}",
+            env!("CARGO_PKG_VERSION")
+        )),
         "{out:?}"
     );
-    // the last line is for the teammates: what no file here can warn about
+    // what a person pulling it reads: the release's note byte for byte, and
+    // the step every clone takes (D-120)
+    let body = git(&repo, &["log", "-1", "--format=%B"]);
+    let note = changelog_note(env!("CARGO_PKG_VERSION"));
+    assert!(note.contains("before pulling this change"), "{note}");
+    assert!(
+        body.contains(&format!(
+            "Upgrading to docsys {}:\n{note}",
+            env!("CARGO_PKG_VERSION")
+        )),
+        "{body}"
+    );
+    assert!(body.ends_with(docsys::upgrade::TEAMMATES), "{body}");
     assert_eq!(
-        String::from_utf8_lossy(&out.stdout).lines().last(),
-        Some(TEAMMATES.as_str()),
-        "{out:?}"
+        fs::read_to_string(repo.join("docs/.docsys-version")).unwrap(),
+        format!("{}\n", env!("CARGO_PKG_VERSION"))
     );
     assert_eq!(
         git(&repo, &["rev-list", "--count", &format!("{head}..HEAD")]),
@@ -309,7 +337,7 @@ fn a_0_4_tree_moves_to_the_expected_0_5_tree_and_a_second_run_changes_nothing() 
     assert!(out.status.success(), "{out:?}");
     let stdout = String::from_utf8_lossy(&out.stdout);
     assert!(!stdout.lines().any(|l| l.starts_with("auto ")), "{stdout}");
-    assert!(!stdout.contains(TEAMMATES.as_str()), "{stdout}");
+    assert!(!stdout.contains("committed:"), "{stdout}");
     assert_eq!(git(&repo, &["rev-parse", "HEAD"]), head);
     assert_eq!(snapshot(&repo, &rev, false), got, "the second run wrote");
     let _ = fs::remove_dir_all(&repo);
@@ -501,4 +529,135 @@ fn after_the_move_the_separators_are_ledger_fixs() {
         .unwrap()
         .ends_with("- [ ] 2026-09-03 A second item -- deferred: later -- repay when: soon\n"));
     let _ = fs::remove_dir_all(&repo);
+}
+
+/// R-177 across a chain: a tree two specs behind moves one spec per commit,
+/// each with its note, and the pin moves with the last. The second move is
+/// synthetic, so the chain is tested before a second spec exists.
+#[test]
+fn a_tree_two_specs_behind_moves_one_commit_per_spec() {
+    use docsys::upgrade::{Ctx, Item, Migration, Upgrade};
+    fn to_0_6(ctx: &Ctx, u: &mut Upgrade, apply: bool) -> Result<(), String> {
+        let file = format!("{}work/next-spec.md", ctx.prefix);
+        u.items.push(Item {
+            strategy: "auto",
+            step: "next-spec",
+            file: file.clone(),
+            what: "the next spec's page".to_string(),
+        });
+        if apply {
+            fs::write(ctx.root.join("work/next-spec.md"), "# Next\n").map_err(|e| e.to_string())?;
+            u.written.push(file);
+        }
+        Ok(())
+    }
+    let real = docsys::upgrade::MIGRATIONS.first().unwrap();
+    let chain = [
+        Migration {
+            from: real.from,
+            to: real.to,
+            release: real.release,
+            steps: real.steps,
+            apply: real.apply,
+        },
+        Migration {
+            from: 5,
+            to: 6,
+            release: "9.9.9",
+            steps: "spec-line\tauto\ttracked\t-\n",
+            apply: to_0_6,
+        },
+    ];
+    let (repo, _) = build("chain");
+    let head = git(&repo, &["rev-parse", "HEAD"]);
+    let (root, claude) = (repo.join("docs"), repo.join(".claude"));
+    let mut messages = Vec::new();
+    loop {
+        let u = docsys::upgrade::run_with(&chain, 6, &repo, &root, &claude, true).unwrap();
+        docsys::upgrade::commit(&repo, &u).unwrap();
+        messages.push(docsys::upgrade::message(&u));
+        if u.last {
+            break;
+        }
+    }
+    let [first, last] = messages.as_slice() else {
+        panic!("{messages:?}");
+    };
+    assert!(
+        first
+            .starts_with("docsys: upgrade the tree to docsys/0.5\n\nUpgrading to docsys 0.16.0:\n"),
+        "{first}"
+    );
+    assert!(!first.contains(docsys::upgrade::TEAMMATES));
+    assert_eq!(
+        *last,
+        format!(
+            "docsys: upgrade the tree to docsys {}\n\n{}",
+            env!("CARGO_PKG_VERSION"),
+            docsys::upgrade::TEAMMATES
+        )
+    );
+    assert_eq!(
+        git(&repo, &["rev-list", "--count", &format!("{head}..HEAD")]),
+        "2"
+    );
+    // the pin moves with the last commit only
+    assert_eq!(
+        git(&repo, &["diff", "--name-only", "HEAD~1", "HEAD"]),
+        "docs/.docmeta.yml\ndocs/.docsys-version\ndocs/work/next-spec.md"
+    );
+    assert!(fs::read_to_string(root.join(".docmeta.yml"))
+        .unwrap()
+        .starts_with("spec: docsys/0.6\n"));
+    let _ = fs::remove_dir_all(&repo);
+}
+
+/// A knowledge base's contract is the owner's file once written: the upgrade
+/// refreshes it only while it is the text 0.15 wrote, and shows its owner
+/// the diff otherwise.
+#[test]
+fn a_knowledge_base_contract_is_refreshed_only_while_untouched() {
+    for edited in [false, true] {
+        let kb = tmp(&format!("kb-contract-{edited}"));
+        git(&kb, &["init", "-q", "-b", "main"]);
+        git(&kb, &["config", "user.email", "t@example.invalid"]);
+        git(&kb, &["config", "user.name", "t"]);
+        let out = docsys(&kb, &["init", "--profile", "knowledge-base", "--root", "."]);
+        assert!(out.status.success(), "{out:?}");
+        // the base as 0.15 left it: spec 0.4, no pin, the 0.15 contract
+        let dm = kb.join(".docmeta.yml");
+        let text = fs::read_to_string(&dm).unwrap().replace(
+            &format!("spec: docsys/{}", docsys::rules::spec_version()),
+            "spec: docsys/0.4",
+        );
+        fs::write(&dm, text).unwrap();
+        fs::remove_file(kb.join(".docsys-version")).unwrap();
+        let contract = if edited {
+            docsys::agents::KB_CONTRACT_0_15.replace("Never invent.", "Never invent; cite.")
+        } else {
+            docsys::agents::KB_CONTRACT_0_15.to_string()
+        };
+        fs::write(kb.join("AGENTS.md"), &contract).unwrap();
+        git(&kb, &["add", "-A"]);
+        git(&kb, &["commit", "-qm", "the base as 0.15 left it"]);
+        let out = docsys(&kb, &["upgrade", "--apply", "--commit", "--root", "."]);
+        assert!(out.status.success(), "{out:?}");
+        let stdout = String::from_utf8_lossy(&out.stdout);
+        let now = fs::read_to_string(kb.join("AGENTS.md")).unwrap();
+        if edited {
+            assert_eq!(now, contract);
+            assert!(
+                stdout.contains("manual  kb-contract        AGENTS.md"),
+                "{stdout}"
+            );
+            assert!(stdout.contains("\n# AGENTS.md\n"), "{stdout}");
+        } else {
+            assert_eq!(now, docsys::agents::kb_contract());
+            assert!(
+                stdout.contains("auto    kb-contract        AGENTS.md"),
+                "{stdout}"
+            );
+        }
+        let _ = fs::remove_dir_all(&kb);
+    }
 }

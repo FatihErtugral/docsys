@@ -1,4 +1,4 @@
-# docsys-template: 0.16.0 sha256:633507cd899aba5d7ce5807040168479cc0af3dfe8ea8cf35d9f4fdac25cf464 branch=main runner=ubuntu-latest install=cargo verify=direct root=docs
+# docsys-template: 0.16.0 sha256:de2e8437001681edea02431fcbd22de25997394adbed77328a30a5a252e0dfcb branch=main runner=ubuntu-latest install=cargo verify=direct root=docs
 # docsys documentation workflow, written by `docsys adopt` (D-111). Line 1 records how
 # it was rendered and a hash of everything else in this file: while the hash holds,
 # docsys may regenerate it; once the file is edited, it is yours.
@@ -24,13 +24,19 @@ jobs:
       - uses: actions/checkout@v5
         with:
           fetch-depth: 0
+      - name: docsys, the version the tree pins
+        id: docsys-pin
+        shell: bash
+        run: |
+          v=$(head -n 1 "docs/.docsys-version" 2>/dev/null || true)
+          echo "version=${v:-0.16.0}" >> "$GITHUB_OUTPUT"
       - uses: actions/cache@v4
         id: docsys-bin
         with:
           path: ~/.cargo/bin/docsys
-          key: docsys-0.16.0-${{ runner.os }}-${{ runner.arch }}
+          key: docsys-${{ steps.docsys-pin.outputs.version }}-${{ runner.os }}-${{ runner.arch }}
       - if: steps.docsys-bin.outputs.cache-hit != 'true'
-        run: cargo install docsys --version 0.16.0 --locked
+        run: cargo install docsys --version "${{ steps.docsys-pin.outputs.version }}" --locked
       - run: docsys lint --repo . --root docs
       - run: docsys refs --repo . --root docs
       - if: github.event_name == 'pull_request'
@@ -54,13 +60,19 @@ jobs:
         with:
           ref: ${{ github.event.pull_request.base.ref }}
           fetch-depth: 0
+      - name: docsys, the version the tree pins
+        id: docsys-pin
+        shell: bash
+        run: |
+          v=$(head -n 1 "docs/.docsys-version" 2>/dev/null || true)
+          echo "version=${v:-0.16.0}" >> "$GITHUB_OUTPUT"
       - uses: actions/cache@v4
         id: docsys-bin
         with:
           path: ~/.cargo/bin/docsys
-          key: docsys-0.16.0-${{ runner.os }}-${{ runner.arch }}
+          key: docsys-${{ steps.docsys-pin.outputs.version }}-${{ runner.os }}-${{ runner.arch }}
       - if: steps.docsys-bin.outputs.cache-hit != 'true'
-        run: cargo install docsys --version 0.16.0 --locked
+        run: cargo install docsys --version "${{ steps.docsys-pin.outputs.version }}" --locked
       - env:
           GH_TOKEN: ${{ github.token }}
           NUMBER: ${{ github.event.pull_request.number }}

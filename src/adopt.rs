@@ -16,9 +16,8 @@ const GATE_END: &str = "# --- end of the docsys gate";
 /// mode decides whether a failure stops the commit: an earlier block let
 /// `docsys refs`' exit code mask a lint failure (no -e, the last command
 /// decided) — found by the agent lab. `lint` takes `--repo .` like the others
-/// (D-099), and a tree that declares a newer spec than the installed docsys
-/// implements is named in one line instead of a flood of findings an older
-/// binary cannot read. A version notice is printed once per commit: `lint`
+/// (D-099), and a pinned tree under a docsys from before pins is named in one
+/// line instead of a flood of findings that binary cannot read (D-120). A version notice is printed once per commit: `lint`
 /// prints it, the calls after it carry `DOCSYS_NOTICED` (R-171). The template
 /// stamp names a block behind the binary.
 const GATE_BLOCK: &str = r#"
@@ -29,10 +28,9 @@ const GATE_BLOCK: &str = r#"
 docsys_gate_exit=@EXIT@
 if [ -z "${DOCSYS_SKIP:-}" ] && command -v docsys >/dev/null; then
   docsys_gate_status=0
-  docsys_spec=$(sed -n 's/^spec:[[:space:]]*docsys\/0\.\([0-9][0-9]*\).*/\1/p' "@ROOT@/.docmeta.yml" 2>/dev/null | head -n 1)
-  docsys_impl=$(docsys --version 2>/dev/null | sed -n 's/.*docsys\/0\.\([0-9][0-9]*\).*/\1/p')
-  if [ -n "$docsys_spec" ] && [ "$docsys_spec" -gt "${docsys_impl:-4}" ]; then
-    echo "docsys: this tree needs docsys >= @VERSION@ (it declares docsys/0.$docsys_spec); install: cargo install docsys --version @VERSION@ --locked" >&2
+  docsys_pin=$(head -n 1 "@ROOT@/.docsys-version" 2>/dev/null)
+  if [ -n "$docsys_pin" ] && ! docsys --version >/dev/null 2>&1; then
+    echo "docsys: this tree pins docsys $docsys_pin; install: cargo install docsys --version $docsys_pin --locked" >&2
     docsys_gate_status=1
   else
     docsys lint --repo . --root @ROOT@ || docsys_gate_status=1
