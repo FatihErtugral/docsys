@@ -65,7 +65,7 @@ const SKIP_DIRS: [&str; 4] = ["_archive", "_templates", "_unsorted", ".federatio
 /// `work_categories` extends this list (R-042).
 const CORE_TRACKED: [&str; 3] = ["features", "postmortems", "research"];
 
-const PERMANENT_DIRS: [&str; 4] = ["reference", "howto", "explanation", "tutorial"];
+pub const PERMANENT_DIRS: [&str; 4] = ["reference", "howto", "explanation", "tutorial"];
 
 /// Knowledge-base layout (R-020 table): `raw/` is the flowing record layer;
 /// permanent pages live at `wiki/<domain>/<type>/`; navigation is

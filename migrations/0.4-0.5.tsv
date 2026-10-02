@@ -7,6 +7,7 @@ rules-block	auto	tracked	the docsys:rules block refreshed where its markers are 
 assets	auto/manual	tracked	docsys skills and commands holding the 0.15 text refreshed; an edited one a diff (D-114)
 kb-contract	auto/manual	tracked	a knowledge base's AGENTS.md holding the 0.15 text refreshed; an edited one a diff (D-120)
 dates	auto	tracked	`updated:` removed from pages, tracked work and templates; a page's date is history's, and a re-run absorbs a line an older branch wrote (D-122)
+routes	auto	tracked	the type directories routed from index.md, every existing line kept; a new page under one adds no line (D-123)
 verified-record	auto/manual	tracked	verified_blocks and verified_sources where the body at verified_rev is the body now; every other verified page listed for a maintainer (D-101, D-103)
 pins	auto/manual	tracked	a pin's hash to its acknowledgement where it holds and the declaration reads the same region; every other pin listed (D-106, D-119)
 ledger-separators	auto	tracked	em-dash field markers to ASCII (D-108)

@@ -370,7 +370,10 @@ already states. Signatures and parameter lists are not copied; generated API
 documentation owns those.
 
 **R-034** `lint` · MUST — Every permanent page MUST be reachable from the root
-router (`index.md`). An unreachable page is an orphan and **is reported**:
+router (`index.md`). A router line that routes a directory makes every page
+under it reachable, and each page's opening (R-032) is its one-sentence hook,
+so a new page under a routed directory needs no line of its own (D-123). An
+unreachable page is an orphan and **is reported**:
 adding the router line afterwards is routine and reversible, so blocking here
 would be the friction R-151 warns about. The check is applicable (R-011) only
 when at least one permanent page exists.
@@ -381,7 +384,9 @@ when at least one permanent page exists.
 - [[<path>|<title>]] -- <one sentence>
 ```
 
-New entries are **appended at the end**; any richer ordering is human work. A
+A `<path>` ending in `/` routes a directory: the type directories of the
+profile, or any directory of the tree. New entries are **appended at the
+end**; any richer ordering is human work. A
 line not matching the grammar **is reported**. The format is normative because
 three rules depend on it: reachability edges (R-034), the journal slice's
 router line (R-103), and deterministic router repair (R-156). A router routes —

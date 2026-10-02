@@ -510,6 +510,15 @@ pub fn init(root: &Path, lang: &str) -> Result<(), String> {
     init_profile(root, lang, "project")
 }
 
+/// The router lines that route a project's type directories (R-035, D-123):
+/// a page under one of them needs no line of its own.
+pub const DIRECTORY_ROUTES: [&str; 4] = [
+    "- [[reference/|Reference]] -- Facts the code cannot state: values, limits, formats.",
+    "- [[howto/|How-to]] -- Procedures that reach a goal, step by step.",
+    "- [[explanation/|Explanation]] -- Why things are the way they are: decisions and their reasons.",
+    "- [[tutorial/|Tutorial]] -- Guided learning from zero.",
+];
+
 /// Greenfield skeleton for either profile. The `project` profile gets the
 /// work layer (journal, debt); the `knowledge-base` profile gets the record
 /// layer (`raw/inbox/`) and the wiki root — the two layouts R-020 names, so a
@@ -540,7 +549,10 @@ pub fn init_profile(root: &Path, lang: &str, profile: &str) -> Result<(), String
                 ".docmeta.yml",
                 format!("spec: docsys/{spec}\nprofile: project\ndefault_content_language: {lang}\ncreated: {date}\n\n# Who may confirm work and verify pages (R-208); empty = anyone, as before.\nmaintainers: []\n\n# The commit gate: ask (asks once) | require (no commit without its documentation, R-209).\ncommit_policy: ask\n"),
             )?;
-            w("index.md", "# Documentation\n".to_string())?;
+            w(
+                "index.md",
+                format!("# Documentation\n\n{}\n", DIRECTORY_ROUTES.join("\n")),
+            )?;
             w(
                 "work/journal.md",
                 format!("# Journal\n\n## {date} - initialized\n- documentation tree created\n"),

@@ -145,6 +145,12 @@ impl Era {
         self.v05()
     }
 
+    /// D-123: a router line may route a directory, and every page under it
+    /// is reachable. Before: a router line routes one page.
+    pub fn directory_routes(self) -> bool {
+        self.v05()
+    }
+
     /// D-116: `lint`, `refs` and `gate` end with a pointer to `docsys feedback`
     /// under a finding of a rule that reads free text. Before: the findings alone.
     pub fn finding_pointers(self) -> bool {

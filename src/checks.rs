@@ -1509,6 +1509,25 @@ pub(crate) fn link_path_of(tree: &DocTree, rel: &str) -> Option<String> {
     }
 }
 
+/// A router line's `<path>/` routes a directory (R-035, D-123): a type
+/// directory of the profile, or a directory of the tree. `None` when `target`
+/// is no directory route, or the tree predates them (D-118).
+pub(crate) fn routed_directory(tree: &DocTree, target: &str) -> Option<String> {
+    let dir = target.strip_suffix('/')?;
+    if dir.is_empty() || !crate::era::Era::of(tree).directory_routes() {
+        return None;
+    }
+    let on_disk = match tree.profile {
+        Profile::Project => tree.root.join(dir),
+        Profile::KnowledgeBase => tree.root.join("wiki").join(dir),
+    };
+    let type_dir = dir
+        .rsplit('/')
+        .next()
+        .is_some_and(|last| crate::tree::PERMANENT_DIRS.contains(&last));
+    (type_dir || on_disk.is_dir()).then(|| format!("{dir}/"))
+}
+
 fn check_links(tree: &DocTree, r: &mut Report) {
     // Resolution set: relative page paths without extension (R-070 full paths).
     let paths: BTreeSet<String> = tree
@@ -1528,6 +1547,9 @@ fn check_links(tree: &DocTree, r: &mut Report) {
                 Some((t, f)) => (t.trim().to_string(), Some(f)),
                 None => (link.clone(), None),
             };
+            if page.kind == Kind::Router && routed_directory(tree, &target).is_some() {
+                continue;
+            }
             // A root-level page's full path is its bare name (R-070).
             let root_level = paths.contains(target.as_str());
             if !target.contains('/') && !root_level && page.kind != Kind::Router {
@@ -1866,13 +1888,28 @@ fn check_router_and_orphans(tree: &DocTree, r: &mut Report) {
     // R-034: reachability = wiki-link edges from the router, transitively
     // through any non-archived page (registered decision D-009); link paths
     // resolve per profile (D-030).
-    let mut reachable: BTreeSet<String> = BTreeSet::new();
-    let mut queue: Vec<String> =
-        wiki_links(&router.text, crate::era::Era::of(tree).literal_code_spans())
+    let spans = crate::era::Era::of(tree).literal_code_spans();
+    // each link with whether a router wrote it: only a router routes a
+    // directory, and the directory reaches every page under it (D-123)
+    let links_of = |page: &crate::tree::Page| -> Vec<(String, bool)> {
+        wiki_links(&page.text, spans)
             .into_iter()
-            .map(|(_, t)| t)
-            .collect();
-    while let Some(t) = queue.pop() {
+            .map(|(_, t)| (t, page.kind == Kind::Router))
+            .collect()
+    };
+    let mut reachable: BTreeSet<String> = BTreeSet::new();
+    let mut queue = links_of(router);
+    while let Some((t, from_router)) = queue.pop() {
+        if let Some(dir) = routed_directory(tree, &t).filter(|_| from_router) {
+            queue.extend(
+                tree.pages
+                    .iter()
+                    .filter_map(|p| link_path_of(tree, &p.rel))
+                    .filter(|p| p.starts_with(&dir))
+                    .map(|p| (p, false)),
+            );
+            continue;
+        }
         if !reachable.insert(t.clone()) {
             continue;
         }
@@ -1881,11 +1918,7 @@ fn check_router_and_orphans(tree: &DocTree, r: &mut Report) {
             .iter()
             .find(|p| link_path_of(tree, &p.rel).as_deref() == Some(t.as_str()))
         {
-            queue.extend(
-                wiki_links(&page.text, crate::era::Era::of(tree).literal_code_spans())
-                    .into_iter()
-                    .map(|(_, x)| x),
-            );
+            queue.extend(links_of(page));
         }
     }
     for page in &tree.pages {

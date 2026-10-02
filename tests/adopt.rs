@@ -780,3 +780,34 @@ fn an_ignored_report_is_updated_where_it_is() {
     );
     let _ = fs::remove_dir_all(&repo);
 }
+
+/// D-123: the index `adopt` writes routes the four type directories, so a new
+/// page is reachable without a line of its own, and `page new` stops asking
+/// for one.
+#[test]
+fn a_new_page_under_a_routed_directory_needs_no_index_line() {
+    let repo = tmp("routes");
+    git_init(&repo);
+    let docs = repo.join("docs");
+    docsys::adopt::run(&repo, &docs, "en").unwrap();
+    let index = fs::read_to_string(docs.join("index.md")).unwrap();
+    for dir in ["reference", "howto", "explanation", "tutorial"] {
+        assert!(index.contains(&format!("- [[{dir}/|")), "{index}");
+    }
+    let made = docsys::capture::page_new(&docs, "reference", "limits", None, false).unwrap();
+    assert!(made.contains("reference/limits.md"), "{made}");
+    let page = docs.join("reference/limits.md");
+    let text = fs::read_to_string(&page).unwrap();
+    assert!(!text.contains("route it from index.md"), "{text}");
+    let text = text.split("<!-- opening").next().unwrap().to_string();
+    fs::write(
+        &page,
+        format!("{text}This page states the limits; read it before raising one.\n"),
+    )
+    .unwrap();
+    let (r, _) = docsys::lint_in(&docs, Some(&repo));
+    let orphans: Vec<_> = r.findings.iter().filter(|f| f.rule.0 == "R-034").collect();
+    assert!(orphans.is_empty(), "{orphans:?}");
+    assert_eq!(fs::read_to_string(docs.join("index.md")).unwrap(), index);
+    let _ = fs::remove_dir_all(&repo);
+}

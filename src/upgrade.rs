@@ -803,6 +803,57 @@ fn common(ctx: &Ctx, u: &mut Upgrade, apply: bool) -> Result<(), String> {
     if Era(u.to).derived_dates() {
         dates(ctx, u, apply)?;
     }
+    if Era(u.to).directory_routes() && !kb {
+        routes(ctx, u, apply)?;
+    }
+    Ok(())
+}
+
+/// routes: the index routes the type directories, so a new page adds no line
+/// to it (D-123); every existing line stays where it is (R-172).
+fn routes(ctx: &Ctx, u: &mut Upgrade, apply: bool) -> Result<(), String> {
+    let path = ctx.root.join("index.md");
+    let Ok(text) = fs::read_to_string(&path) else {
+        return Ok(());
+    };
+    let missing: Vec<&str> = crate::migrate::DIRECTORY_ROUTES
+        .iter()
+        .copied()
+        .filter(|line| {
+            // the link itself, `[[reference/|`, never a page under it
+            let link = line
+                .trim_start_matches("- ")
+                .split('|')
+                .next()
+                .unwrap_or("");
+            !text.contains(&format!("{link}|"))
+        })
+        .collect();
+    if missing.is_empty() {
+        return Ok(());
+    }
+    let file = format!("{}index.md", ctx.prefix);
+    u.item(
+        "auto",
+        "routes",
+        &file,
+        format!(
+            "{} directory route(s) appended: a new page under a routed directory needs no line (D-123)",
+            missing.len()
+        ),
+    );
+    if apply {
+        let mut new = text;
+        if !new.ends_with('\n') {
+            new.push('\n');
+        }
+        for line in missing {
+            new.push_str(line);
+            new.push('\n');
+        }
+        fs::write(&path, new).map_err(|e| e.to_string())?;
+        u.written.push(file);
+    }
     Ok(())
 }
 

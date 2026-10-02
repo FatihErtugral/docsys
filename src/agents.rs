@@ -261,8 +261,8 @@ listing wrong-audience pages means §3, never `--force`-style workarounds.
 For each missing page: distil from the EXISTING pages — invent nothing; if a
 fact exists nowhere in the tree, ask, do not guess. The voice matches the
 reader: an end-user page never names source files, classes, or tests. Give it
-the tree's usual frontmatter plus `audience: <a>`, route it on the index, and
-gate with `docsys lint --root docs` until clean. **Show the first page and get
+the tree's usual frontmatter plus `audience: <a>`, make it reachable from the
+index (R-034), and gate with `docsys lint --root docs` until clean. **Show the first page and get
 approval before authoring the rest.**
 
 ## 4. Language
@@ -1023,8 +1023,8 @@ graduation, when the builder confirms.
 ## 4b · The overview draft (the one page you may author)
 
 After the rows land, one permanent page per seeded feature may be yours:
-`docsys page new explanation <feature>-overview --unverified`, routed from
-`index.md`, body written from the evidence only — what the feature is, how
+`docsys page new explanation <feature>-overview --unverified`, reachable from
+`index.md` (R-034), body written from the evidence only — what the feature is, how
 it is built, when it was born and moved, what broke and why, what the
 manifests and the code's own comments say — in the tree's language, with
 `sources:` naming the same `git:` locators and files the research page

@@ -57,6 +57,8 @@ fn repo(name: &str, day: &str) -> (PathBuf, PathBuf) {
         ),
     )
     .unwrap();
+    // a 0.4 index routes pages one by one, as 0.15.1 wrote it
+    fs::write(docs.join("index.md"), "# Documentation\n").unwrap();
     fs::create_dir_all(docs.join("reference")).unwrap();
     fs::write(
         docs.join("reference/refresh.md"),

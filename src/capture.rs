@@ -256,10 +256,19 @@ pub fn page_new(
         } else {
             ""
         };
+        // a directory the index routes already reaches the page (D-123)
+        let routed = crate::era::Era::at(root).directory_routes()
+            && fs::read_to_string(root.join("index.md"))
+                .is_ok_and(|i| i.contains(&format!("[[{kind}/|")));
+        let route = if routed {
+            ""
+        } else {
+            " Then route it from index.md."
+        };
         (
             format!("{kind}/{id}.md"),
             format!(
-                "---\nid: {id}\ntype: {kind}\n{verification}{date}---\n# {title}\n\n<!-- opening: one or two sentences that establish this page's own context — what it describes, when to read it (R-032). Then route it from index.md. -->\n"
+                "---\nid: {id}\ntype: {kind}\n{verification}{date}---\n# {title}\n\n<!-- opening: one or two sentences that establish this page's own context — what it describes, when to read it (R-032).{route} -->\n"
             ),
         )
     } else {

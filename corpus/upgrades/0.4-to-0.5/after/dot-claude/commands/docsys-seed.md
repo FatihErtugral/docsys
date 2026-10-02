@@ -75,8 +75,8 @@ graduation, when the builder confirms.
 ## 4b · The overview draft (the one page you may author)
 
 After the rows land, one permanent page per seeded feature may be yours:
-`docsys page new explanation <feature>-overview --unverified`, routed from
-`index.md`, body written from the evidence only — what the feature is, how
+`docsys page new explanation <feature>-overview --unverified`, reachable from
+`index.md` (R-034), body written from the evidence only — what the feature is, how
 it is built, when it was born and moved, what broke and why, what the
 manifests and the code's own comments say — in the tree's language, with
 `sources:` naming the same `git:` locators and files the research page

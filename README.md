@@ -540,7 +540,7 @@ docsys lint --root docs      # ERROR R-071 · exit 1
 
 # a bare permanent page — reversible, so it only WARNS
 mkdir -p docs/reference && echo "naked page" > docs/reference/x.md
-docsys lint --root docs      # WARN R-050 (frontmatter) + WARN R-034 (orphan)
+docsys lint --root docs      # WARN R-050 (frontmatter); the index routes reference/, so no orphan
 ```
 
 ### 2 · The agent layer, in detail

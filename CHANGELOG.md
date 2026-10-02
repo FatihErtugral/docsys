@@ -54,6 +54,10 @@ declares `spec: docsys/0.5`; a tree that declares `docsys/0.4` is served as
 - A pin's evidence lives beside the page under `.verifies/`; a refresh never
   writes the page, and pull requests that refresh pins merge cleanly (D-119).
 - A pinned symbol resolves to its declaration, never to a use (D-106).
+- A router line may route a directory, and every page under it is reachable;
+  `adopt` routes the four type directories, so a new page adds no line to
+  `index.md`, and `upgrade` appends the routes and keeps every line (R-034,
+  R-035, D-123).
 - A page's date is its last content change in history: nothing writes
   `updated:`, a page that still carries it is reported, and `upgrade` removes
   the lines (R-050, D-122; R-052 and R-106 withdrawn).
