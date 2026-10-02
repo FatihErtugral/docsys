@@ -559,55 +559,68 @@ fn main() -> ExitCode {
                         return ExitCode::from(2);
                     }
                 };
-                let head = if u.from < u.to {
-                    format!("docsys/0.{} → docsys/0.{}", u.from, u.to)
+                // --json: the plan as data, one object per move, nothing else
+                if opts.json {
+                    println!("{}", u.to_json());
                 } else {
-                    format!("docsys/0.{}", u.to)
-                };
-                println!(
-                    "docsys upgrade: {head} — {}",
-                    if opts.apply {
-                        "applied"
+                    let head = if u.from < u.to {
+                        format!("docsys/0.{} → docsys/0.{}", u.from, u.to)
                     } else {
-                        "the plan; `docsys upgrade --apply` writes it"
-                    }
-                );
-                for (release, text) in &u.notes {
-                    println!("\nUpgrading to docsys {release}:\n{text}\n");
-                }
-                for i in &u.items {
-                    println!("{:<7} {:<18} {}  {}", i.strategy, i.step, i.file, i.what);
-                }
-                let count = |s: &str| u.items.iter().filter(|i| i.strategy == s).count();
-                if u.items.is_empty() {
-                    println!("-- nothing to do");
-                } else {
+                        format!("docsys/0.{}", u.to)
+                    };
                     println!(
-                        "-- {} automatic, {} for a person, {} for information",
-                        count("auto"),
-                        count("manual"),
-                        count("info")
+                        "docsys upgrade: {head} — {}",
+                        if opts.apply {
+                            "applied"
+                        } else {
+                            "the plan; `docsys upgrade --apply` writes it"
+                        }
                     );
-                }
-                for p in &u.preview {
-                    println!("{p}");
-                }
-                for (file, diff) in &u.diffs {
-                    println!("\n# {file}\n{diff}");
+                    for (release, text) in &u.notes {
+                        println!("\nUpgrading to docsys {release}:\n{text}\n");
+                    }
+                    for i in &u.items {
+                        let command = i
+                            .command
+                            .as_deref()
+                            .map(|c| format!(": `{c}`"))
+                            .unwrap_or_default();
+                        println!(
+                            "{:<7} {:<18} {}  {}{command}",
+                            i.strategy, i.step, i.file, i.what
+                        );
+                    }
+                    let count = |s: &str| u.items.iter().filter(|i| i.strategy == s).count();
+                    if u.items.is_empty() {
+                        println!("-- nothing to do");
+                    } else {
+                        println!(
+                            "-- {} automatic, {} for a person, {} for information",
+                            count("auto"),
+                            count("manual"),
+                            count("info")
+                        );
+                    }
+                    for p in &u.preview {
+                        println!("{p}");
+                    }
+                    for (file, diff) in &u.diffs {
+                        println!("\n# {file}\n{diff}");
+                    }
                 }
                 if opts.apply && opts.commit {
                     if let Err(e) = docsys::upgrade::commit(&repo, &u) {
                         eprintln!("upgrade: {e}");
                         return ExitCode::from(1);
                     }
-                    if !u.written.is_empty() {
+                    if !u.written.is_empty() && !opts.json {
                         let message = docsys::upgrade::message(&u);
                         println!("committed: {}", message.lines().next().unwrap_or(""));
                     }
                     if !u.last {
                         continue;
                     }
-                } else if opts.apply && !u.written.is_empty() {
+                } else if opts.apply && !u.written.is_empty() && !opts.json {
                     println!(
                         "now commit it as one commit (R-177) — `docsys upgrade --apply --commit` does, with this message:\n\n{}",
                         docsys::upgrade::message(&u)

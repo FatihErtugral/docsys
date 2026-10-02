@@ -186,6 +186,40 @@ found while running the skill is reported on the page, never patched in the
 skill.
 "#;
 
+/// `/docsys-upgrade`: the person and the agent finish what `docsys upgrade`
+/// lists for a person (D-104). The tool applies what is mechanical; the agent
+/// reads; the person decides.
+const DOCSYS_UPGRADE: &str = r#"---
+description: Move this repository's docs tree to the docsys you run — the tool applies what is mechanical, you read what needs reading, the person decides
+allowed-tools: Bash(docsys *), Bash(git status:*), Bash(git diff:*), Bash(git log:*), Read, Edit
+---
+
+# /docsys-upgrade — move the tree, then finish what needs a person
+
+Nothing is committed or recorded that the person did not say yes to.
+
+1. Run `docsys upgrade --json` and show the person the notes and the plan:
+   `auto` items the tool applies, `manual` items that are theirs, `info`.
+   On their word: `docsys upgrade --apply --commit`.
+2. A CI workflow its owner edited (`ci-workflow`, with a diff): propose one
+   edit from the diff that keeps their `runs-on` and their install step.
+   Apply it on their word.
+3. A pin listed for a re-read (`pins`): read the page's sentences against
+   the region as it is now. If they hold, run the item's `command`; if not,
+   propose the page edit. Never refresh a pin you did not read (R-111).
+4. A verified page listed for a maintainer (`verified-record`): give the
+   person `docsys verify --show <page>`, the blocks to read again. Read them
+   with the person if they ask; the verification is theirs to record with the
+   item's `command`. You never set `verified` (R-025).
+5. A relay, skill, command or contract its owner edited (a diff): propose
+   one text that keeps the owner's lines and takes the new ones. Apply it on
+   their word.
+6. A sha256 value is never invented: ask the person, or point to the
+   release page the workflow names.
+7. The follow-ups are their own commit, or a pull request on the person's
+   word, described by the upgrade commit's message (`git log -1 --format=%B`).
+"#;
+
 /// The export skill: turns "create the end-user doc for X" into a procedure.
 /// The binary selects and composes; the skill carries the judgment steps —
 /// closing audience gaps by authoring pages (with approval) and translating
@@ -543,6 +577,7 @@ pub fn install_kb(claude_dir: &Path, base_dir: &Path, force: bool) -> Result<Ins
         out.written.push(rel.to_string());
     }
     for (rel, content) in [
+        ("commands/docsys-upgrade.md", DOCSYS_UPGRADE),
         ("skills/kb-capture/SKILL.md", KB_CAPTURE),
         ("skills/kb-ingest/SKILL.md", KB_INGEST),
         ("skills/kb-audit/SKILL.md", KB_AUDIT),
@@ -644,7 +679,7 @@ pub fn install_with_preamble(
     preamble: &str,
     root_arg: &str,
 ) -> Result<Installed, String> {
-    let files: [(&str, &str, bool); 9] = [
+    let files: [(&str, &str, bool); 10] = [
         ("hooks/pre-commit-docs.sh", PRE_COMMIT_DOCS, true),
         ("hooks/stop-docs-reminder.sh", STOP_DOCS_REMINDER, true),
         ("hooks/post-edit-updated.sh", POST_EDIT_UPDATED, true),
@@ -652,6 +687,7 @@ pub fn install_with_preamble(
         ("commands/docsys-sync.md", DOC_SYNC, false),
         ("commands/docsys-seed.md", DOCSYS_SEED, false),
         ("commands/docsys-interview.md", DOCSYS_INTERVIEW, false),
+        ("commands/docsys-upgrade.md", DOCSYS_UPGRADE, false),
         ("skills/docsys/SKILL.md", SKILL_MD, false),
         ("skills/docsys-export/SKILL.md", EXPORT_SKILL, false),
     ];
@@ -1227,7 +1263,7 @@ mod tests {
         assert_eq!(kept.written.len(), 0);
         assert_eq!(fs::read_to_string(&hook).unwrap(), "custom\n");
         let forced = install(&dir, true).unwrap();
-        assert_eq!(forced.written.len(), 9);
+        assert_eq!(forced.written.len(), 10);
         assert!(fs::read_to_string(&hook)
             .unwrap()
             .contains("docsys hook pre-tool-use"));
@@ -1312,10 +1348,13 @@ pub fn relay_for(rel: &str, root_arg: &str) -> Option<String> {
 
 /// The markdown assets docsys owns, by path under `.claude/`: this binary's
 /// text, and the text 0.15 wrote — `docsys upgrade` refreshes a file that
-/// still holds either, and leaves a file somebody edited to its owner.
+/// still holds either, writes one new since 0.15 (no older text) where it is
+/// absent, and leaves a file somebody edited to its owner.
 pub fn owned_assets(kb: bool) -> Vec<(&'static str, &'static str, &'static str)> {
+    let new = ("commands/docsys-upgrade.md", DOCSYS_UPGRADE, "");
     if kb {
         vec![
+            new,
             (
                 "skills/kb-capture/SKILL.md",
                 KB_CAPTURE,
@@ -1339,6 +1378,7 @@ pub fn owned_assets(kb: bool) -> Vec<(&'static str, &'static str, &'static str)>
         ]
     } else {
         vec![
+            new,
             (
                 "commands/docsys-sync.md",
                 DOC_SYNC,

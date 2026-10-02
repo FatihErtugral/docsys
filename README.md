@@ -120,8 +120,8 @@ two pre-existing violations the old tree already had.
 
 ## The session loop (agent layer)
 
-`docsys agents` installs four hooks, three commands (`/docsys-sync`,
-`/docsys-seed`, `/docsys-interview`) and two skills. The hooks are two-line
+`docsys agents` installs four hooks, four commands (`/docsys-sync`,
+`/docsys-seed`, `/docsys-interview`, `/docsys-upgrade`) and two skills. The hooks are two-line
 relays: every decision is made by `docsys hook <event>` in the binary — a real
 JSON parser for the payload, heredoc-aware command detection, git paths read
 unquoted — and pinned by unit tests (D-051). `docsys rules` generates the
@@ -445,11 +445,11 @@ flowchart LR
 | `docsys export manifest [--root <dir>] [--out <file>]` | Publish what this namespace exports — id, type, title, summary, content hash, no bodies. A few KB where a clone is megabytes. |
 | `docsys fetch [--root <dir>]` | Materialize consumed namespaces into `.federation/`: manifest first, unchanged pages skipped, provenance recorded. |
 | `docsys rules --agents-md \| --procedures [--max-lines <n>] [--write <file>]` | Agent text generated from the embedded spec: a ~90-line always-loaded block — the rules, plus the procedures an agent needs while it writes and verifies a page — and the fifteen decision procedures. `--max-lines` checks the block against the budget (R-165); `--write` lands it in a file instead of stdout. |
-| `docsys agents [--kb] [--dir .claude] [--force]` · `docsys agents --report [--dir .claude]` | Install the agent layer: four relay hooks + `/docsys-sync`, `/docsys-seed`, `/docsys-interview` + the docsys and export skills for a project; with `--kb` the four knowledge-base organs (capture · ingest · audit · lookup), the same four relays guarding the record layer, `settings.json` (written when absent, merged into when present) and the git gate (D-076, D-086). Hooks carry their template version; `--force` refreshes them. `--report` lists the layer already installed and the shell calls it makes. |
+| `docsys agents [--kb] [--dir .claude] [--force]` · `docsys agents --report [--dir .claude]` | Install the agent layer: four relay hooks + `/docsys-sync`, `/docsys-seed`, `/docsys-interview`, `/docsys-upgrade` + the docsys and export skills for a project; with `--kb` `/docsys-upgrade` and the four knowledge-base organs (capture · ingest · audit · lookup), the same four relays guarding the record layer, `settings.json` (written when absent, merged into when present) and the git gate (D-076, D-086). Hooks carry their template version; `--force` refreshes them. `--report` lists the layer already installed and the shell calls it makes. |
 | `docsys hook pre-tool-use\|stop\|post-tool-use\|user-prompt-submit [--repo .] [--root docs]` | The hook logic itself, reading the agent harness payload on stdin (D-051). |
 | `docsys gate [--repo .] [--root docs] [--range <a>...<b>]` · `docsys doctor [--repo .] [--root docs] [--dir .claude]` | The commit-time question the binary computes (lint + code-without-docs); with `--range`, the same question over a pull request, failing when unanswered — what the CI workflow runs. And the liveness check: every hook present, executable, wired under the right event, up to date (D-040, D-047). |
 | `docsys feedback` · `docsys feedback --draft [--type bug\|false-positive\|need] [--rule R-xxx] [--command "docsys …"] [--out <file>]` | When docsys is wrong or in the way: the issue format, and an issue drafted with the facts the tool knows — version, OS, the tree's profile and spec, the rule's text, the command's output, a redacted `.docmeta.yml` — and TODO where only a person writes. Files nothing; names the template to open (D-116). On a docsys/0.5 tree `lint`, `refs` and `gate` point to it under a finding of a rule that reads free text. |
-| `docsys upgrade [--apply] [--commit] [--force] [--root docs] [--dir .claude]` | Moves the tree to this docsys: its spec one version per commit (§16, D-117), then its pin (D-120). The default is the plan: the release notes it crosses, every step `auto`, `manual` or `info`, the findings the move adds and removes, and a diff for every file its owner edited. `--apply` writes what is mechanical and `--commit` makes it one commit per spec, its message carrying the notes and the step every other clone takes; a dirty working tree is refused (`--force` overrides). An edited relay, skill, command or CI workflow is never rewritten. A 0.4 tree that does not move keeps 0.15.1's findings and formats (D-118). |
+| `docsys upgrade [--apply] [--commit] [--force] [--json] [--root docs] [--dir .claude]` | Moves the tree to this docsys: its spec one version per commit (§16, D-117), then its pin (D-120). The default is the plan: the release notes it crosses, every step `auto`, `manual` or `info`, the findings the move adds and removes, and a diff for every file its owner edited. `--apply` writes what is mechanical and `--commit` makes it one commit per spec, its message carrying the notes and the step every other clone takes; a dirty working tree is refused (`--force` overrides). An edited relay, skill, command or CI workflow is never rewritten. `--json` prints the plan as data, each item with the command that completes it, for `/docsys-upgrade` — where an agent finishes the items with the person, reading, never verifying (D-104). A 0.4 tree that does not move keeps 0.15.1's findings and formats (D-118). |
 | `docsys ledger fix [--root docs]` | Rewrites the em-dash field markers of `work/debt.md`, `work/questions.md` and `wiki/open-questions.md` to R-108's ASCII ` -- `, at the label positions only (D-108). |
 | `docsys pin --gc [--repo .] [--root docs]` | On a docsys/0.5 tree, removes the pin acknowledgements under `.verifies/` that no current region needs any more (D-119). |
 | `docsys --version` | The binary, the spec it implements, and inside a pinned tree the pin; the relays and the git gate ask it (D-099, D-120). |
@@ -482,7 +482,7 @@ rewritten. It lands:
 - `docs/` — the skeleton when none exists (`.docmeta.yml`, router, journal,
   debt, questions, `_templates/`); an existing tree is left as it is
 - `.claude/hooks/`, `.claude/commands/`, `.claude/skills/` — four relay hooks,
-  `/docsys-sync`, `/docsys-seed`, `/docsys-interview`, the docsys and export
+  `/docsys-sync`, `/docsys-seed`, `/docsys-interview`, `/docsys-upgrade`, the docsys and export
   skills
 - `.claude/settings.json` — the hook wiring, `"$CLAUDE_PROJECT_DIR"/.claude/hooks/<name>.sh`,
   so the relays run from any directory of the repository: written whole when

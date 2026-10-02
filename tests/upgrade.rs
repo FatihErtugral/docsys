@@ -255,6 +255,12 @@ fn a_0_4_tree_moves_to_the_expected_0_5_tree_and_a_second_run_changes_nothing() 
         &String::from_utf8_lossy(&out.stdout).replace(&rev, "@REV@"),
     );
     assert_eq!(snapshot(&repo, &rev, false), before, "the plan wrote");
+    // the same plan as data, for an agent that completes it (D-104)
+    let out = docsys(&repo, &["upgrade", "--json"]);
+    assert!(out.status.success(), "{out:?}");
+    let json = String::from_utf8_lossy(&out.stdout).replace(&rev, "@REV@");
+    assert!(docsys::hook::parse_json(json.trim()).is_some(), "{json}");
+    expect_text("plan.json", &json);
 
     // the move is one commit, and leaves nothing behind
     let head = git(&repo, &["rev-parse", "HEAD"]);
@@ -544,6 +550,7 @@ fn a_tree_two_specs_behind_moves_one_commit_per_spec() {
             step: "next-spec",
             file: file.clone(),
             what: "the next spec's page".to_string(),
+            command: None,
         });
         if apply {
             fs::write(ctx.root.join("work/next-spec.md"), "# Next\n").map_err(|e| e.to_string())?;

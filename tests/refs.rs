@@ -117,10 +117,27 @@ fn a_code_citation_opens_a_comment_and_doc_mid_sentence_is_prose() {
 fn agents_install_writes_assets_and_respects_existing() {
     let dir = tmp("agents").join(".claude");
     let done = docsys::agents::install(&dir, false).unwrap();
-    assert_eq!(done.written.len(), 9, "{:?}", done.written);
+    assert_eq!(done.written.len(), 10, "{:?}", done.written);
     // Second run without --force skips everything.
     let again = docsys::agents::install(&dir, false).unwrap();
-    assert_eq!(again.skipped.len(), 9);
+    assert_eq!(again.skipped.len(), 10);
+    // the procedure an agent follows to finish an upgrade with the person (D-104)
+    let upgrade = fs::read_to_string(dir.join("commands/docsys-upgrade.md")).unwrap();
+    for must in [
+        "docsys upgrade --json",
+        "docsys verify --show <page>",
+        "You never set `verified` (R-025)",
+        "Never refresh a pin you did not read (R-111)",
+        "A sha256 value is never invented",
+        "git log -1 --format=%B",
+    ] {
+        assert!(upgrade.contains(must), "{must}");
+    }
+    assert!(
+        upgrade.lines().count() <= 40,
+        "{} lines",
+        upgrade.lines().count()
+    );
     let skill = fs::read_to_string(dir.join("skills/docsys/SKILL.md")).unwrap();
     // the skill holds its procedures; the rules block holds the rules (one home)
     assert!(skill.contains("docsys migrate inventory"));

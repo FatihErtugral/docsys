@@ -16,18 +16,19 @@ auto    hook-scripts       .claude/hooks/session-intent.sh  refreshed: starts in
 auto    git-gate           .git/hooks/pre-commit  the docsys block rewritten for this version, its mode kept — this clone only: every clone runs `docsys upgrade --apply` once
 auto    ci-workflow        .github/workflows/docsys.yml  the 0.15 workflow, untouched: regenerated with its mode, pinned to this version
 auto    rules-block        AGENTS.md  the generated block refreshed in place
+auto    assets             .claude/commands/docsys-upgrade.md  written: new in this version
 manual  assets             .claude/commands/docsys-sync.md  edited by its owner — the diff to this version's text is below
 auto    assets             .claude/skills/docsys/SKILL.md  refreshed: the 0.15 text, untouched
-manual  verified-record    docs/reference/expiry.md  the body changed since @REV@ — never recorded blind; a maintainer verifies it again
+manual  verified-record    docs/reference/expiry.md  the body changed since @REV@ — never recorded blind; a maintainer reads it and verifies it again: `docsys verify reference/expiry.md`
 auto    verified-record    docs/reference/refresh.md  the body @REV@ holds is the body now: `verified_blocks` recorded
-manual  pins               docs/reference/expiry.md  `src/auth.rs#expire`: stale before the upgrade, still stale — re-read, then `docsys pin --refresh reference/expiry.md`
+manual  pins               docs/reference/expiry.md  `src/auth.rs#expire`: stale before the upgrade, still stale — re-read the page against it: `docsys pin --refresh reference/expiry.md`
 auto    pins               docs/reference/refresh.md  `src/auth.rs#refresh_token`: acknowledged beside the page
 auto    ledger-separators  docs/work/debt.md  work/debt.md line 3
 manual  code-citations     src/auth.rs:8  `doc: expiry` sits mid-comment: from 0.5 it is prose (R-072) — move it to the start of its comment, or leave it as prose
 info    raw-records        docs/raw/  1 record(s): from 0.5 a record layer — their dangling references are reported, an edited record stops the commit (R-023)
 auto    spec-line          docs/.docmeta.yml  `spec: docsys/0.4` → `spec: docsys/0.5`
 auto    pin                docs/.docsys-version  no pin → `0.16.0`: every docsys call here runs it
--- 13 automatic, 5 for a person, 1 for information
+-- 14 automatic, 5 for a person, 1 for information
 judged by docsys/0.5 as the tree is now: 1 new finding(s), 0 gone — the ledger and pin steps clear their part
 + WARN R-108 work/debt.md [line-3] entry does not match its item grammar — a field marker is written ` — `; separators are ASCII ` -- ` (`docsys ledger fix` rewrites them)
 

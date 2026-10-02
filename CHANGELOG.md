@@ -24,6 +24,9 @@ declares `spec: docsys/0.5`; a tree that declares `docsys/0.4` is served as
 
 - `docsys upgrade [--apply] [--commit] [--force]`: a docsys/0.4 tree to
   docsys/0.5 in one commit; what needs a person is listed, never applied (D-117).
+- `/docsys-upgrade` and `docsys upgrade --json`: an agent finishes the items
+  the upgrade lists for a person, with the person, and never sets `verified`
+  (D-104).
 - A tree pins the docsys it runs (`.docsys-version`): every command on it runs
   that version, installed once on first use; the relays, the gate and the CI
   workflow read the pin, and `upgrade` moves it (D-120).

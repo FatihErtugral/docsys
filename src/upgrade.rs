@@ -80,6 +80,8 @@ pub struct Item {
     pub step: &'static str,
     pub file: String,
     pub what: String,
+    /// the command that completes the item, when one does
+    pub command: Option<String>,
 }
 
 #[derive(Debug, Default)]
@@ -108,7 +110,69 @@ impl Upgrade {
             step,
             file: file.to_string(),
             what,
+            command: None,
         });
+    }
+
+    /// The command that completes the item just listed.
+    fn completed_by(&mut self, command: String) {
+        if let Some(last) = self.items.last_mut() {
+            last.command = Some(command);
+        }
+    }
+}
+
+impl Upgrade {
+    /// The plan as data, for an agent that completes it (D-104): what the
+    /// text form prints, field by field.
+    pub fn to_json(&self) -> String {
+        use crate::hook::Json;
+        let s = |v: &str| Json::Str(v.to_string());
+        let items = self
+            .items
+            .iter()
+            .map(|i| {
+                Json::Obj(vec![
+                    ("strategy".into(), s(i.strategy)),
+                    ("step".into(), s(i.step)),
+                    ("file".into(), s(&i.file)),
+                    ("what".into(), s(&i.what)),
+                    ("command".into(), i.command.as_deref().map_or(Json::Null, s)),
+                ])
+            })
+            .collect();
+        let notes = self
+            .notes
+            .iter()
+            .map(|(release, text)| {
+                Json::Obj(vec![
+                    ("release".into(), s(release)),
+                    ("text".into(), s(text)),
+                ])
+            })
+            .collect();
+        let diffs = self
+            .diffs
+            .iter()
+            .map(|(file, diff)| Json::Obj(vec![("file".into(), s(file)), ("diff".into(), s(diff))]))
+            .collect();
+        Json::Obj(vec![
+            ("from".into(), s(&format!("docsys/0.{}", self.from))),
+            ("to".into(), s(&format!("docsys/0.{}", self.to))),
+            ("last".into(), Json::Bool(self.last)),
+            ("notes".into(), Json::Arr(notes)),
+            ("items".into(), Json::Arr(items)),
+            (
+                "preview".into(),
+                Json::Arr(self.preview.iter().map(|p| s(p)).collect()),
+            ),
+            ("diffs".into(), Json::Arr(diffs)),
+            (
+                "written".into(),
+                Json::Arr(self.written.iter().map(|w| s(w)).collect()),
+            ),
+        ])
+        .render()
     }
 }
 
@@ -401,13 +465,15 @@ fn common(ctx: &Ctx, u: &mut Upgrade, apply: bool) -> Result<(), String> {
                     }
                 }
             }
-            None => u.item(
-                "manual",
-                "hook-wires",
-                &file,
-                "not valid JSON — wire the relays by hand (`docsys agents` prints the snippet)"
-                    .to_string(),
-            ),
+            None => {
+                u.item(
+                    "manual",
+                    "hook-wires",
+                    &file,
+                    "not valid JSON — wire the relays by hand; this prints the snippet".to_string(),
+                );
+                u.completed_by("docsys agents".to_string());
+            }
         }
     }
 
@@ -451,12 +517,15 @@ fn common(ctx: &Ctx, u: &mut Upgrade, apply: bool) -> Result<(), String> {
 
     // git-gate: the block in this clone's pre-commit hook, its mode kept
     match crate::adopt::gate_current(repo, root_rel) {
-        None => u.item(
-            "info",
-            "git-gate",
-            "pre-commit",
-            "no docsys gate in this clone — `docsys adopt` writes it".to_string(),
-        ),
+        None => {
+            u.item(
+                "info",
+                "git-gate",
+                "pre-commit",
+                "no docsys gate in this clone".to_string(),
+            );
+            u.completed_by("docsys adopt".to_string());
+        }
         Some(true) => {}
         Some(false) => {
             let hooks = crate::git::hooks_dir(repo).unwrap_or_else(|| repo.join(".git/hooks"));
@@ -562,20 +631,26 @@ fn common(ctx: &Ctx, u: &mut Upgrade, apply: bool) -> Result<(), String> {
                             u.written.push(file);
                         }
                     }
-                    None => u.item(
-                        "info",
-                        "rules-block",
-                        &file,
-                        "no docsys rules block — `docsys adopt` writes it".to_string(),
-                    ),
+                    None => {
+                        u.item(
+                            "info",
+                            "rules-block",
+                            &file,
+                            "no docsys rules block".to_string(),
+                        );
+                        u.completed_by("docsys adopt".to_string());
+                    }
                 }
             }
-            None => u.item(
-                "info",
-                "rules-block",
-                "-",
-                "no file to hold the rules block — `docsys adopt` names one".to_string(),
-            ),
+            None => {
+                u.item(
+                    "info",
+                    "rules-block",
+                    "-",
+                    "no file to hold the rules block".to_string(),
+                );
+                u.completed_by("docsys adopt".to_string());
+            }
         }
     }
 
@@ -583,6 +658,28 @@ fn common(ctx: &Ctx, u: &mut Upgrade, apply: bool) -> Result<(), String> {
     for (asset, now, legacy) in crate::agents::owned_assets(kb) {
         let path = claude.join(asset);
         let Ok(text) = fs::read_to_string(&path) else {
+            // new since 0.15: written where the agent layer is
+            if legacy.is_empty() && claude.is_dir() {
+                let file = rel(repo, &path);
+                u.item(
+                    "auto",
+                    "assets",
+                    &file,
+                    "written: new in this version".to_string(),
+                );
+                if apply {
+                    let want = if kb {
+                        now.to_string()
+                    } else {
+                        crate::migrate::with_preamble(now, preamble)
+                    };
+                    if let Some(parent) = path.parent() {
+                        fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+                    }
+                    fs::write(&path, want).map_err(|e| e.to_string())?;
+                    u.written.push(file);
+                }
+            }
             continue;
         };
         let want = if kb {
@@ -599,7 +696,7 @@ fn common(ctx: &Ctx, u: &mut Upgrade, apply: bool) -> Result<(), String> {
         } else {
             crate::migrate::with_preamble(legacy, preamble)
         };
-        if text == was || text == legacy {
+        if !legacy.is_empty() && (text == was || text == legacy) {
             u.item(
                 "auto",
                 "assets",
@@ -678,8 +775,10 @@ fn move_0_4_to_0_5(ctx: &Ctx, u: &mut Upgrade, apply: bool) -> Result<(), String
                     "manual",
                     "verified-record",
                     &file,
-                    "verified without a revision — a maintainer verifies it again: `docsys verify <page>`".to_string(),
+                    "verified without a revision — a maintainer reads it and verifies it again"
+                        .to_string(),
                 );
+                u.completed_by(format!("docsys verify {}", page.rel));
                 continue;
             };
             let Some(then) = git_out(repo, &["show", &format!("{rev}:{file}")]) else {
@@ -687,8 +786,9 @@ fn move_0_4_to_0_5(ctx: &Ctx, u: &mut Upgrade, apply: bool) -> Result<(), String
                     "manual",
                     "verified-record",
                     &file,
-                    format!("`verified_rev: {rev}` does not hold the page in this history — never recorded blind; a maintainer verifies it again"),
+                    format!("`verified_rev: {rev}` does not hold the page in this history — never recorded blind; a maintainer reads it and verifies it again"),
                 );
+                u.completed_by(format!("docsys verify {}", page.rel));
                 continue;
             };
             let body = crate::fresh::body_text(&page.text);
@@ -699,8 +799,9 @@ fn move_0_4_to_0_5(ctx: &Ctx, u: &mut Upgrade, apply: bool) -> Result<(), String
                     "manual",
                     "verified-record",
                     &file,
-                    format!("the body changed since {rev} — never recorded blind; a maintainer verifies it again"),
+                    format!("the body changed since {rev} — never recorded blind; a maintainer reads it and verifies it again"),
                 );
+                u.completed_by(format!("docsys verify {}", page.rel));
                 continue;
             }
             let mut sources = Vec::new();
@@ -728,8 +829,9 @@ fn move_0_4_to_0_5(ctx: &Ctx, u: &mut Upgrade, apply: bool) -> Result<(), String
                     "manual",
                     "verified-record",
                     &file,
-                    format!("`{s}` moved since {rev}, or had no committed provenance — a maintainer verifies it again"),
+                    format!("`{s}` moved since {rev}, or had no committed provenance — a maintainer reads it and verifies it again"),
                 );
+                u.completed_by(format!("docsys verify {}", page.rel));
                 continue;
             }
             u.item(
@@ -768,26 +870,37 @@ fn move_0_4_to_0_5(ctx: &Ctx, u: &mut Upgrade, apply: bool) -> Result<(), String
             }
             match c.outcome {
                 crate::fresh::Conversion::Acknowledged => {
-                    u.item("auto", "pins", &file, format!("`{}`: acknowledged beside the page", c.pin));
+                    u.item(
+                        "auto",
+                        "pins",
+                        &file,
+                        format!("`{}`: acknowledged beside the page", c.pin),
+                    );
                 }
-                crate::fresh::Conversion::Reresolved { first, last } => u.item(
-                    "manual",
-                    "pins",
-                    &file,
-                    format!("`{}`: its declaration is L{first}-L{last}, not the region 0.15 read — re-read the page against it, then `docsys pin --refresh {}`", c.pin, c.page),
-                ),
+                crate::fresh::Conversion::Reresolved { first, last } => {
+                    u.item(
+                        "manual",
+                        "pins",
+                        &file,
+                        format!("`{}`: its declaration is L{first}-L{last}, not the region 0.15 read — re-read the page against it", c.pin),
+                    );
+                    u.completed_by(format!("docsys pin --refresh {}", c.page));
+                }
                 crate::fresh::Conversion::Unresolvable(why) => u.item(
                     "manual",
                     "pins",
                     &file,
                     format!("`{}`: {why} — pin a narrower symbol or the file", c.pin),
                 ),
-                crate::fresh::Conversion::StaleAsRecorded => u.item(
-                    "manual",
-                    "pins",
-                    &file,
-                    format!("`{}`: stale before the upgrade, still stale — re-read, then `docsys pin --refresh {}`", c.pin, c.page),
-                ),
+                crate::fresh::Conversion::StaleAsRecorded => {
+                    u.item(
+                        "manual",
+                        "pins",
+                        &file,
+                        format!("`{}`: stale before the upgrade, still stale — re-read the page against it", c.pin),
+                    );
+                    u.completed_by(format!("docsys pin --refresh {}", c.page));
+                }
             }
         }
         if apply && root.join(crate::ack::DIR).is_dir() {
