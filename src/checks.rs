@@ -23,6 +23,8 @@ const R024: RuleId = RuleId("R-024");
 const R026: RuleId = RuleId("R-026");
 const R028: RuleId = RuleId("R-028");
 const R208: RuleId = RuleId("R-208");
+const R210: RuleId = RuleId("R-210");
+const R211: RuleId = RuleId("R-211");
 const R029: RuleId = RuleId("R-029");
 const R030: RuleId = RuleId("R-030");
 const R034: RuleId = RuleId("R-034");
@@ -204,8 +206,11 @@ fn check_docmeta(tree: &DocTree, r: &mut Report) {
             ));
         }
     }
+    // R-210 and R-211 read their keys on a docsys/0.5 tree only (D-118)
+    let markers = crate::era::Era::of(tree).declared_markers();
     for key in tree.docmeta.keys() {
-        if !KNOWN.contains(&key.as_str()) {
+        let declared = markers && (key == "uncertainty_markers" || key == "history_headings");
+        if !KNOWN.contains(&key.as_str()) && !declared {
             r.findings.push(Finding::warn(
                 R161,
                 "-",
@@ -2143,6 +2148,82 @@ fn check_list_grammars(tree: &DocTree, r: &mut Report) {
     }
 }
 
+/// R-210, R-211 (D-115): the words a tree declares for a guess, and the
+/// headings its language gives a change history, matched as written. A
+/// marker counts in prose only — fences, quotes, indented code and inline
+/// code are quoted material, where a page that documents the marker shows
+/// it. A history heading is an ATX heading whose text is exactly an entry,
+/// on a `reference` page. Nothing is declared by default: a default list
+/// would embed a language.
+fn check_declared_markers(tree: &DocTree, r: &mut Report) {
+    let markers: Vec<&str> = tree
+        .docmeta_list("uncertainty_markers")
+        .iter()
+        .map(|m| m.trim())
+        .filter(|m| !m.is_empty())
+        .collect();
+    let headings: Vec<&str> = tree
+        .docmeta_list("history_headings")
+        .iter()
+        .map(|h| h.trim())
+        .filter(|h| !h.is_empty())
+        .collect();
+    if markers.is_empty() && headings.is_empty() {
+        return;
+    }
+    let mut inspected = 0usize;
+    for page in &tree.pages {
+        if page.kind != Kind::Permanent {
+            continue;
+        }
+        let Some(fm) = &page.fm else { continue };
+        inspected += 1;
+        let reference = fm.fields.get("type").and_then(Value::as_str) == Some("reference");
+        for (i, line) in scannable_lines(&page.text) {
+            if i < fm.body_start {
+                continue;
+            }
+            let prose = without_code_spans(line);
+            if let Some(m) = markers.iter().find(|m| prose.contains(**m)) {
+                r.findings.push(Finding::warn(
+                    R210,
+                    &page.rel,
+                    &format!("line-{}", i + 1),
+                    format!(
+                        "`{m}` marks a guess on a permanent page — what is not known is a dated \
+                         `questions.md` item (R-108); state what is known, or move the question"
+                    ),
+                ));
+            }
+            if reference {
+                let text = line.trim_start();
+                let level = text.len() - text.trim_start_matches('#').len();
+                let title = text
+                    .get(level..)
+                    .unwrap_or("")
+                    .trim()
+                    .trim_end_matches('#')
+                    .trim();
+                if (1..=6).contains(&level)
+                    && text.get(level..).is_some_and(|t| t.starts_with(' '))
+                    && headings.contains(&title)
+                {
+                    r.findings.push(Finding::warn(
+                        R211,
+                        &page.rel,
+                        &format!("line-{}", i + 1),
+                        format!(
+                            "`{title}` opens a change history on a reference page — the \
+                             chronology is the journal's (R-100); keep the current state here"
+                        ),
+                    ));
+                }
+            }
+        }
+    }
+    r.inspected.insert("declared-markers", inspected);
+}
+
 /// The canonical field labels of the ledgers' markers (R-108).
 pub(crate) const LEDGER_LABELS: [&str; 4] = ["deferred", "repay when", "resolved", "answered"];
 
@@ -2341,6 +2422,9 @@ pub fn run_with(tree: &DocTree, ctx: &Context) -> Report {
     }
     if crate::era::Era::of(tree).vanished_items() {
         check_vanished_items(tree, &mut r);
+    }
+    if crate::era::Era::of(tree).declared_markers() {
+        check_declared_markers(tree, &mut r);
     }
     if tree.pages.is_empty() {
         r.findings.push(Finding::warn(
@@ -2731,5 +2815,45 @@ mod tests_sources {
             )]
         );
         let _ = fs::remove_dir_all(&kb);
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+mod tests_markers {
+    use std::fs;
+
+    /// R-210/R-211 check nothing until the tree declares its own words: a
+    /// default list would embed a language (D-115).
+    #[test]
+    fn nothing_is_declared_by_default() {
+        let root = std::env::temp_dir().join(format!("docsys-markers-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        fs::create_dir_all(root.join("reference")).unwrap();
+        fs::write(
+            root.join(".docmeta.yml"),
+            "spec: docsys/0.5\nprofile: project\ndefault_content_language: en\n",
+        )
+        .unwrap();
+        fs::write(
+            root.join("index.md"),
+            "# Docs\n\n- [[reference/a|A]] -- a.\n",
+        )
+        .unwrap();
+        fs::write(
+            root.join("reference/a.md"),
+            "---\nid: a\ntype: reference\nupdated: 2026-10-02\n---\n\nThirty seconds (guess).\n\n## History\n",
+        )
+        .unwrap();
+        let (report, _) = crate::lint(&root);
+        assert!(
+            report
+                .findings
+                .iter()
+                .all(|f| f.rule.0 != "R-210" && f.rule.0 != "R-211"),
+            "{:?}",
+            report.findings
+        );
+        let _ = fs::remove_dir_all(&root);
     }
 }

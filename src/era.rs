@@ -103,6 +103,13 @@ impl Era {
     pub fn project_records(self) -> bool {
         self.v05()
     }
+
+    /// R-210, R-211 (D-115): the tree's declared uncertainty markers and
+    /// history headings are reported on permanent and reference pages. Before:
+    /// the two keys were unknown (R-161).
+    pub fn declared_markers(self) -> bool {
+        self.v05()
+    }
 }
 
 #[cfg(test)]

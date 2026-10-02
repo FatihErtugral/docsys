@@ -4,7 +4,9 @@
 **Status:** frozen core + experimental federation. Rule numbers are permanent;
 rule text may be clarified, not redefined, within a minor version. From 0.4 the
 fix policy is **deletion-first**: no change adds net normative rules — text
-grows only when a smaller text was tried and failed.
+grows only when a smaller text was tried and failed. 0.5 adds two rules (R-210,
+R-211), each naming the smaller text that failed, and one EXPERIMENTAL section
+(§21); its other changes are clarifications.
 
 This document defines a documentation system for software projects and personal
 knowledge bases. It is implementation-independent: any tool that satisfies the
@@ -382,6 +384,22 @@ line not matching the grammar **is reported**. The format is normative because
 three rules depend on it: reachability edges (R-034), the journal slice's
 router line (R-103), and deterministic router repair (R-156). A router routes —
 its entries are links and one-sentence hooks, never content.
+
+**R-210** `lint` · SHOULD — A permanent page states what is known. When
+`.docmeta.yml` declares `uncertainty_markers:` — the tree's own words for a
+guess, in its own language (D-025) — a permanent page carrying one outside code
+and quotations **is reported**: what is not known is a dated `questions.md`
+item (R-108), and a guess left on a permanent page reads as a fact to the next
+agent that loads it. The smaller text tried first was the procedures' escape
+("questions.md item"); a real tree still carried its guesses on permanent pages.
+
+**R-211** `lint` · SHOULD — A `reference` page holds the current state, not its
+history. When `.docmeta.yml` declares `history_headings:` — the headings the
+tree's language gives a change history — a `reference` page carrying one **is
+reported**: the chronology is the journal's (R-100), and a history kept on a
+reference page grows until it outweighs the facts (R-102's rationale). The
+smaller text tried first was R-031's type table; a real tree still kept "how it
+evolved" sections inside its reference pages.
 
 ### 4.2 Flowing layer
 
@@ -1779,6 +1797,8 @@ commit_policy: ask               # ask (asks once) | require (no commit without 
 scan_exclude: []                 # added to version-control ignores (R-077)
 generated_preamble: []           # verbatim line(s) every generated file opens with (D-056)
 postmortem_threshold: "4h"       # R-087
+uncertainty_markers: []         # words that mark a guess, in the tree's language (R-210)
+history_headings: []            # heading texts that open a change history (R-211)
 stale_active_days: 90            # R-085
 deprecation_window: 180          # days, R-067
 lock_timeout: "4h"               # R-154

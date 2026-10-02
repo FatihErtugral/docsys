@@ -9,6 +9,10 @@ by the release workflow — the tag's section becomes the GitHub release body.
 
 ### Added
 
+- On a docsys/0.5 tree the tree's own words for a guess and for a change
+  history are reported (R-210, R-211, D-115): `uncertainty_markers:` found in
+  a permanent page's prose, and `history_headings:` heading a reference page.
+  Nothing is declared by default — the tree names them, in its own language.
 - `docsys adopt --rules-file <path>`, `--report-dir <dir>` and `--no-report`
   (D-110): the file the rules block goes to, the directory `ADOPTION.md`
   goes to, or the report printed and nothing written.
