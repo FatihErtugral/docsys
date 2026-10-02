@@ -9,6 +9,8 @@
 //! under their own identity, which is what R-208's history half checks).
 //! `--revoke` is the reverse: back to `unverified`, the record kept as the last
 //! verification — what a page needs after its body moved (R-024, D-101).
+//! `--show` reads the record against the body: what a re-verification reads
+//! (R-212).
 
 use std::fs;
 use std::path::Path;
@@ -132,11 +134,13 @@ fn who(tree: &DocTree, repo: &Path, by: Option<&str>) -> Result<(String, Option<
 }
 
 /// The record `verify` writes (R-028, D-101): who, at which revision, the
-/// hash of the body that was read, and each consumed source's hash.
+/// hash of the body that was read, its blocks (R-212), and each consumed
+/// source's hash.
 pub struct Record<'a> {
     pub by: &'a str,
     pub rev: &'a str,
     pub hash: &'a str,
+    pub blocks: &'a [String],
     pub sources: &'a [(String, String)],
 }
 
@@ -149,6 +153,9 @@ fn record_lines(rec: &Record) -> Vec<String> {
     // a docsys/0.4 tree gets the record 0.15 wrote: who and which revision (D-118)
     if !rec.hash.is_empty() {
         out.push(format!("verified_hash: \"{}\"", rec.hash));
+    }
+    if !rec.blocks.is_empty() {
+        out.push(format!("verified_blocks: [{}]", rec.blocks.join(", ")));
     }
     if !rec.sources.is_empty() {
         out.push("verified_sources:".to_string());
@@ -177,12 +184,17 @@ fn write_record(
     let mut out = Vec::new();
     let mut placed = false;
     let mut in_sources_block = false;
+    let mut in_reflowed_blocks = false;
     for line in fm.split('\n') {
         if in_sources_block {
             if line.starts_with("  ") {
                 continue;
             }
             in_sources_block = false;
+        }
+        if in_reflowed_blocks {
+            in_reflowed_blocks = !line.contains(']');
+            continue;
         }
         let replaced = record.is_some() || !keep_last;
         if replaced
@@ -194,6 +206,11 @@ fn write_record(
         }
         if replaced && line.starts_with("verified_sources:") {
             in_sources_block = true;
+            continue;
+        }
+        if replaced && line.starts_with("verified_blocks:") {
+            // a formatter may have reflowed the list across lines (D-002)
+            in_reflowed_blocks = !line.contains(']');
             continue;
         }
         if line.starts_with("verification:") {
@@ -481,8 +498,15 @@ pub fn verify(
     }
     let rev = git(&repo, &["rev-parse", "--short", "HEAD"]).ok_or("no HEAD")?;
     let text = fs::read_to_string(&path).map_err(|e| e.to_string())?;
-    let anchored = crate::era::Era::at(root).anchored_verification();
-    let hash = crate::fresh::content_hash(&crate::fresh::body_text(&text));
+    let era = crate::era::Era::at(root);
+    let anchored = era.anchored_verification();
+    let body = crate::fresh::body_text(&text);
+    let hash = crate::fresh::content_hash(&body);
+    let blocks = if era.block_records() {
+        crate::blocks::hashes(&body)
+    } else {
+        Vec::new()
+    };
     if let Some(fm) = &page.fm {
         let get = |k: &str| fm.fields.get(k).and_then(Value::as_str);
         if get("verification") == Some("verified") {
@@ -523,6 +547,7 @@ pub fn verify(
         by: &by,
         rev: &rev,
         hash: if anchored { &hash } else { "" },
+        blocks: &blocks,
         sources: &sources,
     };
     let new = write_record(&text, Some(&record), anchored, &today)
@@ -568,6 +593,214 @@ pub fn verify(
     Ok(out)
 }
 
+/// A block's first line, cut for one line of output.
+fn excerpt(text: &str) -> String {
+    let mut lines = text.lines();
+    let first = lines.next().unwrap_or("").trim_end();
+    let mut out: String = first.chars().take(72).collect();
+    if first.chars().count() > 72 || lines.next().is_some() {
+        out.push_str(" …");
+    }
+    out
+}
+
+fn indented(text: &str) -> String {
+    text.lines().map(|l| format!("    {l}\n")).collect()
+}
+
+/// `docsys verify --show <page>` (R-212, D-103), read-only: what a
+/// re-verification reads. The current blocks numbered `[1]…[n]` with their
+/// lines — the numbers `pin --block` takes — the changed and new ones with
+/// their text, the removed ones from `verified_rev` where history holds it,
+/// the pins bound to a stale block or to none, what the page rests on, and a
+/// machine's check record.
+pub fn show(root: &Path, target: &str) -> Result<String, String> {
+    let tree = DocTree::load(root).map_err(|e| e.to_string())?;
+    if !tree.docmeta_present {
+        return Err(format!("`{}` has no .docmeta.yml", root.display()));
+    }
+    let era = crate::era::Era::of(&tree);
+    if !era.block_records() {
+        return Err(
+            "a block record is a docsys/0.5 format — `docsys upgrade` moves the tree first (D-118)"
+                .into(),
+        );
+    }
+    let page = find_page(&tree, target)
+        .ok_or_else(|| format!("no permanent page at `{target}` and none with that id"))?;
+    let fm = page
+        .fm
+        .as_ref()
+        .ok_or("the page has no frontmatter (R-050)")?;
+    let get = |k: &str| fm.fields.get(k).and_then(Value::as_str).map(str::trim);
+    let rel = &page.rel;
+    let repo = crate::repo_of(root);
+    let body = crate::fresh::body_text(&page.text);
+    let blocks = crate::blocks::split(&body);
+    let current: Vec<String> = blocks.iter().map(|b| b.hash.clone()).collect();
+    let stale = repo
+        .as_deref()
+        .map(|r| crate::fresh::stale_blocks(root, r, era, fm))
+        .unwrap_or_default();
+    let state = get("verification").unwrap_or("no verification field");
+    let last = match (get("verified_by"), get("verified_rev")) {
+        (Some(by), Some(rev)) => Some((by, rev)),
+        _ => None,
+    };
+    let recorded = crate::blocks::record_of(fm);
+    let compared = recorded
+        .as_deref()
+        .map(|r| crate::blocks::compare(r, &current));
+    let mut out = String::new();
+    let mut next =
+        format!("then: read every block against what it rests on, and `docsys verify {rel}`\n");
+    match (&recorded, crate::blocks::reading(fm, &page.text, &stale), last) {
+        (Some(_), Some(reading), Some((by, rev))) => {
+            next = if reading.partial() {
+                format!("then: read what is marked against what it rests on, and `docsys verify {rel}`\n")
+            } else {
+                "then: nothing — the record holds the body as it is\n".to_string()
+            };
+            out.push_str(&format!(
+                "{rel} ({state}): {}/{} blocks as verified by {by} at {rev}{}\n",
+                reading.found,
+                reading.of,
+                if reading.moved {
+                    " — the body moved since"
+                } else if reading.partial() {
+                    " — a pin a block rests on is stale"
+                } else {
+                    " — nothing to re-read"
+                }
+            ));
+        }
+        (_, _, Some((by, rev))) => out.push_str(&format!(
+            "{rel} ({state}): no block record — the verification by {by} at {rev} did not record its blocks; every block is to be read\n"
+        )),
+        _ => out.push_str(&format!(
+            "{rel} ({state}): never verified; every block is to be read\n"
+        )),
+    }
+    let offset = fm.body_start;
+    for (k, b) in blocks.iter().enumerate() {
+        let (first, last) = (offset + b.first, offset + b.last);
+        let at = if first == last {
+            format!("[{}] line {first}", k + 1)
+        } else {
+            format!("[{}] lines {first}-{last}", k + 1)
+        };
+        let fate = compared.as_ref().and_then(|c| c.current.get(k)).copied();
+        let mark = match fate {
+            Some(crate::blocks::Fate::Changed) => Some("changed"),
+            Some(crate::blocks::Fate::New) => Some("new"),
+            Some(crate::blocks::Fate::Same) if stale.contains(&b.hash) => {
+                Some("a pin it rests on is stale")
+            }
+            _ => None,
+        };
+        match mark {
+            Some(m) => out.push_str(&format!("{at}, {m}:\n{}", indented(&b.text))),
+            None => out.push_str(&format!("{at}: {}\n", excerpt(&b.text))),
+        }
+    }
+    if let (Some(recorded), Some(c)) = (&recorded, &compared) {
+        if !c.removed.is_empty() {
+            // the text the record was taken of, where history still holds it
+            let then: Vec<crate::blocks::Block> = match (&repo, last) {
+                (Some(repo), Some((_, rev))) => {
+                    let spec = format!("{rev}:{}{rel}", root_prefix(repo, root));
+                    git(repo, &["show", &spec])
+                        .map(|t| crate::blocks::split(&crate::fresh::body_text(&t)))
+                        .unwrap_or_default()
+                }
+                _ => Vec::new(),
+            };
+            let mut texts = Vec::new();
+            let mut lost = 0usize;
+            for i in &c.removed {
+                let hash = recorded.get(*i).map(String::as_str).unwrap_or("");
+                match then.iter().find(|b| b.hash == hash) {
+                    Some(b) => texts.push(b.text.clone()),
+                    None => lost += 1,
+                }
+            }
+            if !texts.is_empty() {
+                out.push_str(&format!("{} removed:\n", texts.len()));
+                for t in &texts {
+                    out.push_str(&indented(t));
+                }
+            }
+            if lost > 0 {
+                out.push_str(&format!("{lost} removed (text not in this history)\n"));
+            }
+        }
+    }
+    let pins = crate::fresh::pins_of(fm);
+    for p in &pins {
+        let Some(b) = &p.block else { continue };
+        match current.iter().position(|h| h == b) {
+            Some(k) if stale.contains(b) => out.push_str(&format!(
+                "pin {} bound to [{}], stale — re-read that block against it, then `docsys pin --refresh {rel}`\n",
+                p.label(),
+                k + 1
+            )),
+            Some(_) => {}
+            None => out.push_str(&format!(
+                "pin {} bound to a block the body no longer holds (R-213) — bind it again with `docsys pin {rel} {}{} --block <n>`\n",
+                p.label(),
+                p.path,
+                p.symbol
+                    .as_ref()
+                    .map(|s| format!(" --symbol {s}"))
+                    .unwrap_or_default()
+            )),
+        }
+    }
+    let sources = fm
+        .fields
+        .get("sources")
+        .and_then(Value::as_list)
+        .unwrap_or(&[]);
+    let mut against = Vec::new();
+    if !sources.is_empty() {
+        against.push(format!("sources {}", sources.join(", ")));
+    }
+    if !pins.is_empty() {
+        let labels: Vec<String> = pins.iter().map(crate::fresh::Pin::label).collect();
+        against.push(format!("pins {}", labels.join(", ")));
+    }
+    out.push_str(&if against.is_empty() {
+        "read against: nothing listed — no `sources:`, no pins\n".to_string()
+    } else {
+        format!("read against: {}\n", against.join(" · "))
+    });
+    if let Some(h) = get("checked_hash") {
+        let evidence = fm
+            .fields
+            .get("checked_against")
+            .and_then(Value::as_list)
+            .map(|l| l.join(", "))
+            .unwrap_or_default();
+        out.push_str(&format!(
+            "check: by {} at {}, against {} — {}\n",
+            get("checked_by").unwrap_or("?"),
+            get("checked_rev").unwrap_or("?"),
+            if evidence.is_empty() {
+                "nothing listed"
+            } else {
+                &evidence
+            },
+            if h == crate::fresh::content_hash(&body) {
+                "it read the body as it is; a check is a machine's reading, never a verification"
+            } else {
+                "stale: the body moved since it was checked"
+            }
+        ));
+    }
+    out.push_str(&next);
+    Ok(out)
+}
+
 #[cfg(test)]
 #[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 mod tests {
@@ -581,6 +814,7 @@ mod tests {
             by: "ayse",
             rev: "abc1234",
             hash: &h,
+            blocks: &[],
             sources: &none,
         };
         let text = "---\nid: x\ntype: reference\nverification: unverified\nsources: [a.md]\nupdated: 2026-01-01\n---\nBody.\n";
@@ -595,6 +829,7 @@ mod tests {
             by: "bora",
             rev: "def5678",
             hash: &h,
+            blocks: &[],
             sources: &src,
         };
         let twice = write_record(&back, Some(&again), true, "2026-09-06").unwrap();
@@ -614,6 +849,7 @@ mod tests {
             by: "ayse",
             rev: "abc1234",
             hash: "",
+            blocks: &[],
             sources: &none,
         };
         let out = write_record(text, Some(&old), false, "2026-09-04").unwrap();
@@ -622,6 +858,47 @@ mod tests {
         assert!(
             back.contains("verification: unverified\nsources: [a.md]\n")
                 && !back.contains("verified_by"),
+            "{back}"
+        );
+    }
+
+    #[test]
+    fn the_block_record_is_one_inline_list_replaced_whole_even_when_reflowed() {
+        let h = "sha256:".to_string() + &"a".repeat(64);
+        let two = vec!["941ba81fbfec".to_string(), "28949667d156".to_string()];
+        let rec = Record {
+            by: "ayse",
+            rev: "abc1234",
+            hash: &h,
+            blocks: &two,
+            sources: &[],
+        };
+        let text = "---\nid: x\ntype: reference\nverification: unverified\nsources: []\nupdated: 2026-01-01\n---\nBody.\n";
+        let out = write_record(text, Some(&rec), true, "2026-10-02").unwrap();
+        assert!(out.contains(&format!("verified_hash: \"{h}\"\nverified_blocks: [941ba81fbfec, 28949667d156]\nsources: []\n")), "{out}");
+        // a formatter reflowed the list (D-002): a new verification replaces it whole
+        let reflowed = out.replace(
+            "[941ba81fbfec, 28949667d156]",
+            "[\n  941ba81fbfec,\n  28949667d156,\n]",
+        );
+        let one = vec!["701b6f9c375e".to_string()];
+        let again = Record {
+            blocks: &one,
+            ..rec
+        };
+        let twice = write_record(&reflowed, Some(&again), true, "2026-10-03").unwrap();
+        assert_eq!(twice.matches("941ba81fbfec").count(), 0, "{twice}");
+        assert!(
+            twice.contains(
+                "verified_blocks: [701b6f9c375e]\nsources: []\nupdated: 2026-10-03\n---\n"
+            ),
+            "{twice}"
+        );
+        // a revoke keeps it as part of the last verification
+        let back = write_record(&twice, None, true, "2026-10-04").unwrap();
+        assert!(
+            back.contains("verification: unverified\nverified_by: ayse\nverified_rev: abc1234\nverified_hash: ")
+                && back.contains("verified_blocks: [701b6f9c375e]\n"),
             "{back}"
         );
     }

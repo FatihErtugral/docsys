@@ -276,11 +276,12 @@ fn an_edit_that_changes_a_verified_body_demotes_the_page_and_keeps_the_record() 
         "{after}"
     );
     assert!(after.contains("verified_hash: \"sha256:"), "{after}");
-    // the lookup and lint agree: unverified, no error to clear by hand
+    // the lookup and lint agree: unverified, no error to clear by hand; the
+    // block record says how much still reads as verified (R-212)
     let hits = docsys::lookup::lookup(&root, &["token".to_string()]).unwrap();
     assert_eq!(
         hits.first().and_then(|h| h.caveat.clone()).as_deref(),
-        Some("unverified")
+        Some("unverified — 1/2 blocks as verified by ayse")
     );
     assert_eq!(findings(&root, &repo), Vec::<String>::new());
     let _ = fs::remove_dir_all(&repo);
@@ -296,7 +297,7 @@ fn lookup_says_a_verified_body_changed_without_any_history() {
     let hits = docsys::lookup::lookup(&root, &["token".to_string()]).unwrap();
     assert_eq!(
         hits.first().and_then(|h| h.caveat.clone()).as_deref(),
-        Some("verified, but the body changed since")
+        Some("verified, but the body changed since — 1/2 blocks as verified by ayse")
     );
     let _ = fs::remove_dir_all(&repo);
 }

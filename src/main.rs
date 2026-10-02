@@ -16,6 +16,7 @@ Usage:
                                              # docsys is wrong or in your way: the guide, or an issue drafted with the facts filled in — never filed by the tool
   docsys lint    [--root <dir>] [--repo <dir>] [--json]   # inside a git repository: pins and history too
   docsys pin     <page> <path> [--symbol <s>] [--repo .] [--root docs]   # pin a page to a code region (verifies:, §11)
+  docsys pin     <page> <path> [--symbol <s>] --block <n> …            # docsys/0.5: the pin backs block n as `verify --show` numbers it (§21, R-213)
   docsys pin     --refresh <page> [--repo .] [--root docs]              # recompute its pins after re-reading the page
   docsys pin     --gc [--repo .] [--root docs]                         # docsys/0.5: remove acknowledgements no current pin region matches (D-119)
   docsys compile <howto> [--root docs] [--dir .claude] [--force]        # a howto's body as an executable skill, pinned to its source hash (R-094, R-095)
@@ -29,6 +30,7 @@ Usage:
   docsys status  [--root <dir>] [--repo <dir>] [--json]   # the digest: inbox, pages by state, open items, consumed, skills, findings
   docsys forget  <page-id|page-path|record-path> --reason <text> [--root <dir>]   # a page to _archive/ with a tombstone, a record to raw/_forgotten/; the ledger says why
   docsys verify  <page> [--by <handle|@login>] [--commit] [--revoke] [--root docs]   # a maintainer's record in one step: who from git identity, rev from HEAD, sources checked; --revoke: back to unverified
+  docsys verify  --show <page> [--root docs]   # docsys/0.5: what a re-verification reads — the blocks numbered, the changed, new and removed ones, stale bound pins, the sources (§21, R-212)
   docsys verify  --range <a>...<b> (--by @login | --from-trailers) [--commit] [--root docs]   # every page the range touched, under the review approver's identity: a login a host adapter passes, or the Reviewed-by:/Approved-by: trailer in git (D-095); a login on no maintainer entry is a skip, exit 0 (D-105)
   docsys check   <page> --by <agent|session> [--against <evidence>]… [--commit] [--root docs]   # a machine's reading of every claim against its evidence, recorded beside — never as — a maintainer's verification (§21, docsys/0.5)
   docsys raw     move <record> <domain> [--root <dir>]   # a note from raw/inbox/ to raw/<domain>/, through git, bytes untouched; every citing page's sources: rewritten (R-027)
@@ -99,6 +101,7 @@ struct Opts {
     by: Option<String>,
     commit: bool,
     revoke: bool,
+    show: bool,
     from_trailers: bool,
     target: Option<String>,
     since: Option<String>,
@@ -115,6 +118,7 @@ struct Opts {
     refresh: bool,
     gc: bool,
     symbol: Option<String>,
+    block: Option<usize>,
     as_ns: Option<String>,
     source: Option<String>,
     source_id: Option<String>,
@@ -161,6 +165,7 @@ fn parse_opts(args: &[String]) -> Result<Opts, String> {
         by: None,
         commit: false,
         revoke: false,
+        show: false,
         from_trailers: false,
         target: None,
         since: None,
@@ -177,6 +182,7 @@ fn parse_opts(args: &[String]) -> Result<Opts, String> {
         refresh: false,
         gc: false,
         symbol: None,
+        block: None,
         as_ns: None,
         source: None,
         source_id: None,
@@ -223,6 +229,7 @@ fn parse_opts(args: &[String]) -> Result<Opts, String> {
             "--by" => o.by = Some(it.next().ok_or("--by needs a value")?.clone()),
             "--commit" => o.commit = true,
             "--revoke" => o.revoke = true,
+            "--show" => o.show = true,
             "--from-trailers" => o.from_trailers = true,
             "--skipped" => o.skipped = true,
             "--target" => o.target = Some(it.next().ok_or("--target needs a value")?.clone()),
@@ -260,6 +267,17 @@ fn parse_opts(args: &[String]) -> Result<Opts, String> {
             "--refresh" => o.refresh = true,
             "--gc" => o.gc = true,
             "--symbol" => o.symbol = Some(it.next().ok_or("--symbol needs a value")?.clone()),
+            "--block" => {
+                o.block = Some(
+                    it.next()
+                        .ok_or("--block needs a block number")?
+                        .parse()
+                        .map_err(|_| {
+                            "--block needs a block number, as `docsys verify --show <page>` numbers them"
+                                .to_string()
+                        })?,
+                );
+            }
             "--as" => o.as_ns = Some(it.next().ok_or("--as needs a value")?.clone()),
             "--source" => o.source = Some(it.next().ok_or("--source needs a value")?.clone()),
             "--id" => o.source_id = Some(it.next().ok_or("--id needs a value")?.clone()),
@@ -1138,6 +1156,22 @@ next: review, `git add -A && git commit`, then open an agent session here."
                 }
             }
         }
+        ("verify", None) if opts.show => match opts.positional.first() {
+            Some(page) => match docsys::verify::show(&opts.root, page) {
+                Ok(text) => {
+                    print!("{text}");
+                    ExitCode::SUCCESS
+                }
+                Err(e) => {
+                    eprintln!("verify: {e}");
+                    ExitCode::from(2)
+                }
+            },
+            None => {
+                eprintln!("verify --show needs <page-id|page-path>");
+                ExitCode::from(2)
+            }
+        },
         ("verify", None) => match opts.positional.first() {
             Some(page) => match docsys::verify::verify(
                 &opts.root,
@@ -1304,11 +1338,16 @@ next: review, `git add -A && git commit`, then open an agent session here."
                 }
             } else {
                 match (opts.positional.first(), opts.positional.get(1)) {
-                    (Some(page), Some(path)) => {
-                        docsys::fresh::pin(&root, &repo, page, path, opts.symbol.as_deref())
-                    }
+                    (Some(page), Some(path)) => docsys::fresh::pin_block(
+                        &root,
+                        &repo,
+                        page,
+                        path,
+                        opts.symbol.as_deref(),
+                        opts.block,
+                    ),
                     _ => Err(
-                        "pin needs <page> <path> [--symbol <s>], --refresh <page>, or --gc"
+                        "pin needs <page> <path> [--symbol <s>] [--block <n>], --refresh <page>, or --gc"
                             .to_string(),
                     ),
                 }

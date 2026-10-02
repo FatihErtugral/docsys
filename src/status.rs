@@ -55,6 +55,10 @@ pub struct Status {
     /// a 0.5 tree's acknowledgements whose page id pins nothing any more
     /// (D-119) — `None` in a 0.4 tree, which keeps none
     pub orphan_acks: Option<usize>,
+    /// pages whose block record holds only part of the body now — a block
+    /// edited, or one whose bound pin is stale — with the blocks found again
+    /// and the body's count (§21, R-212, R-213); `None` in a 0.4 tree
+    pub partially_verified: Option<Vec<(String, usize, usize)>>,
     pub first_errors: Vec<String>,
 }
 
@@ -251,7 +255,26 @@ pub fn status(root: &Path, repo: Option<&Path>) -> Result<Status, String> {
             }
         }
     }
-    if crate::era::Era::of(&tree).acknowledged_pins() {
+    let era = crate::era::Era::of(&tree);
+    if era.block_records() {
+        let mut partial = Vec::new();
+        for page in tree.pages.iter().filter(|p| p.kind == Kind::Permanent) {
+            let Some(fm) = &page.fm else { continue };
+            if crate::blocks::record_of(fm).is_none() {
+                continue;
+            }
+            let stale = repo
+                .map(|r| crate::fresh::stale_blocks(root, r, era, fm))
+                .unwrap_or_default();
+            if let Some(r) = crate::blocks::reading(fm, &page.text, &stale)
+                .filter(crate::blocks::Reading::partial)
+            {
+                partial.push((page.rel.clone(), r.found, r.of));
+            }
+        }
+        s.partially_verified = Some(partial);
+    }
+    if era.acknowledged_pins() {
         let pinning: std::collections::BTreeSet<String> = tree
             .pages
             .iter()
@@ -399,6 +422,17 @@ pub fn render(s: &Status, root: &Path) -> String {
             "pins: {n} acknowledgement(s) no page pins any more — `docsys pin --gc` removes them\n"
         ));
     }
+    if let Some(pages) = s.partially_verified.as_ref().filter(|p| !p.is_empty()) {
+        let list: Vec<String> = pages
+            .iter()
+            .map(|(page, found, of)| format!("{page} {found}/{of}"))
+            .collect();
+        out.push_str(&format!(
+            "blocks: {} page(s) partially verified — {} — `docsys verify --show <page>` lists what to re-read\n",
+            pages.len(),
+            list.join(", ")
+        ));
+    }
     if s.rev_gone > 0 {
         out.push_str(&format!(
             "verification: {} verified page(s) anchored by their body hash; their revision is not in this history (a squash or a rebase) — nothing to do\n",
@@ -468,8 +502,11 @@ pub fn render_json(s: &Status) -> String {
     let acks = s.orphan_acks.map_or(String::new(), |n| {
         format!(",\"acknowledgements_orphaned\":{n}")
     });
+    let partial = s.partially_verified.as_ref().map_or(String::new(), |p| {
+        format!(",\"partially_verified\":{}", p.len())
+    });
     format!(
-        "{{\"profile\":\"{}\",\"namespace\":{},\"inbox\":{},\"inbox_oldest\":{}{records},\"permanent\":{},\"unverified\":[{}],\"work\":{{{}}},\"questions_open\":{},\"debt_open\":{},\"consumed\":[{}],\"skills_compiled\":{},\"errors\":{},\"warnings\":{},\"by_rule\":{{{}}},\"sources_moved\":{},\"forgotten\":{},\"rev_gone\":{}{acks},\"checked\":{},\"checked_stale\":{},\"first_errors\":[{}]}}\n",
+        "{{\"profile\":\"{}\",\"namespace\":{},\"inbox\":{},\"inbox_oldest\":{}{records},\"permanent\":{},\"unverified\":[{}],\"work\":{{{}}},\"questions_open\":{},\"debt_open\":{},\"consumed\":[{}],\"skills_compiled\":{},\"errors\":{},\"warnings\":{},\"by_rule\":{{{}}},\"sources_moved\":{},\"forgotten\":{},\"rev_gone\":{}{acks}{partial},\"checked\":{},\"checked_stale\":{},\"first_errors\":[{}]}}\n",
         esc(&s.profile),
         s.namespace
             .as_ref()

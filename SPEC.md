@@ -2141,6 +2141,22 @@ being mistaken for it.
 > rules bind nothing; a tree that never writes them is untouched by everything
 > below.
 
+**R-212** `lint` · MAY — A verification MAY record its blocks: `verified_blocks`,
+the body's block hashes in order (D-103 delimits a block and shortens its hash).
+With a block record, a page whose body changed reports how much of it still
+reads as verified — the recorded blocks found again, in order — and a
+re-verification reads only the rest: `docsys verify --show <page>` prints the
+changed and new blocks, the removed ones (from `verified_rev` where history
+holds it), the pins bound to them and the page's sources. The page's state stays
+`verification:`; the block record never makes a changed page `verified`.
+
+**R-213** `lint` · MAY — A `verifies:` entry MAY carry `block:`, the hash of the
+block it backs. A stale pin (R-111) then names its block, and on a verified page
+only that block stops reading as verified. A binding whose block no longer
+exists in the body **is reported**: the block was rewritten, and the pin must be
+bound again (`docsys pin <page> <path> --symbol <s> --block <n>`) or the binding
+dropped.
+
 **R-214** `lint` · MAY — A page MAY carry a check record: `checked_by` (the agent
 or session that checked), `checked_rev`, `checked_hash` (the body read, R-113)
 and `checked_against` (the evidence read — each entry resolvable as a `sources:`

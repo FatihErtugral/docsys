@@ -58,6 +58,22 @@ stderr. Move one repository when it is ready:
   against its evidence, recorded beside — never as — a maintainer's
   verification. Lint reports a stale or incomplete check; `status` counts
   current and stale checks; `lookup` marks `unverified · checked by …`.
+- On a docsys/0.5 tree `docsys verify` also records the body's blocks
+  (`verified_blocks`; §21, R-212, D-103) — a bullet, a paragraph, a heading,
+  a fence or a comment, cut by markup alone — so a changed page costs a
+  re-read of the change. `docsys verify --show <page>` lists what that
+  re-read is: the blocks numbered with their lines, the changed and new ones
+  with their text, the removed ones from `verified_rev` where history still
+  holds it, stale or lost bound pins, the sources and pins to read against,
+  and a check record. Lint's R-024 error for a page still marked verified
+  says how many blocks are unchanged; `status` counts partially verified
+  pages (`blocks:`, `partially_verified`); `lookup` marks `unverified — m/n
+  blocks as verified by …`.
+- On a docsys/0.5 tree `docsys pin <page> <path> [--symbol <s>] --block <n>`
+  binds a pin to the block it backs (R-213): a stale bound pin's R-111 names
+  its block, and only that block stops counting as verified; a binding whose
+  block was rewritten is reported (`WARN R-213`), to be bound again or
+  dropped.
 - `docsys feedback` (D-116): the issue format and, with `--draft`, an issue
   body with the facts the tool knows — version, OS, the tree's profile and
   spec, the rule's text, a docsys command's output, a redacted `.docmeta.yml`,
@@ -284,6 +300,9 @@ stderr. Move one repository when it is ready:
   never renamed.
 - The workflow `adopt` writes for a tree at the repository's top passes
   `--root .`; 0.15 wrote an empty `--root` there.
+- `pin` and `pin --refresh` keep a pin's `block:` when they rewrite the
+  page's `verifies:`; they dropped every key but `path`, `symbol` and
+  `hash`.
 
 ## [0.15.1] - 2026-09-04
 

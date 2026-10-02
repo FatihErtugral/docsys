@@ -6,6 +6,7 @@ pub mod ack;
 pub mod adopt;
 pub mod agents;
 pub mod assistant;
+pub mod blocks;
 pub mod capture;
 pub mod check;
 pub mod checks;

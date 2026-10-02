@@ -150,6 +150,13 @@ impl Era {
     pub fn machine_checks(self) -> bool {
         self.v05()
     }
+
+    /// R-212, R-213 (§21, D-103): a verification records the body's blocks, a
+    /// pin may be bound to one, and a moved body says how much of it still
+    /// reads as verified. Before: a page is verified whole or not at all.
+    pub fn block_records(self) -> bool {
+        self.v05()
+    }
 }
 
 #[cfg(test)]

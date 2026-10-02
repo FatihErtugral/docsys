@@ -28,6 +28,7 @@ const R106: RuleId = RuleId("R-106");
 const R111: RuleId = RuleId("R-111");
 const R113: RuleId = RuleId("R-113");
 const R114: RuleId = RuleId("R-114");
+const R213: RuleId = RuleId("R-213");
 
 /// Above this many lines, `pin` notes that a whole-file pin goes stale on
 /// every edit (D-106).
@@ -362,6 +363,8 @@ pub struct Pin {
     pub path: String,
     pub symbol: Option<String>,
     pub hash: String,
+    /// the block of the body this pin backs (R-213, D-103)
+    pub block: Option<String>,
 }
 
 impl Pin {
@@ -389,6 +392,7 @@ pub fn pins_of(fm: &Frontmatter) -> Vec<Pin> {
                             .get("hash")
                             .map(|h| h.trim().to_string())
                             .unwrap_or_default(),
+                        block: m.get("block").map(|b| b.trim().to_string()),
                     })
                 })
                 .collect()
@@ -438,14 +442,60 @@ fn page_id(fm: &Frontmatter) -> Option<String> {
         .map(str::to_string)
 }
 
+/// Why a pin is not fresh now — the finding's rule and message — or `None`.
+/// In a 0.5 tree a pin is fresh while an acknowledgement of its region exists
+/// (D-119); a pin that still carries `hash:` is a record from before 0.5 and
+/// is checked against it, in R-113's canonical form, until a refresh or
+/// `docsys upgrade` moves it into an acknowledgement.
+fn pin_problem(
+    root: &Path,
+    repo: &Path,
+    era: Era,
+    id: Option<&str>,
+    pin: &Pin,
+    rel: &str,
+) -> Option<(RuleId, String)> {
+    if era.acknowledged_pins() && pin.hash.is_empty() {
+        return match region_hash_now(repo, pin, era) {
+            Err(e) => Some(e),
+            Ok(now) if !id.is_some_and(|i| crate::ack::holds(root, i, &now)) => Some((
+                R111,
+                format!(
+                    "stale: `{}` reads differently from every acknowledgement of this \
+                     page — re-read the page against it, then `docsys pin --refresh {rel}`",
+                    pin.label()
+                ),
+            )),
+            Ok(_) => None,
+        };
+    }
+    if !pin.hash.starts_with("sha256:") || pin.hash.len() != 71 {
+        return Some((
+            R113,
+            format!(
+                "hash `{}` is not `sha256:<64 hex>` — `docsys pin {rel} {}` writes it",
+                pin.hash, pin.path
+            ),
+        ));
+    }
+    match current_hash(repo, pin, era) {
+        Err(e) => Some(e),
+        Ok(now) if now != pin.hash => Some((
+            R111,
+            format!(
+                "stale: `{}` moved since the page was pinned — re-read the page, then \
+                 `docsys pin --refresh {rel}`",
+                pin.label()
+            ),
+        )),
+        Ok(_) => None,
+    }
+}
+
 /// R-110/R-111/R-113/R-114 over every pinned permanent page. In a 0.5 tree a
-/// pin is fresh while an acknowledgement of its region exists (D-119); a pin
-/// that still carries `hash:` is a record from before 0.5 and is checked
-/// against it, in R-113's canonical form, until a refresh or `docsys
-/// upgrade` moves it into an acknowledgement.
+/// stale pin bound to a block names it (R-213).
 pub fn check_pins(tree: &DocTree, repo: &Path, r: &mut Report) {
     let era = Era::of(tree);
-    let acknowledged = era.acknowledged_pins();
     let mut inspected = 0usize;
     for page in &tree.pages {
         if page.kind != Kind::Permanent {
@@ -453,64 +503,100 @@ pub fn check_pins(tree: &DocTree, repo: &Path, r: &mut Report) {
         }
         let Some(fm) = &page.fm else { continue };
         let id = page_id(fm);
+        let mut blocks: Option<Vec<String>> = None;
         for pin in pins_of(fm) {
             inspected += 1;
-            if acknowledged && pin.hash.is_empty() {
-                match region_hash_now(repo, &pin, era) {
-                    Err((rule, msg)) => {
-                        r.findings
-                            .push(Finding::err(rule, &page.rel, &pin.label(), msg))
-                    }
-                    Ok(now) if !id.as_deref().is_some_and(|i| crate::ack::holds(&tree.root, i, &now)) => {
-                        r.findings.push(Finding::err(
-                            R111,
-                            &page.rel,
-                            &pin.label(),
-                            format!(
-                                "stale: `{}` reads differently from every acknowledgement of this \
-                                 page — re-read the page against it, then `docsys pin --refresh {}`",
-                                pin.label(),
-                                page.rel
-                            ),
-                        ))
-                    }
-                    Ok(_) => {}
-                }
+            let Some((rule, mut msg)) =
+                pin_problem(&tree.root, repo, era, id.as_deref(), &pin, &page.rel)
+            else {
                 continue;
-            }
-            if !pin.hash.starts_with("sha256:") || pin.hash.len() != 71 {
-                r.findings.push(Finding::err(
-                    R113,
-                    &page.rel,
-                    &pin.label(),
-                    format!(
-                        "hash `{}` is not `sha256:<64 hex>` — `docsys pin {} {}` writes it",
-                        pin.hash, page.rel, pin.path
-                    ),
-                ));
-                continue;
-            }
-            match current_hash(repo, &pin, era) {
-                Err((rule, msg)) => {
-                    r.findings
-                        .push(Finding::err(rule, &page.rel, &pin.label(), msg))
-                }
-                Ok(now) if now != pin.hash => r.findings.push(Finding::err(
-                    R111,
-                    &page.rel,
-                    &pin.label(),
-                    format!(
-                        "stale: `{}` moved since the page was pinned — re-read the page, then \
-                         `docsys pin --refresh {}`",
-                        pin.label(),
+            };
+            if let Some(b) = pin
+                .block
+                .as_ref()
+                .filter(|_| rule == R111 && era.block_records())
+            {
+                let current =
+                    blocks.get_or_insert_with(|| crate::blocks::hashes(&body_text(&page.text)));
+                if let Some(k) = current.iter().position(|h| h == b) {
+                    msg.push_str(&format!(
+                        " — it backs block [{}]: only that block stops reading as verified \
+                         (`docsys verify --show {}`)",
+                        k + 1,
                         page.rel
-                    ),
-                )),
-                Ok(_) => {}
+                    ));
+                }
             }
+            r.findings
+                .push(Finding::err(rule, &page.rel, &pin.label(), msg));
         }
     }
     r.inspected.insert("verifies-pins", inspected);
+}
+
+/// The blocks whose bound pin is stale now (R-213, R-111): on a verified page
+/// only they stop reading as verified. Empty before 0.5.
+pub fn stale_blocks(root: &Path, repo: &Path, era: Era, fm: &Frontmatter) -> Vec<String> {
+    if !era.block_records() {
+        return Vec::new();
+    }
+    let id = page_id(fm);
+    pins_of(fm)
+        .into_iter()
+        .filter(|p| p.block.is_some())
+        .filter(|p| {
+            matches!(
+                pin_problem(root, repo, era, id.as_deref(), p, ""),
+                Some((rule, _)) if rule == R111
+            )
+        })
+        .filter_map(|p| p.block)
+        .collect()
+}
+
+/// R-213 (§21, D-103), without history: a pin bound to a block the body no
+/// longer holds is reported — the block was rewritten, and which block the pin
+/// backs now is the author's judgment.
+pub fn check_block_bindings(tree: &DocTree, r: &mut Report) {
+    let mut inspected = 0usize;
+    for page in &tree.pages {
+        if page.kind != Kind::Permanent {
+            continue;
+        }
+        let Some(fm) = &page.fm else { continue };
+        let bound: Vec<Pin> = pins_of(fm)
+            .into_iter()
+            .filter(|p| p.block.is_some())
+            .collect();
+        if bound.is_empty() {
+            continue;
+        }
+        let current = crate::blocks::hashes(&body_text(&page.text));
+        for pin in bound {
+            inspected += 1;
+            let Some(b) = pin.block.as_ref().filter(|b| !current.contains(b)) else {
+                continue;
+            };
+            let symbol = pin
+                .symbol
+                .as_ref()
+                .map(|s| format!(" --symbol {s}"))
+                .unwrap_or_default();
+            r.findings.push(Finding::warn(
+                R213,
+                &page.rel,
+                &pin.label(),
+                format!(
+                    "bound to block `{b}`, which the body no longer holds — the block was \
+                     rewritten: re-read it, then bind the pin again (`docsys pin {} {}{symbol} \
+                     --block <n>`; `docsys verify --show {}` numbers the blocks) or drop its \
+                     `block:`",
+                    page.rel, pin.path, page.rel
+                ),
+            ));
+        }
+    }
+    r.inspected.insert("block-bindings", inspected);
 }
 
 // ---------------------------------------------------------------- history
@@ -1195,6 +1281,7 @@ pub(crate) fn source_hash(root: &Path, source: &str) -> Option<String> {
 /// revision is a pointer, not the evidence — a squash or a rebase that left it
 /// unreachable undoes nothing.
 pub fn check_verified_hashes(tree: &DocTree, r: &mut Report) {
+    let blocks = Era::of(tree).block_records();
     let mut inspected = 0usize;
     for page in &tree.pages {
         if page.kind != Kind::Permanent {
@@ -1221,16 +1308,31 @@ pub fn check_verified_hashes(tree: &DocTree, r: &mut Report) {
                 format!("`verified_hash: {recorded}` is not `sha256:` and 64 hex digits (R-113) — the record cannot be checked"),
             ));
         } else if content_hash(&body_text(&page.text)) != recorded {
-            r.findings.push(Finding::err(
-                RuleId("R-024"),
-                &page.rel,
-                "verification",
-                format!(
+            // with a block record the error says how much still reads as
+            // verified, and where the rest is listed (R-212)
+            let partial = blocks
+                .then(|| crate::blocks::reading(fm, &page.text, &[]))
+                .flatten();
+            let message = match partial {
+                Some(p) => format!(
+                    "`verified` at {rev}, but the body changed since: {}/{} blocks unchanged — \
+                     `docsys verify --show {}` lists what to re-read. `docsys verify --revoke \
+                     {}` marks it unverified and keeps the record; a maintainer verifies it \
+                     again (R-025)",
+                    p.found, p.of, page.rel, page.rel
+                ),
+                None => format!(
                     "`verified` at {rev}, but the body changed since — verification describes \
                      content that no longer exists: `docsys verify --revoke {}` marks it \
                      unverified and keeps the record; a maintainer verifies it again (R-025)",
                     page.rel
                 ),
+            };
+            r.findings.push(Finding::err(
+                RuleId("R-024"),
+                &page.rel,
+                "verification",
+                message,
             ));
         }
         let recorded_sources: Vec<(String, String)> = fm
@@ -1344,6 +1446,9 @@ fn rewrite(text: &str, pins: &[Pin], today: &str) -> Result<String, String> {
             if let Some(s) = &p.symbol {
                 out.push(format!("    symbol: {s}"));
             }
+            if let Some(b) = &p.block {
+                out.push(format!("    block: {b}"));
+            }
             if !p.hash.is_empty() {
                 out.push(format!("    hash: \"{}\"", p.hash));
             }
@@ -1424,10 +1529,44 @@ pub fn pin(
     path: &str,
     symbol: Option<&str>,
 ) -> Result<String, String> {
+    pin_block(root, repo, page, path, symbol, None)
+}
+
+/// `pin`, and with `--block <n>` (R-213, a docsys/0.5 tree) the entry bound to
+/// the hash of the body's block n as `docsys verify --show` numbers them — the
+/// hash, never the number, so the binding survives blocks added around it.
+pub fn pin_block(
+    root: &Path,
+    repo: &Path,
+    page: &str,
+    path: &str,
+    symbol: Option<&str>,
+    block: Option<usize>,
+) -> Result<String, String> {
     let rel = locate(root, page)?;
     let file = root.join(&rel);
     let text = fs::read_to_string(&file).map_err(|e| e.to_string())?;
     let fm = crate::fm::parse(&text).ok_or("the page has no frontmatter (R-050)")?;
+    let era = Era::at(root);
+    let bound = match block {
+        None => None,
+        Some(_) if !era.block_records() => {
+            return Err(
+                "a pin bound to a block is a docsys/0.5 format — `docsys upgrade` moves the tree first (D-118)"
+                    .into(),
+            )
+        }
+        Some(n) => {
+            let blocks = crate::blocks::hashes(&body_text(&text));
+            let hash = n.checked_sub(1).and_then(|i| blocks.get(i)).cloned();
+            Some(hash.ok_or_else(|| {
+                format!(
+                    "{rel} has {} block(s), and `--block` takes one of them by number — `docsys verify --show {rel}` numbers them",
+                    blocks.len()
+                )
+            })?)
+        }
+    };
     let symbol = symbol
         .map(str::trim)
         .filter(|s| !s.is_empty())
@@ -1437,8 +1576,8 @@ pub fn pin(
         path: path.clone(),
         symbol: symbol.clone(),
         hash: String::new(),
+        block: bound.clone(),
     };
-    let era = Era::at(root);
     let today = crate::migrate::today();
     let mut out = if era.acknowledged_pins() {
         let id = page_id(&fm).ok_or_else(|| {
@@ -1452,13 +1591,29 @@ pub fn pin(
         if known {
             // the other pins' records from before 0.5 move with this one
             convert_page(root, repo, &rel, true)?;
+            if bound.is_some() {
+                let text = fs::read_to_string(&file).map_err(|e| e.to_string())?;
+                let fm = crate::fm::parse(&text).ok_or("the page has no frontmatter (R-050)")?;
+                let mut pins = pins_of(&fm);
+                for p in pins
+                    .iter_mut()
+                    .filter(|p| p.path == new.path && p.symbol == new.symbol)
+                {
+                    p.block = bound.clone();
+                }
+                fs::write(&file, rewrite(&text, &pins, &today)?).map_err(|e| e.to_string())?;
+            }
         } else {
             pins.push(new.clone());
             fs::write(&file, rewrite(&text, &pins, &today)?).map_err(|e| e.to_string())?;
         }
         crate::ack::write(root, &id, &hash).map_err(|e| e.to_string())?;
+        let binding = match (block, &bound) {
+            (Some(n), Some(b)) => format!(", bound to block [{n}] ({b})"),
+            _ => String::new(),
+        };
         format!(
-            "pinned {rel} → {}, acknowledged {}",
+            "pinned {rel} → {}, acknowledged {}{binding}",
             new.label(),
             short(&hash)
         )
@@ -1753,18 +1908,23 @@ mod tests {
                 path: "a.rs".into(),
                 symbol: Some("f".into()),
                 hash: String::new(),
+                block: Some("941ba81fbfec".into()),
             },
             Pin {
                 path: "b.rs".into(),
                 symbol: None,
                 hash: "sha256:x".into(),
+                block: None,
             },
         ];
         let out = rewrite(page, &pins, "2026-10-02").unwrap();
         assert_eq!(
             out,
-            "---\nid: p\nupdated: 2026-10-02\nverifies:\n  - path: a.rs\n    symbol: f\n  - path: b.rs\n    hash: \"sha256:x\"\n---\nbody\n"
+            "---\nid: p\nupdated: 2026-10-02\nverifies:\n  - path: a.rs\n    symbol: f\n    block: 941ba81fbfec\n  - path: b.rs\n    hash: \"sha256:x\"\n---\nbody\n"
         );
+        // read back as written: a refresh that rewrites the page keeps the binding
+        let fm = crate::fm::parse(&out).unwrap();
+        assert_eq!(pins_of(&fm), pins);
     }
 
     #[test]
@@ -1836,6 +1996,7 @@ mod tests {
             path: "src/a.rs".into(),
             symbol: Some("f".into()),
             hash: "sha256:abc".into(),
+            block: None,
         }];
         let out = rewrite(text, &pins, "2026-09-02").unwrap();
         assert_eq!(
