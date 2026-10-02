@@ -1,11 +1,11 @@
-//! Verification blocks (§21, R-212, R-213, D-103). A verification vouches
+//! Verification blocks (R-028, R-212, D-103). A verification vouches
 //! for a whole page; recording the body's blocks lets a changed page say how
 //! much of it still reads as verified, and lets a re-verification read only
 //! the change. A block is cut by ASCII markup alone, with no language
 //! knowledge: a fence, an ATX heading line, a top-level list item with what is
 //! indented under it, an HTML comment, or a paragraph — a table and a block
-//! quote are paragraphs. Its hash is a label for alignment, never evidence:
-//! the whole-body `verified_hash` stays that.
+//! quote are paragraphs. The sequence of block hashes is the verification's
+//! record of the body (R-028): the body as verified is the same sequence.
 
 use crate::fm::{Frontmatter, Value};
 
@@ -323,7 +323,13 @@ pub fn record_of(fm: &Frontmatter) -> Option<Vec<String>> {
         .map(|l| l.iter().map(|h| h.trim().to_string()).collect())
 }
 
-/// How much of a page still reads as verified (R-212, R-213).
+/// Whether the body still reads as recorded (R-024): the same blocks, in the
+/// same order. `None` without a record.
+pub fn holds(fm: &Frontmatter, text: &str) -> Option<bool> {
+    record_of(fm).map(|r| r == hashes(&crate::fresh::body_text(text)))
+}
+
+/// How much of a page still reads as verified (R-028, R-212).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Reading {
     /// the recorded blocks found again, less those a stale bound pin backs
@@ -353,10 +359,7 @@ pub fn reading(fm: &Frontmatter, text: &str, stale: &[String]) -> Option<Reading
         .zip(&current)
         .filter(|(f, h)| **f == Fate::Same && !stale.contains(h))
         .count();
-    let moved = match fm.fields.get("verified_hash").and_then(Value::as_str) {
-        Some(h) => crate::fresh::content_hash(&body) != h,
-        None => recorded != current,
-    };
+    let moved = recorded != current;
     Some(Reading {
         found,
         of: current.len(),
@@ -486,5 +489,14 @@ mod tests {
             record_of(&fm),
             Some(vec!["941ba81fbfec".to_string(), "28949667d156".to_string()])
         );
+    }
+
+    #[test]
+    fn an_empty_body_records_an_empty_list_and_still_holds() {
+        let page = "---\nid: x\nverified_blocks: []\n---\n";
+        let fm = crate::fm::parse(page).unwrap();
+        assert_eq!(record_of(&fm), Some(Vec::new()));
+        assert_eq!(holds(&fm, page), Some(true));
+        assert_eq!(holds(&fm, &format!("{page}New text.\n")), Some(false));
     }
 }

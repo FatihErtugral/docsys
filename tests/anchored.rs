@@ -101,7 +101,7 @@ fn prune(repo: &Path) {
 }
 
 /// Verify inside a pull request, squash it onto main, delete the branch: the
-/// revision is gone from every clone, the hash still vouches — and the
+/// revision is gone from every clone, the block record still vouches — and the
 /// maintainer's act survives through the trailer the host writes.
 fn squashed(name: &str, trailer: bool) -> (PathBuf, PathBuf) {
     let (repo, root) = project(name);
@@ -132,7 +132,7 @@ fn squashed(name: &str, trailer: bool) -> (PathBuf, PathBuf) {
 }
 
 #[test]
-fn a_squash_keeps_the_verification_by_its_hash_and_the_act_by_its_trailer() {
+fn a_squash_keeps_the_verification_by_its_record_and_the_act_by_its_trailer() {
     let (repo, root) = squashed("squash", true);
     assert_eq!(findings(&root, &repo), Vec::<String>::new());
     let s = docsys::status::status(&root, Some(&repo)).unwrap();
@@ -213,7 +213,7 @@ fn a_maintainer_verifying_a_line_a_junior_typed_is_the_maintainers_act() {
 }
 
 /// A record re-used over a body nobody verified: the junior changes the body
-/// and keeps `verified`, rewriting the hash so R-024 stays quiet. No commit
+/// and keeps `verified`, rewriting the block record so R-024 stays quiet. No commit
 /// since the body changed is the maintainer's.
 #[test]
 fn a_record_carried_over_a_new_body_is_not_the_maintainers_act() {
@@ -221,19 +221,21 @@ fn a_record_carried_over_a_new_body_is_not_the_maintainers_act() {
     docsys::verify::verify(&root, "token-ttl", None, true, false).unwrap();
     assert_eq!(findings(&root, &repo), Vec::<String>::new());
     let text = fs::read_to_string(root.join("reference/token-ttl.md")).unwrap();
-    let old_hash = text
+    let old_record = text
         .lines()
-        .find_map(|l| l.strip_prefix("verified_hash: "))
+        .find(|l| l.starts_with("verified_blocks: "))
         .unwrap()
-        .trim_matches('"')
         .to_string();
     let new_body = text.replace("Twelve hours.", "Six hours.");
     let body_at = new_body.find("\n---\n").unwrap() + 5;
-    let new_hash = docsys::fresh::content_hash(&new_body[body_at..]);
+    let new_record = format!(
+        "verified_blocks: [{}]",
+        docsys::blocks::hashes(&new_body[body_at..]).join(", ")
+    );
     write(
         &root,
         "reference/token-ttl.md",
-        &new_body.replace(&old_hash, &new_hash),
+        &new_body.replace(&old_record, &new_record),
     );
     commit_as(&repo, "junior@example.com", "docs: six hours", None);
     assert_eq!(
@@ -275,9 +277,9 @@ fn an_edit_that_changes_a_verified_body_demotes_the_page_and_keeps_the_record() 
         after.contains("verification: unverified\nverified_by: ayse\n"),
         "{after}"
     );
-    assert!(after.contains("verified_hash: \"sha256:"), "{after}");
+    assert!(after.contains("verified_blocks: ["), "{after}");
     // the lookup and lint agree: unverified, no error to clear by hand; the
-    // block record says how much still reads as verified (R-212)
+    // block record says how much still reads as verified (R-028)
     let hits = docsys::lookup::lookup(&root, &["token".to_string()]).unwrap();
     assert_eq!(
         hits.first().and_then(|h| h.caveat.clone()).as_deref(),
@@ -384,7 +386,7 @@ fn on_a_0_4_tree_verify_writes_the_old_record_and_an_edit_demotes_nothing() {
         "{text}"
     );
     assert!(
-        !text.contains("verified_hash"),
+        !text.contains("verified_blocks"),
         "a 0.5 field on a 0.4 tree: {text}"
     );
     let payload = format!(

@@ -181,8 +181,8 @@ version; the minor component MUST NOT be required to match.
 ### 2.4 Definitions
 
 **Content change.** A change to a page is a *content change* unless it touches
-only: the `updated` field, the verification record (R-028), a machine's check
-record (§21), a `verifies:` hash recorded after a re-read (R-111), a `sources:`
+only: the `updated` field, the verification record (R-028), a `verifies:` hash
+recorded after a re-read (R-111), a `sources:`
 path rewrite performed under R-027, or a structural target rewrite performed by
 a migration under R-172. Every rule that reads "content change" — R-024, R-052,
 R-082, R-085, R-106 — reads this definition. This is a definition, not a rule:
@@ -236,14 +236,14 @@ evidence trail of a `wiki/` page is a silent failure of the kind R-151 forbids. 
 page that undergoes a **content change** (§2.4) becomes `unverified`. The §2.4
 exclusions are what make verification recordable at all: without them the act of
 recording it, or a mechanical `sources:` path rewrite, would immediately undo it.
-The claim is checked, not trusted. A verification records the hash of the body it
-vouches for (`verified_hash`, R-113); a `verified` page whose body no longer
-hashes to it **is an error** until it is `unverified` again — with or without
-history, because the record carries its own evidence. A record without the hash
-is checked through history instead: a `verified` page whose body no longer hashes
+The claim is checked, not trusted. A verification records the blocks of the body
+it vouches for (`verified_blocks`, R-028); a `verified` page whose blocks are no
+longer the recorded sequence **is an error** until it is `unverified` again —
+with or without history, because the record carries its own evidence. A record
+without blocks is checked through history instead: a `verified` page whose body no longer hashes
 to what it held at `verified_rev` **is an error**, and a `verified_rev` that does
-not hold the page **is an error** under R-028 (D-077). Once the hash is recorded
-the revision is a pointer, not the evidence: a squash or a rebase that leaves
+not hold the page **is an error** under R-028 (D-077). Once the blocks are
+recorded the revision is a pointer, not the evidence: a squash or a rebase that leaves
 `verified_rev` unreachable does not undo the verification (D-101). The sources are
 checked the same way: a `verified` page whose consumed source (`@namespace/id`,
 §13) no longer hashes to what the verification recorded for it **is an error** —
@@ -261,12 +261,13 @@ repeat what the maintainer just did (D-096).
 
 **R-028** `lint` · MUST — Setting `verified` MUST record, in the page's
 frontmatter, who verified it (`verified_by`) and which source revision was
-verified (`verified_rev`), and records the hash of the body that was read
-(`verified_hash`) together with the hash of each consumed source
-(`verified_sources`). Without this record no reviewer can establish whether
-verification was independent (R-025) or whether it predates the current content.
-A record written before 0.5 carries no hashes and stays valid; R-024 checks it
-through history. A page that returns to `unverified` keeps the record as its last
+verified (`verified_rev`), and records the body that was read as its blocks in
+order (`verified_blocks`, each block's R-113 hash shortened; D-103 delimits a
+block) together with the hash of each consumed source (`verified_sources`).
+Without this record no reviewer can establish whether verification was
+independent (R-025) or whether it predates the current content. A record
+written before 0.5 carries neither and stays valid; R-024 checks it through
+history. A page that returns to `unverified` keeps the record as its last
 verification; `verification:` is the current state.
 
 **R-026** `lint` · MUST — `domain` values are declared in `.docmeta.yml`. A page
@@ -2129,26 +2130,16 @@ connector's whole job is the left three columns.
 
 ---
 
-## 21. Verification detail (EXPERIMENTAL)
+## 21. Pins bound to blocks (EXPERIMENTAL)
 
-A verification vouches for a whole page; this section lets it also say *which
-parts* it read, so that a change costs a re-read of the change, not of the page.
+A verification records its blocks (R-028); a pin may say which block it backs,
+so that a stale pin costs the re-read of that block, not of the page.
 
 > **Why experimental.** One implementation, no second tree yet. Until a second
-> team's tree has re-verified through block records, these
-> rules bind nothing; a tree that never writes them is untouched by everything
-> below.
+> team's tree has bound pins to blocks, this rule binds nothing; a tree that
+> never writes `block:` is untouched by it.
 
-**R-212** `lint` · MAY — A verification MAY record its blocks: `verified_blocks`,
-the body's block hashes in order (D-103 delimits a block and shortens its hash).
-With a block record, a page whose body changed reports how much of it still
-reads as verified — the recorded blocks found again, in order — and a
-re-verification reads only the rest: `docsys verify --show <page>` prints the
-changed and new blocks, the removed ones (from `verified_rev` where history
-holds it), the pins bound to them and the page's sources. The page's state stays
-`verification:`; the block record never makes a changed page `verified`.
-
-**R-213** `lint` · MAY — A `verifies:` entry MAY carry `block:`, the hash of the
+**R-212** `lint` · MAY — A `verifies:` entry MAY carry `block:`, the hash of the
 block it backs. A stale pin (R-111) then names its block, and on a verified page
 only that block stops reading as verified. A binding whose block no longer
 exists in the body **is reported**: the block was rewritten, and the pin must be

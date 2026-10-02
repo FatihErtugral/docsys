@@ -48,8 +48,8 @@ stderr. Move one repository when it is ready:
   mechanical and `--commit` makes it one commit. A file a docsys template
   wrote and nobody edited is regenerated; an edited one — a relay, a skill, a
   command, the CI workflow with its runner and install — is never rewritten,
-  only shown as a diff. A verified page gains `verified_hash` and its block
-  record only when its body at `verified_rev` is its body now; a pin's hash becomes its
+  only shown as a diff. A verified page gains its block record only when its
+  blocks at `verified_rev` are its blocks now; a pin's hash becomes its
   acknowledgement only where it holds and its declaration reads the same
   region; everything else is listed with its page. The conformance case
   `corpus/upgrades/0.4-to-0.5` locks the move file by file, and a second run
@@ -59,7 +59,7 @@ stderr. Move one repository when it is ready:
   for a clone whose gate block is behind.
 
 - On a docsys/0.5 tree `docsys verify` also records the body's blocks
-  (`verified_blocks`; §21, R-212, D-103) — a bullet, a paragraph, a heading,
+  (`verified_blocks`; R-028, D-103) — a bullet, a paragraph, a heading,
   a fence or a comment, cut by markup alone — so a changed page costs a
   re-read of the change. `docsys verify --show <page>` lists what that
   re-read is: the blocks numbered with their lines, the changed and new ones
@@ -70,9 +70,9 @@ stderr. Move one repository when it is ready:
   pages (`blocks:`, `partially_verified`); `lookup` marks `unverified — m/n
   blocks as verified by …`.
 - On a docsys/0.5 tree `docsys pin <page> <path> [--symbol <s>] --block <n>`
-  binds a pin to the block it backs (R-213): a stale bound pin's R-111 names
+  binds a pin to the block it backs (R-212): a stale bound pin's R-111 names
   its block, and only that block stops counting as verified; a binding whose
-  block was rewritten is reported (`WARN R-213`), to be bound again or
+  block was rewritten is reported (`WARN R-212`), to be bound again or
   dropped.
 - `docsys feedback` (D-116): the issue format and, with `--draft`, an issue
   body with the facts the tool knows — version, OS, the tree's profile and
@@ -254,10 +254,10 @@ stderr. Move one repository when it is ready:
 - The git gate runs `docsys lint --repo .` like `refs` and `gate`, and carries
   its template version; `adopt` rewrites a block behind the binary in place.
 - On a docsys/0.5 tree a verification survives a squash merge (D-101):
-  `docsys verify` records the body's hash (`verified_hash`) and each consumed
-  source's hash (`verified_sources`); lint checks them without history, and a
-  `verified_rev` a squash or a rebase left unreachable is no finding when the
-  hash holds — `status` counts those pages.
+  `docsys verify` records the body's blocks (`verified_blocks`) and each
+  consumed source's hash (`verified_sources`); lint checks them without
+  history, and a `verified_rev` a squash or a rebase left unreachable is no
+  finding when the record holds — `status` counts those pages.
 - On a docsys/0.5 tree R-208 reads the maintainer's act from the record's own
   history (D-102): any commit that changed the record since the body last
   changed, authored by the maintainer or naming them in a `Co-authored-by:`,

@@ -868,16 +868,15 @@ pub fn post_tool_use(repo: &Path, root: &Path, payload: &str, today: &str) -> Re
 }
 
 /// The page with `verification: verified` set to `unverified` when its body
-/// no longer hashes to the record's `verified_hash`; `None` otherwise — a
-/// record without the hash is lint's to judge through history.
+/// no longer reads as the record's `verified_blocks`; `None` otherwise — a
+/// record without blocks is lint's to judge through history.
 pub fn demote_if_changed(text: &str) -> Option<String> {
     let fm = crate::fm::parse(text)?;
     let get = |k: &str| fm.fields.get(k).and_then(crate::fm::Value::as_str);
     if get("verification") != Some("verified") {
         return None;
     }
-    let recorded = get("verified_hash")?;
-    if crate::fresh::content_hash(&crate::fresh::body_text(text)) == recorded {
+    if crate::blocks::holds(&fm, text)? {
         return None;
     }
     let mut done = false;

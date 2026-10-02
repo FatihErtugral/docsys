@@ -16,7 +16,7 @@ Usage:
                                              # docsys is wrong or in your way: the guide, or an issue drafted with the facts filled in — never filed by the tool
   docsys lint    [--root <dir>] [--repo <dir>] [--json]   # inside a git repository: pins and history too
   docsys pin     <page> <path> [--symbol <s>] [--repo .] [--root docs]   # pin a page to a code region (verifies:, §11)
-  docsys pin     <page> <path> [--symbol <s>] --block <n> …            # docsys/0.5: the pin backs block n as `verify --show` numbers it (§21, R-213)
+  docsys pin     <page> <path> [--symbol <s>] --block <n> …            # docsys/0.5: the pin backs block n as `verify --show` numbers it (§21, R-212)
   docsys pin     --refresh <page> [--repo .] [--root docs]              # recompute its pins after re-reading the page
   docsys pin     --gc [--repo .] [--root docs]                         # docsys/0.5: remove acknowledgements no current pin region matches (D-119)
   docsys compile <howto> [--root docs] [--dir .claude] [--force]        # a howto's body as an executable skill, pinned to its source hash (R-094, R-095)
@@ -30,7 +30,7 @@ Usage:
   docsys status  [--root <dir>] [--repo <dir>] [--json]   # the digest: inbox, pages by state, open items, consumed, skills, findings
   docsys forget  <page-id|page-path|record-path> --reason <text> [--root <dir>]   # a page to _archive/ with a tombstone, a record to raw/_forgotten/; the ledger says why
   docsys verify  <page> [--by <handle|@login>] [--commit] [--revoke] [--root docs]   # a maintainer's record in one step: who from git identity, rev from HEAD, sources checked; --revoke: back to unverified
-  docsys verify  --show <page> [--root docs]   # docsys/0.5: what a re-verification reads — the blocks numbered, the changed, new and removed ones, stale bound pins, the sources (§21, R-212)
+  docsys verify  --show <page> [--root docs]   # docsys/0.5: what a re-verification reads — the blocks numbered, the changed, new and removed ones, stale bound pins, the sources (R-028)
   docsys verify  --range <a>...<b> (--by @login | --from-trailers) [--commit] [--root docs]   # every page the range touched, under the review approver's identity: a login a host adapter passes, or the Reviewed-by:/Approved-by: trailer in git (D-095); a login on no maintainer entry is a skip, exit 0 (D-105)
   docsys raw     move <record> <domain> [--root <dir>]   # a note from raw/inbox/ to raw/<domain>/, through git, bytes untouched; every citing page's sources: rewritten (R-027)
   docsys assistant [--root .] [--projects <dir>]… [--domains a,b] [--since 30.days] [--limit 3]

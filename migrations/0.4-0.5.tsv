@@ -2,7 +2,7 @@
 hook-wires	auto	tracked	.claude/settings.json: every docsys wire to "$CLAUDE_PROJECT_DIR"/.claude/hooks/<name>.sh, duplicates folded (D-099)
 hook-scripts	auto/manual	tracked	a relay in a docsys template's shape refreshed; an edited one a diff (D-099)
 git-gate	auto	local	the docsys block in this clone's pre-commit hook rewritten, its mode kept (D-099, D-100)
-verified-hash	auto/manual	tracked	verified_hash, verified_blocks and verified_sources where the body at verified_rev is the body now; every other verified page listed for a maintainer (D-101, D-103)
+verified-record	auto/manual	tracked	verified_blocks and verified_sources where the body at verified_rev is the body now; every other verified page listed for a maintainer (D-101, D-103)
 pins	auto/manual	tracked	a pin's hash to its acknowledgement where it holds and the declaration reads the same region; every other pin listed (D-106, D-119)
 ledger-separators	auto	tracked	em-dash field markers to ASCII (D-108)
 ci-workflow	auto/manual	tracked	an untouched or byte-legacy workflow regenerated and pinned; an edited one a diff, never rewritten (D-105, D-111)

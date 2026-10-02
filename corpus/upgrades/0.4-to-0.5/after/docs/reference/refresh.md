@@ -4,7 +4,6 @@ type: reference
 verification: verified
 verified_by: maintainer
 verified_rev: @REV@
-verified_hash: "sha256:57a73fe51a6922830f1947826ad8d84748135796ef64a7f8ee08ab5e22965309"
 verified_blocks: [3ec22832f118, c045be1837d0, 7e8f707e2ccf]
 sources: []
 updated: 2026-09-02

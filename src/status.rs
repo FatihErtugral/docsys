@@ -45,7 +45,7 @@ pub struct Status {
     pub sources_moved: usize,
     /// entries in `.forgotten.yml` (D-084)
     pub forgotten: usize,
-    /// verified pages anchored by their body hash whose `verified_rev` is not in
+    /// verified pages anchored by their block record whose `verified_rev` is not in
     /// this history — a squash or a rebase; the hash is the evidence (D-101)
     pub rev_gone: usize,
     /// a 0.5 tree's acknowledgements whose page id pins nothing any more
@@ -53,7 +53,7 @@ pub struct Status {
     pub orphan_acks: Option<usize>,
     /// pages whose block record holds only part of the body now — a block
     /// edited, or one whose bound pin is stale — with the blocks found again
-    /// and the body's count (§21, R-212, R-213); `None` in a 0.4 tree
+    /// and the body's count (R-028, R-212); `None` in a 0.4 tree
     pub partially_verified: Option<Vec<(String, usize, usize)>>,
     pub first_errors: Vec<String>,
 }
@@ -227,7 +227,8 @@ pub fn status(root: &Path, repo: Option<&Path>) -> Result<Status, String> {
         for page in tree.pages.iter().filter(|p| p.kind == Kind::Permanent) {
             let Some(fm) = &page.fm else { continue };
             let get = |k: &str| fm.fields.get(k).and_then(Value::as_str);
-            if get("verification") != Some("verified") || get("verified_hash").is_none() {
+            if get("verification") != Some("verified") || !fm.fields.contains_key("verified_blocks")
+            {
                 continue;
             }
             let Some(rev) = get("verified_rev") else {
@@ -245,7 +246,7 @@ pub fn status(root: &Path, repo: Option<&Path>) -> Result<Status, String> {
         }
     }
     let era = crate::era::Era::of(&tree);
-    if era.block_records() {
+    if era.anchored_verification() {
         let mut partial = Vec::new();
         for page in tree.pages.iter().filter(|p| p.kind == Kind::Permanent) {
             let Some(fm) = &page.fm else { continue };
@@ -418,7 +419,7 @@ pub fn render(s: &Status, root: &Path) -> String {
     }
     if s.rev_gone > 0 {
         out.push_str(&format!(
-            "verification: {} verified page(s) anchored by their body hash; their revision is not in this history (a squash or a rebase) — nothing to do\n",
+            "verification: {} verified page(s) anchored by their block record; their revision is not in this history (a squash or a rebase) — nothing to do\n",
             s.rev_gone
         ));
     }

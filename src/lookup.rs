@@ -119,7 +119,7 @@ fn caveat_of(page: &Page, blocks: Option<&[String]>) -> Option<String> {
             .map(|s| format!("status: {s}"));
     }
     // how much of a page whose body or pins moved still reads as verified,
-    // when a block record says (R-212, R-213)
+    // when a block record says (R-028, R-212)
     let partial = blocks
         .and_then(|stale| crate::blocks::reading(fm, &page.text, stale))
         .filter(crate::blocks::Reading::partial)
@@ -133,16 +133,10 @@ fn caveat_of(page: &Page, blocks: Option<&[String]>) -> Option<String> {
         })
         .unwrap_or_default();
     match fm.fields.get("verification").and_then(Value::as_str) {
-        // a record with its body hash says, without history, whether the
-        // page still holds what was verified (D-101)
+        // a record with its blocks says, without history, whether the page
+        // still holds what was verified (D-101)
         Some("verified") => {
-            let moved = fm
-                .fields
-                .get("verified_hash")
-                .and_then(Value::as_str)
-                .is_some_and(|h| {
-                    h != crate::fresh::content_hash(&crate::fresh::body_text(&page.text))
-                });
+            let moved = crate::blocks::holds(fm, &page.text) == Some(false);
             if moved {
                 Some(format!("verified, but the body changed since{partial}"))
             } else if !partial.is_empty() {
@@ -178,7 +172,7 @@ pub fn lookup(root: &Path, words: &[String]) -> Result<Vec<Hit>, String> {
     let tree = DocTree::load(root).map_err(|e| e.to_string())?;
     let era = crate::era::Era::of(&tree);
     let repo = era
-        .block_records()
+        .anchored_verification()
         .then(|| crate::repo_of(&tree.root))
         .flatten();
     let mut hits = Vec::new();
@@ -194,7 +188,7 @@ pub fn lookup(root: &Path, words: &[String]) -> Result<Vec<Hit>, String> {
             }
             _ => Vec::new(),
         };
-        let blocks = era.block_records().then_some(stale.as_slice());
+        let blocks = era.anchored_verification().then_some(stale.as_slice());
         if let Some(h) = hit_of(page, id_of(page), words, blocks) {
             hits.push(h);
         }
@@ -243,7 +237,7 @@ pub fn lookup(root: &Path, words: &[String]) -> Result<Vec<Hit>, String> {
                 text,
             };
             let id = id_of(&page);
-            let blocks = era.block_records().then_some(&[][..]);
+            let blocks = era.anchored_verification().then_some(&[][..]);
             if let Some(h) = hit_of(&page, format!("@{ns}/{id}"), words, blocks) {
                 hits.push(h);
             }

@@ -28,7 +28,7 @@ const R106: RuleId = RuleId("R-106");
 const R111: RuleId = RuleId("R-111");
 const R113: RuleId = RuleId("R-113");
 const R114: RuleId = RuleId("R-114");
-const R213: RuleId = RuleId("R-213");
+const R212: RuleId = RuleId("R-212");
 
 /// Above this many lines, `pin` notes that a whole-file pin goes stale on
 /// every edit (D-106).
@@ -363,7 +363,7 @@ pub struct Pin {
     pub path: String,
     pub symbol: Option<String>,
     pub hash: String,
-    /// the block of the body this pin backs (R-213, D-103)
+    /// the block of the body this pin backs (R-212, D-103)
     pub block: Option<String>,
 }
 
@@ -493,7 +493,7 @@ fn pin_problem(
 }
 
 /// R-110/R-111/R-113/R-114 over every pinned permanent page. In a 0.5 tree a
-/// stale pin bound to a block names it (R-213).
+/// stale pin bound to a block names it (R-212).
 pub fn check_pins(tree: &DocTree, repo: &Path, r: &mut Report) {
     let era = Era::of(tree);
     let mut inspected = 0usize;
@@ -514,7 +514,7 @@ pub fn check_pins(tree: &DocTree, repo: &Path, r: &mut Report) {
             if let Some(b) = pin
                 .block
                 .as_ref()
-                .filter(|_| rule == R111 && era.block_records())
+                .filter(|_| rule == R111 && era.anchored_verification())
             {
                 let current =
                     blocks.get_or_insert_with(|| crate::blocks::hashes(&body_text(&page.text)));
@@ -534,10 +534,10 @@ pub fn check_pins(tree: &DocTree, repo: &Path, r: &mut Report) {
     r.inspected.insert("verifies-pins", inspected);
 }
 
-/// The blocks whose bound pin is stale now (R-213, R-111): on a verified page
+/// The blocks whose bound pin is stale now (R-212, R-111): on a verified page
 /// only they stop reading as verified. Empty before 0.5.
 pub fn stale_blocks(root: &Path, repo: &Path, era: Era, fm: &Frontmatter) -> Vec<String> {
-    if !era.block_records() {
+    if !era.anchored_verification() {
         return Vec::new();
     }
     let id = page_id(fm);
@@ -554,7 +554,7 @@ pub fn stale_blocks(root: &Path, repo: &Path, era: Era, fm: &Frontmatter) -> Vec
         .collect()
 }
 
-/// R-213 (§21, D-103), without history: a pin bound to a block the body no
+/// R-212 (§21, D-103), without history: a pin bound to a block the body no
 /// longer holds is reported — the block was rewritten, and which block the pin
 /// backs now is the author's judgment.
 pub fn check_block_bindings(tree: &DocTree, r: &mut Report) {
@@ -583,7 +583,7 @@ pub fn check_block_bindings(tree: &DocTree, r: &mut Report) {
                 .map(|s| format!(" --symbol {s}"))
                 .unwrap_or_default();
             r.findings.push(Finding::warn(
-                R213,
+                R212,
                 &page.rel,
                 &pin.label(),
                 format!(
@@ -802,12 +802,11 @@ pub fn check_history(tree: &DocTree, repo: &Path, h: &History, r: &mut Report) {
 /// The frontmatter fields that are bookkeeping, not content (§2.4): the
 /// freshness date, the verification record (R-028), and — inside `verifies:` — a pin's hash, which records a re-read, not a
 /// claim.
-const BOOKKEEPING: [&str; 7] = [
+const BOOKKEEPING: [&str; 6] = [
     "updated",
     "verification",
     "verified_by",
     "verified_rev",
-    "verified_hash",
     "verified_sources",
     "verified_blocks",
 ];
@@ -1134,11 +1133,11 @@ fn check_record_authors_04(tree: &DocTree, repo: &Path, prefix: &str, r: &mut Re
     r.inspected.insert("record-authors", inspected);
 }
 
-/// R-024 through history, for a record without a body hash (written before
-/// 0.5): the body at `verified_rev` against the body now (D-077), and each
-/// consumed source's provenance then against now (D-082). A record with a
-/// hash carries its own evidence and is checked without history
-/// (`check_verified_hashes`, D-101).
+/// R-024 through history, for a record without blocks (written before 0.5):
+/// the body at `verified_rev` against the body now (D-077), and each consumed
+/// source's provenance then against now (D-082). A record with blocks carries
+/// its own evidence and is checked without history (`check_verified_records`,
+/// D-101).
 fn check_verified_bodies(
     tree: &DocTree,
     repo: &Path,
@@ -1155,7 +1154,7 @@ fn check_verified_bodies(
         if fm.fields.get("verification").and_then(Value::as_str) != Some("verified") {
             continue;
         }
-        if anchored && fm.fields.contains_key("verified_hash") {
+        if anchored && fm.fields.contains_key("verified_blocks") {
             continue;
         }
         let Some(rev) = fm.fields.get("verified_rev").and_then(Value::as_str) else {
@@ -1271,12 +1270,11 @@ pub(crate) fn source_hash(root: &Path, source: &str) -> Option<String> {
 }
 
 /// R-024 for a record that carries its own evidence (D-101), with or without
-/// history: the body against `verified_hash`, each consumed source against the
-/// hash `verified_sources` recorded for it. With the hash present the
-/// revision is a pointer, not the evidence — a squash or a rebase that left it
-/// unreachable undoes nothing.
-pub fn check_verified_hashes(tree: &DocTree, r: &mut Report) {
-    let blocks = Era::of(tree).block_records();
+/// history: the body's blocks against `verified_blocks`, each consumed source
+/// against the hash `verified_sources` recorded for it. With the record
+/// present the revision is a pointer, not the evidence — a squash or a rebase
+/// that left it unreachable undoes nothing.
+pub fn check_verified_records(tree: &DocTree, r: &mut Report) {
     let mut inspected = 0usize;
     for page in &tree.pages {
         if page.kind != Kind::Permanent {
@@ -1286,7 +1284,7 @@ pub fn check_verified_hashes(tree: &DocTree, r: &mut Report) {
         if fm.fields.get("verification").and_then(Value::as_str) != Some("verified") {
             continue;
         }
-        let Some(recorded) = fm.fields.get("verified_hash").and_then(Value::as_str) else {
+        let Some(recorded) = crate::blocks::record_of(fm) else {
             continue;
         };
         inspected += 1;
@@ -1295,39 +1293,27 @@ pub fn check_verified_hashes(tree: &DocTree, r: &mut Report) {
             .get("verified_rev")
             .and_then(Value::as_str)
             .unwrap_or("?");
-        if !(recorded.starts_with("sha256:") && recorded.len() == 71) {
+        if let Some(bad) = recorded
+            .iter()
+            .find(|h| h.len() != 12 || !h.bytes().all(|b| b.is_ascii_hexdigit()))
+        {
             r.findings.push(Finding::err(
                 RuleId("R-028"),
                 &page.rel,
-                "verified_hash",
-                format!("`verified_hash: {recorded}` is not `sha256:` and 64 hex digits (R-113) — the record cannot be checked"),
+                "verified_blocks",
+                format!("`verified_blocks` holds `{bad}`, not 12 hex digits (R-113) — the record cannot be checked"),
             ));
-        } else if content_hash(&body_text(&page.text)) != recorded {
-            // with a block record the error says how much still reads as
-            // verified, and where the rest is listed (R-212)
-            let partial = blocks
-                .then(|| crate::blocks::reading(fm, &page.text, &[]))
-                .flatten();
-            let message = match partial {
-                Some(p) => format!(
-                    "`verified` at {rev}, but the body changed since: {}/{} blocks unchanged — \
-                     `docsys verify --show {}` lists what to re-read. `docsys verify --revoke \
-                     {}` marks it unverified and keeps the record; a maintainer verifies it \
-                     again (R-025)",
-                    p.found, p.of, page.rel, page.rel
-                ),
-                None => format!(
-                    "`verified` at {rev}, but the body changed since — verification describes \
-                     content that no longer exists: `docsys verify --revoke {}` marks it \
-                     unverified and keeps the record; a maintainer verifies it again (R-025)",
-                    page.rel
-                ),
-            };
+        } else if crate::blocks::holds(fm, &page.text) == Some(false) {
             r.findings.push(Finding::err(
                 RuleId("R-024"),
                 &page.rel,
                 "verification",
-                message,
+                format!(
+                    "`verified` at {rev}, but the body changed since — `docsys verify --show {}` \
+                     lists what to re-read; `docsys verify --revoke {}` marks it unverified and \
+                     keeps the record, and a maintainer verifies it again (R-025)",
+                    page.rel, page.rel
+                ),
             ));
         }
         let recorded_sources: Vec<(String, String)> = fm
@@ -1369,7 +1355,7 @@ pub fn check_verified_hashes(tree: &DocTree, r: &mut Report) {
             }
         }
     }
-    r.inspected.insert("verified-hashes", inspected);
+    r.inspected.insert("verified-records", inspected);
 }
 
 /// One `key: value` line of a provenance sidecar.
@@ -1527,7 +1513,7 @@ pub fn pin(
     pin_block(root, repo, page, path, symbol, None)
 }
 
-/// `pin`, and with `--block <n>` (R-213, a docsys/0.5 tree) the entry bound to
+/// `pin`, and with `--block <n>` (R-212, a docsys/0.5 tree) the entry bound to
 /// the hash of the body's block n as `docsys verify --show` numbers them — the
 /// hash, never the number, so the binding survives blocks added around it.
 pub fn pin_block(
@@ -1545,7 +1531,7 @@ pub fn pin_block(
     let era = Era::at(root);
     let bound = match block {
         None => None,
-        Some(_) if !era.block_records() => {
+        Some(_) if !era.anchored_verification() => {
             return Err(
                 "a pin bound to a block is a docsys/0.5 format — `docsys upgrade` moves the tree first (D-118)"
                     .into(),

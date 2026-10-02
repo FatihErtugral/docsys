@@ -95,13 +95,8 @@ fn relay_shape(text: &str) -> bool {
 }
 
 /// The frontmatter with the 0.5 record added right after `verified_rev:`, in
-/// the order `verify` writes it: the body's hash, its blocks, the sources.
-fn add_hashes(
-    text: &str,
-    hash: &str,
-    blocks: &[String],
-    sources: &[(String, String)],
-) -> Option<String> {
+/// the order `verify` writes it: the body's blocks, then the sources.
+fn add_record(text: &str, blocks: &[String], sources: &[(String, String)]) -> Option<String> {
     let mut out = Vec::new();
     let mut done = false;
     let mut in_fm = false;
@@ -115,10 +110,7 @@ fn add_hashes(
             in_fm = false;
         }
         if in_fm && !done && line.starts_with("verified_rev:") {
-            out.push(format!("verified_hash: \"{hash}\""));
-            if !blocks.is_empty() {
-                out.push(format!("verified_blocks: [{}]", blocks.join(", ")));
-            }
+            out.push(format!("verified_blocks: [{}]", blocks.join(", ")));
             if !sources.is_empty() {
                 out.push("verified_sources:".to_string());
                 for (s, h) in sources {
@@ -313,19 +305,20 @@ pub fn run(repo: &Path, root: &Path, claude: &Path, apply: bool) -> Result<Upgra
         }
     }
 
-    // verified-hash: a record proven by history gains its own evidence (D-101)
+    // verified-record: a record proven by history gains its own evidence (D-101)
     if moving {
         for page in tree.pages.iter().filter(|p| p.kind == Kind::Permanent) {
             let Some(fm) = &page.fm else { continue };
             let get = |k: &str| fm.fields.get(k).and_then(Value::as_str);
-            if get("verification") != Some("verified") || fm.fields.contains_key("verified_hash") {
+            if get("verification") != Some("verified") || fm.fields.contains_key("verified_blocks")
+            {
                 continue;
             }
             let file = format!("{prefix}{}", page.rel);
             let Some(rev) = get("verified_rev").map(str::trim) else {
                 u.item(
                     "manual",
-                    "verified-hash",
+                    "verified-record",
                     &file,
                     "verified without a revision — a maintainer verifies it again: `docsys verify <page>`".to_string(),
                 );
@@ -334,20 +327,21 @@ pub fn run(repo: &Path, root: &Path, claude: &Path, apply: bool) -> Result<Upgra
             let Some(then) = git_out(repo, &["show", &format!("{rev}:{file}")]) else {
                 u.item(
                     "manual",
-                    "verified-hash",
+                    "verified-record",
                     &file,
-                    format!("`verified_rev: {rev}` does not hold the page in this history — never hashed blind; a maintainer verifies it again"),
+                    format!("`verified_rev: {rev}` does not hold the page in this history — never recorded blind; a maintainer verifies it again"),
                 );
                 continue;
             };
             let body = crate::fresh::body_text(&page.text);
-            let now_hash = crate::fresh::content_hash(&body);
-            if crate::fresh::content_hash(&crate::fresh::body_text(&then)) != now_hash {
+            // the blocks the maintainer read are the blocks now, as R-024 reads it
+            let blocks = crate::blocks::hashes(&body);
+            if crate::blocks::hashes(&crate::fresh::body_text(&then)) != blocks {
                 u.item(
                     "manual",
-                    "verified-hash",
+                    "verified-record",
                     &file,
-                    format!("the body changed since {rev} — never hashed blind; a maintainer verifies it again"),
+                    format!("the body changed since {rev} — never recorded blind; a maintainer verifies it again"),
                 );
                 continue;
             }
@@ -374,7 +368,7 @@ pub fn run(repo: &Path, root: &Path, claude: &Path, apply: bool) -> Result<Upgra
             if let Some(s) = moved {
                 u.item(
                     "manual",
-                    "verified-hash",
+                    "verified-record",
                     &file,
                     format!("`{s}` moved since {rev}, or had no committed provenance — a maintainer verifies it again"),
                 );
@@ -382,10 +376,10 @@ pub fn run(repo: &Path, root: &Path, claude: &Path, apply: bool) -> Result<Upgra
             }
             u.item(
                 "auto",
-                "verified-hash",
+                "verified-record",
                 &file,
                 format!(
-                    "the body {rev} holds is the body now: `verified_hash` and its blocks recorded{}",
+                    "the body {rev} holds is the body now: `verified_blocks` recorded{}",
                     if sources.is_empty() {
                         String::new()
                     } else {
@@ -396,13 +390,7 @@ pub fn run(repo: &Path, root: &Path, claude: &Path, apply: bool) -> Result<Upgra
             if apply {
                 let path = root.join(&page.rel);
                 let text = fs::read_to_string(&path).map_err(|e| e.to_string())?;
-                // the blocks the maintainer read are the blocks now (R-212)
-                let blocks = if Era(u.to).block_records() {
-                    crate::blocks::hashes(&body)
-                } else {
-                    Vec::new()
-                };
-                if let Some(new) = add_hashes(&text, &now_hash, &blocks, &sources) {
+                if let Some(new) = add_record(&text, &blocks, &sources) {
                     fs::write(&path, new).map_err(|e| e.to_string())?;
                     u.written.push(file);
                 }
@@ -736,17 +724,16 @@ mod tests {
     }
 
     #[test]
-    fn the_hashes_go_right_after_the_revision() {
+    fn the_record_goes_right_after_the_revision() {
         let text = "---\nid: a\nverification: verified\nverified_by: ayse\nverified_rev: abc\nsources: []\n---\nBody.\n";
-        let out = add_hashes(
+        let out = add_record(
             text,
-            "sha256:x",
             &["941ba81fbfec".into(), "28949667d156".into()],
             &[("@up/x".into(), "fnv:1".into())],
         )
         .unwrap();
-        assert!(out.contains("verified_rev: abc\nverified_hash: \"sha256:x\"\nverified_blocks: [941ba81fbfec, 28949667d156]\nverified_sources:\n  - source: \"@up/x\"\n    hash: \"fnv:1\"\nsources: []\n"), "{out}");
-        assert!(add_hashes("---\nid: a\n---\nBody.\n", "h", &[], &[]).is_none());
+        assert!(out.contains("verified_rev: abc\nverified_blocks: [941ba81fbfec, 28949667d156]\nverified_sources:\n  - source: \"@up/x\"\n    hash: \"fnv:1\"\nsources: []\n"), "{out}");
+        assert!(add_record("---\nid: a\n---\nBody.\n", &[], &[]).is_none());
     }
 
     #[test]

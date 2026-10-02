@@ -4,7 +4,7 @@
     clippy::expect_used,
     clippy::indexing_slicing
 )]
-// Block-level verification (§21, R-212, R-213, D-103): a verification records
+// Block-level verification (R-028, R-212, D-103): a verification records
 // the body's blocks, so a changed page costs a re-read of the change, not of
 // the page. Driven through the binary and plain git, so the same file runs
 // against a build without block records, where every test here fails.
@@ -153,7 +153,8 @@ fn show_prints_exactly_the_bullet_that_changed() {
     );
     assert!(out.contains("5/6 blocks"), "{out}");
 
-    // lint's error for a page still marked verified carries the partial state
+    // lint's error for a page still marked verified points to the reading list,
+    // where the count is (one count, one place)
     let lint = docsys(&repo, &["lint"]);
     assert_eq!(lint.code, 1, "{}", lint.out);
     let r024: Vec<&str> = lint
@@ -164,8 +165,8 @@ fn show_prints_exactly_the_bullet_that_changed() {
     assert_eq!(r024.len(), 1, "{}", lint.out);
     assert!(
         r024[0].contains(
-            "5/6 blocks unchanged — `docsys verify --show reference/token-ttl.md` lists what to re-read"
-        ),
+            "the body changed since — `docsys verify --show reference/token-ttl.md` lists what to re-read"
+        ) && !r024[0].contains("blocks unchanged"),
         "{}",
         r024[0]
     );
@@ -287,7 +288,7 @@ fn a_stale_bound_pin_names_its_block_and_only_that_block_stops_reading_as_verifi
     let lint = docsys(&repo, &["lint"]);
     assert!(
         lint.out
-            .contains("WARN R-213 reference/token-ttl.md [src/lib.rs#alpha]"),
+            .contains("WARN R-212 reference/token-ttl.md [src/lib.rs#alpha]"),
         "{}",
         lint.out
     );
@@ -303,10 +304,7 @@ fn a_0_4_tree_records_no_blocks_and_refuses_a_binding() {
         page.contains("verification: verified\nverified_by: ayse\nverified_rev: "),
         "{page}"
     );
-    assert!(
-        !page.contains("verified_blocks") && !page.contains("verified_hash"),
-        "{page}"
-    );
+    assert!(!page.contains("verified_blocks"), "{page}");
     let refused = docsys(
         &repo,
         &[
@@ -355,7 +353,7 @@ fn a_0_4_tree_records_no_blocks_and_refuses_a_binding() {
     )
     .unwrap();
     let after = docsys(&repo, &["lint"]);
-    assert!(!after.out.contains("R-213"), "{}", after.out);
+    assert!(!after.out.contains("R-212"), "{}", after.out);
     assert!(!after.out.contains("[3]"), "{}", after.out);
     fs::write(repo.join("src/lib.rs"), LIB_RS).unwrap();
     let clean = docsys(&repo, &["lint"]);
@@ -373,9 +371,9 @@ fn a_0_4_tree_records_no_blocks_and_refuses_a_binding() {
 }
 
 /// The corpus case's R-024 message, which `expected.tsv` cannot carry
-/// (D-011): the partial state, counted from the record alone.
+/// (D-011): it names the reading list and leaves the count to it.
 #[test]
-fn the_corpus_error_names_the_blocks_found_again() {
+fn the_corpus_error_points_to_the_reading_list() {
     let root =
         PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("corpus/cases/46-block-record/tree/docs");
     let (report, _) = docsys::lint(&root);
@@ -387,8 +385,8 @@ fn the_corpus_error_names_the_blocks_found_again() {
     assert_eq!(r024.len(), 1, "{:?}", report.findings);
     assert!(
         r024[0].message.contains(
-            "2/4 blocks unchanged — `docsys verify --show reference/edited.md` lists what to re-read"
-        ),
+            "the body changed since — `docsys verify --show reference/edited.md` lists what to re-read"
+        ) && !r024[0].message.contains("blocks unchanged"),
         "{}",
         r024[0].message
     );

@@ -1,3 +1,3 @@
 EXIT	1
 ERROR	R-024	reference/edited.md	verification
-WARN	R-213	reference/bound.md	src/ttl.rs#lifetime
+WARN	R-212	reference/bound.md	src/ttl.rs#lifetime
