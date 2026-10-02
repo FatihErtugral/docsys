@@ -143,6 +143,10 @@ pub fn redact_docmeta(text: &str) -> String {
             continue;
         }
         in_private_block = false;
+        // a comment is prose the owner or adopt wrote: it can name anything
+        if line.trim_start().starts_with('#') {
+            continue;
+        }
         let key = line.split_once(':').map(|(k, _)| k.trim());
         if let Some(k) = key.filter(|k| PRIVATE_KEYS.contains(k) && !line.starts_with(' ')) {
             out.push_str(&format!("{k}: <redacted>\n"));
@@ -294,7 +298,7 @@ mod tests {
 
     #[test]
     fn the_docmeta_loses_names_and_addresses() {
-        let text = "spec: docsys/0.5\nnamespace: shop\nmaintainers:\n  - ayse <ayse@example.com> @ayse\n  - bora\nconsume: [auth=/home/x/auth#docs]\nprofile: project\nheadings: [Context=<x>]\n";
+        let text = "spec: docsys/0.5\n# The name a consumer uses for this tree — `consume: [shop]`.\nnamespace: shop\nmaintainers:\n  - ayse <ayse@example.com> @ayse\n  - bora\nconsume: [auth=/home/x/auth#docs]\nprofile: project\nheadings: [Context=<x>]\n";
         let out = redact_docmeta(text);
         assert!(!out.contains("ayse") && !out.contains("bora") && !out.contains("/home/x"));
         assert!(!out.contains("shop"));
