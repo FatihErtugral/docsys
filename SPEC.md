@@ -1240,7 +1240,7 @@ reported**.
 at `path`. When `symbol` is present, the implementation MUST declare how it
 resolves symbols for that language, and MUST report an error rather than guess
 when a symbol is ambiguous or unresolvable. The reference implementation's
-resolution is registered as D-069.
+resolution is registered as D-106 (superseding D-069).
 
 ---
 
