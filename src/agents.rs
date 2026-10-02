@@ -510,10 +510,6 @@ pub fn kb_contract() -> String {
     format!("{KB_AGENTS_MD}\n{}", crate::rules::VERSION_SECTION)
 }
 
-/// The contract 0.15 wrote, for `docsys upgrade` to tell an untouched copy
-/// from its owner's.
-pub const KB_CONTRACT_0_15: &str = include_str!("../migrations/assets-0.15/kb/AGENTS.md");
-
 #[derive(Debug)]
 pub struct Installed {
     pub written: Vec<String>,
@@ -1346,64 +1342,51 @@ pub fn relay_for(rel: &str, root_arg: &str) -> Option<String> {
     Some(render_relay(template, root_arg))
 }
 
-/// The markdown assets docsys owns, by path under `.claude/`: this binary's
-/// text, and the text 0.15 wrote — `docsys upgrade` refreshes a file that
-/// still holds either, writes one new since 0.15 (no older text) where it is
-/// absent, and leaves a file somebody edited to its owner.
-pub fn owned_assets(kb: bool) -> Vec<(&'static str, &'static str, &'static str)> {
-    let new = ("commands/docsys-upgrade.md", DOCSYS_UPGRADE, "");
+/// The markdown assets docsys owns, by path under `.claude/`, with this
+/// binary's text and whether it is new since 0.15 (written where it is
+/// absent). `docsys upgrade` refreshes a file a release wrote and nobody
+/// edited (`released`), and leaves any other text to its owner.
+pub fn owned_assets(kb: bool) -> Vec<(&'static str, &'static str, bool)> {
+    let mut out = vec![("commands/docsys-upgrade.md", DOCSYS_UPGRADE, true)];
     if kb {
-        vec![
-            new,
-            (
-                "skills/kb-capture/SKILL.md",
-                KB_CAPTURE,
-                include_str!("../migrations/assets-0.15/kb/skills/kb-capture/SKILL.md"),
-            ),
-            (
-                "skills/kb-ingest/SKILL.md",
-                KB_INGEST,
-                include_str!("../migrations/assets-0.15/kb/skills/kb-ingest/SKILL.md"),
-            ),
-            (
-                "skills/kb-audit/SKILL.md",
-                KB_AUDIT,
-                include_str!("../migrations/assets-0.15/kb/skills/kb-audit/SKILL.md"),
-            ),
-            (
-                "skills/kb-lookup/SKILL.md",
-                KB_LOOKUP,
-                include_str!("../migrations/assets-0.15/kb/skills/kb-lookup/SKILL.md"),
-            ),
-        ]
+        out.extend([
+            ("skills/kb-capture/SKILL.md", KB_CAPTURE, false),
+            ("skills/kb-ingest/SKILL.md", KB_INGEST, false),
+            ("skills/kb-audit/SKILL.md", KB_AUDIT, false),
+            ("skills/kb-lookup/SKILL.md", KB_LOOKUP, false),
+        ]);
     } else {
-        vec![
-            new,
-            (
-                "commands/docsys-sync.md",
-                DOC_SYNC,
-                include_str!("../migrations/assets-0.15/project/commands/docsys-sync.md"),
-            ),
-            (
-                "commands/docsys-seed.md",
-                DOCSYS_SEED,
-                include_str!("../migrations/assets-0.15/project/commands/docsys-seed.md"),
-            ),
-            (
-                "commands/docsys-interview.md",
-                DOCSYS_INTERVIEW,
-                include_str!("../migrations/assets-0.15/project/commands/docsys-interview.md"),
-            ),
-            (
-                "skills/docsys/SKILL.md",
-                SKILL_MD,
-                include_str!("../migrations/assets-0.15/project/skills/docsys/SKILL.md"),
-            ),
-            (
-                "skills/docsys-export/SKILL.md",
-                EXPORT_SKILL,
-                include_str!("../migrations/assets-0.15/project/skills/docsys-export/SKILL.md"),
-            ),
-        ]
+        out.extend([
+            ("commands/docsys-sync.md", DOC_SYNC, false),
+            ("commands/docsys-seed.md", DOCSYS_SEED, false),
+            ("commands/docsys-interview.md", DOCSYS_INTERVIEW, false),
+            ("skills/docsys/SKILL.md", SKILL_MD, false),
+            ("skills/docsys-export/SKILL.md", EXPORT_SKILL, false),
+        ]);
     }
+    out
+}
+
+/// The texts docsys releases wrote for the assets it owns, as data (R-173):
+/// `asset <TAB> sha256 <TAB> release`.
+const RELEASED: &str = include_str!("../migrations/assets-released.tsv");
+
+/// The release that wrote `text` for `asset` (a path under `.claude/`, or a
+/// knowledge base's `AGENTS.md`), the tree's generated preamble set aside;
+/// `None` when no release wrote it — the file is its owner's.
+pub fn released(asset: &str, text: &str, preamble: &str) -> Option<&'static str> {
+    let bare = crate::migrate::without_preamble(text, preamble);
+    let hashes = [
+        crate::fresh::sha256_hex(text.as_bytes()),
+        crate::fresh::sha256_hex(bare.as_bytes()),
+    ];
+    RELEASED
+        .lines()
+        .filter(|l| !l.starts_with('#'))
+        .filter_map(|l| {
+            let mut cells = l.split('\t');
+            Some((cells.next()?, cells.next()?, cells.next()?))
+        })
+        .find(|(a, h, _)| *a == asset && hashes.iter().any(|x| x == h))
+        .map(|(_, _, release)| release)
 }

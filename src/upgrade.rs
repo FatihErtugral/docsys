@@ -528,7 +528,8 @@ fn common(ctx: &Ctx, u: &mut Upgrade, apply: bool) -> Result<(), String> {
         }
         Some(true) => {}
         Some(false) => {
-            let hooks = crate::git::hooks_dir(repo).unwrap_or_else(|| repo.join(".git/hooks"));
+            let hooks =
+                crate::adopt::gate_hooks_dir(repo).unwrap_or_else(|| repo.join(".git/hooks"));
             let file = rel(repo, &hooks.join("pre-commit"));
             let tracked = git_out(repo, &["ls-files", "--error-unmatch", "--", &file]).is_some();
             u.item(
@@ -655,12 +656,17 @@ fn common(ctx: &Ctx, u: &mut Upgrade, apply: bool) -> Result<(), String> {
     }
 
     // assets: the skills and commands docsys owns, unless their owner edited them
-    for (asset, now, legacy) in crate::agents::owned_assets(kb) {
+    for (asset, now, new) in crate::agents::owned_assets(kb) {
         let path = claude.join(asset);
+        let want = if kb {
+            now.to_string()
+        } else {
+            crate::migrate::with_preamble(now, preamble)
+        };
+        let file = rel(repo, &path);
         let Ok(text) = fs::read_to_string(&path) else {
             // new since 0.15: written where the agent layer is
-            if legacy.is_empty() && claude.is_dir() {
-                let file = rel(repo, &path);
+            if new && claude.is_dir() {
                 u.item(
                     "auto",
                     "assets",
@@ -668,40 +674,24 @@ fn common(ctx: &Ctx, u: &mut Upgrade, apply: bool) -> Result<(), String> {
                     "written: new in this version".to_string(),
                 );
                 if apply {
-                    let want = if kb {
-                        now.to_string()
-                    } else {
-                        crate::migrate::with_preamble(now, preamble)
-                    };
                     if let Some(parent) = path.parent() {
                         fs::create_dir_all(parent).map_err(|e| e.to_string())?;
                     }
-                    fs::write(&path, want).map_err(|e| e.to_string())?;
+                    fs::write(&path, &want).map_err(|e| e.to_string())?;
                     u.written.push(file);
                 }
             }
             continue;
         };
-        let want = if kb {
-            now.to_string()
-        } else {
-            crate::migrate::with_preamble(now, preamble)
-        };
         if text == want {
             continue;
         }
-        let file = rel(repo, &path);
-        let was = if kb {
-            legacy.to_string()
-        } else {
-            crate::migrate::with_preamble(legacy, preamble)
-        };
-        if !legacy.is_empty() && (text == was || text == legacy) {
+        if let Some(release) = crate::agents::released(asset, &text, preamble) {
             u.item(
                 "auto",
                 "assets",
                 &file,
-                "refreshed: the 0.15 text, untouched".to_string(),
+                format!("refreshed: the text docsys {release} wrote, untouched"),
             );
             if apply {
                 fs::write(&path, &want).map_err(|e| e.to_string())?;
@@ -720,25 +710,25 @@ fn common(ctx: &Ctx, u: &mut Upgrade, apply: bool) -> Result<(), String> {
             ));
         }
     }
-
-    // kb-contract: the knowledge base's contract, while it is the text 0.15 wrote
+    // kb-contract: the knowledge base's contract, while it is a text a release wrote
     if kb {
         let path = root.join("AGENTS.md");
         if let Ok(text) = fs::read_to_string(&path) {
             let want = crate::agents::kb_contract();
             let file = rel(repo, &path);
-            if text == crate::agents::KB_CONTRACT_0_15 {
+            if text == want {
+            } else if let Some(release) = crate::agents::released("AGENTS.md", &text, "") {
                 u.item(
                     "auto",
                     "kb-contract",
                     &file,
-                    "refreshed: the 0.15 text, untouched".to_string(),
+                    format!("refreshed: the text docsys {release} wrote, untouched"),
                 );
                 if apply {
                     fs::write(&path, &want).map_err(|e| e.to_string())?;
                     u.written.push(file);
                 }
-            } else if text != want {
+            } else {
                 u.item(
                     "manual",
                     "kb-contract",

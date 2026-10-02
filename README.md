@@ -756,7 +756,7 @@ corpus/
 ├── DECISIONS.md      register of implementation-defined choices (R-193)
 ├── cases/            conformance corpus: tree + exact expected findings
 └── upgrades/         a migration's conformance case: the tree before, its history, the tree after (R-179)
-migrations/           what `docsys upgrade` reads: the steps as data, the texts an older docsys wrote
+migrations/           what `docsys upgrade` reads: the steps as data, the hashes of what each release wrote
 tests/                behavior locks for migrate · refs · graduate · adopt ·
                       doctor · hooks and kb hooks (executed for real) · seed ·
                       graph · knowledge base (git-observable) · export ·

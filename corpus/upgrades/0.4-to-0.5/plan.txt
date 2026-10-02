@@ -18,7 +18,7 @@ auto    ci-workflow        .github/workflows/docsys.yml  the 0.15 workflow, unto
 auto    rules-block        AGENTS.md  the generated block refreshed in place
 auto    assets             .claude/commands/docsys-upgrade.md  written: new in this version
 manual  assets             .claude/commands/docsys-sync.md  edited by its owner — the diff to this version's text is below
-auto    assets             .claude/skills/docsys/SKILL.md  refreshed: the 0.15 text, untouched
+auto    assets             .claude/skills/docsys/SKILL.md  refreshed: the text docsys 0.15.0 wrote, untouched
 manual  verified-record    docs/reference/expiry.md  the body changed since @REV@ — never recorded blind; a maintainer reads it and verifies it again: `docsys verify reference/expiry.md`
 auto    verified-record    docs/reference/refresh.md  the body @REV@ holds is the body now: `verified_blocks` recorded
 manual  pins               docs/reference/expiry.md  `src/auth.rs#expire`: stale before the upgrade, still stale — re-read the page against it: `docsys pin --refresh reference/expiry.md`

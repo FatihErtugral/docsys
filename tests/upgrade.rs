@@ -14,6 +14,9 @@ use std::process::{Command, Output};
 
 const CASE: &str = "corpus/upgrades/0.4-to-0.5";
 
+/// The knowledge-base contract as docsys 0.15 wrote it.
+const KB_CONTRACT_0_15: &str = include_str!("golden/kb-contract-0.15.md");
+
 /// The release's upgrade note, read from the CHANGELOG as a person reads it:
 /// the lines under `### Upgrading` in the release's section.
 fn changelog_note(release: &str) -> String {
@@ -640,9 +643,9 @@ fn a_knowledge_base_contract_is_refreshed_only_while_untouched() {
         fs::write(&dm, text).unwrap();
         fs::remove_file(kb.join(".docsys-version")).unwrap();
         let contract = if edited {
-            docsys::agents::KB_CONTRACT_0_15.replace("Never invent.", "Never invent; cite.")
+            KB_CONTRACT_0_15.replace("Never invent.", "Never invent; cite.")
         } else {
-            docsys::agents::KB_CONTRACT_0_15.to_string()
+            KB_CONTRACT_0_15.to_string()
         };
         fs::write(kb.join("AGENTS.md"), &contract).unwrap();
         git(&kb, &["add", "-A"]);
@@ -667,4 +670,54 @@ fn a_knowledge_base_contract_is_refreshed_only_while_untouched() {
         }
         let _ = fs::remove_dir_all(&kb);
     }
+}
+
+/// A repository that tracks its hooks in `.githooks/`: a fresh clone has no
+/// `core.hooksPath` yet. The gate the upgrade rewrites is the tracked one,
+/// and it goes into the upgrade commit, so a second run finds nothing to do.
+#[test]
+fn a_tracked_githooks_gate_is_part_of_the_upgrade_commit() {
+    let (repo, _) = build("githooks");
+    let case = Path::new(env!("CARGO_MANIFEST_DIR")).join(CASE);
+    use std::os::unix::fs::PermissionsExt;
+    let hooks = repo.join(".githooks");
+    fs::create_dir_all(&hooks).unwrap();
+    fs::copy(case.join("hooks/pre-commit"), hooks.join("pre-commit")).unwrap();
+    fs::set_permissions(hooks.join("pre-commit"), fs::Permissions::from_mode(0o755)).unwrap();
+    fs::remove_file(repo.join(".git/hooks/pre-commit")).unwrap();
+    git(&repo, &["add", ".githooks/pre-commit"]);
+    git(&repo, &["commit", "-qm", "the project's own hooks"]);
+
+    let out = docsys(&repo, &["upgrade", "--apply", "--commit"]);
+    assert!(out.status.success(), "{out:?}");
+    assert!(
+        String::from_utf8_lossy(&out.stdout)
+            .contains("auto    git-gate           .githooks/pre-commit  the docsys block rewritten for this version, its mode kept\n"),
+        "{out:?}"
+    );
+    assert!(git(&repo, &["show", "--stat", "HEAD"]).contains(".githooks/pre-commit"));
+    assert_eq!(git(&repo, &["status", "--porcelain"]), "");
+    let head = git(&repo, &["rev-parse", "HEAD"]);
+    let out = docsys(&repo, &["upgrade", "--apply", "--commit"]);
+    assert!(out.status.success(), "{out:?}");
+    assert_eq!(git(&repo, &["rev-parse", "HEAD"]), head);
+    let _ = fs::remove_dir_all(&repo);
+}
+
+/// A docsys asset nobody edited since an older release wrote it is that
+/// release's text, not its owner's: refreshed, not shown as a diff.
+#[test]
+fn an_asset_an_older_release_wrote_is_refreshed() {
+    let (repo, _) = build("old-asset");
+    let skill = repo.join(".claude/skills/docsys/SKILL.md");
+    fs::write(&skill, include_str!("golden/docsys-skill-0.1.0.md")).unwrap();
+    git(&repo, &["commit", "-qam", "the skill as 0.1.0 wrote it"]);
+    let out = docsys(&repo, &["upgrade"]);
+    assert!(
+        String::from_utf8_lossy(&out.stdout).contains(
+            "auto    assets             .claude/skills/docsys/SKILL.md  refreshed: the text docsys 0.1.0 wrote, untouched"
+        ),
+        "{out:?}"
+    );
+    let _ = fs::remove_dir_all(&repo);
 }

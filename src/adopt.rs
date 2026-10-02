@@ -287,6 +287,23 @@ pub(crate) fn gate_clean(root: &Path, repo: &Path) -> bool {
         .any(|f| f.severity == crate::model::Severity::Error)
 }
 
+/// Where the gate lives once adopt has run here: git's hooks directory, or a
+/// tracked `.githooks/` that nothing configures yet — adopt points
+/// `core.hooksPath` at it (below), so the gate written there is the one a
+/// commit runs, and the one an upgrade commits.
+pub(crate) fn gate_hooks_dir(repo: &Path) -> Option<std::path::PathBuf> {
+    let configured = crate::git::cmd(repo)
+        .args(["config", "--get", "core.hooksPath"])
+        .output()
+        .ok()
+        .filter(|o| o.status.success())
+        .is_some_and(|o| !o.stdout.trim_ascii().is_empty());
+    if !configured && repo.join(".githooks").is_dir() {
+        return Some(repo.join(".githooks"));
+    }
+    crate::git::hooks_dir(repo)
+}
+
 pub(crate) fn ensure_git_gate(repo: &Path, root_rel: &str, clean: bool) -> &'static str {
     // a base that is its own repository names itself `.`
     let root_rel = if root_rel.is_empty() { "." } else { root_rel };
@@ -954,7 +971,7 @@ fn gate_span(lines: &[&str]) -> Option<(usize, usize)> {
 /// its mode.
 pub(crate) fn gate_current(repo: &Path, root_rel: &str) -> Option<bool> {
     let root_rel = if root_rel.is_empty() { "." } else { root_rel };
-    let hook = crate::git::hooks_dir(repo)?.join("pre-commit");
+    let hook = gate_hooks_dir(repo)?.join("pre-commit");
     let existing = fs::read_to_string(hook).ok()?;
     let lines: Vec<&str> = existing.lines().collect();
     let (s0, e0) = gate_span(&lines)?;

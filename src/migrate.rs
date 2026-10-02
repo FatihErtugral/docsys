@@ -970,6 +970,24 @@ pub fn generated_preamble(root: &Path) -> String {
 
 /// `content` with the preamble inserted: after a closed frontmatter block,
 /// else first. Unchanged when the preamble is empty or already present.
+/// `content` with the preamble `with_preamble` puts in it taken out again.
+pub fn without_preamble(content: &str, preamble: &str) -> String {
+    if preamble.is_empty() {
+        return content.to_string();
+    }
+    if let Some(rest) = content.strip_prefix("---\n") {
+        if let Some(end) = rest.find("\n---\n") {
+            let (head, tail) = content.split_at(4 + end + 5);
+            if let Some(tail) = tail.strip_prefix(preamble) {
+                return format!("{head}{tail}");
+            }
+        }
+    }
+    content
+        .strip_prefix(preamble)
+        .map_or_else(|| content.to_string(), str::to_string)
+}
+
 pub fn with_preamble(content: &str, preamble: &str) -> String {
     if preamble.is_empty() || content.contains(preamble.trim_end()) {
         return content.to_string();
@@ -1034,5 +1052,17 @@ mod tests_preamble {
         .unwrap();
         assert_eq!(generated_preamble(&root), "");
         let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn a_preamble_comes_out_the_way_it_went_in() {
+        let pre = "<!-- generated: keep this tree in English -->\n";
+        for text in ["---\nname: x\n---\n# Body\n", "# Body\n"] {
+            let with = with_preamble(text, pre);
+            assert_ne!(with, text);
+            assert_eq!(without_preamble(&with, pre), text);
+            assert_eq!(without_preamble(text, pre), text);
+        }
+        assert_eq!(without_preamble("# Body\n", ""), "# Body\n");
     }
 }

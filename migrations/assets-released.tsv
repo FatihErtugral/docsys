@@ -1,0 +1,25 @@
+# The texts docsys releases wrote for the assets it owns: asset <TAB> sha256 of the text <TAB> the first release that wrote it.
+# `docsys upgrade` refreshes a file whose text, the tree's generated preamble set aside, is one of these; any other text is its owner's.
+commands/docsys-sync.md	8fb7a55c2b3b40971fe14683fd8c6f401d0e4883d533a5697e351d1bd7838fa5	0.1.0
+skills/docsys/SKILL.md	9c83c788f4dfb340726ad7387ee77a846ba73d7e81a776842256ace04b48f36e	0.1.0
+skills/docsys-export/SKILL.md	c929b1fa4b9e120ad418d6fcce2b5119b2c88b02841a7acb927f216ee89cf9a3	0.4.0
+skills/kb-capture/SKILL.md	4096074ba8b518dd502b79f88a465a2bd27c844b8e5ab4b0d73016bc29bfd5be	0.4.0
+skills/kb-ingest/SKILL.md	8575e3ce49f9d77cc32e7adadf26daa46f9b7b55fcc49cb163f5cd11b947cfec	0.4.0
+skills/kb-audit/SKILL.md	03b95df3034746f8714a85db1c2230b02ddff5ebaf2cafd4c418b10f89a9f7ea	0.4.0
+skills/kb-lookup/SKILL.md	7ca92e75b2439834e217eafb5c3d44474b5a29838740299e7087b7416a12eb80	0.4.0
+AGENTS.md	832f46f6d08309954cc48ddbe74644785047c32259a02747dc3bdcf916bf86c5	0.4.0
+commands/docsys-seed.md	2e3c9a324727110574814dc6e4e8792746330facf3d2089b555278423329ae00	0.7.0
+commands/docsys-interview.md	a2e8b7bda8d1563c2237d4487f5dff3037dea07abd6c2731596701922bac19a2	0.7.0
+commands/docsys-sync.md	90d32b8f809022893b16bd041a61d67a72ecd574a006c1c865e1636771d5df80	0.8.0
+commands/docsys-seed.md	668a4f9c8c53fcc3a72e0dea429acf49319783c8ce91e5dc8128100446914ef1	0.8.0
+commands/docsys-sync.md	000ad5f9403179d38ed1423c8dff0392c09a467cb92e7a4efb715dfae343dcfe	0.11.0
+skills/docsys/SKILL.md	4b4bc8f6be23a77652671209e39094e6319d70334b228f7a4ed112022c2ee0ac	0.11.0
+skills/docsys/SKILL.md	15e6e7c134d7333165e770d44881b2173235625c156a69ab1e4d20f147ff7775	0.12.0
+skills/kb-lookup/SKILL.md	2256f55003ea3fd9ecaa6558c4642bc393d08b41d1d15b9fc458f70415a11511	0.12.0
+AGENTS.md	45f9fe97c6fa4d1efee47cb1ea58b8a9c3d2e0fddc60deb566fca93cbdd00c7c	0.12.0
+AGENTS.md	3fd3aa63c408e86504b71b0a36401be2297b3a4f6fe60927978805ba78cdab7e	0.14.0
+commands/docsys-seed.md	a89d53e02a7ecbb40d2864f13c76781e7b51e780da793155cb13d47d2e68135e	0.15.0
+skills/docsys/SKILL.md	5873468cae03b16ba8b19b2b37297ce745ee0f183837fedca53fa93c66a58407	0.15.0
+skills/kb-ingest/SKILL.md	3ea02e676b39bde3b3fd4f451d52334e07de3fe46a818bdca893d5ec82eadac8	0.15.0
+skills/kb-audit/SKILL.md	1b33a4eb85a8a7ef2a300f9ef6def1c905b73c6bf65ec120d2c00a13e97aa672	0.15.0
+AGENTS.md	5f27df0ba6286ccc0a37b624af024dea90ead00884f9510bf52868f07f74771d	0.15.0

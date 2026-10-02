@@ -83,7 +83,7 @@
       "strategy": "auto",
       "step": "assets",
       "file": ".claude/skills/docsys/SKILL.md",
-      "what": "refreshed: the 0.15 text, untouched",
+      "what": "refreshed: the text docsys 0.15.0 wrote, untouched",
       "command": null
     },
     {
