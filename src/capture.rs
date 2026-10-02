@@ -66,6 +66,61 @@ pub fn debt_close(root: &Path, n: usize, note: Option<&str>) -> Result<String, S
     ))
 }
 
+/// `ledger fix` (D-108): R-108's separators are ASCII, and a ledger written
+/// with em dashes — ` — deferred: ` — matches no grammar. Each marker at a
+/// label position, in the tree's declared `list_labels` form, is rewritten to
+/// ` -- `; a dash inside field text stays. The ledgers and their `_archive/`
+/// slices; a file is written only when it changed.
+pub fn ledger_fix(root: &Path) -> Result<String, String> {
+    let tree = crate::tree::DocTree::load(root).map_err(|e| e.to_string())?;
+    if !tree.docmeta_present {
+        return Err(format!("`{}` has no .docmeta.yml", root.display()));
+    }
+    let mut done = Vec::new();
+    for (ledger, labels) in crate::checks::LEDGERS {
+        let markers: Vec<(String, String)> = labels
+            .iter()
+            .map(|l| {
+                let l = crate::checks::label_of(&tree, l);
+                (format!(" — {l}: "), format!(" -- {l}: "))
+            })
+            .collect();
+        let mut files = vec![ledger.to_string()];
+        files.extend(crate::checks::archive_slices(root, ledger));
+        for rel in files {
+            let path = root.join(&rel);
+            let Ok(text) = fs::read_to_string(&path) else {
+                continue;
+            };
+            let mut fixed = String::with_capacity(text.len());
+            let mut changed = Vec::new();
+            for (i, line) in text.split_inclusive('\n').enumerate() {
+                let mut line = line.to_string();
+                if line.starts_with("- [ ] ") || line.starts_with("- [x] ") {
+                    let before = line.clone();
+                    for (dashed, ascii) in &markers {
+                        if !line.contains(ascii.as_str()) {
+                            line = line.replacen(dashed.as_str(), ascii, 1);
+                        }
+                    }
+                    if line != before {
+                        changed.push((i + 1).to_string());
+                    }
+                }
+                fixed.push_str(&line);
+            }
+            if !changed.is_empty() {
+                fs::write(&path, fixed).map_err(|e| format!("{rel}: {e}"))?;
+                done.push(format!("fixed: {rel} line {}", changed.join(", ")));
+            }
+        }
+    }
+    if done.is_empty() {
+        done.push("ledger: every field marker is already ASCII".to_string());
+    }
+    Ok(done.join("\n"))
+}
+
 /// `journal add`: one entry at its date (today by default; a retrospective
 /// date lands where R-104 puts it), the caller's lines as the body, an
 /// optional wiki-link as the pointer R-101 asks for.

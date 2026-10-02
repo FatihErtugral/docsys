@@ -1843,7 +1843,6 @@ fn check_list_grammars(tree: &DocTree, r: &mut Report) {
                 ));
                 continue;
             }
-            let norm = line.replace(" — ", " -- ");
             let ok = if is_debt {
                 // Debt lifecycle (D-039): a repaid debt LEAVES the file — the
                 // journal records the repayment, git records the history; a
@@ -1860,7 +1859,7 @@ fn check_list_grammars(tree: &DocTree, r: &mut Report) {
                 }
                 // An open item carries its opening date, or its age cannot be
                 // measured — the staleness nobody could see (D-039).
-                if open && !is_iso_date(norm.get(6..16).unwrap_or("")) {
+                if open && !is_iso_date(line.get(6..16).unwrap_or("")) {
                     r.findings.push(Finding::warn(
                         R108,
                         &page.rel,
@@ -1870,23 +1869,34 @@ fn check_list_grammars(tree: &DocTree, r: &mut Report) {
                             .to_string(),
                     ));
                 }
-                norm.contains(&format!(" -- {}: ", label_of(tree, "deferred")))
-                    && norm.contains(&format!(" -- {}: ", label_of(tree, "repay when")))
+                line.contains(&format!(" -- {}: ", label_of(tree, "deferred")))
+                    && line.contains(&format!(" -- {}: ", label_of(tree, "repay when")))
             } else {
-                let after = norm.get(6..).unwrap_or("");
+                let after = line.get(6..).unwrap_or("");
                 let date_ok = is_iso_date(after.get(..10).unwrap_or(""));
                 if closed {
-                    date_ok && norm.contains(&format!(" -- {}: ", label_of(tree, "answered")))
+                    date_ok && line.contains(&format!(" -- {}: ", label_of(tree, "answered")))
                 } else {
                     date_ok
                 }
             };
             if !ok {
+                // D-108: the separators are ASCII; a marker written with an
+                // em dash is named, with the command that rewrites it.
+                let dashed = LEDGER_LABELS
+                    .iter()
+                    .any(|l| line.contains(&format!(" — {}: ", label_of(tree, l))));
                 r.findings.push(Finding::warn(
                     R108,
                     &page.rel,
                     &format!("line-{}", i + 1),
-                    "entry does not match its item grammar".to_string(),
+                    if dashed {
+                        "entry does not match its item grammar — a field marker is written \
+                         ` — `; separators are ASCII ` -- ` (`docsys ledger fix` rewrites them)"
+                            .to_string()
+                    } else {
+                        "entry does not match its item grammar".to_string()
+                    },
                 ));
             }
         }
@@ -1927,11 +1937,66 @@ fn check_list_grammars(tree: &DocTree, r: &mut Report) {
     }
 }
 
+/// The canonical field labels of the ledgers' markers (R-108).
+pub(crate) const LEDGER_LABELS: [&str; 4] = ["deferred", "repay when", "resolved", "answered"];
+
+/// The ledgers (R-108), each with the labels its markers carry.
+pub(crate) const LEDGERS: [(&str, &[&str]); 3] = [
+    ("work/debt.md", &["deferred", "repay when", "resolved"]),
+    ("work/questions.md", &["answered"]),
+    ("wiki/open-questions.md", &["answered"]),
+];
+
+/// A ledger's archive slices: closed entries moved in bulk to `_archive/`
+/// (R-108) keep the ledger's path there — `_archive/work/debt-2026.md`, or
+/// files under `_archive/work/debt/`. Root-relative, sorted.
+pub(crate) fn archive_slices(root: &std::path::Path, ledger: &str) -> Vec<String> {
+    fn walk(dir: &std::path::Path, root: &std::path::Path, out: &mut Vec<String>) {
+        let Ok(entries) = std::fs::read_dir(dir) else {
+            return;
+        };
+        for e in entries.filter_map(Result::ok) {
+            let p = e.path();
+            if p.is_dir() {
+                walk(&p, root, out);
+            } else if p.extension().is_some_and(|x| x == "md") {
+                if let Ok(rel) = p.strip_prefix(root) {
+                    out.push(rel.to_string_lossy().replace('\\', "/"));
+                }
+            }
+        }
+    }
+    let Some((dir, file)) = ledger.rsplit_once('/') else {
+        return Vec::new();
+    };
+    let stem = file.trim_end_matches(".md");
+    let mut out = Vec::new();
+    let Ok(entries) = std::fs::read_dir(root.join("_archive").join(dir)) else {
+        return out;
+    };
+    for e in entries.filter_map(Result::ok) {
+        let name = e.file_name().to_string_lossy().into_owned();
+        let Some(tail) = name.strip_prefix(stem) else {
+            continue;
+        };
+        let p = e.path();
+        if p.is_dir() && tail.is_empty() {
+            walk(&p, root, &mut out);
+        } else if p.is_file() && tail.ends_with(".md") && tail.starts_with(['.', '-', '_']) {
+            if let Ok(rel) = p.strip_prefix(root) {
+                out.push(rel.to_string_lossy().replace('\\', "/"));
+            }
+        }
+    }
+    out.sort();
+    out
+}
+
 /// `headings: [Context=Bağlam, ...]` — canonical key → displayed heading.
 /// The tool translates nothing; it only matches (D-025).
 /// Local forms of the list-item field labels (R-108), same shape as the
 /// heading map: canonical name → the form this tree actually writes.
-fn label_of(tree: &DocTree, canonical: &str) -> String {
+pub(crate) fn label_of(tree: &DocTree, canonical: &str) -> String {
     tree.docmeta_list("list_labels")
         .iter()
         .filter_map(|e| e.split_once('='))

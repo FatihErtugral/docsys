@@ -51,6 +51,7 @@ Usage:
   docsys seed    gaps [--since <date>] [--repo .] [--root docs]      # the inventory as JSON, for /docsys-interview
   docsys seed    apply --plan <file> [--repo .] [--root docs] [--force]  # land the approved rows under work/
   docsys debt    close <n> [--note <line>] [--root docs]   # repaid: item leaves the ledger, journal records it
+  docsys ledger  fix [--root <dir>]          # a ledger's em-dash field markers ( — deferred: ) to R-108's ASCII ( -- ); field text untouched
   docsys journal add <text…> [--title <t>] [--date <d>] [--link <path>] [--root docs]
   docsys page    new <category|type> <id> [--title <t>] [--unverified] [--root docs]   # from _templates/, or a permanent skeleton; --unverified: a page written from evidence, for a maintainer to verify (R-208)
   docsys backlinks <path|id> [--repo .] [--root docs]      # pages (and code) pointing at a page
@@ -319,6 +320,7 @@ fn main() -> ExitCode {
                 || c == "hook"
                 || c == "seed"
                 || c == "debt"
+                || c == "ledger"
                 || c == "journal"
                 || c == "page"
                 || c == "consume"
@@ -506,6 +508,16 @@ fn main() -> ExitCode {
                 }
             }
         }
+        ("ledger", Some("fix")) => match docsys::capture::ledger_fix(&opts.root) {
+            Ok(msg) => {
+                println!("{msg}");
+                ExitCode::SUCCESS
+            }
+            Err(e) => {
+                eprintln!("ledger fix: {e}");
+                ExitCode::from(1)
+            }
+        },
         ("journal", Some("add")) => {
             let text = opts.positional.join(" ");
             match docsys::capture::journal_add(

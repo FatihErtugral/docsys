@@ -7,6 +7,23 @@ by the release workflow — the tag's section becomes the GitHub release body.
 
 ## [0.16.0] - unreleased
 
+### Added
+
+- `docsys ledger fix [--root <dir>]` (D-108) rewrites a ledger's em-dash
+  field markers (` — deferred: `) to R-108's ASCII (` -- deferred: `) in
+  `work/debt.md`, `work/questions.md`, `wiki/open-questions.md` and their
+  `_archive/` slices — at the label positions only, in the tree's declared
+  `list_labels` form; a dash inside field text stays. It writes only what
+  changed and prints it; a second run changes nothing.
+
+### Changed
+
+- R-108 reads a ledger line as written (D-108): the check no longer turns a
+  spaced em dash into ` -- ` before matching, so an entry whose field markers
+  are em dashes is reported — a warning that names `docsys ledger fix`. A
+  0.15.1 tree with em-dash ledger separators now sees R-108 warnings, and
+  `docsys ledger fix` clears them. Routers keep accepting the em dash (D-013).
+
 ### Fixed
 
 - docsys works from anywhere inside the repository (D-098). A relative
