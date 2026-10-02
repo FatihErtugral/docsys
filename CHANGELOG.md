@@ -58,19 +58,14 @@ stderr. Move one repository when it is ready:
   `.git/hooks` cannot warn an old binary; `doctor` names `docsys upgrade --apply`
   for a clone whose gate block is behind.
 
-- `docsys check <page> --by <agent|session> [--against <evidence>]… [--commit]`
-  (§21, R-214, D-104) on a docsys/0.5 tree: a machine's reading of every claim
-  against its evidence, recorded beside — never as — a maintainer's
-  verification. Lint reports a stale or incomplete check; `status` counts
-  current and stale checks; `lookup` marks `unverified · checked by …`.
 - On a docsys/0.5 tree `docsys verify` also records the body's blocks
   (`verified_blocks`; §21, R-212, D-103) — a bullet, a paragraph, a heading,
   a fence or a comment, cut by markup alone — so a changed page costs a
   re-read of the change. `docsys verify --show <page>` lists what that
   re-read is: the blocks numbered with their lines, the changed and new ones
   with their text, the removed ones from `verified_rev` where history still
-  holds it, stale or lost bound pins, the sources and pins to read against,
-  and a check record. Lint's R-024 error for a page still marked verified
+  holds it, stale or lost bound pins, and the sources and pins to read
+  against. Lint's R-024 error for a page still marked verified
   says how many blocks are unchanged; `status` counts partially verified
   pages (`blocks:`, `partially_verified`); `lookup` marks `unverified — m/n
   blocks as verified by …`.

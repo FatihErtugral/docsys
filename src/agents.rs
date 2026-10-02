@@ -197,10 +197,7 @@ maintainer, from their git identity; refused otherwise), and `docsys verify
 `verified` page whose body then changes is an error until it is `unverified`
 again (R-024). The maintainer in the session needs no second session: when
 the person you work with is a declared maintainer and says the page is right,
-run `docsys verify <page>` — it records them, not you (D-096). On a docsys/0.5 tree
-a session that wrote none of the page records its own claim-by-claim reading
-with `docsys check <page> --by <session>` — a check, never a verification
-(R-214): `verified` stays a maintainer's word. When
+run `docsys verify <page>` — it records them, not you (D-096). When
 `.docmeta.yml` declares `maintainers:`,
 `verified_by:` and `confirmed:` must name one of them (R-208): the people
 who review the code are the people who vouch for the page. A reader — a

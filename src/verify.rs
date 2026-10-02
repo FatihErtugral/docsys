@@ -612,8 +612,7 @@ fn indented(text: &str) -> String {
 /// re-verification reads. The current blocks numbered `[1]…[n]` with their
 /// lines — the numbers `pin --block` takes — the changed and new ones with
 /// their text, the removed ones from `verified_rev` where history holds it,
-/// the pins bound to a stale block or to none, what the page rests on, and a
-/// machine's check record.
+/// the pins bound to a stale block or to none, and what the page rests on.
 pub fn show(root: &Path, target: &str) -> Result<String, String> {
     let tree = DocTree::load(root).map_err(|e| e.to_string())?;
     if !tree.docmeta_present {
@@ -774,29 +773,6 @@ pub fn show(root: &Path, target: &str) -> Result<String, String> {
     } else {
         format!("read against: {}\n", against.join(" · "))
     });
-    if let Some(h) = get("checked_hash") {
-        let evidence = fm
-            .fields
-            .get("checked_against")
-            .and_then(Value::as_list)
-            .map(|l| l.join(", "))
-            .unwrap_or_default();
-        out.push_str(&format!(
-            "check: by {} at {}, against {} — {}\n",
-            get("checked_by").unwrap_or("?"),
-            get("checked_rev").unwrap_or("?"),
-            if evidence.is_empty() {
-                "nothing listed"
-            } else {
-                &evidence
-            },
-            if h == crate::fresh::content_hash(&body) {
-                "it read the body as it is; a check is a machine's reading, never a verification"
-            } else {
-                "stale: the body moved since it was checked"
-            }
-        ));
-    }
     out.push_str(&next);
     Ok(out)
 }

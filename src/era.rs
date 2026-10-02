@@ -144,13 +144,6 @@ impl Era {
         self.v05()
     }
 
-    /// R-214 (§21, D-104): a machine's check record — who checked, at which
-    /// revision, the body read, the evidence read — beside the maintainer's
-    /// verification. Before: no such record.
-    pub fn machine_checks(self) -> bool {
-        self.v05()
-    }
-
     /// R-212, R-213 (§21, D-103): a verification records the body's blocks, a
     /// pin may be bound to one, and a moved body says how much of it still
     /// reads as verified. Before: a page is verified whole or not at all.

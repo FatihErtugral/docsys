@@ -152,24 +152,7 @@ fn caveat_of(page: &Page, blocks: Option<&[String]>) -> Option<String> {
             }
         }
         None => None,
-        // an unverified page a machine checked says so, and whether the check
-        // still holds the body (§21, R-214)
-        Some(v) => Some(
-            match fm.fields.get("checked_hash").and_then(Value::as_str) {
-                Some(h)
-                    if h == crate::fresh::content_hash(&crate::fresh::body_text(&page.text)) =>
-                {
-                    let by = fm
-                        .fields
-                        .get("checked_by")
-                        .and_then(Value::as_str)
-                        .unwrap_or("?");
-                    format!("{v}{partial} · checked by {by}")
-                }
-                Some(_) => format!("{v}{partial} · check stale"),
-                None => format!("{v}{partial}"),
-            },
-        ),
+        Some(v) => Some(format!("{v}{partial}")),
     }
 }
 

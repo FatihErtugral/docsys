@@ -48,10 +48,6 @@ pub struct Status {
     /// verified pages anchored by their body hash whose `verified_rev` is not in
     /// this history — a squash or a rebase; the hash is the evidence (D-101)
     pub rev_gone: usize,
-    /// pages whose machine check holds the body as it is, and those whose body
-    /// moved since (§21, R-214)
-    pub checked: usize,
-    pub checked_stale: usize,
     /// a 0.5 tree's acknowledgements whose page id pins nothing any more
     /// (D-119) — `None` in a 0.4 tree, which keeps none
     pub orphan_acks: Option<usize>,
@@ -149,13 +145,6 @@ pub fn status(root: &Path, repo: Option<&Path>) -> Result<Status, String> {
         match page.kind {
             Kind::Permanent => {
                 s.permanent += 1;
-                if let Some(h) = fm.fields.get("checked_hash").and_then(Value::as_str) {
-                    if h == crate::fresh::content_hash(&crate::fresh::body_text(&page.text)) {
-                        s.checked += 1;
-                    } else {
-                        s.checked_stale += 1;
-                    }
-                }
                 if fm.fields.get("verification").and_then(Value::as_str) == Some("unverified") {
                     s.unverified.push(page.rel.clone());
                 }
@@ -411,12 +400,6 @@ pub fn render(s: &Status, root: &Path) -> String {
             s.forgotten
         ));
     }
-    if s.checked + s.checked_stale > 0 {
-        out.push_str(&format!(
-            "checks: {} current, {} stale — a check is a machine's reading, never a verification\n",
-            s.checked, s.checked_stale
-        ));
-    }
     if let Some(n) = s.orphan_acks.filter(|n| *n > 0) {
         out.push_str(&format!(
             "pins: {n} acknowledgement(s) no page pins any more — `docsys pin --gc` removes them\n"
@@ -506,7 +489,7 @@ pub fn render_json(s: &Status) -> String {
         format!(",\"partially_verified\":{}", p.len())
     });
     format!(
-        "{{\"profile\":\"{}\",\"namespace\":{},\"inbox\":{},\"inbox_oldest\":{}{records},\"permanent\":{},\"unverified\":[{}],\"work\":{{{}}},\"questions_open\":{},\"debt_open\":{},\"consumed\":[{}],\"skills_compiled\":{},\"errors\":{},\"warnings\":{},\"by_rule\":{{{}}},\"sources_moved\":{},\"forgotten\":{},\"rev_gone\":{}{acks}{partial},\"checked\":{},\"checked_stale\":{},\"first_errors\":[{}]}}\n",
+        "{{\"profile\":\"{}\",\"namespace\":{},\"inbox\":{},\"inbox_oldest\":{}{records},\"permanent\":{},\"unverified\":[{}],\"work\":{{{}}},\"questions_open\":{},\"debt_open\":{},\"consumed\":[{}],\"skills_compiled\":{},\"errors\":{},\"warnings\":{},\"by_rule\":{{{}}},\"sources_moved\":{},\"forgotten\":{},\"rev_gone\":{}{acks}{partial},\"first_errors\":[{}]}}\n",
         esc(&s.profile),
         s.namespace
             .as_ref()
@@ -528,8 +511,6 @@ pub fn render_json(s: &Status) -> String {
         s.sources_moved,
         s.forgotten,
         s.rev_gone,
-        s.checked,
-        s.checked_stale,
         first.join(",")
     )
 }

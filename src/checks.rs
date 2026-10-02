@@ -25,7 +25,6 @@ const R028: RuleId = RuleId("R-028");
 const R208: RuleId = RuleId("R-208");
 const R210: RuleId = RuleId("R-210");
 const R211: RuleId = RuleId("R-211");
-const R214: RuleId = RuleId("R-214");
 const R029: RuleId = RuleId("R-029");
 const R030: RuleId = RuleId("R-030");
 const R034: RuleId = RuleId("R-034");
@@ -2143,67 +2142,6 @@ fn check_list_grammars(tree: &DocTree, r: &mut Report) {
     }
 }
 
-/// R-214 (§21, D-104): a check record is complete, holds the body it read,
-/// and names evidence that resolves (R-059's resolver). All reported: a check
-/// is an aid, not a claim of truth, and its staleness is visible in the
-/// record itself.
-fn check_check_records(tree: &DocTree, r: &mut Report) {
-    const FIELDS: [&str; 3] = ["checked_by", "checked_rev", "checked_hash"];
-    let forms = source_forms(tree);
-    let mut repo: Option<Option<std::path::PathBuf>> = None;
-    let mut inspected = 0usize;
-    for page in &tree.pages {
-        if page.kind != Kind::Permanent {
-            continue;
-        }
-        let Some(fm) = &page.fm else { continue };
-        let has = |k: &str| fm.fields.contains_key(k);
-        if !FIELDS.iter().any(|k| has(k)) && !has("checked_against") {
-            continue;
-        }
-        inspected += 1;
-        let missing: Vec<&str> = FIELDS.into_iter().filter(|k| !has(k)).collect();
-        if !missing.is_empty() {
-            r.findings.push(Finding::warn(
-                R214,
-                &page.rel,
-                &missing.join(","),
-                "a check record names who checked, at which revision, and the hash of the body \
-                 read (R-214) — `docsys check <page> --by <label>` writes all three"
-                    .to_string(),
-            ));
-        }
-        if let Some(h) = fm.fields.get("checked_hash").and_then(Value::as_str) {
-            if h != crate::fresh::content_hash(&crate::fresh::body_text(&page.text)) {
-                r.findings.push(Finding::warn(
-                    R214,
-                    &page.rel,
-                    "checked_hash",
-                    "the body changed since it was checked — the check is stale; check it again \
-                     or drop the record"
-                        .to_string(),
-                ));
-            }
-        }
-        let against = fm
-            .fields
-            .get("checked_against")
-            .and_then(Value::as_list)
-            .unwrap_or(&[]);
-        for e in against.iter().filter(|e| !e.contains("://")) {
-            if let Some(why) = unresolved_source(tree, e, &mut repo, &forms) {
-                r.findings.push(Finding::warn(
-                    R214,
-                    &page.rel,
-                    e,
-                    format!("checked against evidence that does not resolve: {why}"),
-                ));
-            }
-        }
-    }
-    r.inspected.insert("check-records", inspected);
-}
-
 /// R-210, R-211 (D-115): the words a tree declares for a guess, and the
 /// headings its language gives a change history, matched as written. A
 /// marker counts in prose only — fences, quotes, indented code and inline
@@ -2487,9 +2425,6 @@ pub fn run_with(tree: &DocTree, ctx: &Context) -> Report {
     }
     if crate::era::Era::of(tree).declared_markers() {
         check_declared_markers(tree, &mut r);
-    }
-    if crate::era::Era::of(tree).machine_checks() {
-        check_check_records(tree, &mut r);
     }
     if tree.pages.is_empty() {
         r.findings.push(Finding::warn(

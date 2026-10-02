@@ -32,7 +32,6 @@ Usage:
   docsys verify  <page> [--by <handle|@login>] [--commit] [--revoke] [--root docs]   # a maintainer's record in one step: who from git identity, rev from HEAD, sources checked; --revoke: back to unverified
   docsys verify  --show <page> [--root docs]   # docsys/0.5: what a re-verification reads — the blocks numbered, the changed, new and removed ones, stale bound pins, the sources (§21, R-212)
   docsys verify  --range <a>...<b> (--by @login | --from-trailers) [--commit] [--root docs]   # every page the range touched, under the review approver's identity: a login a host adapter passes, or the Reviewed-by:/Approved-by: trailer in git (D-095); a login on no maintainer entry is a skip, exit 0 (D-105)
-  docsys check   <page> --by <agent|session> [--against <evidence>]… [--commit] [--root docs]   # a machine's reading of every claim against its evidence, recorded beside — never as — a maintainer's verification (§21, docsys/0.5)
   docsys raw     move <record> <domain> [--root <dir>]   # a note from raw/inbox/ to raw/<domain>/, through git, bytes untouched; every citing page's sources: rewritten (R-027)
   docsys assistant [--root .] [--projects <dir>]… [--domains a,b] [--since 30.days] [--limit 3]
                                              # an assistant's memory in one command: base, layer, projects consumed, pages, records, digest
@@ -134,7 +133,6 @@ struct Opts {
     kind: Option<String>,
     rule: Option<String>,
     command: Option<String>,
-    against: Vec<String>,
     apply: bool,
     ci_runner: Option<String>,
     ci_install: Option<String>,
@@ -198,7 +196,6 @@ fn parse_opts(args: &[String]) -> Result<Opts, String> {
         kind: None,
         rule: None,
         command: None,
-        against: Vec::new(),
         apply: false,
         ci_runner: None,
         ci_install: None,
@@ -245,9 +242,6 @@ fn parse_opts(args: &[String]) -> Result<Opts, String> {
             "--obsidian" => o.obsidian = true,
             "--draft" => o.draft = true,
             "--apply" => o.apply = true,
-            "--against" => o
-                .against
-                .push(it.next().ok_or("--against needs a value")?.clone()),
             "--type" => o.kind = Some(it.next().ok_or("--type needs a value")?.clone()),
             "--rule" => o.rule = Some(it.next().ok_or("--rule needs a value")?.clone()),
             "--command" => o.command = Some(it.next().ok_or("--command needs a value")?.clone()),
@@ -1215,35 +1209,6 @@ next: review, `git add -A && git commit`, then open an agent session here."
             },
             None => {
                 eprintln!("verify needs <page-id|page-path> [--by <handle>] [--commit] [--revoke]");
-                ExitCode::from(2)
-            }
-        },
-        ("check", None) => match (opts.positional.first(), opts.by.as_deref()) {
-            (Some(page), Some(by)) => {
-                match docsys::check::check(&opts.root, page, by, &opts.against, opts.commit) {
-                    Ok(done) => {
-                        println!(
-                            "checked: {} by {} at {} against {}",
-                            done.page,
-                            done.by,
-                            done.rev,
-                            if done.against.is_empty() {
-                                "no listed evidence".to_string()
-                            } else {
-                                done.against.join(", ")
-                            }
-                        );
-                        println!("a check is a reading, not a verification — `verified` stays a maintainer's word (R-025)");
-                        ExitCode::SUCCESS
-                    }
-                    Err(e) => {
-                        eprintln!("check: {e}");
-                        ExitCode::from(2)
-                    }
-                }
-            }
-            _ => {
-                eprintln!("check needs <page-id|page-path> and --by <agent or session> [--against <evidence>]… [--commit]");
                 ExitCode::from(2)
             }
         },
