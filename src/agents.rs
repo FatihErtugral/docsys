@@ -760,6 +760,18 @@ pub fn wire_settings(path: &Path, snippet: &str) -> Result<Wired, String> {
     Ok(Wired::Merged(added))
 }
 
+/// Whether the settings file wires every docsys relay already.
+pub fn settings_wired(path: &Path) -> bool {
+    let Some(mut doc) = fs::read_to_string(path)
+        .ok()
+        .and_then(|t| crate::hook::parse_json(&t))
+    else {
+        return false;
+    };
+    crate::hook::parse_json(SETTINGS_SNIPPET)
+        .is_some_and(|want| merge_hook_wires(&mut doc, &want) == Some(0))
+}
+
 /// Append the snippet's entries whose commands `doc` does not wire yet.
 /// `None` when either side is not shaped `{"hooks": {<event>: [entries]}}`.
 fn merge_hook_wires(doc: &mut Json, want: &Json) -> Option<usize> {

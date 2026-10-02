@@ -1696,10 +1696,29 @@ next: review, `git add -A && git commit`, then open an agent session here."
                         opts.dir.display()
                     );
                 }
-                println!("\n-- merge into .claude/settings.json by hand (protected file): --");
-                println!("{}", docsys::agents::SETTINGS_SNIPPET);
-                println!("-- and add the generated block to AGENTS.md: --");
-                println!("   docsys rules --agents-md >> AGENTS.md   # review the diff first");
+                // what is left to wire by hand, and only that
+                let repo = opts
+                    .dir
+                    .parent()
+                    .filter(|p| !p.as_os_str().is_empty())
+                    .unwrap_or(std::path::Path::new("."));
+                let wired = docsys::agents::settings_wired(&opts.dir.join("settings.json"));
+                let holder = docsys::adopt::rules_block_holder(repo);
+                if let (true, Some(file)) = (wired, &holder) {
+                    println!(
+                        "the agent layer is wired: settings.json runs every relay, and {} holds the rules block",
+                        file.strip_prefix(repo).unwrap_or(file).display()
+                    );
+                    return ExitCode::SUCCESS;
+                }
+                if !wired {
+                    println!("\n-- merge into .claude/settings.json by hand (protected file): --");
+                    println!("{}", docsys::agents::SETTINGS_SNIPPET);
+                }
+                if holder.is_none() {
+                    println!("-- and add the generated block to AGENTS.md: --");
+                    println!("   docsys rules --agents-md >> AGENTS.md   # review the diff first");
+                }
                 println!("\ntip: `docsys adopt` does all of this in one pass — assets,");
                 println!("settings.json (when absent), AGENTS.md block, git gate, report.");
                 ExitCode::SUCCESS

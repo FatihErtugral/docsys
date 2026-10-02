@@ -440,6 +440,24 @@ fn pin_step(ctx: &Ctx, u: &mut Upgrade, pin: Option<&str>, apply: bool) -> Resul
     Ok(())
 }
 
+/// A file holding exactly the text this version writes is docsys's own: when
+/// nobody committed it yet — `docsys agents` wrote it before the upgrade — the
+/// upgrade commit carries it.
+fn carry_untracked(repo: &Path, u: &mut Upgrade, step: &'static str, file: &str, apply: bool) {
+    if git_out(repo, &["ls-files", "--error-unmatch", "--", file]).is_some() {
+        return;
+    }
+    u.item(
+        "auto",
+        step,
+        file,
+        "committed: this version's text, not tracked yet".to_string(),
+    );
+    if apply {
+        u.written.push(file.to_string());
+    }
+}
+
 /// The steps every run takes: this binary's relays, gate, workflow, rules
 /// block and assets, each regenerated only where nobody edited it.
 fn common(ctx: &Ctx, u: &mut Upgrade, apply: bool) -> Result<(), String> {
@@ -485,10 +503,11 @@ fn common(ctx: &Ctx, u: &mut Upgrade, apply: bool) -> Result<(), String> {
         let Some(fresh) = crate::agents::relay_for(hook, root_rel) else {
             continue;
         };
+        let file = rel(repo, &path);
         if text == fresh {
+            carry_untracked(repo, u, "hook-scripts", &file, apply);
             continue;
         }
-        let file = rel(repo, &path);
         // a relay byte for byte as a release wrote it; any touch, a comment
         // included, makes it its owner's (D-117)
         if let Some(release) = crate::agents::released(hook, &text, "") {
@@ -712,6 +731,7 @@ fn common(ctx: &Ctx, u: &mut Upgrade, apply: bool) -> Result<(), String> {
             continue;
         };
         if text == want {
+            carry_untracked(repo, u, "assets", &file, apply);
             continue;
         }
         if let Some(release) = crate::agents::released(asset, &text, preamble) {
@@ -745,6 +765,7 @@ fn common(ctx: &Ctx, u: &mut Upgrade, apply: bool) -> Result<(), String> {
             let want = crate::agents::kb_contract();
             let file = rel(repo, &path);
             if text == want {
+                carry_untracked(repo, u, "kb-contract", &file, apply);
             } else if let Some(release) = crate::agents::released("AGENTS.md", &text, "") {
                 u.item(
                     "auto",

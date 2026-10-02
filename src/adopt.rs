@@ -742,6 +742,12 @@ const RULES_FILES: [&str; 2] = ["AGENTS.md", "CLAUDE.md"];
 /// markers already are — a tracked file first, then a root one, AGENTS.md
 /// before CLAUDE.md — updated in place, never moved; else AGENTS.md, or
 /// CLAUDE.md when git ignores AGENTS.md. `None` when git ignores both.
+/// The file that holds the rules block, when one does.
+pub fn rules_block_holder(repo: &Path) -> Option<PathBuf> {
+    rules_target(repo, None)
+        .filter(|p| fs::read_to_string(p).is_ok_and(|t| t.contains(crate::rules::BLOCK_BEGIN)))
+}
+
 pub(crate) fn rules_target(repo: &Path, named: Option<&Path>) -> Option<PathBuf> {
     if let Some(file) = named {
         return Some(repo.join(file));

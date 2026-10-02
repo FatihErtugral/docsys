@@ -398,3 +398,27 @@ fn an_older_docsys_under_upgraded_relays_is_named_in_one_line() {
     let _ = fs::remove_dir_all(&stub_dir);
     let _ = fs::remove_dir_all(&r);
 }
+
+/// `docsys agents` on a layer adopt already wired says so in one line and
+/// prints nothing to merge: following a merge hint there appends a second
+/// rules block.
+#[test]
+fn agents_on_a_wired_layer_has_nothing_to_merge() {
+    let r = repo("wired");
+    let (code, out) = docsys(&r, &["adopt"]);
+    assert_eq!(code, 0, "{out}");
+    let (code, out) = docsys(&r, &["agents"]);
+    assert_eq!(code, 0, "{out}");
+    assert!(
+        !out.contains("merge into") && !out.contains(">> AGENTS.md"),
+        "{out}"
+    );
+    assert_eq!(
+        out.lines()
+            .filter(|l| l.starts_with("the agent layer is wired"))
+            .count(),
+        1,
+        "{out}"
+    );
+    let _ = fs::remove_dir_all(&r);
+}

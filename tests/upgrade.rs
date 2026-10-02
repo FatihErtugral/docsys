@@ -913,3 +913,25 @@ fn a_refreshed_asset_names_the_trees_own_root() {
     assert!(text.contains("documentation/.docmeta.yml"), "{text}");
     let _ = fs::remove_dir_all(&repo);
 }
+
+/// A file docsys owns that holds exactly the text this version writes is
+/// docsys's own, tracked or not: an untracked one goes into the upgrade
+/// commit instead of staying behind as `??`.
+#[test]
+fn an_untracked_asset_holding_this_versions_text_goes_into_the_commit() {
+    let (repo, _) = build("untracked-asset");
+    // `docsys agents` writes the command the 0.4 tree lacks, before the upgrade
+    let out = docsys(&repo, &["agents"]);
+    assert!(out.status.success(), "{out:?}");
+    assert!(
+        git(&repo, &["status", "--porcelain"]).contains("?? .claude/commands/docsys-upgrade.md")
+    );
+    let out = docsys(&repo, &["upgrade", "--apply", "--commit"]);
+    assert!(out.status.success(), "{out:?}");
+    assert!(
+        git(&repo, &["show", "--stat", "HEAD"]).contains(".claude/commands/docsys-upgrade.md"),
+        "{out:?}"
+    );
+    assert_eq!(git(&repo, &["status", "--porcelain"]), "");
+    let _ = fs::remove_dir_all(&repo);
+}
