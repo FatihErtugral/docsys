@@ -151,8 +151,16 @@ pub fn run(repo: &Path, root: &Path, claude_dir: &Path) -> Diagnosis {
         );
     }
     for (rel, found) in crate::agents::stale_hooks(claude_dir) {
+        // `agents --force` would drop an owner's lines (D-117): only a relay
+        // a release wrote, untouched, is refreshed that way
+        let text = fs::read_to_string(claude_dir.join(&rel)).unwrap_or_default();
+        let fix = if crate::agents::released(&rel, &text, "").is_some() {
+            "`docsys agents --force` refreshes it".to_string()
+        } else {
+            "edited by its owner, so never rewritten — `docsys upgrade` shows the diff to this version's relay".to_string()
+        };
         d.lines.push(format!(
-            "info {rel} template {found}, binary {} — `docsys agents --force` refreshes it",
+            "info {rel} template {found}, binary {} — {fix}",
             crate::agents::TEMPLATE_VERSION
         ));
     }

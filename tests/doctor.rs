@@ -152,3 +152,69 @@ fn hookspath_is_read_from_git_not_from_config_text() {
     let hook = fs::read_to_string(repo.join(".githooks/pre-commit")).unwrap();
     assert!(hook.contains("docsys documentation gate"), "{hook}");
 }
+
+/// `docsys agents` on a docsys/0.5 tree, from the repository's top, writes
+/// no post-edit relay (D-126), and says the layer is wired only when every
+/// relay it wrote is.
+#[test]
+fn agents_on_a_0_5_tree_writes_no_post_edit_relay() {
+    let (repo, _) = repo_with_tree("agents-v05");
+    let out = Command::new(env!("CARGO_BIN_EXE_docsys"))
+        .args(["agents"])
+        .current_dir(&repo)
+        .env("DOCSYS_NO_AUTO_INSTALL", "1")
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "{out:?}");
+    assert!(
+        !repo.join(".claude/hooks/post-edit-updated.sh").exists(),
+        "{}",
+        String::from_utf8_lossy(&out.stdout)
+    );
+    assert!(!String::from_utf8_lossy(&out.stdout).contains("PostToolUse"));
+    let _ = fs::remove_dir_all(&repo);
+}
+
+/// A relay its owner edited is never what doctor tells someone to overwrite:
+/// `agents --force` would drop the owner's lines (D-117); doctor names the
+/// diff instead. An untouched one from an older release is refreshed as before.
+#[test]
+fn doctor_never_advises_overwriting_an_owners_relay() {
+    let (repo, _) = repo_with_tree("owner-relay");
+    let adopt = Command::new(env!("CARGO_BIN_EXE_docsys"))
+        .args(["adopt"])
+        .current_dir(&repo)
+        .env("DOCSYS_NO_AUTO_INSTALL", "1")
+        .output()
+        .unwrap();
+    assert!(adopt.status.success(), "{adopt:?}");
+    // a relay 0.12.0 wrote, untouched (the upgrade case refreshes it)
+    let old =
+        include_str!("../corpus/upgrades/0.4-to-0.5/before/dot-claude/hooks/session-intent.sh");
+    let relay = repo.join(".claude/hooks/session-intent.sh");
+    let doctor = || {
+        let out = Command::new(env!("CARGO_BIN_EXE_docsys"))
+            .args(["doctor"])
+            .current_dir(&repo)
+            .env("DOCSYS_NO_AUTO_INSTALL", "1")
+            .output()
+            .unwrap();
+        String::from_utf8_lossy(&out.stdout).into_owned()
+    };
+    fs::write(&relay, old).unwrap();
+    let said = doctor();
+    assert!(
+        said.lines().any(|l| l.contains("session-intent.sh")
+            && l.contains("`docsys agents --force` refreshes it")),
+        "an untouched relay from before: {said}"
+    );
+    fs::write(&relay, format!("{old}export DOCS_QUIET=1 # owner\n")).unwrap();
+    let said = doctor();
+    let line = said
+        .lines()
+        .find(|l| l.contains("session-intent.sh") && l.contains("template"))
+        .unwrap_or_default();
+    assert!(!line.contains("--force"), "{said}");
+    assert!(line.contains("edited by its owner"), "{said}");
+    let _ = fs::remove_dir_all(&repo);
+}

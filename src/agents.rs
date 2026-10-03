@@ -712,10 +712,12 @@ pub fn install_with_preamble(
         skipped: Vec::new(),
         notes: Vec::new(),
     };
-    let post_edit = claude_dir
+    // `.claude` given relative to the working directory: the repository is `.`
+    let repo = claude_dir
         .parent()
         .filter(|p| !p.as_os_str().is_empty())
-        .is_none_or(|repo| keeps_post_edit(repo, root_arg));
+        .unwrap_or(Path::new("."));
+    let post_edit = keeps_post_edit(repo, root_arg);
     for (rel, content, executable) in files {
         if rel == POST_EDIT && !post_edit {
             continue;
