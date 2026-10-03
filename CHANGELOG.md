@@ -19,6 +19,10 @@ declares `spec: docsys/0.5`; a tree that declares `docsys/0.4` is served as
   under .git/hooks cannot warn an old binary.
 - `docsys upgrade` prints the plan; `docsys upgrade --apply --commit` moves the
   tree in one commit. The items it lists for a person are theirs to finish.
+- On docsys/0.5 a verified page whose body or consumed source moved is no
+  longer a lint error or a gate refusal: it reads `unverified` until a
+  maintainer approves it again; drift between code and a page still blocks
+  through its pins (R-111, D-126).
 - A branch opened before the move runs the same `docsys upgrade --apply
   --commit` once before it merges: it converts the branch's own additions the
   same way, and only a topic both sides added to can conflict. A branch merged
