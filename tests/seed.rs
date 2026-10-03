@@ -315,12 +315,10 @@ fn apply_lands_the_approved_rows_under_work_and_is_idempotent() {
         "{pm}"
     );
     assert!(pm.contains(&format!("> — git:{sha}")), "{pm}");
-    // each item its own file (D-124)
-    let debt = fs::read_to_string(docs.join("work/debt/geocoder-attribution-missing.md")).unwrap();
+    // an untagged item's topic is `general` (D-124)
+    let debt = fs::read_to_string(docs.join("work/debt/general.md")).unwrap();
     assert_eq!(debt, "- [ ] 2026-08-29 geocoder attribution missing -- deferred: no OSM yet -- repay when: OSM ships\n");
-    let q =
-        fs::read_to_string(docs.join("work/questions/is-the-7-day-strip-a-product-decision.md"))
-            .unwrap();
+    let q = fs::read_to_string(docs.join("work/questions/general.md")).unwrap();
     assert_eq!(
         q,
         "- [ ] 2026-08-29 Is the 7-day strip a product decision?\n"
@@ -341,8 +339,8 @@ fn apply_lands_the_approved_rows_under_work_and_is_idempotent() {
     let before: Vec<String> = [
         "work/research/weather.md",
         "work/postmortems/caps-stale.md",
-        "work/debt/geocoder-attribution-missing.md",
-        "work/questions/is-the-7-day-strip-a-product-decision.md",
+        "work/debt/general.md",
+        "work/questions/general.md",
     ]
     .iter()
     .map(|r| fs::read_to_string(docs.join(r)).unwrap())
@@ -357,8 +355,8 @@ fn apply_lands_the_approved_rows_under_work_and_is_idempotent() {
     let after: Vec<String> = [
         "work/research/weather.md",
         "work/postmortems/caps-stale.md",
-        "work/debt/geocoder-attribution-missing.md",
-        "work/questions/is-the-7-day-strip-a-product-decision.md",
+        "work/debt/general.md",
+        "work/questions/general.md",
     ]
     .iter()
     .map(|r| fs::read_to_string(docs.join(r)).unwrap())

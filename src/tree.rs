@@ -102,7 +102,7 @@ fn classify(rel: &str, extra_tracked: &[String], profile: Profile, era: crate::e
             match second {
                 "journal.md" | "debt.md" | "questions.md" => Kind::ListFile,
                 "journal" => Kind::ListFile,
-                // one file per open item (D-124)
+                // open items, a file per topic (D-124)
                 "debt" | "questions" if era.item_files() => Kind::ListFile,
                 _ if CORE_TRACKED.contains(&second)
                     || extra_tracked.iter().any(|c| c == second) =>

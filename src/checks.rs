@@ -1949,45 +1949,50 @@ fn check_item_files(tree: &DocTree, r: &mut Report) {
             .filter(|p| p.kind == Kind::ListFile && p.rel.starts_with(&prefix))
         {
             inspected += 1;
+            let topic = page
+                .rel
+                .rsplit('/')
+                .next()
+                .unwrap_or("")
+                .trim_end_matches(".md");
             let mut item: Option<usize> = None;
+            let mut in_prose = false;
             for (i, line) in page.text.lines().enumerate() {
                 let at = format!("line-{}", i + 1);
                 let blank = line.trim().is_empty() || line.trim_start().starts_with("<!--");
-                if item.is_some() {
-                    if !blank {
-                        r.findings.push(Finding::err(
-                            R108,
-                            &page.rel,
-                            &at,
-                            format!(
-                                "line {}: one file holds one item — another item or text after \
-                                 it is seen by no check and closed by no command; give it its \
-                                 own file (`docsys {} add`)",
-                                i + 1,
-                                if is_debt { "debt" } else { "question" }
-                            ),
-                        ));
-                        break;
-                    }
-                    continue;
-                }
                 if line.starts_with("- [x] ") {
                     r.findings.push(Finding::err(
                         R108,
                         &page.rel,
                         &at,
                         format!(
-                            "line {}: a closed item leaves — remove the file, and the commit \
-                             carries `{}: …` (R-108)",
+                            "line {}: a closed item leaves its file, and the commit carries \
+                             `{}: …` (R-108)",
                             i + 1,
                             list.trailer()
                         ),
                     ));
                     item = Some(i);
                 } else if line.starts_with("- [ ] ") {
+                    in_prose = false;
                     if let Some(problem) = item_problem(tree, line, is_debt) {
                         r.findings
                             .push(Finding::warn(R108, &page.rel, &at, problem));
+                    }
+                    // the file is the topic its items name (D-124)
+                    let tagged = crate::items::topic_of(line);
+                    if tagged != crate::items::GENERAL && tagged != topic {
+                        r.findings.push(Finding::warn(
+                            R108,
+                            &page.rel,
+                            &at,
+                            format!(
+                                "line {}: tagged `[{tagged}]` in {topic}.md — the item belongs in \
+                                 {}/{tagged}.md",
+                                i + 1,
+                                list.dir(kb)
+                            ),
+                        ));
                     }
                     item = Some(i);
                 } else if line.starts_with("- ") || line.starts_with("* ") {
@@ -2002,6 +2007,21 @@ fn check_item_files(tree: &DocTree, r: &mut Report) {
                         ),
                     ));
                     item = Some(i);
+                } else if item.is_some() && !blank && !in_prose {
+                    // after the first item a topic file holds items only
+                    in_prose = true;
+                    r.findings.push(Finding::err(
+                        R108,
+                        &page.rel,
+                        &at,
+                        format!(
+                            "line {}: not an item — after its first item a topic file holds \
+                             items only; what this says is seen by no check and closed by no \
+                             command (`docsys {} add`)",
+                            i + 1,
+                            if is_debt { "debt" } else { "question" }
+                        ),
+                    ));
                 }
             }
             if item.is_none() {
@@ -2009,8 +2029,7 @@ fn check_item_files(tree: &DocTree, r: &mut Report) {
                     R108,
                     &page.rel,
                     "item",
-                    "an item file holds its one open item, `- [ ] YYYY-MM-DD …` (R-108)"
-                        .to_string(),
+                    "a topic file holds open items, `- [ ] YYYY-MM-DD …` (R-108)".to_string(),
                 ));
             }
         }

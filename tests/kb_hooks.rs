@@ -397,7 +397,7 @@ fn the_installed_layer_names_the_sources_beyond_the_inbox() {
         "docsys assistant",
         "docsys raw move",
         "every file under `wiki/`",
-        "`docsys question add`",
+        "`docsys question add --topic <domain>`",
     ] {
         assert!(agents.contains(needle), "AGENTS.md lacks `{needle}`");
     }

@@ -66,10 +66,10 @@ Usage:
                                              # brownfield: feature inventory, or one feature's history as evidence
   docsys seed    gaps [--since <date>] [--repo .] [--root docs]      # the inventory as JSON, for /docsys-interview
   docsys seed    apply --plan <file> [--repo .] [--root docs] [--force]  # land the approved rows under work/
-  docsys debt    add <debt…> --deferred <reason> --repay-when <trigger> [--date <d>] [--root docs]   # work deferred on purpose: one dated item (R-108)
-  docsys debt    close <item> --note <how> [--root docs]   # repaid: the item leaves; the commit carries the `Resolved:` line it prints (D-124)
-  docsys question add <question…> [--context <c>] [--date <d>] [--root docs]   # not known: one dated item, never a guess on a page (R-108)
-  docsys question close <item> --answer <line> [--root docs]   # answered: the item leaves; the commit carries `Answered:` (D-124)
+  docsys debt    add <debt…> --deferred <reason> --repay-when <trigger> [--topic <id>] [--date <d>] [--root docs]   # work deferred on purpose: one dated item in its topic's file (R-108, D-124)
+  docsys debt    close <n|words> --note <how> [--root docs]   # repaid: the item leaves; the commit carries the `Resolved:` line it prints (D-124)
+  docsys question add <question…> [--topic <id>] [--context <c>] [--date <d>] [--root docs]   # not known: one dated item, never a guess on a page (R-108)
+  docsys question close <n|words> --answer <line> [--root docs]   # answered: the item leaves; the commit carries `Answered:` (D-124)
   docsys ledger  fix [--root <dir>]          # a ledger's em-dash field markers ( — deferred: ) to R-108's ASCII ( -- ); field text untouched
   docsys journal [--since <date>] [--root docs]          # the journal, read from history: every commit that changed the docs or carries `Docs:`, newest first, then a 0.4 tree's frozen journal (D-125)
   docsys journal add <text…> [--title <t>] [--link <path>] [--root docs]   # docsys/0.5: prints the commit message the entry is; docsys/0.4: an entry in work/journal.md
@@ -121,6 +121,7 @@ struct Opts {
     deferred: Option<String>,
     repay_when: Option<String>,
     answer: Option<String>,
+    topic: Option<String>,
     context: Option<String>,
     date: Option<String>,
     link: Option<String>,
@@ -189,6 +190,7 @@ fn parse_opts(args: &[String]) -> Result<Opts, String> {
         deferred: None,
         repay_when: None,
         answer: None,
+        topic: None,
         context: None,
         date: None,
         link: None,
@@ -264,6 +266,7 @@ fn parse_opts(args: &[String]) -> Result<Opts, String> {
                 o.repay_when = Some(it.next().ok_or("--repay-when needs a value")?.clone())
             }
             "--answer" => o.answer = Some(it.next().ok_or("--answer needs a value")?.clone()),
+            "--topic" => o.topic = Some(it.next().ok_or("--topic needs a value")?.clone()),
             "--context" => o.context = Some(it.next().ok_or("--context needs a value")?.clone()),
             "--reason" => o.note = Some(it.next().ok_or("--reason needs a value")?.clone()),
             "--date" => o.date = Some(it.next().ok_or("--date needs a value")?.clone()),
@@ -884,6 +887,7 @@ fn main() -> ExitCode {
                 docsys::capture::debt_add(
                     &opts.root,
                     &text,
+                    opts.topic.as_deref(),
                     opts.deferred.as_deref(),
                     opts.repay_when.as_deref(),
                     opts.date.as_deref(),
@@ -892,6 +896,7 @@ fn main() -> ExitCode {
                 docsys::capture::question_add(
                     &opts.root,
                     &text,
+                    opts.topic.as_deref(),
                     opts.context.as_deref(),
                     opts.date.as_deref(),
                 )

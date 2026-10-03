@@ -1,6 +1,8 @@
-//! Debt and questions as one file per open item (R-108, D-124): two branches
-//! that each add an item never touch the same file, and a closed item leaves
-//! with its file — the closing commit's trailer is its record.
+//! Debt and questions grouped by topic (R-108, D-124): each open item is one
+//! line in the file of the page or feature it concerns — the `[topic]` tag
+//! the line carries after its date, `general` when it carries none. A closed
+//! item leaves its file, and the commit that removes it carries its trailer;
+//! a topic with no open item left has no file.
 
 use std::fs;
 use std::path::Path;
@@ -13,7 +15,7 @@ pub enum List {
 }
 
 impl List {
-    /// The directory of the list's item files, relative to the docs root.
+    /// The directory of the list's topic files, relative to the docs root.
     pub fn dir(self, kb: bool) -> &'static str {
         match (self, kb) {
             (List::Debt, _) => "work/debt",
@@ -40,127 +42,117 @@ impl List {
     }
 }
 
-/// An open item: its file and its one line.
+/// The topic of an item with no tag of its own.
+pub const GENERAL: &str = "general";
+
+/// An open item: its topic file and its line.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Item {
-    /// root-relative path of the item file
+    /// root-relative path of the topic file
     pub rel: String,
     /// the file name without `.md`
-    pub slug: String,
+    pub topic: String,
     /// the `- [ ] YYYY-MM-DD …` line
     pub line: String,
 }
 
-impl Item {
-    /// The opening date, as the line carries it.
-    pub fn date(&self) -> &str {
-        self.line.get(6..16).unwrap_or("")
-    }
+/// The topic a line names: the `[tag]` right after its date when the tag is
+/// a local id, else `general`.
+pub fn topic_of(line: &str) -> String {
+    line.get(16..)
+        .map(str::trim_start)
+        .and_then(|rest| rest.strip_prefix('['))
+        .and_then(|rest| rest.split_once(']'))
+        .map(|(tag, _)| tag.trim())
+        .filter(|tag| crate::model::is_local_id(tag))
+        .map_or_else(|| GENERAL.to_string(), str::to_string)
 }
 
-/// The open items of a list, oldest first, then by name — the order `debt
-/// close <n>` numbers them in.
+/// The open items of a list, topic by topic in name order, each topic's in
+/// the order its file holds them — the order `close <n>` numbers them in.
 pub fn open(root: &Path, list: List, kb: bool) -> Vec<Item> {
     let dir = list.dir(kb);
     let Ok(entries) = fs::read_dir(root.join(dir)) else {
         return Vec::new();
     };
-    let mut items: Vec<Item> = entries
+    let mut names: Vec<String> = entries
         .flatten()
-        .filter_map(|e| {
-            let name = e.file_name().to_str()?.to_string();
-            let slug = name.strip_suffix(".md")?.to_string();
-            let text = fs::read_to_string(e.path()).ok()?;
-            let line = text.lines().find(|l| l.starts_with("- [ ] "))?.to_string();
-            Some(Item {
-                rel: format!("{dir}/{name}"),
-                slug,
-                line,
-            })
-        })
+        .filter_map(|e| e.file_name().to_str().map(str::to_string))
+        .filter(|n| n.ends_with(".md"))
         .collect();
-    items.sort_by(|a, b| (a.date(), &a.slug).cmp(&(b.date(), &b.slug)));
+    names.sort();
+    let mut items = Vec::new();
+    for name in names {
+        let Ok(text) = fs::read_to_string(root.join(dir).join(&name)) else {
+            continue;
+        };
+        let topic = name.trim_end_matches(".md").to_string();
+        for line in text.lines().filter(|l| l.starts_with("- [ ] ")) {
+            items.push(Item {
+                rel: format!("{dir}/{name}"),
+                topic: topic.clone(),
+                line: line.to_string(),
+            });
+        }
+    }
     items
 }
 
-/// The words an item's file is named by: its text after the date, up to its
-/// first field marker.
-fn words(line: &str) -> &str {
-    let rest = line.get(6..).unwrap_or("");
-    let rest = rest
-        .get(..10)
-        .filter(|d| crate::model::is_iso_date(d))
-        .map_or(rest, |_| rest.get(10..).unwrap_or(""));
-    rest.split(" -- ").next().unwrap_or("").trim()
-}
-
-/// A free file name for the item: its words as a slug of at most 48
-/// characters, cut at a word boundary; `-2`, `-3` … when the name is taken.
-fn slug_for(dir: &Path, line: &str) -> String {
-    let full = crate::slug::slug(words(line));
-    let mut base = String::new();
-    for word in full.split('-') {
-        if !base.is_empty() && base.len() + 1 + word.len() > 48 {
-            break;
-        }
-        if !base.is_empty() {
-            base.push('-');
-        }
-        base.push_str(word);
-    }
-    if base.is_empty() {
-        base = "item".to_string();
-    }
-    let mut name = base.clone();
-    let mut n = 2;
-    while dir.join(format!("{name}.md")).exists() {
-        name = format!("{base}-{n}");
-        n += 1;
-    }
-    name
-}
-
-/// Write one open item into its own file; the root-relative path it got.
+/// Append one open item to its topic's file, the file made with the first;
+/// the root-relative path of the file.
 pub fn add(root: &Path, list: List, kb: bool, line: &str) -> Result<String, String> {
-    let dir = root.join(list.dir(kb));
-    fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
-    let slug = slug_for(&dir, line);
-    let pre = crate::migrate::generated_preamble(root);
-    let text = crate::migrate::with_preamble(&format!("{line}\n"), &pre);
-    fs::write(dir.join(format!("{slug}.md")), text).map_err(|e| e.to_string())?;
-    Ok(format!("{}/{slug}.md", list.dir(kb)))
+    fs::create_dir_all(root.join(list.dir(kb))).map_err(|e| e.to_string())?;
+    let rel = format!("{}/{}.md", list.dir(kb), topic_of(line));
+    let path = root.join(&rel);
+    let text = match fs::read_to_string(&path) {
+        Ok(mut text) => {
+            if !text.is_empty() && !text.ends_with('\n') {
+                text.push('\n');
+            }
+            text.push_str(line);
+            text.push('\n');
+            text
+        }
+        Err(_) => {
+            let pre = crate::migrate::generated_preamble(root);
+            crate::migrate::with_preamble(&format!("{line}\n"), &pre)
+        }
+    };
+    fs::write(&path, text).map_err(|e| e.to_string())?;
+    Ok(rel)
 }
 
-/// One open item, named by its file name or by its 1-based number in the
-/// order `open` lists.
+/// One open item: its 1-based number in the order `open` lists, or a piece
+/// of its text no other open item holds.
 pub fn find(root: &Path, list: List, kb: bool, which: &str) -> Result<Item, String> {
     let items = open(root, list, kb);
-    let which = which.trim().trim_end_matches(".md");
-    let which = which.rsplit('/').next().unwrap_or(which);
-    let found = match which.parse::<usize>() {
-        Ok(n) => items.get(n.wrapping_sub(1)).cloned(),
-        Err(_) => items.iter().find(|i| i.slug == which).cloned(),
-    };
-    found.ok_or_else(|| {
-        let names: Vec<String> = items
-            .iter()
-            .enumerate()
-            .map(|(i, it)| format!("{} {}", i + 1, it.slug))
-            .collect();
-        if names.is_empty() {
-            format!("{} has no open item", list.dir(kb))
-        } else {
+    let which = which.trim();
+    if items.is_empty() {
+        return Err(format!("{} has no open item", list.dir(kb)));
+    }
+    if let Ok(n) = which.parse::<usize>() {
+        return items.get(n.wrapping_sub(1)).cloned().ok_or_else(|| {
             format!(
-                "no open item `{which}` in {} — open: {}",
+                "{} has {} open item(s); there is no item {n}",
                 list.dir(kb),
-                names.join(", ")
+                items.len()
             )
-        }
-    })
+        });
+    }
+    let hits: Vec<&Item> = items.iter().filter(|i| i.line.contains(which)).collect();
+    match hits.as_slice() {
+        [one] => Ok((*one).clone()),
+        [] => Err(format!("no open item in {} holds `{which}`", list.dir(kb))),
+        many => Err(format!(
+            "{} open items hold `{which}` — name one by its number or by more of its words",
+            many.len()
+        )),
+    }
 }
 
-/// Close an item: its file goes, and the commit that removes it carries
-/// `<trailer>: <record>` — what this returns for the caller to print.
+/// Close an item: its line leaves its topic file — the file goes with its
+/// last item — and the commit that removes it carries `<trailer>: <record>`,
+/// which this returns for the caller to print.
 pub fn close(
     root: &Path,
     list: List,
@@ -176,10 +168,28 @@ pub fn close(
         ));
     }
     let item = find(root, list, kb, which)?;
-    fs::remove_file(root.join(&item.rel)).map_err(|e| e.to_string())?;
+    let path = root.join(&item.rel);
+    let text = fs::read_to_string(&path).map_err(|e| e.to_string())?;
+    let mut removed = false;
+    let rest: String = text
+        .split_inclusive('\n')
+        .filter(|l| {
+            if !removed && l.trim_end_matches('\n') == item.line {
+                removed = true;
+                return false;
+            }
+            true
+        })
+        .collect();
+    if rest.lines().any(|l| l.starts_with("- [ ] ")) {
+        fs::write(&path, rest).map_err(|e| e.to_string())?;
+    } else {
+        fs::remove_file(&path).map_err(|e| e.to_string())?;
+    }
     Ok(format!(
-        "closed: {} — the file is removed; history keeps the item\n\
-         commit the removal with this trailer in its message (R-108):\n{}: {record}",
+        "closed: {}\n  from {}; history keeps it\n\
+         commit the change with this trailer in its message (R-108):\n{}: {record}",
+        item.line,
         item.rel,
         list.trailer()
     ))
@@ -198,51 +208,89 @@ mod tests {
     }
 
     #[test]
-    fn an_item_is_named_by_its_words_and_numbered_by_its_date() {
-        let r = root("names");
-        let late = "- [ ] 2026-10-02 Retry policy is undocumented -- deferred: no owner -- repay when: next outage";
-        let early =
-            "- [ ] 2026-09-01 Retry policy is undocumented -- deferred: later -- repay when: soon";
+    fn an_item_joins_the_topic_its_tag_names_and_general_without_one() {
+        let r = root("topics");
+        let a = "- [ ] 2026-10-01 [retry-policy] Retries are unbounded -- deferred: no owner -- repay when: next outage";
+        let b = "- [ ] 2026-10-02 [retry-policy] The backoff is fixed -- deferred: later -- repay when: soon";
+        let c = "- [ ] 2026-10-03 The CI cache is cold -- deferred: later -- repay when: soon";
         assert_eq!(
-            add(&r, List::Debt, false, late).unwrap(),
-            "work/debt/retry-policy-is-undocumented.md"
+            add(&r, List::Debt, false, a).unwrap(),
+            "work/debt/retry-policy.md"
         );
         assert_eq!(
-            add(&r, List::Debt, false, early).unwrap(),
-            "work/debt/retry-policy-is-undocumented-2.md"
+            add(&r, List::Debt, false, b).unwrap(),
+            "work/debt/retry-policy.md"
         );
-        let items = open(&r, List::Debt, false);
-        assert_eq!(items.len(), 2);
         assert_eq!(
-            items.first().map(|i| i.line.as_str()),
-            Some(early),
-            "oldest first"
+            add(&r, List::Debt, false, c).unwrap(),
+            "work/debt/general.md"
         );
-        assert_eq!(find(&r, List::Debt, false, "1").unwrap().line, early);
         assert_eq!(
-            find(&r, List::Debt, false, "retry-policy-is-undocumented")
-                .unwrap()
-                .line,
-            late
+            fs::read_to_string(r.join("work/debt/retry-policy.md")).unwrap(),
+            format!("{a}\n{b}\n")
         );
-        assert!(find(&r, List::Debt, false, "3")
-            .unwrap_err()
-            .contains("open: 1 retry-policy-is-undocumented-2"));
-        let out = close(&r, List::Debt, false, "1", "measured, held").unwrap();
-        assert!(out.ends_with("\nResolved: measured, held"), "{out}");
-        assert_eq!(open(&r, List::Debt, false).len(), 1);
-        assert!(close(&r, List::Debt, false, "1", " ").is_err());
+        let lines: Vec<String> = open(&r, List::Debt, false)
+            .into_iter()
+            .map(|i| i.line)
+            .collect();
+        assert_eq!(lines, [c, a, b], "topic by topic, each in file order");
+        assert_eq!(topic_of("- [ ] 2026-10-01 [Not An Id] x"), GENERAL);
         let _ = fs::remove_dir_all(&r);
     }
 
     #[test]
-    fn a_long_question_is_cut_at_a_word() {
-        let r = root("long");
-        let line = "- [ ] 2026-10-03 Why does the scheduler retry twice when the upstream answers with a timeout?";
-        let rel = add(&r, List::Questions, true, line).unwrap();
+    fn closing_takes_the_line_out_and_the_last_takes_the_file() {
+        let r = root("close");
+        let a =
+            "- [ ] 2026-10-01 [retry-policy] Retries are unbounded -- deferred: a -- repay when: b";
+        let b =
+            "- [ ] 2026-10-02 [retry-policy] The backoff is fixed -- deferred: c -- repay when: d";
+        add(&r, List::Debt, false, a).unwrap();
+        add(&r, List::Debt, false, b).unwrap();
+        let out = close(&r, List::Debt, false, "backoff", "made exponential").unwrap();
+        assert!(out.ends_with("\nResolved: made exponential"), "{out}");
         assert_eq!(
-            rel,
-            "wiki/open-questions/why-does-the-scheduler-retry-twice-when-the.md"
+            fs::read_to_string(r.join("work/debt/retry-policy.md")).unwrap(),
+            format!("{a}\n")
+        );
+        assert!(find(&r, List::Debt, false, "2")
+            .unwrap_err()
+            .contains("there is no item 2"));
+        assert!(
+            close(&r, List::Debt, false, "1", " ").is_err(),
+            "a record is said"
+        );
+        close(&r, List::Debt, false, "1", "bounded at three").unwrap();
+        assert!(!r.join("work/debt/retry-policy.md").exists());
+        assert!(find(&r, List::Debt, false, "1")
+            .unwrap_err()
+            .contains("no open item"));
+        let _ = fs::remove_dir_all(&r);
+    }
+
+    #[test]
+    fn a_piece_of_text_names_one_item_or_says_how_many() {
+        let r = root("text");
+        add(
+            &r,
+            List::Questions,
+            true,
+            "- [ ] 2026-10-01 [cache] Who owns the cache?",
+        )
+        .unwrap();
+        add(
+            &r,
+            List::Questions,
+            true,
+            "- [ ] 2026-10-02 [cache] Who warms the cache?",
+        )
+        .unwrap();
+        assert!(find(&r, List::Questions, true, "Who")
+            .unwrap_err()
+            .contains("2 open items hold"));
+        assert_eq!(
+            find(&r, List::Questions, true, "warms").unwrap().rel,
+            "wiki/open-questions/cache.md"
         );
         let _ = fs::remove_dir_all(&r);
     }

@@ -21,8 +21,8 @@ declares `spec: docsys/0.5`; a tree that declares `docsys/0.4` is served as
   tree in one commit. The items it lists for a person are theirs to finish.
 - A branch opened before the move runs the same `docsys upgrade --apply
   --commit` once before it merges: it converts the branch's own additions the
-  same way, and the merge is clean. A branch merged without it is caught by
-  lint, and a re-run moves its lines.
+  same way, and only a topic both sides added to can conflict. A branch merged
+  without it is caught by lint, and a re-run moves its lines.
 
 ### Added
 
@@ -66,11 +66,13 @@ declares `spec: docsys/0.5`; a tree that declares `docsys/0.4` is served as
   `Docs:` entry over five lines is said; under `ask` it says nothing. `upgrade` moves `work/journal.md` and its slices under
   `_archive/journal/` byte for byte (§10, R-100, R-101, R-104, D-125; R-103
   and R-105 withdrawn).
-- Debt and questions are one file per open item, written by `docsys debt add`
-  and `docsys question add`; closing removes the file and prints the
-  `Resolved:` or `Answered:` line its commit carries, and `upgrade` moves each
-  open item of the old ledgers into its own file and the rest, as written,
-  under `_archive/` (R-108, D-124). D-109's vanished-item check is retired
+- Debt and questions are directories of topic files: each open item is a line
+  in the file of the page or feature its `[topic]` tag names, `general`
+  without one, written by `docsys debt add` and `docsys question add`
+  (`--topic`); closing removes the line and prints the `Resolved:` or
+  `Answered:` line its commit carries, and `upgrade` groups the old ledgers'
+  open items by tag and moves the rest, as written, under `_archive/` (R-108,
+  D-124). D-109's vanished-item check is retired
   with the ledgers.
 - A router line may route a directory, and every page under it is reachable;
   `adopt` routes the four type directories, so a new page adds no line to

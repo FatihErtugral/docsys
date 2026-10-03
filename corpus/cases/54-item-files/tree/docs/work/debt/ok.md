@@ -1,1 +1,0 @@
-- [ ] 2026-10-01 retries are unbounded -- deferred: no owner -- repay when: the next outage

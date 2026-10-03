@@ -456,9 +456,9 @@ Rules that are not mechanical:
 - A changed page is `unverified` again.
 - A note that fits no domain stays in the inbox; a domain is proposed as an
   open question and earns its place only after several notes.
-- An open question is one file under `wiki/open-questions/`, written by
-  `docsys question add`; `status` counts them, and an answered one leaves
-  with its commit's `Answered:` line (R-108).
+- An open question is a line in `wiki/open-questions/<topic>.md`, written by
+  `docsys question add --topic <domain>`; `status` counts them, and an
+  answered one leaves with its commit's `Answered:` line (R-108).
 - Never invent. "Not in the base" is a complete answer.
 
 ## Sources beyond the inbox

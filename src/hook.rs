@@ -505,7 +505,7 @@ pub fn record_undocumented_commit(
         "- [ ] {today} committed without documentation (DOCSYS_SKIP): {}{tail} -- deferred: the session bypassed the gate -- repay when: the next session in this tree names the work and records it",
         shown.join(", ")
     );
-    // its own file on a docsys/0.5 tree (D-124)
+    // a line of its topic's file on a docsys/0.5 tree (D-124)
     if crate::era::Era::at(root).item_files() {
         return crate::items::add(root, crate::items::List::Debt, false, &line).map(|_| ());
     }

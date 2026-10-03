@@ -910,7 +910,7 @@ fn free_name(root: &Path, dir: &str, name: &str, taken: &[(String, String)]) -> 
     }
 }
 
-/// ledgers: each open item of a docsys/0.4 ledger into its own file, its
+/// ledgers: each open item of a docsys/0.4 ledger into its topic's file, its
 /// line verbatim; what else the ledger held — closed items, prose — into a
 /// frozen slice under `_archive/`, every line as written; the ledger goes
 /// (D-124). An open item a branch from before the move appended to a slice
@@ -1282,7 +1282,8 @@ fn move_0_4_to_0_5(ctx: &Ctx, u: &mut Upgrade, apply: bool) -> Result<(), String
         }
     }
 
-    // ledgers: one file per open item, after the separators are ASCII (D-124)
+    // ledgers: open items into their topics' files, after the separators are
+    // ASCII (D-124)
     ledgers(ctx, u, apply)?;
     // journal: history from here on, the files frozen under _archive/ (D-125)
     journal(ctx, u, apply)?;

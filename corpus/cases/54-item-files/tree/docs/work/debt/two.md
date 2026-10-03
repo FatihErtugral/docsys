@@ -1,2 +1,0 @@
-- [ ] 2026-10-01 a -- deferred: b -- repay when: c
-- [ ] 2026-10-02 d -- deferred: e -- repay when: f

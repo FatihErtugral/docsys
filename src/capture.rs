@@ -33,6 +33,23 @@ fn append_to_ledger(root: &Path, ledger: &str, title: &str, line: &str) -> Resul
     fs::write(&path, text).map_err(|e| e.to_string())
 }
 
+/// The item's text with its topic tag first (D-124): `--topic` adds one when
+/// the text carries none; a tag the text carries is its own.
+fn with_topic(text: &str, topic: Option<&str>) -> Result<String, String> {
+    let Some(topic) = topic.map(str::trim).filter(|t| !t.is_empty()) else {
+        return Ok(text.to_string());
+    };
+    if !crate::model::is_local_id(topic) {
+        return Err(format!(
+            "`{topic}` is not a topic — the id of the page or feature the item concerns"
+        ));
+    }
+    if text.starts_with('[') {
+        return Ok(text.to_string());
+    }
+    Ok(format!("[{topic}] {text}"))
+}
+
 fn item_date(date: Option<&str>) -> Result<String, String> {
     match date {
         Some(d) if crate::model::is_iso_date(d) => Ok(d.to_string()),
@@ -42,10 +59,11 @@ fn item_date(date: Option<&str>) -> Result<String, String> {
 }
 
 /// `debt add`: a deferred debt, dated, with why it waits and what repays it
-/// (R-108) — its own file on a docsys/0.5 tree (D-124).
+/// (R-108) — in its topic's file on a docsys/0.5 tree (D-124).
 pub fn debt_add(
     root: &Path,
     text: &str,
+    topic: Option<&str>,
     deferred: Option<&str>,
     repay_when: Option<&str>,
     date: Option<&str>,
@@ -60,6 +78,7 @@ pub fn debt_add(
     if text.is_empty() {
         return Err("nothing to add".into());
     }
+    let text = with_topic(text, topic)?;
     let tree = crate::tree::DocTree::load(root).map_err(|e| e.to_string())?;
     let line = format!(
         "- [ ] {} {text} -- {}: {deferred} -- {}: {repay}",
@@ -77,10 +96,11 @@ pub fn debt_add(
 }
 
 /// `question add`: what is not known, dated, never a guess on a page (R-108)
-/// — its own file on a docsys/0.5 tree (D-124).
+/// — in its topic's file on a docsys/0.5 tree (D-124).
 pub fn question_add(
     root: &Path,
     text: &str,
+    topic: Option<&str>,
     context: Option<&str>,
     date: Option<&str>,
 ) -> Result<String, String> {
@@ -88,6 +108,7 @@ pub fn question_add(
     if text.is_empty() {
         return Err("nothing to add".into());
     }
+    let text = with_topic(text, topic)?;
     let mut line = format!("- [ ] {} {text}", item_date(date)?);
     if let Some(c) = context.map(str::trim).filter(|c| !c.is_empty()) {
         line.push_str(&format!(" -- {c}"));
@@ -534,45 +555,70 @@ mod tests {
     }
 
     #[test]
-    fn an_item_is_its_own_file_and_closing_it_names_the_trailer() {
+    fn an_item_joins_its_topic_and_closing_it_names_the_trailer() {
         let root = tree("items");
         let out = debt_add(
             &root,
             "Retries are unbounded",
+            Some("retry-policy"),
             Some("no owner"),
             Some("next outage"),
             Some("2026-10-01"),
         )
         .unwrap();
-        assert_eq!(out, "added: work/debt/retries-are-unbounded.md");
+        assert_eq!(out, "added: work/debt/retry-policy.md");
         assert_eq!(
-            fs::read_to_string(root.join("work/debt/retries-are-unbounded.md")).unwrap(),
-            "- [ ] 2026-10-01 Retries are unbounded -- deferred: no owner -- repay when: next outage\n"
+            fs::read_to_string(root.join("work/debt/retry-policy.md")).unwrap(),
+            "- [ ] 2026-10-01 [retry-policy] Retries are unbounded -- deferred: no owner -- repay when: next outage\n"
         );
+        // a tag the text carries is the topic; none is `general`
+        let out = debt_add(
+            &root,
+            "[cache] The cache has no limit",
+            None,
+            Some("a"),
+            Some("b"),
+            Some("2026-10-02"),
+        )
+        .unwrap();
+        assert_eq!(out, "added: work/debt/cache.md");
+        let out = debt_add(
+            &root,
+            "The CI cache is cold",
+            None,
+            Some("a"),
+            Some("b"),
+            Some("2026-10-02"),
+        )
+        .unwrap();
+        assert_eq!(out, "added: work/debt/general.md");
         assert!(
-            debt_add(&root, "x", None, Some("y"), None).is_err(),
+            debt_add(&root, "x", None, None, Some("y"), None).is_err(),
             "a debt says why it waits"
         );
+        assert!(debt_add(&root, "x", Some("Not An Id"), Some("a"), Some("b"), None).is_err());
         let out = question_add(
             &root,
             "Who owns the retry budget?",
+            Some("retry-policy"),
             Some("[[reference/retry]]"),
             Some("2026-10-02"),
         )
         .unwrap();
-        assert_eq!(out, "added: work/questions/who-owns-the-retry-budget.md");
-        let out = debt_close(&root, "retries-are-unbounded", Some("bounded at three")).unwrap();
+        assert_eq!(out, "added: work/questions/retry-policy.md");
+        let out = debt_close(&root, "Retries are unbounded", Some("bounded at three")).unwrap();
         assert!(out.ends_with("\nResolved: bounded at three"), "{out}");
-        assert!(!root.join("work/debt/retries-are-unbounded.md").exists());
+        assert!(
+            !root.join("work/debt/retry-policy.md").exists(),
+            "its last item took the file"
+        );
         assert!(
             question_close(&root, "1", None).is_err(),
             "an answer is required"
         );
         let out = question_close(&root, "1", Some("the platform team")).unwrap();
         assert!(out.ends_with("\nAnswered: the platform team"), "{out}");
-        assert!(!root
-            .join("work/questions/who-owns-the-retry-budget.md")
-            .exists());
+        assert!(!root.join("work/questions/retry-policy.md").exists());
         assert!(!root.join("work/debt.md").exists() && !root.join("work/questions.md").exists());
         let _ = fs::remove_dir_all(&root);
     }
@@ -583,12 +629,13 @@ mod tests {
         debt_add(
             &root,
             "Retries are unbounded",
+            None,
             Some("no owner"),
             Some("next outage"),
             Some("2026-10-01"),
         )
         .unwrap();
-        question_add(&root, "Who owns it?", None, Some("2026-10-02")).unwrap();
+        question_add(&root, "Who owns it?", None, None, Some("2026-10-02")).unwrap();
         assert!(fs::read_to_string(root.join("work/debt.md")).unwrap().ends_with("- [ ] 2026-10-01 Retries are unbounded -- deferred: no owner -- repay when: next outage\n"));
         question_close(&root, "1", Some("the platform team")).unwrap();
         assert!(fs::read_to_string(root.join("work/questions.md"))

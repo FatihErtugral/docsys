@@ -419,8 +419,8 @@ work/
 ├── features/       work requiring a design decision
 ├── postmortems/    an incident with a lesson
 ├── research/       explored, no decision reached
-├── debt/           deliberately deferred — one file per open item
-└── questions/      not known — one file per open item
+├── debt/           deliberately deferred — open items, a file per topic
+└── questions/      not known — open items, a file per topic
 ```
 
 **R-041** `lint` · MUST — Files under `features/`, `postmortems/`, and
@@ -490,10 +490,12 @@ but each has an **item grammar**:
 **R-108** `lint` · MUST — A list entry MUST match its item grammar; a
 non-matching entry **is reported**. The check is applicable (R-011) only when
 the list has at least one entry. The journal is governed by R-100/R-101. Debt
-and questions are directories of **item files**: each open item is one file —
-`work/debt/<slug>.md`, `work/questions/<slug>.md`, and in the knowledge-base
-profile `wiki/open-questions/<slug>.md` — holding the item's one line, so two
-branches that each add an item never touch the same file (D-124):
+and questions are directories of **topic files**: each open item is one line
+in the file of the page or feature it concerns — `work/debt/<topic>.md`,
+`work/questions/<topic>.md`, and in the knowledge-base profile
+`wiki/open-questions/<topic>.md`. The topic is the `[topic]` tag the line
+carries right after its date, a local id; a line without one belongs to
+`general` (D-124):
 
 | List | Item grammar |
 |---|---|
@@ -501,12 +503,13 @@ branches that each add an item never touch the same file (D-124):
 | questions | `- [ ] YYYY-MM-DD <question>` optionally ` -- <context or link>` |
 
 An open item carries its opening date so its age can be measured (D-039).
-Prose before the item is the file's own preamble and is free. A second item, a
-closed `- [x]` item, a list item without a checkbox, or text after the item
-**is an error**: each is a debt or a question written where no check, no
-`debt close` and no age measurement can see it, which is R-151's second
-criterion met exactly, and the fix is one move. A closed item leaves: its file
-is deleted, and the commit that deletes it carries the closure as a trailer —
+Prose before the first item is the file's own preamble and is free. A closed
+`- [x]` item, a list item without a checkbox, or text after the first item
+that is not an item **is an error**: each is a debt or a question written
+where no check, no `debt close` and no age measurement can see it, which is
+R-151's second criterion met exactly, and the fix is one move. An item whose
+tag names another topic **is reported**. A closed item leaves: its line goes,
+the file with its last item, and the commit carries the closure as a trailer —
 `Resolved: <note or link>` for a debt, `Answered: <link or one line>` for a
 question. History keeps the item; a list of closed items is a second archive
 nobody reads. A docsys/0.4 tree kept each list in one file, `debt.md` or

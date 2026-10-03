@@ -255,10 +255,10 @@ fn every_generated_markdown_file_opens_with_the_declared_preamble() {
     let _ = fs::remove_dir_all(docs.join("_templates"));
     docsys::adopt::run(&repo, &docs, "en").unwrap();
     // an item file is generated too (D-124)
-    docsys::capture::question_add(&docs, "Who owns it?", None, None).unwrap();
+    docsys::capture::question_add(&docs, "Who owns it?", None, None, None).unwrap();
     let marker = "<!-- restricted-context:public -->";
     for rel in [
-        "docs/work/questions/who-owns-it.md",
+        "docs/work/questions/general.md",
         "docs/_templates/feature.md",
         ".claude/commands/docsys-sync.md",
         ".claude/commands/docsys-seed.md",

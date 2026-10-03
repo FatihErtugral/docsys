@@ -9,8 +9,8 @@ Upgrading to docsys 0.16.0:
   tree in one commit. The items it lists for a person are theirs to finish.
 - A branch opened before the move runs the same `docsys upgrade --apply
   --commit` once before it merges: it converts the branch's own additions the
-  same way, and the merge is clean. A branch merged without it is caught by
-  lint, and a re-run moves its lines.
+  same way, and only a topic both sides added to can conflict. A branch merged
+  without it is caught by lint, and a re-run moves its lines.
 
 auto    hook-wires         .claude/settings.json  4 change(s): every docsys wire to `"$CLAUDE_PROJECT_DIR"/.claude/hooks/<name>.sh`, duplicates folded
 auto    hook-scripts       .claude/hooks/pre-commit-docs.sh  refreshed: a text docsys 0.12.0 wrote, untouched — it now starts in the project directory, names the tree's root, and names the pinned docsys to a binary from before pins

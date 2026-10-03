@@ -1003,12 +1003,51 @@ fn a_late_branchs_date_line_is_absorbed_by_a_re_run() {
     let _ = fs::remove_dir_all(&repo);
 }
 
+/// Merge `branch`, and where git stops, do what a person does with two
+/// lists: keep both sides, each line once.
+fn merge_keeping_both(repo: &Path, branch: &str) -> bool {
+    let merged = Command::new("git")
+        .args(["merge", "-q", "--no-edit", branch])
+        .current_dir(repo)
+        .output()
+        .unwrap();
+    if merged.status.success() {
+        return true;
+    }
+    let conflicted = git(repo, &["diff", "--name-only", "--diff-filter=U"]);
+    for f in conflicted.lines() {
+        let p = repo.join(f);
+        match fs::read_to_string(&p) {
+            Ok(text) => {
+                let mut seen = std::collections::BTreeSet::new();
+                let both: String = text
+                    .lines()
+                    .filter(|l| {
+                        !l.starts_with("<<<<<<<")
+                            && !l.starts_with("=======")
+                            && !l.starts_with(">>>>>>>")
+                    })
+                    .filter(|l| !l.starts_with("- [") || seen.insert(l.to_string()))
+                    .map(|l| format!("{l}\n"))
+                    .collect();
+                fs::write(&p, both).unwrap();
+            }
+            Err(_) => {
+                git(repo, &["checkout", "--theirs", "--", f]);
+            }
+        }
+    }
+    git(repo, &["add", "-A"]);
+    git(repo, &["commit", "-q", "--no-edit"]);
+    false
+}
+
 /// N4: a branch opened before the move appends to the old ledgers. Run on
-/// the branch, the same upgrade makes the same files, and the branch merges
-/// cleanly; merged without it, git carries the line into the frozen slice,
-/// and after the person keeps both sides a re-run moves exactly that item
-/// into its own file. Every closed item and line of prose stays as written
-/// (D-124).
+/// the branch, the same upgrade makes the same files; where both sides now
+/// hold one topic's file, it merges as any shared file does. Merged without
+/// the upgrade, git carries the line into the frozen slice, and after the
+/// person keeps both sides a re-run moves exactly that item into its topic's
+/// file. Every closed item and line of prose stays as written (D-124).
 #[test]
 fn a_late_branchs_ledger_lines_are_absorbed_and_the_frozen_slice_keeps_its_bytes() {
     let (repo, _) = build("late-ledger");
@@ -1033,7 +1072,8 @@ fn a_late_branchs_ledger_lines_are_absorbed_and_the_frozen_slice_keeps_its_bytes
         kept,
         "the rest, as written"
     );
-    let item = repo.join("docs/work/debt/open-before.md");
+    // an untagged item's topic is `general` (D-124)
+    let item = repo.join("docs/work/debt/general.md");
     assert_eq!(fs::read_to_string(&item).unwrap(), before);
 
     // the branch runs the same upgrade before it merges: no conflict
@@ -1041,47 +1081,21 @@ fn a_late_branchs_ledger_lines_are_absorbed_and_the_frozen_slice_keeps_its_bytes
     let out = docsys(&repo, &["upgrade", "--apply", "--commit"]);
     assert!(out.status.success(), "{out:?}");
     git(&repo, &["checkout", "-q", "main"]);
-    git(&repo, &["merge", "-q", "--no-edit", "upgraded"]);
-    let added = repo.join("docs/work/debt/added-on-the-branch.md");
-    assert_eq!(fs::read_to_string(&added).unwrap(), late);
-    git(
-        &repo,
-        &["rm", "-q", "docs/work/debt/added-on-the-branch.md"],
+    merge_keeping_both(&repo, "upgraded");
+    assert_eq!(
+        fs::read_to_string(&item).unwrap(),
+        format!("{before}{late}")
     );
-    git(&repo, &["commit", "-qm", "repaid", "-m", "Resolved: done"]);
+    let closed = docsys(
+        &repo,
+        &["debt", "close", "added on the branch", "--note", "done"],
+    );
+    assert!(closed.status.success(), "{closed:?}");
+    git(&repo, &["commit", "-qam", "repaid", "-m", "Resolved: done"]);
 
     // the other merges as it is: git carries its line wherever it follows
-    // the ledger, and a conflict is resolved by keeping both sides
-    let merged = Command::new("git")
-        .args(["merge", "-q", "--no-edit", "plain"])
-        .current_dir(&repo)
-        .output()
-        .unwrap();
-    if !merged.status.success() {
-        let conflicted = git(&repo, &["diff", "--name-only", "--diff-filter=U"]);
-        for f in conflicted.lines() {
-            let p = repo.join(f);
-            match fs::read_to_string(&p) {
-                Ok(text) => {
-                    let both: String = text
-                        .lines()
-                        .filter(|l| {
-                            !l.starts_with("<<<<<<<")
-                                && !l.starts_with("=======")
-                                && !l.starts_with(">>>>>>>")
-                        })
-                        .map(|l| format!("{l}\n"))
-                        .collect();
-                    fs::write(&p, both).unwrap();
-                }
-                Err(_) => {
-                    git(&repo, &["checkout", "--theirs", "--", f]);
-                }
-            }
-        }
-        git(&repo, &["add", "-A"]);
-        git(&repo, &["commit", "-q", "--no-edit"]);
-    }
+    // the ledger
+    merge_keeping_both(&repo, "plain");
     let lint = docsys(&repo, &["lint"]);
     assert!(
         String::from_utf8_lossy(&lint.stdout).contains("`docsys upgrade --apply` moves"),
@@ -1089,17 +1103,10 @@ fn a_late_branchs_ledger_lines_are_absorbed_and_the_frozen_slice_keeps_its_bytes
     );
     let out = docsys(&repo, &["upgrade", "--apply"]);
     assert!(out.status.success(), "{out:?}");
-    let absorbed = repo.join("docs/work/debt/added-on-another-branch.md");
     assert_eq!(
-        fs::read_to_string(&absorbed).unwrap(),
-        other,
-        "the branch's item, once"
-    );
-    assert!(!added.exists(), "the item closed on main stays closed");
-    assert_eq!(fs::read_to_string(&item).unwrap(), before);
-    assert!(
-        !repo.join("docs/work/debt/open-before-2.md").exists(),
-        "never twice"
+        fs::read_to_string(&item).unwrap(),
+        format!("{before}{other}"),
+        "the branch's item, once; the one closed on main stays closed; none twice"
     );
     assert_eq!(
         fs::read_to_string(&slice).unwrap(),

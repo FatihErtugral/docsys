@@ -1,0 +1,2 @@
+- [ ] 2026-10-01 retries are unbounded -- deferred: no owner -- repay when: the next outage
+- [ ] 2026-10-02 the CI cache is cold -- deferred: no budget -- repay when: builds pass ten minutes

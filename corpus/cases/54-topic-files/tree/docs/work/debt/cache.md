@@ -1,0 +1,1 @@
+- [ ] 2026-10-01 [cache] the cache has no limit -- deferred: no load yet
