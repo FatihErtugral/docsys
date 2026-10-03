@@ -1291,3 +1291,142 @@ fn text_docsys_did_not_write_is_listed_where_it_names_a_retired_concept() {
     );
     let _ = fs::remove_dir_all(&repo);
 }
+
+/// Every gate reads the pin — the commit-msg half a `git merge` runs alone
+/// included — and a commit or a merge says the install once: one line for a
+/// docsys from before pins, never its usage text; one attempt and its outcome
+/// for a version this machine lacks (D-120, R-151).
+#[test]
+fn every_gate_names_the_pin_once_and_a_merge_is_a_gate_too() {
+    let (repo, _) = build("pin-gates");
+    let out = docsys(&repo, &["upgrade", "--apply", "--commit"]);
+    assert!(out.status.success(), "{out:?}");
+    assert!(repo.join(".git/hooks/commit-msg").is_file());
+    let hard = !fs::read_to_string(repo.join(".git/hooks/commit-msg"))
+        .unwrap()
+        .contains("[ \"0\" -eq 0 ]");
+    fs::write(repo.join("docs/.docsys-version"), "0.16.9\n").unwrap();
+    let quiet_git = |args: &[&str]| {
+        let mut all = vec!["-c", "core.hooksPath=/dev/null"];
+        all.extend_from_slice(args);
+        git(&repo, &all);
+    };
+    quiet_git(&["commit", "-qam", "pin"]);
+    quiet_git(&["checkout", "-qb", "side"]);
+    fs::write(repo.join("side.txt"), "side\n").unwrap();
+    quiet_git(&["add", "side.txt"]);
+    quiet_git(&["commit", "-qm", "side"]);
+    quiet_git(&["checkout", "-q", "main"]);
+    let base = String::from_utf8(
+        Command::new("git")
+            .args(["rev-parse", "HEAD"])
+            .current_dir(&repo)
+            .output()
+            .unwrap()
+            .stdout,
+    )
+    .unwrap()
+    .trim()
+    .to_string();
+    // a shell and git, then the `docsys` and `cargo` each case puts first
+    let tools = tmp("pin-gates-tools");
+    for tool in ["git", "sh", "bash", "head", "sed", "cat", "mkdir", "chmod"] {
+        let p = Command::new("sh")
+            .args(["-c", &format!("command -v {tool}")])
+            .output()
+            .unwrap();
+        let p = String::from_utf8_lossy(&p.stdout).trim().to_string();
+        std::os::unix::fs::symlink(p, tools.join(tool)).unwrap();
+    }
+    let script = |dir: &Path, name: &str, text: &str| {
+        use std::os::unix::fs::PermissionsExt;
+        fs::create_dir_all(dir).unwrap();
+        fs::write(dir.join(name), text).unwrap();
+        fs::set_permissions(dir.join(name), fs::Permissions::from_mode(0o755)).unwrap();
+    };
+    // a docsys from before pins: no `--version`, its usage for anything
+    let old = tmp("pin-gates-old");
+    script(
+        &old,
+        "docsys",
+        "#!/bin/sh\necho 'OLD USAGE line one' >&2\necho 'OLD USAGE line two' >&2\nexit 2\n",
+    );
+    // a cargo whose install fails, logging each attempt
+    let failing = tmp("pin-gates-cargo");
+    let log = failing.join("attempts.log");
+    script(
+        &failing,
+        "cargo",
+        &format!(
+            "#!/bin/sh\n[ \"$1\" = --version ] && {{ echo 'cargo 1.0.0'; exit 0; }}\necho \"$*\" >> '{}'\necho 'error: could not compile docsys' >&2\nexit 101\n",
+            log.display()
+        ),
+    );
+    let this = bin().parent().unwrap().to_path_buf();
+    let home = tmp("pin-gates-home");
+    let run = |first: &[&Path], args: &[&str]| -> (bool, String) {
+        let path = first
+            .iter()
+            .map(|p| p.display().to_string())
+            .chain([tools.display().to_string()])
+            .collect::<Vec<_>>()
+            .join(":");
+        let out = Command::new("git")
+            .args(["-c", "commit.gpgsign=false"])
+            .args(args)
+            .env("PATH", path)
+            .env("DOCSYS_HOME", &home)
+            .env_remove("DOCSYS_DISPATCHED")
+            .current_dir(&repo)
+            .output()
+            .unwrap();
+        (
+            out.status.success(),
+            String::from_utf8_lossy(&out.stdout).into_owned()
+                + &String::from_utf8_lossy(&out.stderr),
+        )
+    };
+    let reset = || {
+        let _ = Command::new("git")
+            .args(["merge", "--abort"])
+            .current_dir(&repo)
+            .output();
+        quiet_git(&["reset", "-q", "--hard", &base]);
+    };
+    let old_line = "docsys: this tree pins docsys 0.16.9; install: cargo install docsys --version 0.16.9 --locked";
+    let missing = "docsys: this tree pins docsys 0.16.9; install it: ";
+    // a docsys from before pins: a commit, then a merge
+    fs::write(repo.join("notes.txt"), "a change\n").unwrap();
+    git(&repo, &["add", "notes.txt"]);
+    let (_, said) = run(&[&old], &["commit", "-qm", "a change"]);
+    assert_eq!(said.matches(old_line).count(), 1, "commit: {said}");
+    assert!(!said.contains("OLD USAGE"), "commit: {said}");
+    reset();
+    let (ok, said) = run(&[&old], &["merge", "--no-ff", "-m", "merge side", "side"]);
+    assert_eq!(said.matches(old_line).count(), 1, "merge: {said}");
+    assert!(!said.contains("OLD USAGE"), "merge: {said}");
+    assert_eq!(ok, !hard, "merge: {said}");
+    reset();
+    // this docsys, the pinned version missing, no cargo: the merge names it
+    let (ok, said) = run(&[&this], &["merge", "--no-ff", "-m", "merge side", "side"]);
+    assert_eq!(said.matches(missing).count(), 1, "merge, no cargo: {said}");
+    assert_eq!(ok, !hard, "merge, no cargo: {said}");
+    reset();
+    // a cargo whose install fails: one attempt, and its outcome is the last word
+    fs::write(repo.join("notes.txt"), "a change\n").unwrap();
+    git(&repo, &["add", "notes.txt"]);
+    let (_, said) = run(&[&failing, &this], &["commit", "-qm", "a change"]);
+    let attempts = fs::read_to_string(&log).unwrap_or_default().lines().count();
+    assert_eq!(attempts, 1, "{said}");
+    assert_eq!(said.matches("installing it once").count(), 1, "{said}");
+    assert!(
+        said.lines()
+            .filter(|l| l.starts_with("docsys:"))
+            .last()
+            .is_some_and(|l| l.contains("could not be installed")),
+        "{said}"
+    );
+    for d in [repo, tools, old, failing, home] {
+        let _ = fs::remove_dir_all(d);
+    }
+}

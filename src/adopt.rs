@@ -52,7 +52,14 @@ const MESSAGE_BLOCK: &str = r#"
 @MODE@
 # The commit message is the journal entry: `docsys gate --message` reads it (D-125).
 if [ -z "${DOCSYS_SKIP:-}" ] && command -v docsys >/dev/null; then
-  docsys gate --repo . --root @ROOT@ --message "$1" || [ "@EXIT@" -eq 0 ] || exit 1
+  docsys_pin=$(head -n 1 "@ROOT@/.docsys-version" 2>/dev/null)
+  if [ -n "$docsys_pin" ] && ! docsys --version >/dev/null 2>&1; then
+    # a commit heard it from the pre-commit half; a merge runs this half alone
+    case "$1" in *MERGE_MSG) echo "docsys: this tree pins docsys $docsys_pin; install: cargo install docsys --version $docsys_pin --locked" >&2 ;; esac
+    [ "@EXIT@" -eq 0 ] || exit 1
+  else
+    docsys gate --repo . --root @ROOT@ --message "$1" || [ "@EXIT@" -eq 0 ] || exit 1
+  fi
 fi
 # --- end of the docsys gate ---
 "#;

@@ -457,10 +457,16 @@ fn main() -> ExitCode {
     // block and the one 0.15 wrote alike — and only `gate` says what concerns
     // the commit as a whole: the version notice and a pin that cannot run.
     // The commit-msg half of a docsys/0.5 gate follows the pre-commit half,
-    // which has said it already (D-125).
+    // which has said it already (D-125) — but for a merge, which runs the
+    // commit-msg half alone.
+    let merging = opts
+        .message
+        .as_deref()
+        .and_then(std::path::Path::file_name)
+        .is_some_and(|n| n == "MERGE_MSG");
     let quiet = std::env::var_os("GIT_EXEC_PATH").is_some()
         && std::env::var_os("GIT_INDEX_FILE").is_some()
-        && (cmd != "gate" || opts.message.is_some());
+        && (cmd != "gate" || (opts.message.is_some() && !merging));
     let pinned_root = match cmd {
         "upgrade" => None,
         "hook" => Some(

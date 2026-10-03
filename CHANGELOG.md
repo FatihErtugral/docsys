@@ -130,9 +130,10 @@ declares `spec: docsys/0.5`; a tree that declares `docsys/0.4` is served as
 - The usage text names the real default root; the workflow for a tree at the
   repository's top passes `--root .`.
 - `pin` and `pin --refresh` keep a pin's `block:`.
-- A commit through the git gate says each finding, the version notice and a
-  pinned version's install line once; a skipped commit whose record cannot be
-  written says so (R-171, D-118, D-120).
+- A commit or a merge through the git gate says each finding, the version
+  notice and a pinned version's install line once, with one install attempt;
+  a docsys from before pins prints one line, never its usage; a skipped commit
+  whose record cannot be written says so (R-171, D-118, D-120, D-125).
 
 ## [0.15.1] - 2026-09-04
 

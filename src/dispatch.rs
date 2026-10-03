@@ -88,8 +88,9 @@ pub fn install_command(home: &Path, v: &str) -> String {
 /// binary is to run: no pin, the pin is this version, or the guard is set.
 /// Otherwise it exits with the pinned binary's code, or with 1 and one line
 /// when the version is not installed and may not be installed here — an
-/// agent hook (`installs: false`) never waits for a compile. `quiet` keeps
-/// the failure lines for the call that says them for a whole commit.
+/// agent hook (`installs: false`) never waits for a compile. `quiet` leaves
+/// the install, its attempt and its lines, to the one call that says them
+/// for a whole commit.
 pub fn run_pinned(root: &Path, installs: bool, quiet: bool) -> Result<(), std::process::ExitCode> {
     if std::env::var_os(GUARD).is_some() {
         return Ok(());
@@ -119,11 +120,12 @@ pub fn run_pinned(root: &Path, installs: bool, quiet: bool) -> Result<(), std::p
                 .status()
                 .is_ok_and(|s| s.success())
         };
+        if quiet {
+            return Err(std::process::ExitCode::from(1));
+        }
         let allowed = installs && std::env::var_os(NO_AUTO_INSTALL).is_none() && cargo();
         if !allowed {
-            if !quiet {
-                eprintln!("docsys: this tree pins docsys {pin}; install it: {command}");
-            }
+            eprintln!("docsys: this tree pins docsys {pin}; install it: {command}");
             return Err(std::process::ExitCode::from(1));
         }
         eprintln!("docsys: this tree pins docsys {pin}; installing it once…");
@@ -132,17 +134,11 @@ pub fn run_pinned(root: &Path, installs: bool, quiet: bool) -> Result<(), std::p
             .arg(home.join("versions").join(&pin))
             .stdin(Stdio::null())
             .stdout(Stdio::null())
-            .stderr(if quiet {
-                Stdio::null()
-            } else {
-                Stdio::inherit()
-            })
+            .stderr(Stdio::inherit())
             .status()
             .is_ok_and(|s| s.success());
         if !installed || !bin.is_file() {
-            if !quiet {
-                eprintln!("docsys: docsys {pin} could not be installed; install it: {command}");
-            }
+            eprintln!("docsys: version {pin} could not be installed; install it: {command}");
             return Err(std::process::ExitCode::from(1));
         }
     }

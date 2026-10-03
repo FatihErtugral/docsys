@@ -304,7 +304,8 @@ fn without_cargo_or_offline_the_command_is_named_and_nothing_runs() {
     assert_eq!(
         x.err.lines().last(),
         Some(
-            format!("docsys: docsys 0.16.1 could not be installed; install it: {command}").as_str()
+            format!("docsys: version 0.16.1 could not be installed; install it: {command}")
+                .as_str()
         ),
         "{}",
         x.err
