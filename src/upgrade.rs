@@ -777,19 +777,32 @@ fn common(ctx: &Ctx, u: &mut Upgrade, apply: bool) -> Result<(), String> {
                 crate::adopt::gate_hooks_dir(repo).unwrap_or_else(|| repo.join(".git/hooks"));
             let file = rel(repo, &hooks.join("pre-commit"));
             let tracked = git_out(repo, &["ls-files", "--error-unmatch", "--", &file]).is_some();
+            let clone_only = if tracked {
+                ""
+            } else {
+                " — this clone only: every clone runs `docsys upgrade --apply` once"
+            };
             u.item(
                 "auto",
                 "git-gate",
                 &file,
-                format!(
-                    "the docsys block rewritten for this version, its mode kept{}",
-                    if tracked {
-                        ""
-                    } else {
-                        " — this clone only: every clone runs `docsys upgrade --apply` once"
-                    }
-                ),
+                format!("the docsys block rewritten for this version, its mode kept{clone_only}"),
             );
+            // the half that reads the message, which a docsys/0.5 gate adds (D-125)
+            if message {
+                let msg = hooks.join("commit-msg");
+                let verb = if msg.is_file() {
+                    "rewritten"
+                } else {
+                    "written"
+                };
+                u.item(
+                    "auto",
+                    "git-gate",
+                    &rel(repo, &msg),
+                    format!("the docsys block {verb}, its mode kept: it reads the commit message, and under `commit_policy: require` code with no documentation needs `Docs: <why>` (D-125){clone_only}"),
+                );
+            }
             if apply {
                 let done = crate::adopt::ensure_git_gate(repo, root_rel, false, message);
                 if done == "failed" {

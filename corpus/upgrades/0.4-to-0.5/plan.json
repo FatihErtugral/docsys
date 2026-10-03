@@ -60,6 +60,13 @@
     },
     {
       "strategy": "auto",
+      "step": "git-gate",
+      "file": ".git/hooks/commit-msg",
+      "what": "the docsys block written, its mode kept: it reads the commit message, and under `commit_policy: require` code with no documentation needs `Docs: <why>` (D-125) — this clone only: every clone runs `docsys upgrade --apply` once",
+      "command": null
+    },
+    {
+      "strategy": "auto",
       "step": "ci-workflow",
       "file": ".github/workflows/docsys.yml",
       "what": "the 0.15 workflow, untouched: regenerated, pinned to this version; its approval job moves from direct to description — the approval rides the pull request's description (D-126)",
