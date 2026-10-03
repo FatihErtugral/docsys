@@ -1429,3 +1429,99 @@ fn every_gate_names_the_pin_once_and_a_merge_is_a_gate_too() {
         let _ = fs::remove_dir_all(d);
     }
 }
+
+/// N4, a branch from before the move merged without its own upgrade: git
+/// stops on the old ledger (modify/delete) and carries the branch's journal
+/// entry into the frozen journal. Kept as the branch had it, lint names the
+/// upgrade for both, and a re-run moves the item into its topic file,
+/// carries the entry into its commit's message, restores the frozen journal
+/// to its bytes, and freezes nothing twice (D-124, D-125).
+#[test]
+fn a_late_branch_merged_without_its_upgrade_is_absorbed_once() {
+    let (repo, _) = build("late-unmoved");
+    let debt = repo.join("docs/work/debt.md");
+    let journal = repo.join("docs/work/journal.md");
+    // open items across topics, as real ledgers hold them: no file the move
+    // makes is like the ledger, so git sees no rename and stops on it
+    let kept = "# Debt\n\nItems the team chose to defer.\n\n- [x] 2026-08-20 a closed one -- deferred: a -- repay when: b -- resolved: done\n";
+    let before = "- [ ] 2026-09-01 [api] input is not validated -- deferred: c -- repay when: d\n- [ ] 2026-09-02 [api] errors carry no code -- deferred: c -- repay when: d\n- [ ] 2026-09-03 [cache] the cache has no limit -- deferred: c -- repay when: d\n- [ ] 2026-09-03 the CI cache is cold -- deferred: c -- repay when: d\n";
+    fs::write(&debt, format!("{kept}{before}")).unwrap();
+    git(&repo, &["commit", "-qam", "the ledger"]);
+    git(&repo, &["checkout", "-qb", "late"]);
+    let late = "- [ ] 2026-09-04 [cache] added on the branch -- deferred: e -- repay when: f\n";
+    fs::write(&debt, fs::read_to_string(&debt).unwrap() + late).unwrap();
+    let entry = "## 2026-09-04 - eviction logging deferred\n- the cache keeps no log yet\n";
+    fs::write(
+        &journal,
+        fs::read_to_string(&journal).unwrap() + "\n" + entry,
+    )
+    .unwrap();
+    git(&repo, &["commit", "-qam", "a branch from before the move"]);
+    git(&repo, &["checkout", "-q", "main"]);
+    let out = docsys(&repo, &["upgrade", "--apply", "--commit"]);
+    assert!(out.status.success(), "{out:?}");
+    let frozen = repo.join("docs/_archive/journal/journal.md");
+    let frozen_bytes = fs::read_to_string(&frozen).unwrap();
+    // merged as it is: git stops on the old ledger, and the person keeps it
+    merge_keeping_both(&repo, "late");
+    assert!(
+        fs::read_to_string(&frozen)
+            .unwrap()
+            .contains("eviction logging deferred"),
+        "git carried the entry into the frozen journal"
+    );
+    // the old ledger came back, or git carried its line into the slice
+    let lint = String::from_utf8_lossy(&docsys(&repo, &["lint"]).stdout).into_owned();
+    assert!(
+        lint.lines()
+            .any(|l| l.starts_with("WARN R-108") && l.contains("`docsys upgrade --apply` moves")),
+        "{lint}"
+    );
+    assert!(
+        lint.contains("WARN R-100 _archive/journal/journal.md [late]"),
+        "{lint}"
+    );
+    let out = docsys(&repo, &["upgrade", "--apply", "--commit"]);
+    assert!(out.status.success(), "{out:?}");
+    assert_eq!(
+        fs::read_to_string(&frozen).unwrap(),
+        frozen_bytes,
+        "back to its bytes"
+    );
+    let message = String::from_utf8(
+        Command::new("git")
+            .args(["log", "-1", "--format=%B"])
+            .current_dir(&repo)
+            .output()
+            .unwrap()
+            .stdout,
+    )
+    .unwrap();
+    assert!(message.contains("eviction logging deferred"), "{message}");
+    assert_eq!(
+        fs::read_to_string(repo.join("docs/work/debt/cache.md")).unwrap(),
+        format!("- [ ] 2026-09-03 [cache] the cache has no limit -- deferred: c -- repay when: d\n{late}")
+    );
+    // nothing frozen twice: one slice, the closed item once
+    let slices: Vec<_> = fs::read_dir(repo.join("docs/_archive/work"))
+        .unwrap()
+        .flatten()
+        .map(|e| e.file_name().to_string_lossy().into_owned())
+        .filter(|n| n.starts_with("debt"))
+        .collect();
+    assert_eq!(slices, ["debt.md"], "{slices:?}");
+    let lint = String::from_utf8_lossy(&docsys(&repo, &["lint"]).stdout).into_owned();
+    assert!(
+        !lint.contains("[legacy]") && !lint.contains("[late]"),
+        "{lint}"
+    );
+    let again = docsys(&repo, &["upgrade", "--apply"]);
+    let said = String::from_utf8_lossy(&again.stdout);
+    assert!(
+        !said
+            .lines()
+            .any(|l| l.starts_with("auto") && (l.contains(" ledgers ") || l.contains(" journal "))),
+        "{said}"
+    );
+    let _ = fs::remove_dir_all(&repo);
+}

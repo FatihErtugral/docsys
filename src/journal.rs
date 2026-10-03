@@ -166,6 +166,45 @@ pub fn render(repo: Option<&Path>, root: &Path, since: Option<&str>) -> String {
     out
 }
 
+/// A frozen journal file as the move wrote it: its text at the commit that
+/// added it. `None` outside history or before that commit.
+pub fn frozen_at_move(repo: &Path, prefix: &str, rel: &str) -> Option<String> {
+    let path = format!("{prefix}{rel}");
+    let out = crate::git::cmd(repo)
+        .args(["log", "--diff-filter=A", "--format=%H", "--", &path])
+        .output()
+        .ok()
+        .filter(|o| o.status.success())?;
+    let added = String::from_utf8_lossy(&out.stdout)
+        .lines()
+        .last()?
+        .trim()
+        .to_string();
+    let show = crate::git::cmd(repo)
+        .args(["show", &format!("{added}:{path}")])
+        .output()
+        .ok()
+        .filter(|o| o.status.success())?;
+    Some(String::from_utf8_lossy(&show.stdout).into_owned())
+}
+
+/// The lines of `now` that `then` does not hold, in order — each line of
+/// `then` matching one of `now` once — blank lines aside.
+pub fn late_lines(then: &str, now: &str) -> Vec<String> {
+    let mut known: Vec<&str> = then.lines().collect();
+    now.lines()
+        .filter(|l| !l.trim().is_empty())
+        .filter(|l| match known.iter().position(|k| k == l) {
+            Some(i) => {
+                known.swap_remove(i);
+                false
+            }
+            None => true,
+        })
+        .map(str::to_string)
+        .collect()
+}
+
 /// A docsys/0.4 tree's journal as it keeps it: `work/journal.md`, then its
 /// slices under `work/journal/`, newest first; with `since`, the entries of
 /// that day on, each with its lines.

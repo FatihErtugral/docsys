@@ -25,8 +25,11 @@ declares `spec: docsys/0.5`; a tree that declares `docsys/0.4` is served as
   through its pins (R-111, D-126).
 - A branch opened before the move runs the same `docsys upgrade --apply
   --commit` once before it merges: it converts the branch's own additions the
-  same way, and only a topic both sides added to can conflict. A branch merged
-  without it is caught by lint, and a re-run moves its lines.
+  same way, and only a topic both sides added to can conflict. Merged without
+  it, git stops on the old ledger (modify/delete) or carries its lines into
+  the frozen slice and journal: keep the branch's ledger and commit, lint names
+  the upgrade, and a re-run moves each item once and carries the branch's
+  journal entries into its commit's message.
 
 ### Added
 

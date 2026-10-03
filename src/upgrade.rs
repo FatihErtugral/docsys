@@ -108,6 +108,9 @@ pub struct Upgrade {
     pub last: bool,
     /// the upgrade notes of the releases this move crosses
     pub notes: Vec<(String, String)>,
+    /// journal lines a branch from before the move wrote after it: the
+    /// commit's message carries them into history (D-125)
+    pub carried: Vec<String>,
 }
 
 impl Upgrade {
@@ -1063,6 +1066,56 @@ fn journal(ctx: &Ctx, u: &mut Upgrade, apply: bool) -> Result<(), String> {
         names.sort();
         files.extend(names.into_iter().map(|n| format!("work/journal/{n}")));
     }
+    // a re-run after the move: what a branch from before it wrote since —
+    // into a frozen file, or into a journal file it brought back — goes into
+    // this commit's message, and the frozen files keep their bytes
+    let frozen = crate::journal::frozen(ctx.root);
+    if !frozen.is_empty() {
+        let mut known = String::new();
+        for (rel, text) in &frozen {
+            let file = format!("{}{rel}", ctx.prefix);
+            let then = crate::journal::frozen_at_move(ctx.repo, &ctx.prefix, rel);
+            if let Some(then) = &then {
+                known.push_str(then);
+                let late = crate::journal::late_lines(then, text);
+                if !late.is_empty() {
+                    u.item(
+                        "auto",
+                        "journal",
+                        &file,
+                        format!("{} line(s) a branch from before the move wrote go into this commit's message, and the file gets its bytes back (D-125)", late.len()),
+                    );
+                    u.carried.extend(late);
+                    if apply {
+                        fs::write(ctx.root.join(rel), then).map_err(|e| e.to_string())?;
+                        u.written.push(file);
+                    }
+                }
+            } else {
+                known.push_str(text);
+            }
+        }
+        for rel in files {
+            let file = format!("{}{rel}", ctx.prefix);
+            let text = fs::read_to_string(ctx.root.join(&rel)).unwrap_or_default();
+            let late = crate::journal::late_lines(&known, &text);
+            u.item(
+                "auto",
+                "journal",
+                &file,
+                format!("a journal file a branch from before the move brought back: {} line(s) not frozen yet go into this commit's message, and the file goes (D-125)", late.len()),
+            );
+            u.carried.extend(late);
+            if apply {
+                fs::remove_file(ctx.root.join(&rel)).map_err(|e| e.to_string())?;
+                u.written.push(file);
+            }
+        }
+        if apply {
+            let _ = fs::remove_dir(ctx.root.join("work/journal"));
+        }
+        return Ok(());
+    }
     let mut moves: Vec<(String, String)> = Vec::new();
     for rel in files {
         let name = rel.rsplit('/').next().unwrap_or("journal.md");
@@ -1159,9 +1212,24 @@ fn ledgers(ctx: &Ctx, u: &mut Upgrade, apply: bool) -> Result<(), String> {
             if open.is_empty() && !is_ledger {
                 continue;
             }
+            // a ledger a branch from before the move brought back: what a
+            // slice already holds is frozen once
+            let frozen: Vec<String> = if is_ledger {
+                crate::checks::archive_slices(ctx.root, ledger)
+                    .iter()
+                    .filter_map(|s| fs::read_to_string(ctx.root.join(s)).ok())
+                    .flat_map(|t| t.lines().map(str::to_string).collect::<Vec<_>>())
+                    .collect()
+            } else {
+                Vec::new()
+            };
             let rest: String = text
                 .split_inclusive('\n')
                 .filter(|l| !l.starts_with("- [ ] "))
+                .filter(|l| {
+                    let line = l.trim_end_matches('\n');
+                    line.trim().is_empty() || !frozen.iter().any(|f| f == line)
+                })
                 .collect();
             // a title and blank lines are no record; anything else is kept
             let kept = rest
@@ -1667,6 +1735,10 @@ pub fn message(u: &Upgrade) -> String {
     };
     for (release, text) in &u.notes {
         out.push_str(&format!("\n\nUpgrading to docsys {release}:\n{text}"));
+    }
+    if !u.carried.is_empty() {
+        out.push_str("\n\nJournal entries a branch from before the move wrote (D-125):\n");
+        out.push_str(&u.carried.join("\n"));
     }
     if u.last {
         out.push_str("\n\n");

@@ -13,8 +13,11 @@ Upgrading to docsys 0.16.0:
   through its pins (R-111, D-126).
 - A branch opened before the move runs the same `docsys upgrade --apply
   --commit` once before it merges: it converts the branch's own additions the
-  same way, and only a topic both sides added to can conflict. A branch merged
-  without it is caught by lint, and a re-run moves its lines.
+  same way, and only a topic both sides added to can conflict. Merged without
+  it, git stops on the old ledger (modify/delete) or carries its lines into
+  the frozen slice and journal: keep the branch's ledger and commit, lint names
+  the upgrade, and a re-run moves each item once and carries the branch's
+  journal entries into its commit's message.
 
 auto    hook-wires         .claude/settings.json  1 post-edit wire(s) taken out: a page's date and its verification are history's, and the relay has nothing left to do (D-126)
 auto    hook-wires         .claude/settings.json  3 change(s): every docsys wire to `"$CLAUDE_PROJECT_DIR"/.claude/hooks/<name>.sh`, duplicates folded

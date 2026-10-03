@@ -1846,6 +1846,32 @@ fn check_router_and_orphans(tree: &DocTree, r: &mut Report) {
 /// file under `work/` is one a branch from before the move still wrote; it is
 /// named with the command that moves it under `_archive/journal/`.
 fn check_legacy_journal(tree: &DocTree, r: &mut Report) {
+    // a frozen journal file holds what the move froze; lines a branch from
+    // before it wrote, carried in by a merge, are said until a re-run takes
+    // them into history (D-125)
+    if let Some(repo) = crate::repo_of(&tree.root) {
+        let prefix = match crate::fresh::root_rel(&repo, &tree.root) {
+            p if p.is_empty() => String::new(),
+            p => format!("{p}/"),
+        };
+        for (rel, text) in crate::journal::frozen(&tree.root) {
+            let Some(then) = crate::journal::frozen_at_move(&repo, &prefix, &rel) else {
+                continue;
+            };
+            let late = crate::journal::late_lines(&then, &text);
+            if !late.is_empty() {
+                r.findings.push(Finding::warn(
+                    R100,
+                    &rel,
+                    "late",
+                    format!(
+                        "{} line(s) entered after the move — a branch from before it wrote them; `docsys upgrade --apply` carries them into its commit's message and gives the file its bytes back (D-125)",
+                        late.len()
+                    ),
+                ));
+            }
+        }
+    }
     for page in tree.pages.iter().filter(|p| {
         p.kind == Kind::ListFile
             && (p.rel == "work/journal.md" || p.rel.starts_with("work/journal/"))
