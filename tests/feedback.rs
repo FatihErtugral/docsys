@@ -215,11 +215,21 @@ fn feedback_reads_its_rule_and_refuses_what_it_cannot_use() {
         said.contains("R-108") && said.contains("docsys feedback --draft --rule R-108"),
         "{said}"
     );
+    // the rule named once
+    let first = said.lines().next().unwrap_or("");
+    assert_eq!(first.matches("R-108").count(), 1, "{said}");
+    // a draft's own flags without --draft would be dropped unsaid: refused
     for bad in [
         &["feedback", "--rule", "R-999"][..],
         &["feedback", "--type", "nonsense"],
         &["feedback", "extra"],
+        &["feedback", "--command", "lint"],
+        &["feedback", "--command", "docsys lint"],
+        &["feedback", "--out", "x.md"],
+        &["feedback", "--type", "bug"],
     ] {
-        assert_eq!(run(bad).status.code(), Some(2), "{bad:?}");
+        let out = run(bad);
+        assert_eq!(out.status.code(), Some(2), "{bad:?}: {out:?}");
     }
+    assert!(!std::env::temp_dir().join("x.md").exists());
 }

@@ -206,8 +206,8 @@ pub fn agents_md() -> String {
     out.push_str("\nWhen you verify:\n");
     out.push_str(&procedure_head(VERIFY).unwrap_or_default());
     out.push_str(
-        "- read every claim against `sources:` and the code it names; a maintainer's own\n\
-           word in the session is recorded with `docsys verify <page>` (D-096)\n",
+        "- a maintainer's explicit word in the session is their approval: it is\n\
+           recorded under their identity, never the session's (D-096)\n",
     );
     out.push_str(
         "\nWhen a decision procedure exists, follow it: `docsys rules --procedures`.\n\

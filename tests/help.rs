@@ -191,6 +191,7 @@ fn agents_report_and_the_procedures_each_have_their_own_command() {
 fn a_group_alone_lists_its_sub_commands() {
     for group in [
         "debt", "question", "ledger", "graduate", "seed", "page", "export", "migrate", "raw",
+        "consume", "inbox",
     ] {
         let out = Command::new(bin())
             .arg(group)
@@ -212,6 +213,27 @@ fn a_group_alone_lists_its_sub_commands() {
     }
     let (ok, text) = run(&["help", "journal"]);
     assert!(ok && text.contains("docsys journal add "), "{text}");
+    // an unknown flag: that command's help, not the whole list
+    for args in [&["lint", "--nope"][..], &["debt", "add", "--nope"]] {
+        let out = Command::new(bin())
+            .args(args)
+            .env("DOCSYS_NO_AUTO_INSTALL", "1")
+            .current_dir(std::env::temp_dir())
+            .output()
+            .unwrap();
+        let text = String::from_utf8_lossy(&out.stderr).into_owned();
+        let name = args
+            .split_last()
+            .map(|(_, n)| n.join(" "))
+            .unwrap_or_default();
+        assert_eq!(out.status.code(), Some(2), "{args:?}: {text}");
+        assert!(text.contains("`--nope`"), "{args:?}: {text}");
+        assert!(
+            text.contains(&format!("docsys {name} ")),
+            "{args:?}: {text}"
+        );
+        assert!(!text.contains("Commands:"), "{args:?}: {text}");
+    }
 }
 
 /// The six-word phrases of a text, its words lowercased and stripped of
@@ -260,4 +282,128 @@ fn help_says_each_thing_once_and_none_the_block_says() {
         .filter(|p| block.contains(p))
         .collect();
     assert!(shared.is_empty(), "help and the block both say: {shared:?}");
+}
+
+/// The texts an agent and a person read — the rules block, the skill, the
+/// first-turn routing with the tree's digest, and help — with their line
+/// breaks folded.
+fn homes() -> Vec<(&'static str, String)> {
+    let dir = std::env::temp_dir().join(format!("docsys-help-homes-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let git = |args: &[&str]| {
+        assert!(Command::new("git")
+            .args(args)
+            .current_dir(&dir)
+            .output()
+            .unwrap()
+            .status
+            .success());
+    };
+    git(&["init", "-q"]);
+    let docsys = |args: &[&str], input: &str| {
+        let mut child = Command::new(bin())
+            .args(args)
+            .current_dir(&dir)
+            .env("DOCSYS_NO_AUTO_INSTALL", "1")
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::piped())
+            .spawn()
+            .unwrap();
+        std::io::Write::write_all(child.stdin.as_mut().unwrap(), input.as_bytes()).unwrap();
+        String::from_utf8_lossy(&child.wait_with_output().unwrap().stdout).into_owned()
+    };
+    docsys(&["adopt"], "");
+    let routing = docsys(
+        &["hook", "user-prompt-submit", "--root", "docs"],
+        &format!(
+            r#"{{"session_id":"homes-{}","prompt":"hi"}}"#,
+            std::process::id()
+        ),
+    );
+    let block = docsys(&["rules", "--agents-md"], "");
+    let _ = std::fs::remove_dir_all(&dir);
+    // the overview holds every purpose; each command adds its flags
+    let mut help = run(&["--help"]).1;
+    for c in docsys::help::COMMANDS {
+        for (_, what) in c.flags {
+            help.push_str(what);
+            help.push('\n');
+        }
+    }
+    let fold = |t: &str| t.split_whitespace().collect::<Vec<_>>().join(" ");
+    vec![
+        ("block", fold(&block)),
+        ("skill", fold(docsys::agents::skill_text())),
+        ("routing", fold(&routing)),
+        ("help", fold(&help)),
+    ]
+}
+
+/// Each fact has one home (D-114, D-129). A fact said again in other words
+/// shares no six words, so each is caught by its own words: one of them in
+/// two texts, or twice in one, is a second home.
+#[test]
+fn each_fact_is_said_in_one_place() {
+    let facts: &[(&str, &[&str])] = &[
+        (
+            "a commit message says why",
+            &["what and why", "message that says why"],
+        ),
+        ("the procedures are a command", &["rules --procedures"]),
+        ("lookup comes first", &["docsys lookup <words>"]),
+        ("the work types", &["feature, bug"]),
+        (
+            "the mechanics are the binary's",
+            &["re-derive", "re-implement"],
+        ),
+        ("the two checks", &["refs --repo ."]),
+        (
+            "index.md routes the pages",
+            &["index.md` routes", "index.md routes"],
+        ),
+        ("verify records an approval", &["docsys verify <page>"]),
+        ("no guess on a page", &["never a guess"]),
+        (
+            "a pinned tree runs its version",
+            &["installed on first use", "runs its own version"],
+        ),
+        (
+            "what a re-verification reads",
+            &["re-verification reads", "what to read again"],
+        ),
+        (
+            "a compiled skill is the page",
+            &["byte for byte, pinned", "pinned to the page"],
+        ),
+        (
+            "the approval job's line",
+            &["approval job adds", "approval adds"],
+        ),
+        (
+            "the work file leaves on the word",
+            &[
+                "file is removed",
+                "work file leaves",
+                "removes the work file",
+            ],
+        ),
+        ("a command's flags", &["flags and an example"]),
+    ];
+    let homes = homes();
+    let mut twice = Vec::new();
+    for (fact, words) in facts {
+        let said: Vec<&str> = homes
+            .iter()
+            .flat_map(|(home, text)| {
+                words
+                    .iter()
+                    .flat_map(move |w| std::iter::repeat_n(*home, text.matches(w).count()))
+            })
+            .collect();
+        if said.len() != 1 {
+            twice.push(format!("{fact}: {said:?}"));
+        }
+    }
+    assert!(twice.is_empty(), "{twice:#?}");
 }

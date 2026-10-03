@@ -35,14 +35,18 @@ pub enum State {
 }
 
 /// Whether a page takes part in verification (§3.2): every page of a
-/// knowledge base, and a project page that carries `sources:`.
+/// knowledge base, and a project page that carries `sources:` with something
+/// to check its claims against — a source it names, or a pin to the code.
 pub fn tracked(tree: &DocTree, page: &Page) -> bool {
     page.kind == Kind::Permanent
         && (tree.profile == Profile::KnowledgeBase
-            || page
-                .fm
-                .as_ref()
-                .is_some_and(|f| f.fields.contains_key("sources")))
+            || page.fm.as_ref().is_some_and(|f| {
+                f.fields.get("sources").is_some_and(|s| match s {
+                    Value::List(l) => !l.is_empty(),
+                    Value::Str(s) => !s.trim().is_empty(),
+                    Value::Maps(m) => !m.is_empty(),
+                }) || (f.fields.contains_key("sources") && !crate::fresh::pins_of(f).is_empty())
+            }))
 }
 
 /// The values of every `<key>:` line of a message, after its subject.
@@ -507,10 +511,29 @@ pub fn holding_record(tree: &DocTree, page: &Page) -> bool {
     )
 }
 
-/// The newest approval of a page anywhere in history, and the page as that
-/// commit held it: who, the short commit, the text — what `verify --show`
-/// compares the body against.
-pub fn last_approval(tree: &DocTree, page: &Page) -> Option<(String, String, String)> {
+/// The newest approval of a page anywhere in history, as `verify --show`
+/// tells it.
+pub struct LastApproval {
+    pub by: String,
+    /// the commit it was made on, short — a branch's own, not the merge that
+    /// brought it in
+    pub commit: String,
+    /// the page as its approver read it, where history holds that
+    pub read: Option<String>,
+    /// why it no longer counts, when that is not the body or a source moving
+    /// since
+    pub lost: Option<String>,
+}
+
+/// The commit an act was made on.
+fn made_commit(act: &Act) -> &str {
+    match &act.made {
+        Made::On { commit, .. } => commit,
+        Made::Here | Made::Unknown => &act.sha,
+    }
+}
+
+pub fn last_approval(tree: &DocTree, page: &Page) -> Option<LastApproval> {
     let repo = crate::repo_of(&tree.root)?;
     let maintainers = crate::checks::maintainer_handles(tree);
     let prefix = match crate::fresh::root_rel(&repo, &tree.root) {
@@ -520,20 +543,59 @@ pub fn last_approval(tree: &DocTree, page: &Page) -> Option<(String, String, Str
     let path = format!("{prefix}{}", page.rel);
     let history = walk(&repo, &prefix);
     let names = names_of(page);
-    history.acts.iter().find_map(|(at, act)| {
-        let touched = history
+    let landed_here = |at: &usize| {
+        history
             .touched
             .get(at)
-            .is_some_and(|paths| paths.contains(&path));
-        if !touched && !act.verifies.iter().any(|(v, _)| names.contains(v)) {
+            .is_some_and(|paths| paths.contains(&path))
+    };
+    let (at, act, by) = history.acts.iter().find_map(|(at, act)| {
+        let touched = matches!(&act.made, Made::On { touched, .. } if touched.contains(&path));
+        if !landed_here(at) && !touched && !act.verifies.iter().any(|(v, _)| names.contains(v)) {
             return None;
         }
         let by = act
             .approved_by
             .iter()
             .find_map(|v| maintainer_of(&maintainers, v))?;
-        let text = git_out(&repo, &["show", &format!("{}:{path}", act.sha)])?;
-        Some((by, act.sha.chars().take(7).collect(), text))
+        Some((*at, act, by))
+    })?;
+    let short = |sha: &str| sha.chars().take(7).collect::<String>();
+    let hash = act
+        .verifies
+        .iter()
+        .find(|(v, _)| names.contains(v))
+        .and_then(|(_, h)| h.clone());
+    let text = (!matches!(act.made, Made::Unknown))
+        .then(|| git_out(&repo, &["show", &format!("{}:{path}", made_commit(act))]))
+        .flatten();
+    // the body it read: the one its hash names, or its commit's as made
+    let read = match &hash {
+        Some(h) => text
+            .filter(|t| body_hash(t) == *h)
+            .or_else(|| (body_hash(&page.text) == *h).then(|| page.text.clone())),
+        None if act.remade => None,
+        None => text,
+    };
+    let revoked = history.acts.iter().find(|(a, r)| {
+        *a <= at && !std::ptr::eq(r, act) && r.revokes.iter().any(|v| names.contains(v.trim()))
+    });
+    let lost = if let Some((_, r)) = revoked {
+        Some(format!("taken back by {}", short(made_commit(r))))
+    } else if hash.is_some() && read.is_none() {
+        Some("the body that landed is not the body it read: an edit landed beside it".into())
+    } else if act.remade && hash.is_none() {
+        Some("a rebase, a cherry-pick or an amend made its commit again, and it names no body: what it read is unknown".into())
+    } else if matches!(act.made, Made::Unknown) && landed_here(&at) {
+        Some("the squash that quotes it changed the page, and the commit it quotes is gone: what it read is unknown".into())
+    } else {
+        None
+    };
+    Some(LastApproval {
+        by,
+        commit: short(made_commit(act)),
+        read,
+        lost,
     })
 }
 

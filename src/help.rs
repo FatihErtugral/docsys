@@ -155,7 +155,7 @@ pub const COMMANDS: &[Command] = &[
     Command {
         name: "verify",
         synopsis: "<page> [--by <handle|@login>] [--commit] [--revoke] | --show <page> | --range <a>...<b> (--by @login | --from-trailers) | --approval <@login>",
-        purpose: "a maintainer vouches for a page: on docsys/0.5 the approval is their commit; --show lists what to read again",
+        purpose: "a maintainer vouches for a page: on docsys/0.5 the approval is their commit",
         flags: &[
             ("<page>", "the page's id or path"),
             ("--by <handle|@login>", "who verifies, when it is not the git identity"),
@@ -191,7 +191,7 @@ pub const COMMANDS: &[Command] = &[
     Command {
         name: "graduate apply",
         synopsis: "--plan <file> [--confirmed <who>] [--root <dir>] [--force]",
-        purpose: "the person approved the plan: the blocks move byte for byte; with --confirmed on docsys/0.5 the work file leaves",
+        purpose: "the person approved the plan: the blocks move byte for byte",
         flags: &[
             ("--plan <file>", "the filled plan"),
             ("--confirmed <who>", "the person's word that the file graduates: the last blocks move and the file is removed"),
@@ -228,7 +228,7 @@ pub const COMMANDS: &[Command] = &[
     Command {
         name: "question add",
         synopsis: "<question…> [--topic <id>] [--context <c>] [--date <d>] [--root docs]",
-        purpose: "something is not known: one dated question item, never a guess on a page",
+        purpose: "something is not known: one dated question item",
         flags: &[
             ("<question…>", "the question"),
             ("--topic <id>", "the page or feature it concerns"),
@@ -266,11 +266,11 @@ pub const COMMANDS: &[Command] = &[
     Command {
         name: "journal add",
         synopsis: "<text…> [--title <t>] [--link <path>] [--date <d>] [--root docs]",
-        purpose: "a change needs its why recorded: on docsys/0.5 it prints the commit message the entry is",
+        purpose: "a change needs its why recorded: on docsys/0.5 it prints the `Docs:` line the commit message ends with, and nothing is written",
         flags: &[
             ("<text…>", "what changed and why"),
-            ("--title <t>", "the entry's title"),
-            ("--link <path>", "the page it concerns"),
+            ("--title <t>", "the entry's title: the whole message printed"),
+            ("--link <path>", "the page it concerns: the text becomes the subject"),
             ("--date <d>", "the date, on a docsys/0.4 tree"),
             ROOT,
         ],
@@ -352,7 +352,7 @@ pub const COMMANDS: &[Command] = &[
     Command {
         name: "export feature",
         synopsis: "<id> [<id>…] [--follow] [--title <t>] [--root <dir>] [--out <file>] [--lang <code>] [--audience <a>]",
-        purpose: "one feature needs its own document: the pages named, and with --follow the ones they link",
+        purpose: "one feature needs its own document, made of the pages named",
         flags: &[
             ("<id>…", "the pages"),
             ("--follow", "also the pages they link"),
@@ -534,7 +534,7 @@ pub const COMMANDS: &[Command] = &[
     Command {
         name: "help",
         synopsis: "[<command> [<subcommand>]]",
-        purpose: "this list; with a command, its flags and an example",
+        purpose: "this list; with a command — or `docsys <command> --help` — its flags and an example",
         flags: &[("<command>", "the command to explain")],
         example: "docsys help graduate apply",
     },
@@ -544,8 +544,7 @@ const HEAD: &str =
     "docsys — keeps a repository's documentation true to its code: typed pages, checked
 by lint, bound to the code they describe (spec: SPEC.md).
 In a repository: `docsys adopt` sets it up — the tree, the agent rules, the hooks and
-the git gate — and lists in ADOPTION.md what is left. `docsys <command> --help` gives
-a command's flags and an example.
+the git gate — and lists in ADOPTION.md what is left.
 
 ";
 
@@ -554,8 +553,8 @@ const TAIL: &str = "
 nearest tree above is found, and the repository is the tree's own (D-098). init, adopt
 and assistant create a tree where they are pointed.
 
-A pinned tree (<root>/.docsys-version) runs its own version, installed once into
-$DOCSYS_HOME (~/.docsys); DOCSYS_NO_AUTO_INSTALL=1 prints the install command instead (D-120).
+$DOCSYS_HOME (~/.docsys) holds the versions pinned trees install;
+DOCSYS_NO_AUTO_INSTALL=1 prints the install command instead (D-120).
 
 Exit codes (the contract scripts and CI read):
   0  ok — clean, or warnings only (warnings inform; they never block)

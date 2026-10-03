@@ -112,7 +112,7 @@ fn project(name: &str, spec: &str) -> (PathBuf, PathBuf) {
         // verification are history's (D-122, D-126)
         write(
             "reference/token-ttl.md",
-            &format!("---\nid: token-ttl\ntype: reference\nsources: []\n---\n{BODY}"),
+            &format!("---\nid: token-ttl\ntype: reference\nsources: [src/lib.rs]\n---\n{BODY}"),
         );
     }
     fs::create_dir_all(repo.join("src")).unwrap();

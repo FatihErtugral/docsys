@@ -186,6 +186,28 @@ fn a_page_without_sources_takes_no_part_and_outside_history_it_is_unknown() {
         .find(|p| p.rel == "reference/plain.md")
         .unwrap();
     assert!(!docsys::approval::tracked(&tree, plain));
+    // an empty list names nothing to check against: no part, and verify says so
+    fs::write(
+        root.join("reference/empty.md"),
+        "---\nid: empty\ntype: reference\nsources: []\n---\nThis page states a fact; read it any time.\n",
+    )
+    .unwrap();
+    let tree = DocTree::load(&root).unwrap();
+    let empty = tree
+        .pages
+        .iter()
+        .find(|p| p.rel == "reference/empty.md")
+        .unwrap();
+    assert!(!docsys::approval::tracked(&tree, empty));
+    git(&repo, &["add", "-A"]);
+    git(&repo, &["commit", "-qm", "two pages"]);
+    git(&repo, &["config", "user.email", "ayse@example.com"]);
+    let out = docsys(&repo, &["verify", "reference/empty.md"]);
+    assert_eq!(out.status.code(), Some(2), "{out:?}");
+    assert!(
+        String::from_utf8_lossy(&out.stderr).contains("names no source in `sources:` and no pin"),
+        "{out:?}"
+    );
     let elsewhere = tmp("no-repo");
     let copy = elsewhere.join("docs");
     fs::create_dir_all(copy.join("reference")).unwrap();
@@ -631,4 +653,88 @@ fn a_handle_without_a_login_doubles_as_the_login() {
     );
     assert!(verified(&root));
     let _ = fs::remove_dir_all(&repo);
+}
+
+/// `verify --show` says why an approval no longer holds — its own reason, not
+/// a list of possible ones — names the commit the approval was made on, and
+/// marks what moved since its approver read the page (D-103, D-126).
+#[test]
+fn show_says_why_an_approval_no_longer_holds() {
+    let show = |root: &Path| -> String {
+        let out = docsys(
+            root.parent().unwrap(),
+            &["verify", "--show", "reference/retry.md"],
+        );
+        assert!(out.status.success(), "{out:?}");
+        String::from_utf8_lossy(&out.stdout).into_owned()
+    };
+    let head = |s: &str| s.lines().next().unwrap_or("").to_string();
+    let short = |repo: &Path, rev: &str| {
+        let out = Command::new("git")
+            .args(["rev-parse", rev])
+            .current_dir(repo)
+            .output()
+            .unwrap();
+        String::from_utf8_lossy(&out.stdout)[..7].to_string()
+    };
+    // a later edit on the branch: the branch's approval, the edited block marked
+    let root = merged("show-later", Mode::NoFf, &["approve", "edit"]);
+    let repo = root.parent().unwrap().to_path_buf();
+    let approval = short(&repo, "b~1");
+    let s = show(&root);
+    assert!(
+        head(&s).contains(&format!(
+            "(unverified): 1/2 blocks as verified by ayse at {approval}"
+        )) && head(&s).contains("the body moved since"),
+        "{s}"
+    );
+    assert!(
+        s.contains("[2] line 8, changed:\n    Four attempts."),
+        "{s}"
+    );
+    // taken back: by which commit
+    git(
+        &repo,
+        &[
+            "commit",
+            "-q",
+            "--allow-empty",
+            "-m",
+            "docs: revoke retry",
+            "-m",
+            "Revokes: reference/retry.md",
+        ],
+    );
+    let revoke = short(&repo, "HEAD");
+    let s = show(&root);
+    assert!(head(&s).contains(&format!("taken back by {revoke}")), "{s}");
+    // the page no longer names what it rests on: it takes no part
+    let page = root.join("reference/retry.md");
+    let text = fs::read_to_string(&page).unwrap();
+    fs::write(&page, text.replace("sources: [src/retry.rs]\n", "")).unwrap();
+    git(&repo, &["commit", "-qam", "retry: no sources"]);
+    let s = show(&root);
+    assert!(
+        head(&s).contains("names no source in `sources:` and no pin"),
+        "{s}"
+    );
+    assert!(!head(&s).contains("taken back"), "{s}");
+    let _ = fs::remove_dir_all(&repo);
+    // a concurrent edit a rebase put under the approval
+    let root = merged(
+        "show-concurrent",
+        Mode::Rebase,
+        &["concurrent", "edit", "verify"],
+    );
+    let s = show(&root);
+    assert!(
+        head(&s).contains("the body that landed is not the body it read"),
+        "{s}"
+    );
+    let _ = fs::remove_dir_all(root.parent().unwrap());
+    // a trailer typed by hand, its commit made again by a rebase
+    let root = merged("show-remade", Mode::Rebase, &["approve"]);
+    let s = show(&root);
+    assert!(head(&s).contains("made its commit again"), "{s}");
+    let _ = fs::remove_dir_all(root.parent().unwrap());
 }

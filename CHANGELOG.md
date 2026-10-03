@@ -48,15 +48,19 @@ declares `spec: docsys/0.5`; a tree that declares `docsys/0.4` is served as
   workflow read the pin, and `upgrade` moves it (D-120).
 - `docsys --version`: the binary and the spec it implements (D-099).
 - `docsys --help` says what each command is for; `docsys <command> --help`, or
-  `docsys help <command>`, gives its flags and an example (D-129).
-- `docsys verify --show <page>`: what a re-verification reads, block by block (D-103).
+  `docsys help <command>`, gives its flags and an example, and so does an
+  unknown flag or a group named alone (D-129).
+- `docsys verify --show <page>`: what a re-verification reads, block by block,
+  against the body the last approval read — named by the commit it was made
+  on — and why that approval no longer holds (D-103, D-126).
 - `docsys pin … --block <n>`: a pin bound to the block it backs (§21, R-212, D-103).
 - `docsys pin --gc`: removes the pin acknowledgements nothing needs (D-119).
 - `docsys ledger fix`: em-dash ledger markers to R-108's ASCII (D-108).
-- `docsys feedback [--draft]`: the issue format and a drafted issue; it files nothing (D-116).
+- `docsys feedback [--draft]`: the issue format and a drafted issue; it files
+  nothing, and refuses a draft's flags without `--draft` (D-116).
 - `adopt --rules-file`, `--report-dir`, `--no-report` (D-110); `--ci-runner`,
   `--ci-install cargo|release` with `--ci-sha256`, `--verify-on-approval
-  pull-request|direct|off` (D-105, D-111).
+  description|pull-request|direct|off` (D-105, D-111, D-126).
 - The tree's own uncertainty markers and history headings are reported
   (R-210, R-211, D-115).
 - `ci/compat.sh` and `ci/pin-replay.sh`: manual checks against the previous
@@ -77,7 +81,8 @@ declares `spec: docsys/0.5`; a tree that declares `docsys/0.4` is served as
 - A pinned symbol resolves to its declaration, never to a use (D-106).
 - The journal is the commit history: `docsys journal` renders every commit
   that changes the docs or carries a `Docs:` line, newest first, and
-  `journal add` prints the message it is; nothing is written beside history.
+  `journal add` prints the `Docs:` line the commit ends with — a message of
+  that line alone is one too; nothing is written beside history.
   A new `commit-msg` gate reads that message: under `require`, code with no
   documentation needs `Docs: <why>`, a removed item needs its trailer, and a
   `Docs:` entry over five lines is said; under `ask` it says nothing. `upgrade` moves `work/journal.md` and its slices under
@@ -112,7 +117,8 @@ declares `spec: docsys/0.5`; a tree that declares `docsys/0.4` is served as
   wiki-link inside inline code is quoted material (R-071).
 - A project's `raw/` is a record layer (R-023, D-112).
 - The agent text carries the procedures an agent needs while it writes or
-  verifies a page, and the first turn routes intents to commands (D-114).
+  verifies a page, and the first turn routes intents to commands; the rules
+  block, the skill, the routing and help each say a thing once (D-114, D-129).
 - The CI workflow `adopt` writes is pinned, least-privileged and regenerable.
   Its approval job follows the tree: on docsys/0.5 it adds `Approved-by:` to
   the pull request's description (`description`, the default there); on

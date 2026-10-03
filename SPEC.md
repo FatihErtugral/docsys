@@ -310,13 +310,15 @@ unchanged neither makes nor breaks it (D-102). An empty or absent list means any
 before.
 
 A permanent page in the `project` profile takes part in verification when it
-carries `sources:` — what its claims are checked against (P/R-025); R-024 and
+carries `sources:` with something its claims are checked against (P/R-025) —
+a source it names, or a pin to the code; R-024 and
 R-059 then apply to it exactly as to a wiki page (§3.1). A page written from
 evidence by the session that did the work — the seeding overview (D-092), a
 reference updated beside a contract change — is `unverified` until a
 maintainer approves it. Readers, people and agents alike, see the state:
 `lookup` marks it, `status` counts it, and `export` may refuse or mark it
-(R-151). `docsys page new <type> <id> --unverified` writes `sources:`. A code
+(R-151). `docsys page new <type> <id> --unverified` writes an empty `sources:`
+for the author to fill. A code
 review's approval is a maintainer's word (D-095), and the word is read from
 git: the `Approved-by:` line a host's approval job adds to the pull request's
 description lands in the merge commit with it, and no follow-up pull request

@@ -654,7 +654,7 @@ fn verify_by_commit(
     if !revoke {
         if !crate::approval::tracked(tree, page) {
             return Err(format!(
-                "`{}` carries no `sources:` — a verification checks claims against them (§3.2, P/R-025); name what it rests on first",
+                "`{}` names no source in `sources:` and no pin — there is nothing to check its claims against (§3.2, P/R-025); name what it rests on first",
                 page.rel
             ));
         }
@@ -806,7 +806,11 @@ pub fn show(root: &Path, target: &str) -> Result<String, String> {
         .then(|| crate::approval::last_approval(&tree, page))
         .flatten();
     let approvals = from_history.then(|| crate::approval::Approvals::of(&tree));
-    let state = if let Some(a) = &approvals {
+    let tracked = !from_history || crate::approval::tracked(&tree, page);
+    let lost = approved.as_ref().and_then(|a| a.lost.clone());
+    let state = if !tracked {
+        "takes no part"
+    } else if let Some(a) = &approvals {
         match a.state(rel) {
             crate::approval::State::Verified { .. } => "verified",
             crate::approval::State::Unverified => "unverified",
@@ -816,10 +820,12 @@ pub fn show(root: &Path, target: &str) -> Result<String, String> {
         get("verification").unwrap_or("no verification field")
     };
     let (recorded, last, then_text) = match approved {
-        Some((by, sha, text)) => (
-            Some(crate::blocks::hashes(&crate::fresh::body_text(&text))),
-            Some((by, sha)),
-            Some(text),
+        Some(a) => (
+            a.read
+                .as_deref()
+                .map(|t| crate::blocks::hashes(&crate::fresh::body_text(t))),
+            Some((a.by, a.commit)),
+            a.read,
         ),
         None => (
             crate::blocks::record_of(fm),
@@ -844,6 +850,12 @@ pub fn show(root: &Path, target: &str) -> Result<String, String> {
     // approval no longer holding is made again (D-126)
     let unverified = state == "unverified";
     let moved_source = approvals.as_ref().is_some_and(|a| a.source_moved(rel));
+    // why the approval does not hold, when something other than the reading says it
+    let why = if !tracked {
+        Some(" — it names no source in `sources:` and no pin, and such a page takes no part in verification".to_string())
+    } else {
+        lost.filter(|_| unverified).map(|l| format!(" — {l}"))
+    };
     match (&recorded, reading, last) {
         (Some(_), Some(reading), Some((by, rev))) => {
             next = if reading.moved {
@@ -861,19 +873,23 @@ pub fn show(root: &Path, target: &str) -> Result<String, String> {
                 "{rel} ({state}): {}/{} blocks as verified by {by} at {rev}{}\n",
                 reading.found,
                 reading.of,
-                if reading.moved {
+                why.as_deref().unwrap_or(if reading.moved {
                     " — the body moved since"
                 } else if reading.partial() {
                     " — a pin a block rests on is stale"
                 } else if unverified && moved_source {
                     " — a source it consumes moved since"
                 } else if unverified {
-                    " — the approval no longer holds (taken back, or its approver is no maintainer)"
+                    " — the approval no longer holds"
                 } else {
                     " — nothing to re-read"
-                }
+                })
             ));
         }
+        (_, _, Some((by, rev))) if from_history => out.push_str(&format!(
+            "{rel} ({state}): approved by {by} at {rev}{}; every block is to be read\n",
+            why.as_deref().unwrap_or(" — what it read is not in this history")
+        )),
         (_, _, Some((by, rev))) => out.push_str(&format!(
             "{rel} ({state}): no block record — the verification by {by} at {rev} did not record its blocks; every block is to be read\n"
         )),

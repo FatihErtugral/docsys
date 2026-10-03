@@ -191,9 +191,10 @@ Documentation forms while the work happens, by whoever does it — the agent
 included — and not everyone who writes knows. The project profile keeps the
 two acts apart (§3.2, D-092):
 
-- A permanent page written from evidence, or changed in substance, carries
-  `sources:` (`docsys page new <type> <id> --unverified`) — what its claims
-  are checked against. It is readable on day one and says what it is.
+- A permanent page written from evidence, or changed in substance, names in
+  `sources:` what its claims are checked against (`docsys page new <type> <id>
+  --unverified` writes the empty list to fill; until a source or a pin is
+  named, the page takes no part). It is readable on day one and says what it is.
 - Its verification is read from history, never written into it (R-024,
   D-126): the page is verified when a maintainer's approval follows the
   commit that last changed its body. A later body change, or a source it
@@ -472,16 +473,17 @@ rewritten. It lands:
 Then open an agent session in that directory and work as usual. Three things
 happen without being asked:
 
-- the first message gets a routing block — name the work type (feature / bug /
-  refactor / research / idea) and where each one lands
-- editing a verified page under `docs/` turns it unverified by itself when
-  its body changed
+- the first message gets a routing block: the work type is named, and where
+  each one lands
+- a verified page whose body changes reads unverified until a maintainer
+  approves it again
 - committing code without touching docs is asked about once, naming what
   moved; the same commit again proceeds
-- and CI asks the same questions of every pull request and every push to
-  the default branch: `adopt` writes `.github/workflows/docsys.yml` when the
-  repository has a `.github/`, and the git pre-commit gate is hard as soon as
-  the tree lints clean
+
+CI asks the same questions of every pull request and every push to the
+default branch: `adopt` writes `.github/workflows/docsys.yml` when the
+repository has a `.github/`, and the git pre-commit gate is hard as soon as
+the tree lints clean.
 
 `docsys lint --root docs` is the check CI runs: errors exit 1, warnings do
 not. Everything else — feeling the severity doctrine on a clean tree, seeding

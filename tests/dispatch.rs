@@ -423,9 +423,11 @@ fn the_children_of_a_dispatched_command_resolve_the_pin_themselves() {
         .unwrap();
     assert!(adopt.status.success(), "{adopt:?}");
     fs::create_dir_all(r.join("docs/reference")).unwrap();
+    fs::create_dir_all(r.join("src")).unwrap();
+    fs::write(r.join("src/p.rs"), "pub fn p() {}\n").unwrap();
     fs::write(
         r.join("docs/reference/p.md"),
-        "---\nid: p\ntype: reference\nverification: unverified\nsources: []\n---\n# P\n\nThis page states one fact; read it first.\n",
+        "---\nid: p\ntype: reference\nverification: unverified\nsources: [src/p.rs]\n---\n# P\n\nThis page states one fact; read it first.\n",
     )
     .unwrap();
     fs::write(r.join("docs/.docsys-version"), "9.9.9\n").unwrap();

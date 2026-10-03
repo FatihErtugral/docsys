@@ -431,8 +431,8 @@ const ERA_PHRASES: [(&str, &str); 11] = [
         "idea → journal or roadmap line",
     ),
     (
-        "End of session: the commit message says what and why (≤5 lines, links not\ncontent).",
-        "End of session: journal line (≤5 lines, links not content). Gate: docsys lint.",
+        "An id is unique across the whole tree, drafts included.\n</session-doc-routing>",
+        "An id is unique across the whole tree, drafts included.\nEnd of session: journal line (≤5 lines, links not content). Gate: docsys lint.\nJudgment calls follow the procedures: docsys rules --procedures.\n</session-doc-routing>",
     ),
     (
         "→ work file, or `Docs:` in the commit message)",
@@ -1041,9 +1041,6 @@ from the code → /docsys-sync.
 
 Contract-surface changes update their documentation in the SAME session.
 An id is unique across the whole tree, drafts included.
-End of session: the commit message says what and why (≤5 lines, links not
-content).
-Judgment calls follow the procedures: docsys rules --procedures.
 </session-doc-routing>
 ";
 
@@ -1130,9 +1127,15 @@ fn tree_digest(root: &Path) -> String {
             })
             .count()
     };
+    // on docsys/0.5 the block says what routes the pages
+    let routes = if crate::era::Era::of(&tree).journal_from_history() {
+        ""
+    } else {
+        "; index.md routes them"
+    };
     let mut out = String::from("<docs-in-hand>\n");
     out.push_str(&format!(
-        "{permanent} permanent page(s){}; index.md routes them; `docsys lookup <words>` before writing a page.\n",
+        "{permanent} permanent page(s){}{routes}; `docsys lookup <words>` before writing a page.\n",
         if unverified > 0 {
             format!(", {unverified} unverified")
         } else {
@@ -1405,8 +1408,8 @@ mod tests_routing {
         )
         .unwrap();
         assert_eq!(era_text(&root, ROUTING), ROUTING);
-        // on docsys/0.5 the approval is the skill's to explain (D-114)
-        assert!(crate::agents::skill_text().contains("`Approved-by:` line"));
+        // on docsys/0.5 help explains how an approval is recorded (D-114, D-129)
+        assert!(crate::agents::skill_text().contains("`docsys\nhelp verify`"));
         assert!(!ROUTING.contains("verified_by"));
         let _ = fs::remove_dir_all(&root);
     }

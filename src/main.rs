@@ -444,8 +444,15 @@ fn main() -> ExitCode {
     let mut opts = match parse_opts(rest) {
         Ok(o) => o,
         Err(e) => {
+            // the command's own help, where it has one
+            let words: Vec<&str> = std::iter::once(cmd).chain(sub).collect();
             eprintln!("{e}");
-            eprint!("{}", docsys::help::overview());
+            eprint!(
+                "{}",
+                docsys::help::of(&words)
+                    .or_else(|| docsys::help::of(&[cmd]).filter(|_| !cmd.is_empty()))
+                    .unwrap_or_else(docsys::help::overview)
+            );
             return ExitCode::from(2);
         }
     };
@@ -738,9 +745,19 @@ fn main() -> ExitCode {
                 None => None,
             };
             if !opts.draft {
+                // a draft's own flags would be dropped unsaid
+                let shaping = [
+                    (opts.kind.is_some(), "--type"),
+                    (opts.command.is_some(), "--command"),
+                    (opts.out.is_some(), "--out"),
+                ];
+                if let Some((_, flag)) = shaping.iter().find(|(given, _)| *given) {
+                    eprintln!("feedback: {flag} shapes a draft — add --draft");
+                    return ExitCode::from(2);
+                }
                 // the pointer's command: that rule, and how to dispute it
                 if let Some((r, sentence)) = rule_line {
-                    println!("{r}: {sentence}\n");
+                    println!("{sentence}\n");
                     println!("A finding of it that is wrong is a false positive. Draft the issue, the command that reported it included:\n  docsys feedback --draft --rule {r} --command \"docsys …\"\n");
                 }
                 print!("{}", docsys::feedback::guide());
@@ -1246,10 +1263,6 @@ fn main() -> ExitCode {
                 }
             }
         }
-        ("consume", _) => {
-            eprintln!("consume needs `add` or `discover`");
-            ExitCode::from(2)
-        }
         ("inbox", Some("add")) => {
             let (Some(source), Some(id)) = (opts.source.clone(), opts.source_id.clone()) else {
                 eprintln!("inbox add needs --source <name> and --id <item id at the source>");
@@ -1319,10 +1332,6 @@ fn main() -> ExitCode {
                     ExitCode::from(2)
                 }
             }
-        }
-        ("inbox", _) => {
-            eprintln!("inbox needs `add` or `pull`");
-            ExitCode::from(2)
         }
         ("assistant", None) => {
             let since = opts.since.clone().unwrap_or_else(|| "30.days".to_string());

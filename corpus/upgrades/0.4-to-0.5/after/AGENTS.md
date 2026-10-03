@@ -78,8 +78,8 @@ When you verify:
   OPTIONS  : yes → do not verify — leave for another session
              no  → check every claim against sources:, then the
              maintainer approves it (`docsys verify <page>`)
-- read every claim against `sources:` and the code it names; a maintainer's own
-word in the session is recorded with `docsys verify <page>` (D-096)
+- a maintainer's explicit word in the session is their approval: it is
+recorded under their identity, never the session's (D-096)
 
 When a decision procedure exists, follow it: `docsys rules --procedures`.
 When no option fits, the escape is always legitimate — an honest "I don't
