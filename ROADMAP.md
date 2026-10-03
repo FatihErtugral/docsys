@@ -7,15 +7,16 @@ is the intent, revised when the intent changes.
 ## Where it stands
 
 - **Project profile** — complete for daily use: adoption in one command, the
-  agent layer (four relays, three commands, two skills), graduation, seeding,
-  capture and navigation, export and federation, and mechanical freshness:
-  `verifies:` pins, history-dated pages, compiled skills, the range gate and
-  the CI workflow (§11, D-066–D-073).
+  agent layer (three relays, five commands, two skills), graduation, seeding,
+  capture and navigation, export and federation, mechanical freshness —
+  `pins:`, history-dated pages, compiled skills, the range gate and the CI
+  workflow (§11, D-066–D-073) — and the cross-check a person asks for
+  (D-131).
 - **Knowledge-base profile** — an assistant's memory: `docsys assistant` in
   one command, consumed projects as sources (`@namespace/id`), the git
-  connector through the write gate, the digest (`status`), a verification
-  checked against its body and its sources, the character survey on the first
-  turn, and `forget` (D-074–D-084).
+  connector through the write gate, the digest (`status`), the cross-check
+  of pages whose consumed sources moved, the character survey on the first
+  turn, and `forget` (D-074–D-084, D-131).
 - **Experimental** — federation (§13) and connectors (§20) bind nothing until a
   second real estate and a second real connector settle them.
 - **Tested, not assumed** — `ci/agent-lab/` holds the distillation test
@@ -59,16 +60,19 @@ need one, and it fronts the same adapters.
    crate; the chat connector first ("note this" from any session, no OAuth),
    then calendar (read-only, lowest risk), then mail; the MCP face alongside
    the CLI face; the conformance script.
-3. **`compile @namespace/id`** — a consumed project's verified howto compiled
+3. **`compile @namespace/id`** — a consumed project's howto compiled
    into the base's skills, so an assistant runs a project's procedure without
    opening the project.
 4. **The nightly routine, as a template** — `docsys assistant` on a schedule,
-   then an ingest session and an audit session; documented once, outside the
-   tree (R-205), with the morning briefing from `status`.
+   then an ingest session and a cross-check of what moved; documented once,
+   outside the tree (R-205), with the morning briefing from `status`.
 5. **Federation over HTTP** — a provider consumed without a checkout, and the
    consumer-impact report for a retired identifier (R-140).
 6. **Second real estate, second real connector** — the evidence that lets §13
    and §20 leave EXPERIMENTAL, or forces the rules that must change first.
+7. **A lone `-` as a file name** — `docsys rules --agents-md --write -` writes
+   a file named `-`; refuse it by name, or read it as standard output. Found
+   by the 0.16.0 release test; small, in docsys.
 
 ## What will not be built here
 

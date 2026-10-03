@@ -43,8 +43,8 @@ the installed layer (D-087).
 A documentation system fails two ways: it says nothing, or it says something
 wrong with confidence. docsys treats the second as the worse failure (R-151):
 a check blocks only when the outcome is irreversible or silently wrong; a
-composition refuses to half-compose; a verification that cannot be audited is
-a claim, not a record; "not in the base" is a complete answer. In this
+composition refuses to half-compose; no page carries a stamp that it was
+checked, so none outlives the reading; "not in the base" is a complete answer. In this
 repository the owner went further and reads every warning about
 documentation as an error.
 
@@ -52,23 +52,22 @@ documentation as an error.
 
 Documentation drifts because nothing measures the distance between a page and
 what it describes. docsys pins a page to a code region by content hash
-(`verifies:`), dates a page against its own git history (`updated:` behind
-history is an error), and keeps a verified page's body and its sources hashed
-at the revision they were verified — when either moves, the page is stale by
-name, not by someone's memory. A compiled skill is pinned to the page it came
+(`pins:`) and dates a page by its last content change in history — when the
+code moves, the page is stale by name, not by someone's memory. A compiled skill is pinned to the page it came
 from and fails when the page moves.
 
-## 6 · Writing and vouching are two acts, by two people
+## 6 · A page is read, not stamped
 
-The session that writes a page never verifies it (R-025). Verification is a
-record — who, at which revision — and it is checked, not trusted (§3.1, D-077).
-In a project the same contract is optional per page: a page written from
-evidence during the work is `unverified` until someone else says otherwise,
-and when the tree declares `maintainers:`, only they may say it — by name in
-lint, by the commit's author in history (R-208, D-092). Anyone writes; a
-maintainer vouches. The worry this answers: on a team not everyone who writes
-knows, and documentation that forms during development must not carry a
-guess as the project's word.
+Every way of recording that a page was right cost a team a flow: a record in
+the page conflicted on merge, an approval in history needed a host's
+settings, and each needed a list of who may vouch. So a page carries no
+verification state (D-130). It names in `sources:` what it rests on, and its
+pins say when the code it describes moved. When a person wants pages
+checked, an agent reads them against their sources and the code
+(`/docsys-crosscheck`), corrects what is wrong in an ordinary commit, and
+records what it cannot settle as a question (D-131). The worry the old
+contract answered — on a team not everyone who writes knows — is answered by
+a reading on demand, not by a stamp that ages.
 
 ## 7 · The human word, recorded
 
@@ -87,8 +86,8 @@ bypass leaves a visible debt (R-209, D-093).
 The second profile turns the same mechanics into a personal brain: notes land
 in `raw/inbox/` in the person's own words; ingest distils them into wiki pages
 and archives the note byte-for-byte (`raw/` is content-immutable, relocation
-is the expected flow); audit verifies against the sources in another session;
-lookup answers with the page or says the base does not have it. What the base
+is the expected flow); a cross-check reads pages against their sources when
+the person asks; lookup answers with the page or says the base does not have it. What the base
 cannot settle is one dated line in `wiki/open-questions.md`. Forgetting makes
 a topic unknown, never unrecorded; the character is set on the first turn, in
 the person's language; every file under `wiki/` keeps the base's language,
@@ -100,8 +99,8 @@ A base consumes projects: their exported pages are materialized under
 `.federation/` and cited as `@namespace/id`; the git connector lands one
 record per commit worth reading through the same write gate as any note, and
 never the same item twice; `status` is the digest an assistant reads first;
-`docsys assistant` does all of it in one command. When a consumed source moves
-after a page was verified, that page is stale by name. Connectors to mail,
+`docsys assistant` does all of it in one command. When a consumed source moves,
+`docsys crosscheck --since` names the pages that rest on it. Connectors to mail,
 calendars and chats need what docsys refuses to carry — network, tokens,
 schedules — so they live in another project and meet docsys at one seam, the
 write gate (ROADMAP.md).
@@ -113,8 +112,8 @@ can prove — births, scopes, manifests, root causes, the code's own comment
 blocks, tags — and nothing else. The builder confirms, corrects and adds what
 history cannot say; an answer that conflicts with the evidence becomes a
 question, not a record. When nobody can answer, the evidence rows still land,
-and the session may author one page per feature, `unverified`, for a
-maintainer to verify later — readable on day one, never the tool's claim.
+and the session may author one page per feature from the evidence —
+readable on day one, never the tool's claim.
 
 ## 11 · One tree at a time, one seam between trees
 
@@ -157,8 +156,8 @@ finding stays in `ci/agent-lab/FINDINGS.md` with its evidence.
 | the tool never writes prose | R-003, R-090, R-156 | D-024, D-053 |
 | mechanics vs judgment; the installed layer | §14.3, R-155 | D-051, D-087 |
 | honest over complete | R-151, R-152 | D-032 |
-| freshness by hash | §11 | D-066–D-073, D-077, D-082 |
-| writing and vouching | §3.1, §3.2, R-025, R-028, R-208 | D-077, D-092 |
+| freshness by hash | §11 | D-066–D-073, D-119, D-122 |
+| a page is read, not stamped | §3.2, R-024 | D-130, D-131 |
 | the human word; the commit gate | R-081, R-097, R-209 | D-040, D-043, D-093 |
 | the knowledge base | §3.1, R-023–R-029 | D-030, D-076, D-083, D-084, D-090 |
 | learning from projects | §13, §20 | D-074–D-082 |

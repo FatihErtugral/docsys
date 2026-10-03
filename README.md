@@ -10,7 +10,7 @@ Nothing lives in two places, nothing goes stale silently, and nothing blocks
 your commit unless the damage would be irreversible or silently wrong.
 
 Built spec-first: every behavior traces to a numbered rule in [SPEC.md](SPEC.md)
-(157 normative rules, survived six adversarial audit rounds by six independent
+(152 normative rules, survived six adversarial audit rounds by six independent
 models, plus two experimental sections — federation and connectors — that bind
 nothing until real use settles them), every implementation-defined choice is
 registered in [corpus/DECISIONS.md](corpus/DECISIONS.md), and the conformance
