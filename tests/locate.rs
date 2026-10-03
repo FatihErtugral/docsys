@@ -628,6 +628,8 @@ fn the_agent_layer_is_written_and_named_from_the_top() {
         &["agents", "--report", "--dir", ".claude"],
         &["compile", "howto/release", "--force"],
         &["compile", "howto/release", "--force", "--dir", ".claude"],
+        &["agents", "--dir", "./.claude"],
+        &["doctor"],
     ] {
         let top = docsys_all(&repo, args);
         assert_eq!(top.0, 0, "{args:?}: {}", top.1);
@@ -638,5 +640,55 @@ fn the_agent_layer_is_written_and_named_from_the_top() {
             "{args:?}"
         );
     }
+    let _ = fs::remove_dir_all(&repo);
+}
+
+/// `agents --kb` installs a knowledge base's layer; on a project tree it is
+/// refused, from the top and from below alike, and writes nothing.
+#[test]
+fn agents_for_a_knowledge_base_refuses_a_project_tree() {
+    let repo = project("kb-on-project");
+    let deep = repo.join("apps/x/src");
+    for dir in [&repo, &deep] {
+        let (code, out) = docsys_all(dir, &["agents", "--kb"]);
+        assert_eq!(code, 2, "{out}");
+        assert!(out.contains("project"), "{out}");
+    }
+    assert!(!repo.join("docs/AGENTS.md").exists());
+    assert!(!repo.join(".claude/skills/kb-capture").exists());
+    let _ = fs::remove_dir_all(&repo);
+}
+
+/// `migrate`'s `--root` names a directory from the repository's top — from
+/// inside the tree too — and a missing one is named as it was given (D-098).
+#[test]
+fn a_migration_root_is_named_from_the_top_everywhere() {
+    let repo = project("migrate-root-top");
+    fs::create_dir_all(repo.join("notes")).unwrap();
+    fs::write(repo.join("notes/README.md"), "# Legacy notes\n").unwrap();
+    for args in [
+        &["migrate", "inventory", "--root", "notes"][..],
+        &["migrate", "inventory", "--root", "nope"],
+    ] {
+        let top = docsys_all(&repo, args);
+        for below in ["docs", "docs/reference", "apps/x/src"] {
+            assert_eq!(
+                docsys_all(&repo.join(below), args),
+                top,
+                "{args:?} from {below}"
+            );
+        }
+    }
+    let (_, out) = docsys_all(
+        &repo.join("docs"),
+        &["migrate", "inventory", "--root", "notes"],
+    );
+    assert!(out.contains("\"Legacy notes\""), "{out}");
+    let (code, out) = docsys_all(
+        &repo.join("apps/x/src"),
+        &["migrate", "inventory", "--root", "nope"],
+    );
+    assert_eq!(code, 2, "{out}");
+    assert!(out.contains("`nope`"), "{out}");
     let _ = fs::remove_dir_all(&repo);
 }

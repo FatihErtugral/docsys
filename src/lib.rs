@@ -2,6 +2,25 @@
 //! v0 scope: `lint` over both profiles (`project`, `knowledge-base`). Every
 //! implementation-defined choice is registered in corpus/DECISIONS.md (R-193).
 
+/// Standard error, written as `eprint!` writes it — but a reader that closed
+/// its end ends the command, as on standard output: docsys stops and exits
+/// with a closed pipe's status, 128 + SIGPIPE, quietly; any other failure
+/// there has nowhere to be said, and exits 2.
+pub fn write_stderr(args: std::fmt::Arguments) {
+    use std::io::Write;
+    match std::io::stderr().write_fmt(args) {
+        Ok(()) => {}
+        Err(e) if e.kind() == std::io::ErrorKind::BrokenPipe => std::process::exit(141),
+        Err(_) => std::process::exit(2),
+    }
+}
+
+// every `eprintln!` of the library goes through `write_stderr`
+macro_rules! eprintln {
+    () => { $crate::write_stderr(format_args!("\n")) };
+    ($($arg:tt)*) => { $crate::write_stderr(format_args!("{}\n", format_args!($($arg)*))) };
+}
+
 pub mod ack;
 pub mod adopt;
 pub mod agents;

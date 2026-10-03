@@ -251,9 +251,25 @@ pub fn check_budget(max_lines: usize) -> Result<(usize, usize), String> {
 pub const BLOCK_BEGIN: &str = "<!-- docsys:rules:begin — generated, do not edit inside -->";
 pub const BLOCK_END: &str = "<!-- docsys:rules:end -->";
 
+/// The block docsys 0.15.1 wrote, which a docsys/0.4 tree keeps (D-118).
+const BLOCK_015: &str = include_str!("../migrations/rules-block-0.15.md");
+
+/// The rules block a tree's era reads: docsys/0.5's, or before it the one
+/// 0.15.1 wrote.
+pub fn agents_md_for(v05: bool) -> String {
+    if v05 {
+        agents_md()
+    } else {
+        BLOCK_015.to_string()
+    }
+}
+
 /// The managed block itself, markers and the owner's preamble (D-056) included.
-pub fn agents_block_with(preamble: &str) -> String {
-    format!("{BLOCK_BEGIN}\n{preamble}{}{BLOCK_END}\n", agents_md())
+pub fn agents_block_with(preamble: &str, v05: bool) -> String {
+    format!(
+        "{BLOCK_BEGIN}\n{preamble}{}{BLOCK_END}\n",
+        agents_md_for(v05)
+    )
 }
 
 /// Write/update the generated block inside a managed marker region of `path`.
@@ -267,13 +283,13 @@ pub fn write_agents_block(path: &std::path::Path) -> Result<&'static str, String
 /// find it in every regeneration, not only at the top of the file.
 /// `exact`: a docsys/0.5 tree's block is updated in place, every byte
 /// outside it kept, and an unchanged block is not written — "kept"; before,
-/// as 0.15.1 wrote it.
+/// the block 0.15.1 wrote, as it wrote it.
 pub fn write_agents_block_with(
     path: &std::path::Path,
     preamble: &str,
     exact: bool,
 ) -> Result<&'static str, String> {
-    let block = agents_block_with(preamble);
+    let block = agents_block_with(preamble, exact);
     let existing = std::fs::read_to_string(path).ok();
     let new_text = match existing {
         None => block.clone(),

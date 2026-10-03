@@ -97,7 +97,7 @@ pub fn run(repo: &Path, root: &Path, claude_dir: &Path) -> Diagnosis {
     push(
         &mut d,
         docmeta,
-        format!(".docmeta.yml at {}", root.display()),
+        format!(".docmeta.yml at {}", crate::place::shown(root).display()),
     );
     if docmeta {
         // one newer than this docsys cannot be read right (R-171's notice,

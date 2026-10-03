@@ -644,7 +644,7 @@ fn under_require_the_end_of_a_turn_holds_once_until_the_work_is_recorded() {
     // code changed, nothing recorded: the turn is held
     let (code, err) = run_stop_with(&repo, r#"{"session_id":"s1","stop_hook_active":false}"#);
     assert_eq!(code, 2, "{err}");
-    assert!(err.contains("before this session ends"), "{err}");
+    assert!(err.contains("this turn holds until"), "{err}");
     // the retry (Claude Code sets stop_hook_active) is not held again
     let (code, err) = run_stop_with(&repo, r#"{"session_id":"s1","stop_hook_active":true}"#);
     assert_eq!(code, 0, "{err}");
@@ -738,4 +738,67 @@ fn stop_reminder_reads_a_docs_line_in_an_unpushed_commit() {
     let (code, err) = run_stop(&repo);
     assert_eq!(code, 0);
     assert!(err.is_empty(), "{err}");
+}
+
+/// A relay message says each thing once (D-114): the GATE line names what
+/// moved and the question follows once; a `git add` is named only when the
+/// command ran one. Under `require` the way out is said once and the work
+/// types are the routing's one set; the stop relay says what it does.
+#[test]
+fn a_relay_message_says_each_thing_once() {
+    let repo = build_repo("say-once");
+    fs::create_dir_all(repo.join("src")).unwrap();
+    fs::write(repo.join("src/x.rs"), "fn x() {}\n").unwrap();
+    git(&repo, &["add", "src/x.rs"]);
+    let (code, msg) = run_hook(&repo, commit_payload(), &[]);
+    assert_eq!(code, 2, "{msg}");
+    assert_eq!(msg.matches("no docs change").count(), 1, "{msg}");
+    assert!(!msg.contains("no documentation change"), "{msg}");
+    assert!(!msg.contains("git add"), "{msg}");
+    // the command that staged inside itself hears why it runs again whole
+    let other = build_repo("say-once-add");
+    fs::create_dir_all(other.join("src")).unwrap();
+    fs::write(other.join("src/x.rs"), "fn x() {}\n").unwrap();
+    git(&other, &["add", "src/x.rs"]);
+    git(&other, &["commit", "-q", "-m", "x"]);
+    fs::write(other.join("src/x.rs"), "fn x() { }\n").unwrap();
+    let (code, msg) = run_hook(&other, add_and_commit_payload(), &[]);
+    assert_eq!(code, 2, "{msg}");
+    assert_eq!(msg.matches("did not run either").count(), 1, "{msg}");
+    let _ = fs::remove_dir_all(&other);
+    // under require
+    let dm = repo.join("docs/.docmeta.yml");
+    let text = fs::read_to_string(&dm).unwrap();
+    fs::write(
+        &dm,
+        text.replace("commit_policy: ask", "commit_policy: require"),
+    )
+    .unwrap();
+    git(
+        &repo,
+        &["commit", "-q", "-m", "require", "docs/.docmeta.yml"],
+    );
+    let (code, msg) = run_hook(&repo, commit_payload(), &[]);
+    assert_eq!(code, 2, "{msg}");
+    assert_eq!(msg.matches("run the SAME commit again").count(), 1, "{msg}");
+    assert!(!msg.contains("git add"), "{msg}");
+    // the work types are D-093's four, in the routing as in the relays
+    assert!(
+        msg.contains("feature | bug | improvement | research)"),
+        "{msg}"
+    );
+    let routing = docsys::hook::ROUTING;
+    assert!(
+        routing.contains(
+            "one of feature, bug,\nimprovement (refactor, performance, cleanup), research. "
+        ),
+        "{routing}"
+    );
+    assert!(!routing.contains("idea-note"), "{routing}");
+    let (code, msg) = run_stop(&repo);
+    assert_eq!(code, 2, "{msg}");
+    assert_eq!(msg.matches("Docs: <why>").count(), 1, "{msg}");
+    let relay = fs::read_to_string(repo.join(".claude/hooks/stop-docs-reminder.sh")).unwrap();
+    assert!(!relay.contains("never blocks"), "{relay}");
+    let _ = fs::remove_dir_all(&repo);
 }

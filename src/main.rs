@@ -17,6 +17,16 @@ fn write_stdout(args: std::fmt::Arguments) {
     }
 }
 
+// every `eprint!` and `eprintln!` below goes through the library's writer
+macro_rules! eprint {
+    ($($arg:tt)*) => { docsys::write_stderr(format_args!($($arg)*)) };
+}
+
+macro_rules! eprintln {
+    () => { docsys::write_stderr(format_args!("\n")) };
+    ($($arg:tt)*) => { docsys::write_stderr(format_args!("{}\n", format_args!($($arg)*))) };
+}
+
 // every `print!` and `println!` below goes through `write_stdout`
 macro_rules! print {
     ($($arg:tt)*) => { write_stdout(format_args!($($arg)*)) };
@@ -410,10 +420,11 @@ fn code_file(arg: &str, repo: &std::path::Path) -> Option<String> {
         .map(|p| p.to_string_lossy().replace('\\', "/"))
 }
 
-/// `migrate`'s root and repository (D-098): a given `--repo` is its top level,
-/// and `--root` names a tree found from where the command stands, else a
-/// directory named from the repository's top — the same from anywhere in it.
-fn migrate_paths(opts: &Opts) -> (PathBuf, Option<PathBuf>) {
+/// `migrate`'s root and repository (D-098): a given `--repo` is its top level;
+/// a given `--root` names a directory from the repository's top, and without
+/// one the tree found from where the command stands — the same from anywhere
+/// in the repository.
+fn migrate_paths(opts: &Opts, root_given: bool) -> (PathBuf, Option<PathBuf>) {
     let cwd = std::env::current_dir().ok();
     let given = opts.repo.as_deref();
     let top = given
@@ -427,10 +438,12 @@ fn migrate_paths(opts: &Opts) -> (PathBuf, Option<PathBuf>) {
         (Some(c), Some(t)) => c == t,
         _ => false,
     };
-    let root = match (&cwd, &top) {
-        (Some(cwd), Some(top)) if !at_top && opts.root.is_relative() => {
-            docsys::place::find_tree(cwd, &opts.root).unwrap_or_else(|| top.join(&opts.root))
-        }
+    let tree = (!root_given)
+        .then(|| docsys::place::locate(&docsys::place::cwd_anchor(), &opts.root, None).root)
+        .filter(|t| t.join(".docmeta.yml").is_file());
+    let root = match (tree, &top) {
+        (Some(tree), _) => tree,
+        (None, Some(top)) if !at_top && opts.root.is_relative() => top.join(&opts.root),
         _ => opts.root.clone(),
     };
     (root, given.and(top))
@@ -495,11 +508,36 @@ fn main() -> ExitCode {
                 print!("{text}");
                 ExitCode::SUCCESS
             }
-            None => {
-                eprint!("{}", docsys::help::overview());
-                ExitCode::from(2)
-            }
+            None => unknown(&words),
         };
+    }
+    // a command takes the flags its entry names and no other (D-129); a value
+    // is never another flag, so each `--word` here is one
+    let words: Vec<&str> = std::iter::once(cmd).chain(sub).collect();
+    let root_given = rest.iter().any(|a| a == "--root");
+    if let Some(allowed) = docsys::help::flags_of(&words) {
+        if let Some(stray) = rest
+            .iter()
+            .find(|a| a.starts_with("--") && !allowed.contains(&a.as_str()))
+        {
+            let name = docsys::help::entry(&words).map_or(cmd, |c| c.name);
+            // the command it belongs to, where that is one or two
+            let owners: Vec<&str> = docsys::help::COMMANDS
+                .iter()
+                .filter(|c| {
+                    docsys::help::flags_of(&[c.name]).is_some_and(|f| f.contains(&stray.as_str()))
+                })
+                .map(|c| c.name)
+                .collect();
+            let theirs = match owners.as_slice() {
+                [one] => format!(" — `docsys {one} {stray}` takes it"),
+                [a, b] => format!(" — `docsys {a}` and `docsys {b}` take it"),
+                _ => String::new(),
+            };
+            eprintln!("`{stray}` is no flag of {name}{theirs}");
+            eprint!("{}", docsys::help::of(&[name]).unwrap_or_default());
+            return ExitCode::from(2);
+        }
     }
     let mut opts = match parse_opts(rest) {
         Ok(o) => o,
@@ -677,27 +715,93 @@ fn main() -> ExitCode {
             } else {
                 opts.dir.clone()
             };
-            if opts.apply && !opts.force {
-                let dirty = docsys::git::cmd(&repo)
-                    .args(["status", "--porcelain", "--untracked-files=no"])
+            // a move written and not yet committed is recorded beside the
+            // index — its message and its files — so nothing between the two
+            // loses it, and a re-run commits it (R-177)
+            let git_path = |name: &str| {
+                docsys::git::cmd(&repo)
+                    .args(["rev-parse", "--git-path", name])
                     .output()
-                    .map(|o| !o.stdout.is_empty())
-                    .unwrap_or(true);
-                if dirty {
-                    eprintln!("upgrade: the working tree has uncommitted changes — commit or stash them first, so the upgrade is one commit of its own (R-097, R-177); --force overrides");
-                    return ExitCode::from(2);
-                }
+                    .ok()
+                    .filter(|o| o.status.success())
+                    .map(|o| PathBuf::from(String::from_utf8_lossy(&o.stdout).trim()))
+                    .map(|p| if p.is_relative() { repo.join(p) } else { p })
+                    .unwrap_or_else(|| repo.join(".git").join(name))
+            };
+            let message_path = git_path("docsys-upgrade-message");
+            let files_path = git_path("docsys-upgrade-files");
+            let dirty = docsys::git::cmd(&repo)
+                .args(["status", "--porcelain", "--untracked-files=no"])
+                .output()
+                .map(|o| !o.stdout.is_empty())
+                .unwrap_or(true);
+            let pending = dirty && message_path.is_file() && files_path.is_file();
+            if !dirty {
+                let _ = std::fs::remove_file(&message_path);
+                let _ = std::fs::remove_file(&files_path);
+            }
+            if opts.apply && !opts.force && dirty && !pending {
+                eprintln!("upgrade: the working tree has uncommitted changes — commit or stash them first, so the upgrade is one commit of its own (R-097, R-177); --force overrides");
+                return ExitCode::from(2);
             }
             // one move per round, each its own commit (R-177); with --commit the
             // rounds run until the tree is where this docsys is
+            let mut pending = pending;
             loop {
                 let u = match docsys::upgrade::run(&repo, &opts.root, &dir, opts.apply) {
                     Ok(u) => u,
                     Err(e) => {
-                        eprintln!("upgrade: {e}");
+                        eprintln!("upgrade: {e}; nothing is committed — `git status` lists what the move wrote");
                         return ExitCode::from(2);
                     }
                 };
+                // the move and its commit come before any word of output, so
+                // a reader that leaves early cannot stand between them
+                let mut committed = None;
+                if opts.apply {
+                    let mut files: Vec<String> = if pending {
+                        std::fs::read_to_string(&files_path)
+                            .unwrap_or_default()
+                            .lines()
+                            .map(str::to_string)
+                            .collect()
+                    } else {
+                        Vec::new()
+                    };
+                    for f in &u.written {
+                        if !files.contains(f) {
+                            files.push(f.clone());
+                        }
+                    }
+                    let message = match std::fs::read_to_string(&message_path) {
+                        Ok(m) if pending => m,
+                        _ => docsys::upgrade::message(&u),
+                    };
+                    if !files.is_empty() {
+                        let recorded = std::fs::write(&message_path, &message)
+                            .and_then(|()| std::fs::write(&files_path, files.join("\n") + "\n"));
+                        if let Err(e) = recorded {
+                            eprintln!("upgrade: {}: {e}", message_path.display());
+                            return ExitCode::from(1);
+                        }
+                    }
+                    if opts.commit {
+                        if let Err(e) = docsys::upgrade::commit_files(&repo, &files, &message) {
+                            eprintln!("upgrade: {e}");
+                            eprintln!(
+                                "the move is written and waits for its commit: once git takes it, `docsys upgrade --apply --commit` commits it, or stage what it wrote and `git commit -F {}`",
+                                docsys::place::shown(&message_path).display()
+                            );
+                            return ExitCode::from(1);
+                        }
+                        let _ = std::fs::remove_file(&message_path);
+                        let _ = std::fs::remove_file(&files_path);
+                        pending = false;
+                        if !files.is_empty() {
+                            committed = Some(message.lines().next().unwrap_or("").to_string());
+                        }
+                    }
+                }
                 // --json: the plan as data, one object per move, nothing else
                 if opts.json {
                     println!("{}", u.to_json());
@@ -746,37 +850,20 @@ fn main() -> ExitCode {
                     for (file, diff) in &u.diffs {
                         println!("\n# {file}\n{diff}");
                     }
+                    if let Some(subject) = &committed {
+                        println!("committed: {subject}");
+                    }
                 }
                 if opts.apply && opts.commit {
-                    if let Err(e) = docsys::upgrade::commit(&repo, &u) {
-                        eprintln!("upgrade: {e}");
-                        return ExitCode::from(1);
-                    }
-                    if !u.written.is_empty() && !opts.json {
-                        let message = docsys::upgrade::message(&u);
-                        println!("committed: {}", message.lines().next().unwrap_or(""));
-                    }
                     if !u.last {
                         continue;
                     }
-                } else if opts.apply && !u.written.is_empty() && !opts.json {
+                } else if opts.apply && message_path.is_file() && !opts.json {
                     // the move is in the working tree now: its commit, with the
                     // message beside the index — the note is said once, above
-                    let path = docsys::git::cmd(&repo)
-                        .args(["rev-parse", "--git-path", "docsys-upgrade-message"])
-                        .output()
-                        .ok()
-                        .filter(|o| o.status.success())
-                        .map(|o| PathBuf::from(String::from_utf8_lossy(&o.stdout).trim()))
-                        .map(|p| if p.is_relative() { repo.join(p) } else { p })
-                        .unwrap_or_else(|| repo.join(".git/docsys-upgrade-message"));
-                    if let Err(e) = std::fs::write(&path, docsys::upgrade::message(&u)) {
-                        eprintln!("upgrade: {}: {e}", path.display());
-                        return ExitCode::from(1);
-                    }
                     println!(
                         "now commit it as one commit (R-177): stage what it wrote, then `git commit -F {}` — the message names the move and carries the note above",
-                        path.display()
+                        docsys::place::shown(&message_path).display()
                     );
                     if !u.last {
                         println!(
@@ -948,11 +1035,6 @@ fn main() -> ExitCode {
                 }
             }
         }
-        ("rules", None) if opts.plan.is_some() => {
-            eprintln!("rules: `--plan` is no flag of rules — `--write <file>` writes the block");
-            eprint!("{}", docsys::help::of(&["rules"]).unwrap_or_default());
-            ExitCode::from(2)
-        }
         ("rules", None) => {
             if opts.procedures {
                 match docsys::rules::procedures() {
@@ -968,19 +1050,19 @@ fn main() -> ExitCode {
             } else if opts.agents_md {
                 match docsys::rules::check_budget(opts.max_lines) {
                     Ok(_) => {
+                        // the tree whose block and preamble these are, found
+                        // from where this runs (D-098); a docsys/0.4 tree's
+                        // block is the one 0.15.1 wrote (D-118)
+                        let root =
+                            docsys::place::locate(&docsys::place::cwd_anchor(), &opts.root, None)
+                                .root;
+                        let v05 = !root.join(".docmeta.yml").is_file()
+                            || docsys::era::Era::at(&root).journal_from_history();
                         if let Some(target) = &opts.write {
-                            // the tree whose preamble the block carries, found
-                            // from where this runs (D-098)
-                            let root = docsys::place::locate(
-                                &docsys::place::cwd_anchor(),
-                                &opts.root,
-                                None,
-                            )
-                            .root;
                             match docsys::rules::write_agents_block_with(
                                 target,
                                 &docsys::migrate::generated_preamble(&root),
-                                docsys::era::Era::at(&root).journal_from_history(),
+                                v05,
                             ) {
                                 Ok(_) => {
                                     println!(
@@ -995,7 +1077,7 @@ fn main() -> ExitCode {
                                 }
                             }
                         }
-                        print!("{}", docsys::rules::agents_md());
+                        print!("{}", docsys::rules::agents_md_for(v05));
                         ExitCode::SUCCESS
                     }
                     Err(e) => {
@@ -2019,6 +2101,17 @@ next: review, `git add -A && git commit`, then open an agent session here."
                     .and_then(|top| docsys::place::only_tree(&top))
                     .unwrap_or_else(|| repo.to_path_buf())
             };
+            // a project tree's layer is `agents`' own: `--kb` writes a
+            // knowledge base's, and on a project it would write beside it
+            if docsys::tree::DocTree::load(&base)
+                .is_ok_and(|t| t.docmeta_present && t.profile == docsys::tree::Profile::Project)
+            {
+                eprintln!(
+                    "agents --kb: `{}` is a project tree — `docsys agents` installs its layer; `--kb` is a knowledge base's",
+                    docsys::place::shown(&base).display()
+                );
+                return ExitCode::from(2);
+            }
             match docsys::agents::install_kb(&opts.dir, &base, opts.force) {
                 Ok(done) => {
                     for f in &done.written {
@@ -2052,6 +2145,9 @@ next: review, `git add -A && git commit`, then open an agent session here."
                 let dir = docsys::place::shown(&opts.dir);
                 for f in &done.written {
                     println!("wrote   {}/{f}", dir.display());
+                }
+                for n in &done.notes {
+                    println!("{n}");
                 }
                 for f in &done.skipped {
                     println!(
@@ -2179,7 +2275,7 @@ next: review, `git add -A && git commit`, then open an agent session here."
             }
         },
         ("migrate", Some("inventory")) => {
-            let (root, repo) = migrate_paths(&opts);
+            let (root, repo) = migrate_paths(&opts, root_given);
             match migrate::inventory(&root) {
                 Ok(plan) => {
                     print!("{plan}");
@@ -2209,7 +2305,7 @@ next: review, `git add -A && git commit`, then open an agent session here."
                     return ExitCode::from(2);
                 }
             };
-            let (root, repo) = migrate_paths(&opts);
+            let (root, repo) = migrate_paths(&opts, root_given);
             match migrate::apply(&root, &plan, &opts.lang, repo.as_deref()) {
                 Ok(done) => {
                     println!(

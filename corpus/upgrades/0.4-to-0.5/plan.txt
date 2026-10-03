@@ -64,11 +64,13 @@ judged by docsys/0.5 as the tree is now: 7 new finding(s), 1 gone — the steps 
 # .claude/hooks/stop-docs-reminder.sh
 --- .claude/hooks/stop-docs-reminder.sh
 +++ .claude/hooks/stop-docs-reminder.sh
-@@ -1,8 +1,12 @@
+@@ -1,8 +1,13 @@
  #!/usr/bin/env bash
 -# docsys-template: 0.15.1
+-# stop-docs-reminder.sh — end-of-turn nudge; warns, never blocks (R-150).
 +# docsys-template: 0.16.0
- # stop-docs-reminder.sh — end-of-turn nudge; warns, never blocks (R-150).
++# stop-docs-reminder.sh — end-of-turn reminder; it warns, and under
++# `commit_policy: require` it holds the turn once (R-209).
  # Reads the working tree and the commits not yet pushed (`docsys hook stop`).
  command -v docsys >/dev/null || exit 0
 -# no nudge on the release branch
@@ -85,7 +87,7 @@ judged by docsys/0.5 as the tree is now: 7 new finding(s), 1 gone — the steps 
 # .claude/commands/docsys-sync.md
 --- .claude/commands/docsys-sync.md
 +++ .claude/commands/docsys-sync.md
-@@ -1,27 +1,28 @@
+@@ -1,27 +1,26 @@
  ---
 -description: Scan code↔doc drift and un-graduated done work; propose debt items as a diff
 +description: Scan code↔doc drift and un-graduated done work; propose debt items
@@ -123,9 +125,7 @@ judged by docsys/0.5 as the tree is now: 7 new finding(s), 1 gone — the steps 
 -   <trigger>`) as an Edit diff; do not apply without approval.
 +3. Graduation debt: `grep -rl '^status: done' docs/work/` — for each, say
 +   concretely which section goes to which page.
-+4. Propose debt items as the `docsys debt add <debt> --deferred <reason>
-+   --repay-when <trigger>` lines that would write them; run none without
-+   approval.
++4. For each debt, the `docsys debt add` line that would write it.
  
  No findings → say so; never invent debt.
 

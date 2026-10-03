@@ -223,7 +223,16 @@ fn git_out(repo: &Path, args: &[&str]) -> Option<String> {
 
 fn rel(repo: &Path, path: &Path) -> String {
     let repo_c = repo.canonicalize().unwrap_or_else(|_| repo.to_path_buf());
-    let p = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
+    // a file the move has yet to write is named from its directory
+    let p = path
+        .canonicalize()
+        .ok()
+        .or_else(|| {
+            let dir = path.parent().filter(|d| !d.as_os_str().is_empty());
+            let dir = dir.unwrap_or(Path::new(".")).canonicalize().ok()?;
+            Some(dir.join(path.file_name()?))
+        })
+        .unwrap_or_else(|| path.to_path_buf());
     p.strip_prefix(&repo_c)
         .map(|r| r.to_string_lossy().replace('\\', "/"))
         .unwrap_or_else(|_| path.to_string_lossy().replace('\\', "/"))
@@ -908,7 +917,8 @@ fn common(ctx: &Ctx, u: &mut Upgrade, apply: bool) -> Result<(), String> {
             Some(target) => {
                 let file = rel(repo, &target);
                 let text = fs::read_to_string(&target).unwrap_or_default();
-                let want = crate::rules::agents_block_with(preamble);
+                let want =
+                    crate::rules::agents_block_with(preamble, Era(u.to).journal_from_history());
                 let held = match (
                     text.find(crate::rules::BLOCK_BEGIN),
                     text.find(crate::rules::BLOCK_END),
@@ -1827,26 +1837,52 @@ pub fn message(u: &Upgrade) -> String {
 /// Commit what the upgrade wrote as one commit (R-177), under the current
 /// identity.
 pub fn commit(repo: &Path, u: &Upgrade) -> Result<(), String> {
-    if u.written.is_empty() {
+    commit_files(repo, &u.written, &message(u))
+}
+
+/// The move's own commit: the files it wrote, with its message. Nothing to
+/// commit is no error — the move was committed already.
+pub fn commit_files(repo: &Path, files: &[String], message: &str) -> Result<(), String> {
+    if files.is_empty() {
         return Ok(());
     }
-    let added = crate::git::cmd(repo)
-        .args(["add", "--"])
-        .args(&u.written)
-        .status()
-        .is_ok_and(|s| s.success());
+    // a file the move removed and an earlier try staged is in neither the
+    // working tree nor the index: its removal is staged already
+    let tracked = |f: &String| {
+        crate::git::cmd(repo)
+            .args(["ls-files", "--error-unmatch", "--", f])
+            .output()
+            .is_ok_and(|o| o.status.success())
+    };
+    let to_stage: Vec<&String> = files
+        .iter()
+        .filter(|f| repo.join(f).exists() || tracked(f))
+        .collect();
+    let added = to_stage.is_empty()
+        || crate::git::cmd(repo)
+            .args(["add", "-A", "--"])
+            .args(&to_stage)
+            .status()
+            .is_ok_and(|s| s.success());
     if !added {
-        return Err("git add failed".into());
+        return Err("git could not stage the files the move wrote".into());
+    }
+    let staged = crate::git::cmd(repo)
+        .args(["diff", "--cached", "--quiet"])
+        .status()
+        .is_ok_and(|s| !s.success());
+    if !staged {
+        return Ok(());
     }
     let ok = crate::git::cmd(repo)
         .args(["commit", "-q", "-m"])
-        .arg(message(u))
+        .arg(message)
         .status()
         .is_ok_and(|s| s.success());
     if ok {
         Ok(())
     } else {
-        Err("the upgrade is written but the commit did not land — commit it yourself (the gate may have refused; `docsys lint` says why)".into())
+        Err("git refused the move's commit — git's output above says why".into())
     }
 }
 

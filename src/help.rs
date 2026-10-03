@@ -18,14 +18,6 @@ pub struct Command {
     pub example: &'static str,
 }
 
-const ROOT: (&str, &str) = (
-    "--root <dir>",
-    "the docs tree; `docs` by default, found from any directory inside the repository",
-);
-const REPO: (&str, &str) = (
-    "--repo <dir>",
-    "the repository; by default the one that holds the tree",
-);
 const JSON: (&str, &str) = (
     "--json",
     "the same answer as JSON, for a script or an agent",
@@ -37,8 +29,6 @@ pub const COMMANDS: &[Command] = &[
         synopsis: "[--repo .] [--root docs] [--lang <code>] [--rules-file <path>] [--report-dir <dir> | --no-report] [--ci-runner <label>,…] [--ci-install cargo|release] [--ci-sha256 <target>=<hex>,…] [--verify-on-approval description|pull-request|direct|off] [--obsidian]",
         purpose: "a repository starts using docsys, or a re-run brings its setup up to date",
         flags: &[
-            REPO,
-            ROOT,
             ("--lang <code>", "the language the pages are written in"),
             ("--rules-file <path>", "the file the rules block goes to; by default where its markers are"),
             ("--report-dir <dir>", "where ADOPTION.md goes"),
@@ -71,7 +61,6 @@ pub const COMMANDS: &[Command] = &[
             ("--commit", "commit the move as one commit"),
             ("--force", "run on a working tree with uncommitted changes"),
             JSON,
-            ROOT,
             ("--dir <dir>", "the agent layer's directory, `.claude` by default"),
         ],
         example: "docsys upgrade --apply --commit",
@@ -80,14 +69,14 @@ pub const COMMANDS: &[Command] = &[
         name: "lint",
         synopsis: "[--root <dir>] [--repo <dir>] [--json]",
         purpose: "you want to know whether the tree is right: every rule, with pins and history inside a repository",
-        flags: &[ROOT, REPO, JSON],
+        flags: &[JSON],
         example: "docsys lint",
     },
     Command {
         name: "refs",
         synopsis: "[--repo <dir>] [--root <dir>] [--json]",
         purpose: "the code side is in question: every `doc:` citation in the code resolves to a page",
-        flags: &[REPO, ROOT, JSON],
+        flags: &[JSON],
         example: "docsys refs",
     },
     Command {
@@ -95,8 +84,6 @@ pub const COMMANDS: &[Command] = &[
         synopsis: "[--repo .] [--root docs] [--range <a>...<b>] [--skipped] | --message <file>",
         purpose: "what the git hooks and CI run: lint, and code changed without documentation",
         flags: &[
-            REPO,
-            ROOT,
             ("--range <a>...<b>", "a pull request's commits, in CI"),
             ("--skipped", "record a bypassed gate as a debt item"),
             ("--message <file>", "the commit-msg half on docsys/0.5: the message the commit will carry"),
@@ -107,21 +94,21 @@ pub const COMMANDS: &[Command] = &[
         name: "doctor",
         synopsis: "[--repo .] [--root docs] [--dir .claude]",
         purpose: "the documentation pipeline seems silent: are the hooks, the gate and the relays wired and alive",
-        flags: &[REPO, ROOT, ("--dir <dir>", "the agent layer's directory")],
+        flags: &[("--dir <dir>", "the agent layer's directory")],
         example: "docsys doctor",
     },
     Command {
         name: "status",
         synopsis: "[--root <dir>] [--repo <dir>] [--json]",
         purpose: "the tree's state at a glance: the inbox, pages by state, open items, consumed namespaces, findings",
-        flags: &[ROOT, REPO, JSON],
+        flags: &[JSON],
         example: "docsys status",
     },
     Command {
         name: "lookup",
         synopsis: "<word…> [--root docs] [--json]",
         purpose: "a question names a few words: the pages, local and consumed, that hold them — the first hop before reading",
-        flags: &[("<word…>", "the words the question names"), ROOT, JSON],
+        flags: &[("<word…>", "the words the question names"), JSON],
         example: "docsys lookup token refresh",
     },
     Command {
@@ -132,30 +119,27 @@ pub const COMMANDS: &[Command] = &[
             ("<category|type>", "a work category (feature, postmortem, research) or a page type (reference, explanation, howto, tutorial)"),
             ("<id>", "the page's identifier, which is also its file name"),
             ("--title <t>", "the page's title"),
-            ("--unverified", "a page written from evidence, which a maintainer verifies later"),
-            ROOT,
+            ("--unverified", "writes an empty `sources:` to fill"),
         ],
         example: "docsys page new reference token-ttl --title \"Token lifetime\"",
     },
     Command {
         name: "pin",
         synopsis: "<page> <path> [--symbol <s>] [--block <n>] | --refresh <page> | --gc  [--repo .] [--root docs]",
-        purpose: "bind a page to the code region it describes: lint says when the code moves away from it",
+        purpose: "lint says when the code a page describes moves away from it",
         flags: &[
             ("<page> <path>", "the page, and the code file it describes"),
             ("--symbol <s>", "the declaration in that file, instead of the whole file"),
             ("--block <n>", "the page block the pin backs, as `verify --show` numbers it"),
             ("--refresh <page>", "record the region as it reads now"),
             ("--gc", "remove acknowledgements no current pin needs"),
-            REPO,
-            ROOT,
         ],
         example: "docsys pin reference/token-ttl src/auth.rs --symbol refresh_token",
     },
     Command {
         name: "verify",
         synopsis: "<page> [--by <handle|@login>] [--commit] [--revoke] | --show <page> | --range <a>...<b> (--by @login | --from-trailers) | --approval <@login>",
-        purpose: "a maintainer vouches for a page: on docsys/0.5 the approval is their commit",
+        purpose: "on docsys/0.5, the approval's own commit — `Verifies:` and `Approved-by:`, nothing in the page",
         flags: &[
             ("<page>", "the page's id or path"),
             ("--by <handle|@login>", "who verifies, when it is not the git identity"),
@@ -165,7 +149,6 @@ pub const COMMANDS: &[Command] = &[
             ("--range <a>...<b>", "every page a pull request touched, under the reviewer's identity"),
             ("--from-trailers", "with --range: the identity from the `Reviewed-by:` or `Approved-by:` trailer"),
             ("--approval <@login>", "the `Approved-by:` line a declared maintainer's approval adds to a pull request's description"),
-            ROOT,
         ],
         example: "docsys verify reference/token-ttl",
     },
@@ -175,7 +158,6 @@ pub const COMMANDS: &[Command] = &[
         purpose: "a howto's steps are complete: its body becomes an agent skill, pinned to the page",
         flags: &[
             ("<howto>", "the howto page"),
-            ROOT,
             ("--dir <dir>", "the agent layer's directory"),
             ("--force", "overwrite the skill"),
         ],
@@ -185,7 +167,7 @@ pub const COMMANDS: &[Command] = &[
         name: "graduate plan",
         synopsis: "<work-file> [--root <dir>]",
         purpose: "work is done and its knowledge must reach permanent pages: the work file's blocks, for an agent to map to destinations",
-        flags: &[("<work-file>", "the work file, relative to the tree"), ROOT],
+        flags: &[("<work-file>", "the work file, relative to the tree")],
         example: "docsys graduate plan work/features/cart-key.md > plan.tsv",
     },
     Command {
@@ -195,7 +177,6 @@ pub const COMMANDS: &[Command] = &[
         flags: &[
             ("--plan <file>", "the filled plan"),
             ("--confirmed <who>", "who confirmed it: the last blocks move and the file is removed"),
-            ROOT,
             ("--force", "run on a working tree with uncommitted changes"),
         ],
         example: "docsys graduate apply --plan plan.tsv --confirmed maintainer",
@@ -210,7 +191,6 @@ pub const COMMANDS: &[Command] = &[
             ("--repay-when <trigger>", "the event that makes it due"),
             ("--topic <id>", "the page or feature it concerns; `general` without one"),
             ("--date <d>", "the date, today by default"),
-            ROOT,
         ],
         example: "docsys debt add \"retries are unbounded\" --deferred \"no load yet\" --repay-when \"the next outage\" --topic retry-policy",
     },
@@ -221,7 +201,6 @@ pub const COMMANDS: &[Command] = &[
         flags: &[
             ("<n|words>", "the item's number in the list, or words only it holds"),
             ("--note <how>", "how it was repaid"),
-            ROOT,
         ],
         example: "docsys debt close \"retries are unbounded\" --note \"bounded at three\"",
     },
@@ -234,7 +213,6 @@ pub const COMMANDS: &[Command] = &[
             ("--topic <id>", "the page or feature it concerns"),
             ("--context <c>", "where it came up"),
             ("--date <d>", "the date, today by default"),
-            ROOT,
         ],
         example: "docsys question add \"who owns the cache?\" --topic cache",
     },
@@ -245,7 +223,6 @@ pub const COMMANDS: &[Command] = &[
         flags: &[
             ("<n|words>", "the item's number in the list, or words only it holds"),
             ("--answer <line>", "the answer"),
-            ROOT,
         ],
         example: "docsys question close \"who owns the cache\" --answer \"the platform team\"",
     },
@@ -253,39 +230,36 @@ pub const COMMANDS: &[Command] = &[
         name: "ledger fix",
         synopsis: "[--root <dir>]",
         purpose: "a ledger or its archive slice uses em-dash field markers: rewrite them to the ASCII ones, the field text untouched",
-        flags: &[ROOT],
+        flags: &[],
         example: "docsys ledger fix",
     },
     Command {
         name: "journal",
         synopsis: "[--since <date>] [--root docs]",
         purpose: "you want what changed and why: every commit that changed the docs or carries `Docs:`, newest first",
-        flags: &[("--since <date>", "only the entries from that day on"), ROOT],
+        flags: &[("--since <date>", "only the entries from that day on")],
         example: "docsys journal --since 2026-09-01",
     },
     Command {
         name: "journal add",
         synopsis: "<text…> [--title <t>] [--link <path>] [--date <d>] [--root docs]",
-        purpose: "a change needs its why recorded: on docsys/0.5 it prints the `Docs:` line the commit message ends with, and nothing is written",
+        purpose: "on docsys/0.5, the `Docs:` line a commit message ends with, printed; nothing is written",
         flags: &[
             ("<text…>", "what changed and why"),
             ("--title <t>", "the entry's title: the whole message printed"),
             ("--link <path>", "the page it concerns: the text becomes the subject"),
             ("--date <d>", "the date, on a docsys/0.4 tree"),
-            ROOT,
         ],
         example: "docsys journal add \"the run page states the timeout\" --link reference/run",
     },
     Command {
         name: "seed plan",
         synopsis: "[--target <feature>] [--since <date>] [--memory <dir>] [--repo .] [--root docs]",
-        purpose: "an existing project has code but no pages: the feature inventory, as evidence",
+        purpose: "the feature inventory a seeding starts from, as evidence",
         flags: &[
             ("--target <feature>", "one feature's evidence instead of the inventory"),
             ("--since <date>", "only history from that day on"),
-            ("--memory <dir>", "an agent's memory directory to read as evidence too"),
-            REPO,
-            ROOT,
+            ("--memory <dir>", "an agent's memory directory, each note listed beside the evidence"),
         ],
         example: "docsys seed plan --target checkout",
     },
@@ -293,7 +267,7 @@ pub const COMMANDS: &[Command] = &[
         name: "seed gaps",
         synopsis: "[--since <date>] [--repo .] [--root docs]",
         purpose: "an interview is planned: the inventory as JSON, uncovered features first",
-        flags: &[("--since <date>", "only history from that day on"), REPO, ROOT],
+        flags: &[("--since <date>", "only history from that day on")],
         example: "docsys seed gaps",
     },
     Command {
@@ -302,8 +276,6 @@ pub const COMMANDS: &[Command] = &[
         purpose: "the builder approved the seeding rows: they land under work/",
         flags: &[
             ("--plan <file>", "the approved rows"),
-            REPO,
-            ROOT,
             ("--force", "run on a working tree with uncommitted changes"),
         ],
         example: "docsys seed apply --plan SEED.tsv",
@@ -312,28 +284,28 @@ pub const COMMANDS: &[Command] = &[
         name: "backlinks",
         synopsis: "<path|id|code-file> [--repo .] [--root docs]",
         purpose: "before changing a page or a code file: what points at it — pages, code, pins",
-        flags: &[("<path|id|code-file>", "a page, or a code file"), REPO, ROOT],
+        flags: &[("<path|id|code-file>", "a page, or a code file")],
         example: "docsys backlinks reference/token-ttl",
     },
     Command {
         name: "mentions",
         synopsis: "[<path|id>] [--root docs]",
         purpose: "prose names a page without linking it: where, so the link can be added",
-        flags: &[("<path|id>", "one page; every page by default"), ROOT],
+        flags: &[("<path|id>", "one page; every page by default")],
         example: "docsys mentions reference/token-ttl",
     },
     Command {
         name: "graph",
         synopsis: "[--format dot|json|jsoncanvas] [--repo .] [--root docs]",
         purpose: "you want to see the tree's links: the graph for a viewer",
-        flags: &[("--format dot|json|jsoncanvas", "the output format"), REPO, ROOT],
+        flags: &[("--format dot|json|jsoncanvas", "the output format")],
         example: "docsys graph --format dot > docs.dot",
     },
     Command {
         name: "export plan",
         synopsis: "[--root <dir>] [--audience <a>]",
         purpose: "an audience needs one document: a draft product map to edit before exporting",
-        flags: &[ROOT, ("--audience <a>", "who reads it: end-user, developer, designer, …")],
+        flags: &[("--audience <a>", "who reads it: end-user, developer, designer, …")],
         example: "docsys export plan --audience end-user > map.md",
     },
     Command {
@@ -342,7 +314,6 @@ pub const COMMANDS: &[Command] = &[
         purpose: "the product map is ready: one document composed from the pages it names",
         flags: &[
             ("<map>", "the edited product map"),
-            ROOT,
             ("--out <file>", "where the document goes; standard output by default"),
             ("--lang <code>", "the language it is wanted in"),
             ("--audience <a>", "who reads it"),
@@ -357,7 +328,6 @@ pub const COMMANDS: &[Command] = &[
             ("<id>…", "the pages"),
             ("--follow", "also the pages they link"),
             ("--title <t>", "the document's title"),
-            ROOT,
             ("--out <file>", "where the document goes"),
             ("--lang <code>", "the language it is wanted in"),
             ("--audience <a>", "who reads it"),
@@ -368,14 +338,14 @@ pub const COMMANDS: &[Command] = &[
         name: "export manifest",
         synopsis: "[--root <dir>] [--out <file>]",
         purpose: "another tree consumes this one: what this namespace exports",
-        flags: &[ROOT, ("--out <file>", "where the manifest goes")],
+        flags: &[("--out <file>", "where the manifest goes")],
         example: "docsys export manifest --out manifest.yml",
     },
     Command {
         name: "fetch",
         synopsis: "[--root <dir>]",
         purpose: "this tree consumes other namespaces: bring their pages into .federation/",
-        flags: &[ROOT],
+        flags: &[],
         example: "docsys fetch",
     },
     Command {
@@ -385,7 +355,6 @@ pub const COMMANDS: &[Command] = &[
         flags: &[
             ("<path|git-url>[#subdir]", "the provider"),
             ("--as <ns>", "the namespace it is read under"),
-            ROOT,
         ],
         example: "docsys consume add ../platform#docs --as platform",
     },
@@ -393,7 +362,7 @@ pub const COMMANDS: &[Command] = &[
         name: "consume discover",
         synopsis: "<dir> [--root docs]",
         purpose: "you look for trees to consume: the docsys trees one level under a directory; writes nothing",
-        flags: &[("<dir>", "where to look"), ROOT],
+        flags: &[("<dir>", "where to look")],
         example: "docsys consume discover ~/src",
     },
     Command {
@@ -407,7 +376,6 @@ pub const COMMANDS: &[Command] = &[
             ("--url <u>", "its address"),
             ("--date <d>", "its date"),
             ("<file>|-", "its text, from a file or standard input"),
-            ROOT,
         ],
         example: "docsys inbox add --source chat --id C123-456 --title \"Cache decision\" note.md",
     },
@@ -421,7 +389,6 @@ pub const COMMANDS: &[Command] = &[
             ("--limit <n>", "at most this many"),
             ("--as <ns>", "the source name"),
             ("--all", "bookkeeping commits too"),
-            ROOT,
         ],
         example: "docsys inbox pull ../api --since 2026-09-01",
     },
@@ -429,7 +396,7 @@ pub const COMMANDS: &[Command] = &[
         name: "raw move",
         synopsis: "<record> <domain> [--root <dir>]",
         purpose: "an inbox record is filed: it moves to raw/<domain>/ through git, bytes untouched, and every citing page follows",
-        flags: &[("<record>", "the record in raw/inbox/"), ("<domain>", "where it belongs"), ROOT],
+        flags: &[("<record>", "the record in raw/inbox/"), ("<domain>", "where it belongs")],
         example: "docsys raw move raw/inbox/2026-09-01-call.md payments",
     },
     Command {
@@ -439,7 +406,6 @@ pub const COMMANDS: &[Command] = &[
         flags: &[
             ("<page-id|page-path|record-path>", "what leaves"),
             ("--reason <text>", "why"),
-            ROOT,
         ],
         example: "docsys forget reference/old-flag --reason \"the flag was removed\"",
     },
@@ -460,7 +426,7 @@ pub const COMMANDS: &[Command] = &[
         name: "migrate inventory",
         synopsis: "[--root <dir>] [--repo <dir>]",
         purpose: "a repository has documentation in another shape: the plan skeleton that classifies every file",
-        flags: &[ROOT, REPO],
+        flags: &[],
         example: "docsys migrate inventory > plan.tsv",
     },
     Command {
@@ -469,9 +435,7 @@ pub const COMMANDS: &[Command] = &[
         purpose: "the classification is approved: the files move into the tree",
         flags: &[
             ("--plan <file>", "the approved plan"),
-            ROOT,
             ("--lang <code>", "the language the pages are written in"),
-            REPO,
         ],
         example: "docsys migrate apply --plan plan.tsv",
     },
@@ -496,18 +460,16 @@ pub const COMMANDS: &[Command] = &[
             ("--force", "overwrite what is there"),
             ("--kb", "the knowledge-base layer"),
             ("--report", "what agent layer exists and which shell commands it runs; writes nothing"),
-            ROOT,
         ],
         example: "docsys agents --dir .claude",
     },
     Command {
         name: "hook",
-        synopsis: "pre-tool-use|stop|post-tool-use|user-prompt-submit [--repo .] [--root docs]",
+        synopsis: "pre-tool-use|stop|post-tool-use|user-prompt-submit [--repo .] [--root docs] [--stdin]",
         purpose: "what the installed agent relays call; a person does not run it",
         flags: &[
             ("<event>", "the agent event the relay forwards"),
-            REPO,
-            ROOT,
+            ("--stdin", "the event's payload, read from standard input"),
         ],
         example: "docsys hook stop",
     },
@@ -550,8 +512,9 @@ the git gate — and lists in ADOPTION.md what is left.
 
 const TAIL: &str = "
 --root names a tree, `docs` by default: from any directory inside the repository the
-nearest tree above is found, and the repository is the tree's own (D-098). init, adopt
-and assistant create a tree where they are pointed.
+nearest tree above is found. The repository is the tree's own; a given --repo is read
+as its top level, and a relative --dir as the agent layer there (D-098). init, adopt and
+assistant create a tree where they are pointed.
 
 $DOCSYS_HOME (~/.docsys) holds the versions pinned trees install;
 DOCSYS_NO_AUTO_INSTALL=1 prints the install command instead (D-120).
@@ -574,10 +537,59 @@ pub fn overview() -> String {
     out
 }
 
+/// The entry the words name: the command itself, or — for a command whose
+/// first argument is a word of its own, as `hook stop` — that command's.
+pub fn entry(words: &[&str]) -> Option<&'static Command> {
+    let name = words.join(" ");
+    COMMANDS
+        .iter()
+        .find(|c| c.name == name)
+        .or_else(|| match words {
+            [first, _]
+                if !COMMANDS
+                    .iter()
+                    .any(|c| c.name.starts_with(&format!("{first} "))) =>
+            {
+                COMMANDS.iter().find(|c| c.name == *first)
+            }
+            _ => None,
+        })
+}
+
+/// The flags the entry `words` names accepts: each `--flag` its synopsis and
+/// its flag lines name.
+pub fn flags_of(words: &[&str]) -> Option<Vec<&'static str>> {
+    let c = entry(words)?;
+    let mut out = Vec::new();
+    for text in std::iter::once(c.synopsis).chain(c.flags.iter().map(|(f, _)| *f)) {
+        for (at, _) in text.match_indices("--") {
+            let flag = text.get(at..).unwrap_or("");
+            let len = 2 + flag
+                .get(2..)
+                .unwrap_or("")
+                .chars()
+                .take_while(|ch| ch.is_ascii_alphanumeric() || *ch == '-')
+                .count();
+            if let Some(flag) = flag.get(..len).filter(|f| f.len() > 2) {
+                if !out.contains(&flag) {
+                    out.push(flag);
+                }
+            }
+        }
+    }
+    Some(out)
+}
+
 /// `docsys <command> [<subcommand>] --help`: the entries the words name — one
 /// command, or every subcommand of a command named alone.
 pub fn of(words: &[&str]) -> Option<String> {
-    // the command itself, then its sub-commands
+    // the command itself, then its sub-commands; a word its own command takes
+    // as an argument, that command's entry
+    if let (Some(c), [_, _]) = (entry(words), words) {
+        if c.name != words.join(" ") {
+            return of(&[c.name]);
+        }
+    }
     let name = words.join(" ");
     let prefix = format!("{name} ");
     let hits: Vec<&Command> = COMMANDS

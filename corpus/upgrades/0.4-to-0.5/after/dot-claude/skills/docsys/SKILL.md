@@ -8,10 +8,10 @@ description: Documentation system operations — set up, migrate, audit, and cur
 This skill adds judgment and approval gates to the commands; never skip a
 gate.
 
-## Set up (new tree)
+## Set up
 
-`docsys init --root docs` then generate the agent block:
-`docsys rules --agents-md >> AGENTS.md` (review the diff first).
+A repository is set up with `docsys adopt`; `docsys help adopt` says what it
+writes.
 
 ## Migrate (existing docs anywhere in the repo)
 
@@ -37,9 +37,9 @@ file's id moves to a destination in the same commit (D-127).
 
 Anyone writes — you included — and nothing you write is the truth yet. A
 permanent page you author from evidence, or change in substance, names what it
-rests on in `sources:`. It is verified once a maintainer approves it after its
-last change (D-126); nothing about it is written into the page, and `docsys
-help verify` says how an approval is recorded. When `.docmeta.yml` declares
+rests on in `sources:`. Nothing about its verification is written into the
+page (D-126); `docsys help verify` says how an approval is recorded. When
+`.docmeta.yml` declares
 `maintainers:`, an approval and a confirmation must name one of them (R-208):
 the people who review the code are the people who vouch for the page. A
 reader — a person or an agent — sees the state and reads accordingly.

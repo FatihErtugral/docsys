@@ -108,28 +108,32 @@ fn spelled(found: &Path, given: &Path) -> PathBuf {
 }
 
 /// A path as output names it: from the top of the repository the command runs
-/// in, so the same command prints the same from any directory of it; a
-/// relative path, or one outside the repository, as it is.
+/// in, so the same command prints the same from any directory of it — the
+/// path given from the working directory or in full; one outside the
+/// repository as it is given.
 pub fn shown(path: &Path) -> PathBuf {
-    if path.is_relative() {
-        return path.to_path_buf();
-    }
-    let Some(top) = std::env::current_dir()
-        .ok()
-        .and_then(|c| git::toplevel(&c))
-        .and_then(|t| t.canonicalize().ok())
-    else {
+    let Some((cwd, top)) = std::env::current_dir().ok().and_then(|c| {
+        let top = git::toplevel(&c)?.canonicalize().ok()?;
+        Some((c, top))
+    }) else {
         return path.to_path_buf();
     };
-    let canon = path.canonicalize().ok();
-    match path
-        .strip_prefix(&top)
-        .ok()
-        .or_else(|| canon.as_deref().and_then(|c| c.strip_prefix(&top).ok()))
-    {
-        Some(rel) if rel.as_os_str().is_empty() => PathBuf::from("."),
-        Some(rel) => rel.to_path_buf(),
-        None => path.to_path_buf(),
+    match lenient_canonical(&cwd.join(path)).strip_prefix(&top) {
+        Ok(rel) if rel.as_os_str().is_empty() => PathBuf::from("."),
+        Ok(rel) => rel.to_path_buf(),
+        Err(_) => path.to_path_buf(),
+    }
+}
+
+/// A path resolved as far as it exists: a name not yet on disk is joined to
+/// its nearest existing directory, resolved.
+fn lenient_canonical(path: &Path) -> PathBuf {
+    if let Ok(c) = path.canonicalize() {
+        return c;
+    }
+    match (path.parent(), path.file_name()) {
+        (Some(dir), Some(name)) => lenient_canonical(dir).join(name),
+        _ => path.to_path_buf(),
     }
 }
 

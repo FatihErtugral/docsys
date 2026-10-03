@@ -1,5 +1,5 @@
 ---
-description: Seed documentation for one feature of an existing project from what its code and history say — research in git, ask the builder plainly, write only what was confirmed
+description: Seed documentation for one feature of an existing project — research in git, ask the builder plainly, write only what was confirmed
 allowed-tools: Bash(docsys *), Bash(git log:*), Bash(git show:*), Bash(git status:*), Read, Grep, Glob, Write, Edit
 ---
 
@@ -44,35 +44,46 @@ not an `answer` row yet — it becomes a `question` row that names the
 evidence, and only the builder's next word settles it. An answer the
 builder cannot give becomes a `question` row, dated today.
 
-## 3b · Agent memory
+## 3b · Your own notes are questions, never text
 
 If this machine holds agent memory for the repository (Claude Code keeps
 `memory/*.md` under `~/.claude/projects/<repo-slug>/`), run the plan with
-`--memory <that dir>`, and ask the builder about each note as the rules
-block says.
+`--memory <that dir>`: each note's name and description becomes one line
+of evidence and ONE question — "my notes say X; is it still true, and where
+should it live?" The builder's answer is the source; the note is not. Never
+paste a note into the tree.
 
 ## 4 · Approve, then land (tool)
 
 Write the rows the conversation produced into a plan file OUTSIDE `docs/`
-(`SEED.tsv`, never committed) and show it; on the builder's word,
+(`SEED.tsv`, never committed), show it, and wait for the explicit word. Then:
 `docsys seed apply --plan SEED.tsv --repo . --root docs`.
 When no builder can answer — a repository whose people are gone, a person
 who says "land what history says, I will answer later" — the rows that need
 nobody's memory still land on that person's word: `research` (the evidence,
-reserved), `postmortem` (a commit's own account) and `question` (everything
-the builder would have been asked); the chronology is history's own. Only `answer`
+reserved), `journal` (the chronology), `postmortem` (a commit's own account)
+and `question` (everything the builder would have been asked). Only `answer`
 rows wait for a builder; a plan with none is not a plan withheld.
-Rows are TAB-separated; `docsys seed plan` prints their grammar. The
-permanent page comes later, through graduation, when the builder confirms.
+Rows (TAB-separated; `docsys seed plan` prints the grammar): `research
+<feature> <shas>` reserves the feature; `answer <feature> <who> <text>`
+records the builder's words verbatim; `journal <date> <sha> <title>`
+back-fills chronology at its own date; `postmortem <slug> <sha>` quotes an
+incident's commit; `debt` and `question` add dated items.
+Everything lands under `work/`. The permanent page comes later, through
+graduation, when the builder confirms.
 
 ## 4b · The overview draft (the one page you may author)
 
 After the rows land, one permanent page per seeded feature may be yours:
-`docsys page new explanation <feature>-overview --unverified`, body written from the evidence only — what the feature is, how
+`docsys page new explanation <feature>-overview --unverified`, routed from
+`index.md`, body written from the evidence only — what the feature is, how
 it is built, when it was born and moved, what broke and why, what the
 manifests and the code's own comments say — in the tree's language, with
 `sources:` naming the same `git:` locators and files the research page
-cites. When the builder's answers arrive, graduation moves them in byte-exact; the draft is where a
+cites. It carries `verification: unverified`, and you never verify it:
+a maintainer does, in another session (R-025, R-208). When the builder's
+answers arrive, graduation moves them in byte-exact; the draft is where a
 reader starts on day one, not the truth.
 
-Never write prose of your own into the tree beyond that one page.
+Never write prose of your own into the tree beyond that one page. Never
+mark anything done or verified.

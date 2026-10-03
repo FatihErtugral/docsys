@@ -86,6 +86,19 @@ fn gate_block(root_rel: &str, hard: bool) -> String {
         .replace("@EXIT@", if hard { "1" } else { "0" })
         .replace("@ROOT@", root_rel)
 }
+/// The gate block 0.15.1 wrote, which a docsys/0.4 tree keeps (D-118).
+const GATE_BLOCK_015: &str = include_str!("../migrations/gate-block-0.15.sh");
+
+fn gate_block_015(root_rel: &str, hard: bool) -> String {
+    format!(
+        "\n{}",
+        GATE_BLOCK_015
+            .replace("@MODE@", if hard { HARD_MODE_LINE } else { WARN_MODE_LINE })
+            .replace("@EXIT@", if hard { "1" } else { "0" })
+            .replace("@ROOT@", root_rel)
+    )
+}
+
 const WARN_MODE_LINE: &str =
     "# Warn-mode until the adoption debt is triaged; `docsys adopt` hardens it once lint is clean.";
 const HARD_MODE_LINE: &str = "# Hard gate: lint errors and dangling references stop the commit.";
@@ -379,7 +392,11 @@ pub(crate) fn ensure_git_gate(
         return "failed";
     };
     let pre = ensure_block(&hooks_dir, "pre-commit", clean, &|hard| {
-        gate_block(root_rel, hard)
+        if message {
+            gate_block(root_rel, hard)
+        } else {
+            gate_block_015(root_rel, hard)
+        }
     });
     if pre == "failed" || !message {
         return pre;
@@ -539,10 +556,11 @@ pub fn run_placed(
         installed.written.len(),
         installed.skipped.len()
     ));
+    summary.extend(installed.notes.iter().cloned());
     // Kept hooks may be behind the binary's templates — adopt never
     // overwrites, so it must at least say so (D-047).
     let stale = agents::stale_hooks(&claude);
-    if !stale.is_empty() {
+    if exact && !stale.is_empty() {
         let list: Vec<String> = stale.iter().map(|(r, v)| format!("{r}: {v}")).collect();
         summary.push(format!(
             "hooks: {} template(s) behind {} ({}) — run `docsys agents --force`",
@@ -607,7 +625,7 @@ pub fn run_placed(
                 "rules block: git ignores AGENTS.md and CLAUDE.md — printed below, not written"
                     .to_string(),
             );
-            printed.push(rules::agents_block_with(&preamble));
+            printed.push(rules::agents_block_with(&preamble, exact));
             true
         }
     };
@@ -714,7 +732,9 @@ pub fn run_placed(
              \x20     hardens by itself (lint errors then stop the commit).\n",
         );
     }
-    md.push_str(
+    md.push_str(if !exact {
+        ""
+    } else {
         "\n\
          An existing project documents itself in this order:\n\n\
          1. [ ] Collect what exists: what code and history say, per feature, with\n\
@@ -726,8 +746,8 @@ pub fn run_placed(
          4. [ ] Name the maintainers in `.docmeta.yml` (`maintainers:`) and keep the CI\n\
          \x20      workflow green.\n\
          5. [ ] Start the verify flow: a maintainer reads each page against its\n\
-         \x20      sources and records it with `docsys verify <page>`.\n",
-    );
+         \x20      sources and records it with `docsys verify <page>`.\n"
+    });
     if ci.summary.starts_with("skipped") {
         md.push_str(
             "- [ ] No `.github/` here: run `docsys lint --root <root> --repo .`, `docsys refs`\n\

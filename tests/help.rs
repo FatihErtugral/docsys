@@ -338,9 +338,12 @@ fn homes() -> Vec<(&'static str, String)> {
     );
     let block = docsys(&["rules", "--agents-md"], "");
     let _ = std::fs::remove_dir_all(&dir);
-    // the overview holds every purpose; each command adds its flags
+    // the overview holds every purpose; each command adds its synopsis and
+    // its flags
     let mut help = run(&["--help"]).1;
     for c in docsys::help::COMMANDS {
+        help.push_str(c.synopsis);
+        help.push('\n');
         for (_, what) in c.flags {
             help.push_str(what);
             help.push('\n');
@@ -419,7 +422,6 @@ fn each_fact_is_said_in_one_place() {
             "require wants the why",
             &["lands without its documentation", "needs `Docs: <why>`"],
         ),
-        ("an interview's answers land verbatim", &["land verbatim"]),
         (
             "graduation on the person's word",
             &[
@@ -490,6 +492,79 @@ fn each_fact_is_said_in_one_place() {
             "the plan before the move",
             &["plan first", "only the plan is printed"],
         ),
+        (
+            "a maintainer approves a page",
+            &[
+                "maintainer approves",
+                "a maintainer vouches",
+                "maintainer verifies later",
+                "verified once a maintainer",
+            ],
+        ),
+        (
+            "a change's why",
+            &["`Docs: <why>` when", "needs its why recorded"],
+        ),
+        (
+            "seeding lands under work/",
+            &[
+                "land verbatim",
+                "lands under `work/`",
+                "land under work/",
+                "words verbatim",
+            ],
+        ),
+        (
+            "agent memory",
+            &["never a source", "my notes say", "to read as evidence"],
+        ),
+        (
+            "feedback files nothing",
+            &[
+                "files nothing",
+                "nothing is filed",
+                "--draft [--type",
+                "an issue about docsys itself",
+            ],
+        ),
+        (
+            "a seeding round's steps",
+            &[
+                "research by the tool",
+                "four plain questions",
+                "what I found",
+            ],
+        ),
+        ("a covered feature is the system's", &["the system's"]),
+        ("the survey's features", &["uncovered features"]),
+        (
+            "code with no pages",
+            &["code but no pages", "code with no pages"],
+        ),
+        (
+            "a pin binds a page to code",
+            &[
+                "pins the region it promises",
+                "bind a page to the code region",
+            ],
+        ),
+        ("a debt item's line", &["--deferred <reason> --repay-when"]),
+        (
+            "a proposal waits",
+            &["wait for approval", "without approval"],
+        ),
+        (
+            "the builder's word first",
+            &["before the builder says so", "wait for the explicit word"],
+        ),
+        (
+            "where --root and --repo point",
+            &[
+                "found from any directory inside the repository",
+                "the one that holds the tree",
+                "nearest tree above is found",
+            ],
+        ),
     ];
     let homes = homes();
     let mut twice = Vec::new();
@@ -536,10 +611,17 @@ fn an_unknown_command_is_named_and_a_flag_is_never_a_value() {
         (&["help", "debt", "nope"], "`debt nope`"),
         (&["consume", "nope"], "`consume nope`"),
         (&["--nope", "lint"], "`--nope`"),
+        (&["nope", "--help"], "`nope`"),
     ] {
         let (code, text) = run_in(args);
         assert_eq!(code, Some(2), "{args:?}: {text}");
         assert!(text.contains(named), "{args:?}: {text}");
+    }
+    // an event word is the hook's own argument: its entry answers
+    for args in [&["help", "hook", "stop"][..], &["hook", "stop", "--help"]] {
+        let (code, text) = run_in(args);
+        assert_eq!(code, Some(0), "{args:?}: {text}");
+        assert!(text.contains("docsys hook "), "{args:?}: {text}");
     }
     // a value that looks like a flag is refused, never taken as a file name
     let (code, text) = run_in(&["rules", "--agents-md", "--write", "--root", "."]);
@@ -589,5 +671,79 @@ fn a_closed_stdout_ends_the_command_quietly() {
         assert!(err.is_empty(), "{args:?}: {err}");
         assert_eq!(out.status.code(), Some(141), "{args:?}: {err}");
     }
+    // a closed standard error is the same: what writes there stops quietly
+    for args in [
+        &["nope"][..],
+        &["help", "debt", "nope"],
+        &["lint", "--nope"],
+    ] {
+        let (reader, writer) = std::io::pipe().unwrap();
+        drop(reader);
+        let out = Command::new(bin())
+            .args(args)
+            .current_dir(&dir)
+            .env("DOCSYS_NO_AUTO_INSTALL", "1")
+            .stderr(writer)
+            .output()
+            .unwrap();
+        assert_eq!(out.status.code(), Some(141), "{args:?}: {out:?}");
+    }
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A command takes its own flags, those its entry names, and no other: a
+/// flag another command owns is refused with this command's entry, never
+/// accepted and ignored (D-129).
+#[test]
+fn a_command_takes_only_its_own_flags() {
+    let dir = std::env::temp_dir().join(format!("docsys-help-own-flags-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    assert!(Command::new(bin())
+        .arg("init")
+        .current_dir(&dir)
+        .output()
+        .unwrap()
+        .status
+        .success());
+    for (args, flag, entry) in [
+        (
+            &["lint", "--write", "out.txt"][..],
+            "--write",
+            "docsys lint ",
+        ),
+        (&["lint", "--force"], "--force", "docsys lint "),
+        (&["lint", "--kb"], "--kb", "docsys lint "),
+        (
+            &["version", "--root", "nowhere"],
+            "--root",
+            "docsys version ",
+        ),
+        (
+            &["rules", "--agents-md", "--plan"],
+            "--plan",
+            "docsys rules ",
+        ),
+        (
+            &["rules", "--agents-md", "--plan", "x.md"],
+            "--plan",
+            "docsys rules ",
+        ),
+    ] {
+        let out = Command::new(bin())
+            .args(args)
+            .current_dir(&dir)
+            .env("DOCSYS_NO_AUTO_INSTALL", "1")
+            .output()
+            .unwrap();
+        let text = String::from_utf8_lossy(&out.stderr);
+        assert_eq!(out.status.code(), Some(2), "{args:?}: {text}");
+        assert!(
+            text.contains(&format!("`{flag}` is no flag of")),
+            "{args:?}: {text}"
+        );
+        assert!(text.contains(entry), "{args:?}: {text}");
+    }
+    assert!(!dir.join("out.txt").exists() && !dir.join("x.md").exists());
     let _ = std::fs::remove_dir_all(&dir);
 }

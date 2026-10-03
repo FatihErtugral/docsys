@@ -146,12 +146,11 @@ pub fn pointers_once<'a>(root: &Path, rules: impl Iterator<Item = &'a str>) -> V
 
 pub fn guide() -> String {
     let mut out = String::from(
-        "docsys feedback — an issue about docsys itself\n\n\
+        "docsys feedback\n\n\
          An issue explains the problem with a concrete example, states the need or the\n\
          problem in one sentence, names the rule, and proposes a fix where one can be\n\
-         given. Draft it here; nothing is filed by this command:\n\n\
-         \x20 docsys feedback --draft [--type bug|false-positive|need] [--rule R-xxx]\n\
-         \x20                         [--command \"docsys …\"] [--out <file>]\n\n\
+         given. Draft it with `docsys feedback --draft` (`docsys help feedback` gives its\n\
+         flags).\n\n\
          The draft fills what the tool knows — version, OS, the tree's profile and spec,\n\
          the rule's text, the command's exit code and output, a redacted .docmeta.yml and\n\
          the files the rule's findings name — and leaves TODO where only you can write.\n\

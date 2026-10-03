@@ -268,7 +268,10 @@ pub fn id_from_filename(name: &str) -> String {
 
 pub fn inventory(root: &Path) -> Result<String, String> {
     if !root.is_dir() {
-        return Err(format!("`{}` is not a directory", root.display()));
+        return Err(format!(
+            "`{}` is not a directory",
+            crate::place::shown(root).display()
+        ));
     }
     let files = md_files(root);
     if files.is_empty() {

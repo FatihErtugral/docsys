@@ -903,3 +903,119 @@ fn adoption_on_a_0_5_tree_says_only_what_is_so() {
     assert_eq!(code, 2, "{out}");
     let _ = fs::remove_dir_all(&repo);
 }
+
+/// A tree 0.15.1 adopted, committed: `corpus/adopt-0.4/before`, made by
+/// docsys 0.15.1, in a repository named as it was, `project`.
+fn tree_04(name: &str) -> (PathBuf, Vec<String>) {
+    let case = Path::new(env!("CARGO_MANIFEST_DIR")).join("corpus/adopt-0.4");
+    let repo = tmp(name).join("project");
+    fs::create_dir_all(&repo).unwrap();
+    fn files(dir: &Path, base: &Path, out: &mut Vec<String>) {
+        for e in fs::read_dir(dir).unwrap().flatten() {
+            let p = e.path();
+            if p.is_dir() {
+                files(&p, base, out);
+            } else {
+                out.push(p.strip_prefix(base).unwrap().to_string_lossy().into_owned());
+            }
+        }
+    }
+    let mut before = Vec::new();
+    files(&case.join("before"), &case.join("before"), &mut before);
+    git_init(&repo);
+    for rel in &before {
+        let to = real_04(&repo, rel);
+        fs::create_dir_all(to.parent().unwrap()).unwrap();
+        fs::copy(case.join("before").join(rel), &to).unwrap();
+    }
+    let who = [
+        "-c",
+        "user.email=t@example.invalid",
+        "-c",
+        "user.name=t",
+        "-c",
+        "commit.gpgsign=false",
+        "-c",
+        "core.hooksPath=/dev/null",
+    ];
+    git(&repo, &[&who[..], &["add", "-A"]].concat());
+    git(
+        &repo,
+        &[&who[..], &["commit", "-qm", "adopted by 0.15.1"]].concat(),
+    );
+    (repo, before)
+}
+
+/// Where a stored name of `corpus/adopt-0.4` lives in the repository.
+fn real_04(repo: &Path, rel: &str) -> PathBuf {
+    match rel.strip_prefix("git-hooks/") {
+        Some(hook) => repo.join(".git/hooks").join(hook),
+        None => repo.join(rel.replacen("dot-claude/", ".claude/", 1)),
+    }
+}
+
+/// D-118: a docsys/0.4 tree is adopted again as 0.15.1 adopts it again — every
+/// file and the git gate, byte for byte. `corpus/adopt-0.4` was made by
+/// docsys 0.15.1: `before/` after its adopt, `after/` the files its second
+/// adopt changed.
+#[test]
+fn adopt_on_a_0_4_tree_writes_what_0_15_1_writes() {
+    let case = Path::new(env!("CARGO_MANIFEST_DIR")).join("corpus/adopt-0.4");
+    let (repo, before) = tree_04("v04");
+    let out = docsys(&repo, &["adopt"]);
+    assert!(out.status.success(), "{out:?}");
+    for rel in &before {
+        let changed = case.join("after").join(rel);
+        let want = fs::read(if changed.is_file() {
+            changed
+        } else {
+            case.join("before").join(rel)
+        })
+        .unwrap();
+        let got = fs::read(real_04(&repo, rel)).unwrap();
+        assert!(
+            got == want,
+            "{rel} differs from what 0.15.1 writes:\n{}",
+            String::from_utf8_lossy(&got)
+        );
+    }
+    let status = Command::new("git")
+        .args(["status", "--porcelain", "--untracked-files=all"])
+        .current_dir(&repo)
+        .output()
+        .unwrap();
+    assert_eq!(
+        String::from_utf8_lossy(&status.stdout),
+        " M ADOPTION.md\n",
+        "nothing 0.15.1 does not write"
+    );
+    // and the block `rules --agents-md` prints there is the same one
+    let printed = docsys(&repo, &["rules", "--agents-md"]);
+    let agents = fs::read_to_string(case.join("before/AGENTS.md")).unwrap();
+    assert!(
+        agents.contains(&*String::from_utf8_lossy(&printed.stdout)),
+        "{printed:?}"
+    );
+    let _ = fs::remove_dir_all(repo.parent().unwrap());
+}
+
+/// A docsys/0.4 tree that lost an asset is not given this docsys's text of it,
+/// which would teach it 0.5: `adopt` and `agents` name it and leave it to the
+/// upgrade (D-118).
+#[test]
+fn a_0_4_tree_missing_an_asset_is_told_the_upgrade_writes_it() {
+    let (repo, _) = tree_04("v04-missing");
+    let relay = repo.join(".claude/hooks/stop-docs-reminder.sh");
+    fs::remove_file(&relay).unwrap();
+    for args in [&["adopt"][..], &["agents"], &["agents", "--force"]] {
+        let out = docsys(&repo, args);
+        assert!(out.status.success(), "{args:?}: {out:?}");
+        let said = String::from_utf8_lossy(&out.stdout);
+        assert!(
+            said.contains("this docsys/0.4 tree is missing .claude/hooks/stop-docs-reminder.sh; `docsys upgrade` moves the tree to 0.5 and writes it"),
+            "{args:?}: {said}"
+        );
+        assert!(!relay.exists(), "{args:?}");
+    }
+    let _ = fs::remove_dir_all(repo.parent().unwrap());
+}

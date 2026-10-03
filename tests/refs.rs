@@ -115,12 +115,21 @@ fn a_code_citation_opens_a_comment_and_doc_mid_sentence_is_prose() {
 
 #[test]
 fn agents_install_writes_assets_and_respects_existing() {
-    let dir = tmp("agents").join(".claude");
+    // a docsys/0.5 tree: its three relays, the commands and the skills
+    let base = tmp("agents");
+    fs::create_dir_all(base.join("docs")).unwrap();
+    fs::write(
+        base.join("docs/.docmeta.yml"),
+        "spec: docsys/0.5\nprofile: project\n",
+    )
+    .unwrap();
+    let dir = base.join(".claude");
     let done = docsys::agents::install(&dir, false).unwrap();
-    assert_eq!(done.written.len(), 10, "{:?}", done.written);
+    assert_eq!(done.written.len(), 9, "{:?}", done.written);
+    assert!(!done.written.iter().any(|f| f.contains("post-edit")));
     // Second run without --force skips everything.
     let again = docsys::agents::install(&dir, false).unwrap();
-    assert_eq!(again.skipped.len(), 10);
+    assert_eq!(again.skipped.len(), 9);
     // what people know is the interview's; what code and history say is the
     // seed's — each command's description says which, and the interview ends
     // by naming the next step
@@ -160,6 +169,10 @@ fn agents_install_writes_assets_and_respects_existing() {
     // the skill holds its procedures; the rules block holds the rules (one home)
     assert!(skill.contains("docsys migrate inventory"));
     assert!(!skill.contains("docsys rules --procedures"));
+    // a repository is set up by `adopt`, whose help says what it writes; a
+    // block appended by hand has no markers and doubles on a re-run
+    assert!(skill.contains("`docsys adopt`"), "{skill}");
+    assert!(!skill.contains("rules --agents-md >>"), "{skill}");
     let export = fs::read_to_string(dir.join("skills/docsys-export/SKILL.md")).unwrap();
     assert!(export.contains("--audience"));
     assert!(export.contains("P/R-123"));

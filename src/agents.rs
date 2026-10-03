@@ -1,7 +1,8 @@
 //! `docsys agents` — installs the agent layer into a project: hooks that keep
 //! documentation alive during sessions, the /docsys-sync command, and the thin
-//! skill. Every hook WARNS and never blocks (R-150: hard blocking gets hooks
-//! disabled entirely, which removes the protection completely), and every
+//! skill. A hook warns, and blocks only where the tree asks for it with
+//! `commit_policy: require` (R-209) — hard blocking by default gets hooks
+//! disabled entirely, which removes the protection (R-150) — and every
 //! warning names what needs to change (R-152).
 
 use crate::hook::Json;
@@ -32,7 +33,8 @@ exec docsys hook pre-tool-use --root "${DOCS_ROOT:-docs}"
 /// clean tree, and a reminder that read only the tree stayed silent through a
 /// whole session of code-only commits (D-041).
 const STOP_DOCS_REMINDER: &str = r#"#!/usr/bin/env bash
-# stop-docs-reminder.sh — end-of-turn nudge; warns, never blocks (R-150).
+# stop-docs-reminder.sh — end-of-turn reminder; it warns, and under
+# `commit_policy: require` it holds the turn once (R-209).
 # Reads the working tree and the commits not yet pushed (`docsys hook stop`).
 command -v docsys >/dev/null || exit 0
 @DOCSYS_GUARD@
@@ -109,9 +111,7 @@ wait for approval. Commit nothing.
    candidate, not drift.
 3. Graduation debt: `grep -rl '^status: done' docs/work/` — for each, say
    concretely which section goes to which page.
-4. Propose debt items as the `docsys debt add <debt> --deferred <reason>
-   --repay-when <trigger>` lines that would write them; run none without
-   approval.
+4. For each debt, the `docsys debt add` line that would write it.
 
 No findings → say so; never invent debt.
 "#;
@@ -126,10 +126,10 @@ description: Documentation system operations — set up, migrate, audit, and cur
 This skill adds judgment and approval gates to the commands; never skip a
 gate.
 
-## Set up (new tree)
+## Set up
 
-`docsys init --root docs` then generate the agent block:
-`docsys rules --agents-md >> AGENTS.md` (review the diff first).
+A repository is set up with `docsys adopt`; `docsys help adopt` says what it
+writes.
 
 ## Migrate (existing docs anywhere in the repo)
 
@@ -155,9 +155,9 @@ file's id moves to a destination in the same commit (D-127).
 
 Anyone writes — you included — and nothing you write is the truth yet. A
 permanent page you author from evidence, or change in substance, names what it
-rests on in `sources:`. It is verified once a maintainer approves it after its
-last change (D-126); nothing about it is written into the page, and `docsys
-help verify` says how an approval is recorded. When `.docmeta.yml` declares
+rests on in `sources:`. Nothing about its verification is written into the
+page (D-126); `docsys help verify` says how an approval is recorded. When
+`.docmeta.yml` declares
 `maintainers:`, an approval and a confirmation must name one of them (R-208):
 the people who review the code are the people who vouch for the page. A
 reader — a person or an agent — sees the state and reads accordingly.
@@ -656,6 +656,8 @@ pub fn install(claude_dir: &Path, force: bool) -> Result<Installed, String> {
 /// `install`, with the owner's generated-file preamble (D-056) placed in
 /// every markdown asset — never in a shell hook — and the tree's root,
 /// relative to the repository, as the relays' default.
+const UPGRADE_COMMAND: &str = "commands/docsys-upgrade.md";
+
 pub fn install_with_preamble(
     claude_dir: &Path,
     force: bool,
@@ -670,7 +672,7 @@ pub fn install_with_preamble(
         ("commands/docsys-sync.md", DOC_SYNC, false),
         ("commands/docsys-seed.md", DOCSYS_SEED, false),
         ("commands/docsys-interview.md", DOCSYS_INTERVIEW, false),
-        ("commands/docsys-upgrade.md", DOCSYS_UPGRADE, false),
+        (UPGRADE_COMMAND, DOCSYS_UPGRADE, false),
         ("skills/docsys/SKILL.md", SKILL_MD, false),
         ("skills/docsys-export/SKILL.md", EXPORT_SKILL, false),
     ];
@@ -684,14 +686,33 @@ pub fn install_with_preamble(
         .parent()
         .filter(|p| !p.as_os_str().is_empty())
         .unwrap_or(Path::new("."));
-    let post_edit = keeps_post_edit(repo, root_arg);
+    // a docsys/0.4 tree keeps the post-edit relay, and the assets 0.15.1
+    // wrote: no `/docsys-upgrade`, and none of this docsys's own texts, which
+    // would teach it 0.5 — the upgrade writes them (D-118, D-126)
+    let before_05 = keeps_post_edit(repo, root_arg);
+    let tree_04 = before_05 && repo.join(root_arg).join(".docmeta.yml").is_file();
     for (rel, content, executable) in files {
-        if rel == POST_EDIT && !post_edit {
+        if (rel == POST_EDIT && !before_05) || (rel == UPGRADE_COMMAND && before_05) {
             continue;
         }
         let path = claude_dir.join(rel);
         if path.exists() && !force {
             out.skipped.push(rel.to_string());
+            continue;
+        }
+        if tree_04 {
+            let shown = crate::place::shown(&path);
+            out.notes.push(if path.exists() {
+                format!(
+                    "this docsys/0.4 tree keeps its {}; `docsys upgrade` moves the tree to 0.5 and writes it",
+                    shown.display()
+                )
+            } else {
+                format!(
+                    "this docsys/0.4 tree is missing {}; `docsys upgrade` moves the tree to 0.5 and writes it",
+                    shown.display()
+                )
+            });
             continue;
         }
         if let Some(parent) = path.parent() {
@@ -1017,14 +1038,13 @@ builder cannot give becomes a `question` row, dated today.
 
 If this machine holds agent memory for the repository (Claude Code keeps
 `memory/*.md` under `~/.claude/projects/<repo-slug>/`), run the plan with
-`--memory <that dir>`: each note's name and description becomes one line
-of evidence and ONE question — "my notes say X; is it still true, and where
-should it live?"
+`--memory <that dir>`, and ask the builder about each note as the rules
+block says.
 
 ## 4 · Approve, then land (tool)
 
 Write the rows the conversation produced into a plan file OUTSIDE `docs/`
-(`SEED.tsv`, never committed), show it, and wait for the explicit word. Then:
+(`SEED.tsv`, never committed) and show it; on the builder's word,
 `docsys seed apply --plan SEED.tsv --repo . --root docs`.
 When no builder can answer — a repository whose people are gone, a person
 who says "land what history says, I will answer later" — the rows that need
@@ -1032,12 +1052,8 @@ nobody's memory still land on that person's word: `research` (the evidence,
 reserved), `postmortem` (a commit's own account) and `question` (everything
 the builder would have been asked); the chronology is history's own. Only `answer`
 rows wait for a builder; a plan with none is not a plan withheld.
-Rows (TAB-separated; `docsys seed plan` prints the grammar): `research
-<feature> <shas>` reserves the feature; `answer <feature> <who> <text>`
-records the builder's words verbatim; `postmortem <slug> <sha>` quotes an
-incident's commit; `debt` and `question` add dated items.
-Everything lands under `work/`. The permanent page comes later, through
-graduation, when the builder confirms.
+Rows are TAB-separated; `docsys seed plan` prints their grammar. The
+permanent page comes later, through graduation, when the builder confirms.
 
 ## 4b · The overview draft (the one page you may author)
 
@@ -1046,8 +1062,7 @@ After the rows land, one permanent page per seeded feature may be yours:
 it is built, when it was born and moved, what broke and why, what the
 manifests and the code's own comments say — in the tree's language, with
 `sources:` naming the same `git:` locators and files the research page
-cites. It is unverified until a maintainer approves it (R-025, R-208). When the builder's
-answers arrive, graduation moves them in byte-exact; the draft is where a
+cites. When the builder's answers arrive, graduation moves them in byte-exact; the draft is where a
 reader starts on day one, not the truth.
 
 Never write prose of your own into the tree beyond that one page.
@@ -1061,21 +1076,16 @@ pub fn skill_text() -> &'static str {
 /// Rounds of the seeding interview across features — resumable, evidence
 /// first, never a question git already answers.
 const DOCSYS_INTERVIEW: &str = r#"---
-description: Collect what people know — the team's know-how, decisions and reasons — about one feature or every undocumented one, round by round; their words land verbatim under work/
+description: Collect what people know — the team's know-how, decisions and reasons — about one feature or every undocumented one, round by round
 allowed-tools: Bash(docsys *), Bash(git log:*), Bash(git show:*), Read, Grep, Glob, Write, Edit
 ---
 
 # /docsys-interview — the seeding survey, round by round
 
-`docsys seed gaps --repo . --root docs` lists every candidate feature with
-its size, span and coverage. Uncovered features are the survey; covered
-ones are the system's and are never asked about.
-
-Each round is one feature, run exactly as `/docsys-seed <feature>`: research
-by the tool, one "what I found" block, at most four plain questions, then
-the builder's word before anything lands. Order: the largest uncovered
-feature by commit count first, unless the builder names one. Stop when
-the builder says stop; the next session resumes from `docsys seed gaps` —
+The survey is the list `docsys seed gaps --repo . --root docs` gives, the
+largest feature first unless the builder names one. Each round is one
+feature, run exactly as `/docsys-seed <feature>`. Stop when the builder says
+stop; the next session resumes from `docsys seed gaps` —
 what landed is reserved (`work/research/<feature>.md`, active) and will not
 be asked again.
 
@@ -1344,14 +1354,15 @@ mod tests {
     fn force_rewrites_and_plain_install_keeps() {
         let dir = std::env::temp_dir().join(format!("docsys-force-{}", std::process::id()));
         let _ = fs::remove_dir_all(&dir);
-        install(&dir, false).unwrap();
+        let first = install(&dir, false).unwrap();
         let hook = dir.join("hooks/pre-commit-docs.sh");
         fs::write(&hook, "custom\n").unwrap();
         let kept = install(&dir, false).unwrap();
         assert_eq!(kept.written.len(), 0);
         assert_eq!(fs::read_to_string(&hook).unwrap(), "custom\n");
+        // --force rewrites every asset a plain install writes
         let forced = install(&dir, true).unwrap();
-        assert_eq!(forced.written.len(), 10);
+        assert_eq!(forced.written, first.written);
         assert!(fs::read_to_string(&hook)
             .unwrap()
             .contains("docsys hook pre-tool-use"));

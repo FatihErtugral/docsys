@@ -406,10 +406,29 @@ impl Reply {
     }
 }
 
-const ASK: &str = "code moves with no documentation change. If a contract moved, update the page (or say why in the commit message: `Docs: <why>`) and commit; if nothing user-visible moved, run the same commit again — this gate asks once.\nThis whole Bash call was blocked — a `git add` in it did not run either. Re-run the SAME command from the start, `add` included.\n";
+/// The question, said once: the GATE line above it names what moved (D-040).
+const ASK: &str = "If a contract moved, update the page (or say why in the commit message: `Docs: <why>`) and commit; if nothing user-visible moved, run the same commit again — this gate asks once.\n";
+/// Said only when the blocked command ran a `git add` too.
+const BLOCKED_ADD: &str = "This whole Bash call was blocked — a `git add` in it did not run either. Re-run the SAME command from the start, `add` included.\n";
+/// The question and the refusal as 0.15.1 said them, which a docsys/0.4 tree
+/// still hears (D-118).
+const ASK_015: &str = "code moves with no documentation change. If a contract moved, update the page (or say why in the commit message: `Docs: <why>`) and commit; if nothing user-visible moved, run the same commit again — this gate asks once.\nThis whole Bash call was blocked — a `git add` in it did not run either. Re-run the SAME command from the start, `add` included.\n";
+const REQUIRE_015: &str = "commit_policy: require — nothing lands without its documentation. Name the work (feature | bug | improvement | research), record it — a work file under work/<category>/ or, at minimum, a `Docs: <why>` trailer in this commit's message — stage it, and run the SAME commit again, `git add` included. DOCSYS_SKIP=1 bypasses once and leaves a debt item.\nThis whole Bash call was blocked — a `git add` in it did not run either.\n";
+/// The gate's words for this tree and this command: the 0.15.1 text on a
+/// docsys/0.4 tree; on 0.5, a `git add` named only when the command ran one.
+fn gate_words(root: &Path, now: &str, before: &str, adds: bool) -> String {
+    if !crate::era::Era::at(root).journal_from_history() {
+        return before.to_string();
+    }
+    format!("{now}{}", if adds { BLOCKED_ADD } else { "" })
+}
 /// Each phrase of this module's agent text that names the journal, as a
 /// docsys/0.5 tree hears it and as a 0.4 tree heard it from 0.15.1 (D-118).
-const ERA_PHRASES: [(&str, &str); 11] = [
+const ERA_PHRASES: [(&str, &str); 12] = [
+    (
+        "improvement (refactor, performance, cleanup), research. If the",
+        "improvement (refactor, performance, cleanup), research, idea-note. If the",
+    ),
     (
         "update the page (or say why in the commit message: `Docs: <why>`) and commit",
         "update the page (or add the journal line) and commit",
@@ -435,8 +454,8 @@ const ERA_PHRASES: [(&str, &str); 11] = [
         "An id is unique across the whole tree, drafts included.\nEnd of session: journal line (≤5 lines, links not content). Gate: docsys lint.\nJudgment calls follow the procedures: docsys rules --procedures.\n</session-doc-routing>",
     ),
     (
-        "is recorded (a work file, or `Docs:` in the commit message)",
-        "is recorded (feature | bug | improvement | research → work file or journal entry)",
+        "the end of a turn holds until the work is recorded.\n",
+        "the end of a turn holds until the work is recorded (feature | bug | improvement | research → work file or journal entry).\n",
     ),
     (
         "record it (a work file, or `Docs: <why>` in the commit message)",
@@ -536,7 +555,7 @@ pub fn record_undocumented_commit(
     Ok("work/debt.md".to_string())
 }
 
-const REQUIRE: &str = "commit_policy: require — nothing lands without its documentation. Name the work (feature | bug | improvement | research), record it — a work file under work/<category>/ or, at minimum, a `Docs: <why>` trailer in this commit's message — stage it, and run the SAME commit again, `git add` included. DOCSYS_SKIP=1 bypasses once and leaves a debt item.\nThis whole Bash call was blocked — a `git add` in it did not run either.\n";
+const REQUIRE: &str = "commit_policy: require — nothing lands without its documentation. Name the work (feature | bug | improvement | research), record it — a work file under work/<category>/ or, at minimum, a `Docs: <why>` trailer in this commit's message — stage it, and run the SAME commit again. DOCSYS_SKIP=1 bypasses once and leaves a debt item.\n";
 
 /// The edited file and the session's working directory a payload names —
 /// where a hook looks for its tree (D-098).
@@ -675,9 +694,10 @@ pub fn pre_tool_use(repo: &Path, root: &Path, payload: &str, skip: bool) -> Repl
         return Reply::block(era_text(
             root,
             &format!(
-                "GATE {} changes with no docs change: {}{tail}\n{REQUIRE}",
+                "GATE {} changes with no docs change: {}{tail}\n{}",
                 g.scope,
-                head_lines.join(", ")
+                head_lines.join(", "),
+                gate_words(root, REQUIRE, REQUIRE_015, has_git_add(&cmd))
             ),
         ));
     }
@@ -713,9 +733,10 @@ pub fn pre_tool_use(repo: &Path, root: &Path, payload: &str, skip: bool) -> Repl
         return Reply::block(era_text(
             root,
             &format!(
-                "GATE {} changes with no docs change: {}{tail}\n{ASK}",
+                "GATE {} changes with no docs change: {}{tail}\n{}",
                 g.scope,
-                head_lines.join(", ")
+                head_lines.join(", "),
+                gate_words(root, ASK, ASK_015, adds)
             ),
         ));
     }
@@ -753,7 +774,8 @@ fn cksum(s: &str) -> u64 {
 }
 
 /// Stop: end-of-turn reminder over the working tree AND the commits not yet
-/// pushed (D-041). Warns on stderr, never blocks (R-150).
+/// pushed (D-041). It warns on stderr; under `commit_policy: require` it holds
+/// the turn once (R-209, D-093).
 pub fn stop(repo: &Path, root: &Path, payload: &str) -> Reply {
     if is_knowledge_base(root) {
         return stop_kb(repo, root);
@@ -772,11 +794,15 @@ pub fn stop(repo: &Path, root: &Path, payload: &str) -> Reply {
             _ => None,
         })
         .unwrap_or(false);
+    // on 0.5 the reason above already names the way out; 0.4 hears 0.15.1
+    let held_until = if crate::era::Era::at(root).journal_from_history() {
+        "commit_policy: require — this turn holds until the work is named (feature | bug | improvement | research) and recorded as said above.\n"
+    } else {
+        "commit_policy: require — before this session ends, name the work (feature | bug | improvement | research) and record it: a work file under work/<category>/, or a commit whose message says why with `Docs: <why>`. Then stop.\n"
+    };
     let hold = |text: String| -> Reply {
         if require && !already_held {
-            Reply::block(era_text(root, &format!(
-                "{text}commit_policy: require — before this session ends, name the work (feature | bug | improvement | research) and record it: a work file under work/<category>/, or a commit whose message says why with `Docs: <why>`. Then stop.\n"
-            )))
+            Reply::block(era_text(root, &format!("{text}{held_until}")))
         } else {
             Reply {
                 code: 0,
@@ -1021,7 +1047,7 @@ what the person actually asked. Until they answer, use the defaults.
 
 pub const ROUTING: &str = "<session-doc-routing>
 First turn. Name the work type before anything else — one of feature, bug,
-improvement (refactor, performance, cleanup), research, idea-note. If the
+improvement (refactor, performance, cleanup), research. If the
 message makes it clear, state it in one line and proceed; when it is genuinely
 ambiguous, ask THAT question first. Read <docs-in-hand> below: this tree already
 holds documentation, and the work you are about to do may already have a page
@@ -1154,7 +1180,7 @@ fn tree_digest(root: &Path) -> String {
         ));
     }
     if commit_policy(root) == CommitPolicy::Require {
-        out.push_str("commit_policy: require — no commit lands without its documentation, and the end of a turn holds until the work is recorded (a work file, or `Docs:` in the commit message).\n");
+        out.push_str("commit_policy: require — no commit lands without its documentation, and the end of a turn holds until the work is recorded.\n");
     }
     out.push_str("</docs-in-hand>\n");
     out
@@ -1407,7 +1433,9 @@ mod tests_routing {
         .unwrap();
         assert_eq!(era_text(&root, ROUTING), ROUTING);
         // on docsys/0.5 help explains how an approval is recorded (D-114, D-129)
-        assert!(crate::agents::skill_text().contains("`docsys\nhelp verify`"));
+        assert!(crate::agents::skill_text()
+            .replace('\n', " ")
+            .contains("`docsys help verify`"));
         assert!(!ROUTING.contains("verified_by"));
         let _ = fs::remove_dir_all(&root);
     }

@@ -147,7 +147,16 @@ declares `spec: docsys/0.5`; a tree that declares `docsys/0.4` is served as
 - An unknown command is named and exits 2, `help` of one too; a flag's value
   is never another flag (D-129).
 - A reader that closes its end early (`| head`) ends the command quietly,
-  with a closed pipe's status (141), never a panic.
+  with a closed pipe's status (141), never a panic — on standard output and
+  standard error alike.
+- A command refuses a flag another command owns, with its own entry, instead
+  of ignoring it; `help hook stop` answers with the hook's entry (D-129).
+- `upgrade --apply --commit` commits its move before it prints, from any
+  directory of the repository; a commit git refuses says how to finish, and a
+  re-run commits a move a bare `--apply` or a refusal left written (R-177).
+- `adopt` run again on a docsys/0.4 tree writes what 0.15.1 writes there,
+  its rules block and git gate included, and `agents --kb` refuses a project
+  tree (D-118).
 - A refused approval names the check of the git gate that refused it, and a
   graduation plan's destination may carry its `.md` (D-126, R-099).
 - The gate of a linked worktree resolves pins at the repository's top, and

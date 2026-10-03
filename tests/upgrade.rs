@@ -510,10 +510,11 @@ fn a_commit_says_each_thing_once_under_either_gate() {
         String::from_utf8_lossy(&out.stdout).into_owned() + &String::from_utf8_lossy(&out.stderr)
     };
     let count = |said: &str, start: &str| said.lines().filter(|l| l.starts_with(start)).count();
-    for rewritten in [false, true] {
-        let (repo, _) = build(&format!("once-{rewritten}"));
-        if rewritten {
-            // `adopt` brings the clone's gate to this version, the tree stays 0.4
+    // a docsys/0.4 clone keeps 0.15.1's gate, `adopt` run again included
+    // (D-118): the upgrade is what brings this version's
+    for readopted in [false, true] {
+        let (repo, _) = build(&format!("once-{readopted}"));
+        if readopted {
             let out = docsys(&repo, &["adopt"]);
             assert!(out.status.success(), "{out:?}");
         }
@@ -525,10 +526,6 @@ fn a_commit_says_each_thing_once_under_either_gate() {
             1,
             "{said}"
         );
-        if rewritten {
-            // the stale pin of the case, once
-            assert_eq!(count(&said, "ERROR R-111 reference/expiry.md"), 1, "{said}");
-        }
         let _ = fs::remove_dir_all(&repo);
     }
 }
@@ -925,9 +922,14 @@ fn a_refreshed_asset_names_the_trees_own_root() {
 #[test]
 fn an_untracked_asset_holding_this_versions_text_goes_into_the_commit() {
     let (repo, _) = build("untracked-asset");
-    // `docsys agents` writes the command the 0.4 tree lacks, before the upgrade
-    let out = docsys(&repo, &["agents"]);
-    assert!(out.status.success(), "{out:?}");
+    // the command the 0.4 tree lacks, in this version's text, before the upgrade
+    let text = fs::read(
+        Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join(CASE)
+            .join("after/dot-claude/commands/docsys-upgrade.md"),
+    )
+    .unwrap();
+    fs::write(repo.join(".claude/commands/docsys-upgrade.md"), text).unwrap();
     assert!(
         git(&repo, &["status", "--porcelain"]).contains("?? .claude/commands/docsys-upgrade.md")
     );
@@ -1561,5 +1563,63 @@ fn a_bare_apply_names_the_commit_that_works() {
     );
     let subject = git(&repo, &["log", "-1", "--format=%s"]);
     assert!(subject.starts_with("docsys: upgrade the tree"), "{subject}");
+    let _ = fs::remove_dir_all(&repo);
+}
+
+/// The move and its commit are one act, wherever it runs and whatever stops
+/// it: from the tree's own directory it commits as from the top; a reader
+/// that closes the output early cannot stop it between the two; a commit git
+/// refuses says how to finish, and a re-run finishes it (R-177).
+#[test]
+fn an_upgrade_commits_from_anywhere_and_a_re_run_finishes_one_cut_short() {
+    let subject = |repo: &Path| git(repo, &["log", "-1", "--format=%s"]);
+    let clean = |repo: &Path| git(repo, &["status", "--porcelain", "--untracked-files=all"]);
+    // from the tree's own directory
+    let (repo, _) = build("from-root-dir");
+    let out = docsys(&repo.join("docs"), &["upgrade", "--apply", "--commit"]);
+    assert!(out.status.success(), "{out:?}");
+    assert!(subject(&repo).starts_with("docsys: upgrade"), "{out:?}");
+    assert_eq!(clean(&repo), "", "{out:?}");
+    let _ = fs::remove_dir_all(&repo);
+    // its output read by nobody: the commit lands all the same
+    let (repo, _) = build("closed-output");
+    let (reader, writer) = std::io::pipe().unwrap();
+    drop(reader);
+    let out = Command::new(bin())
+        .args(["upgrade", "--apply", "--commit"])
+        .env("PATH", path())
+        .current_dir(&repo)
+        .stdout(writer)
+        .output()
+        .unwrap();
+    assert_ne!(out.status.code(), Some(101), "{out:?}");
+    assert!(subject(&repo).starts_with("docsys: upgrade"), "{out:?}");
+    assert_eq!(clean(&repo), "", "{out:?}");
+    let _ = fs::remove_dir_all(&repo);
+    // git refuses the commit: the move waits, named, and a re-run commits it
+    let (repo, _) = build("refused");
+    let hook = repo.join(".git/hooks/pre-commit");
+    let gate = fs::read_to_string(&hook).unwrap();
+    fs::write(&hook, "#!/bin/sh\nexit 1\n").unwrap();
+    let out = docsys(&repo, &["upgrade", "--apply", "--commit"]);
+    assert_eq!(out.status.code(), Some(1), "{out:?}");
+    let said = String::from_utf8_lossy(&out.stderr);
+    assert!(said.contains("docsys upgrade --apply --commit"), "{said}");
+    assert!(!subject(&repo).starts_with("docsys: upgrade"), "{said}");
+    fs::write(&hook, gate).unwrap();
+    let out = docsys(&repo, &["upgrade", "--apply", "--commit"]);
+    assert!(out.status.success(), "{out:?}");
+    assert!(subject(&repo).starts_with("docsys: upgrade"), "{out:?}");
+    assert_eq!(clean(&repo), "", "{out:?}");
+    // and a move written by a bare --apply is finished the same way
+    let _ = fs::remove_dir_all(&repo);
+    let (repo, _) = build("bare-then-commit");
+    let out = docsys(&repo, &["upgrade", "--apply"]);
+    assert!(out.status.success(), "{out:?}");
+    assert_ne!(clean(&repo), "");
+    let out = docsys(&repo, &["upgrade", "--apply", "--commit"]);
+    assert!(out.status.success(), "{out:?}");
+    assert!(subject(&repo).starts_with("docsys: upgrade"), "{out:?}");
+    assert_eq!(clean(&repo), "", "{out:?}");
     let _ = fs::remove_dir_all(&repo);
 }
