@@ -199,7 +199,8 @@ declares `spec: docsys/0.5`; a tree that declares `docsys/0.4` is served as
   `doctor` names a missing agent layer and its relays from the top (D-098).
 - An upgrade commit holds the move's files and no other: a change staged
   beside a pending move is refused by name, `--force` commits the whole
-  recorded move without it, and a path git ignores stays out (R-177).
+  recorded move without it, a move committed by hand leaves no record that a
+  later run would take for its own, and a path git ignores stays out (R-177).
 - A list that never closes with `]` is named by its field and line, never
   takes the next field's line as an item, and every writer that would
   replace a field refuses on it and writes nothing (D-002).

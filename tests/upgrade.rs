@@ -1702,3 +1702,43 @@ fn an_upgrade_commits_around_an_ignored_agent_layer() {
     assert_eq!(git(&repo, &["status", "--porcelain"]), "", "{out:?}");
     let _ = fs::remove_dir_all(&repo);
 }
+
+/// The record of a move written and waiting belongs to the commit it was
+/// written on: once the person commits the move by hand, as `--apply` says,
+/// a later run never takes their next edits for the move (R-177).
+#[test]
+fn a_move_committed_by_hand_leaves_no_record_that_takes_later_edits() {
+    let (repo, _) = build("hand-commit");
+    let out = docsys(&repo, &["upgrade", "--apply"]);
+    assert!(out.status.success(), "{out:?}");
+    git(&repo, &["add", "-A"]);
+    git(
+        &repo,
+        &[
+            "-c",
+            "core.hooksPath=/dev/null",
+            "commit",
+            "-q",
+            "-F",
+            ".git/docsys-upgrade-message",
+        ],
+    );
+    let head = git(&repo, &["rev-parse", "HEAD"]);
+    let meta = repo.join("docs/.docmeta.yml");
+    fs::write(
+        &meta,
+        fs::read_to_string(&meta).unwrap() + "# a line in progress\n",
+    )
+    .unwrap();
+    fs::write(repo.join("other.rs"), "fn other() {}\n").unwrap();
+    git(&repo, &["add", "other.rs"]);
+    let out = docsys(&repo, &["upgrade", "--apply", "--commit", "--force"]);
+    assert!(out.status.success(), "{out:?}");
+    assert_eq!(git(&repo, &["rev-parse", "HEAD"]), head, "{out:?}");
+    let status = git(&repo, &["status", "--porcelain", "--untracked-files=no"]);
+    assert!(
+        status.contains("M docs/.docmeta.yml") && status.contains("A  other.rs"),
+        "{status}"
+    );
+    let _ = fs::remove_dir_all(&repo);
+}

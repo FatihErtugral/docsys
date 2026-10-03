@@ -656,6 +656,23 @@ fn main() -> ExitCode {
             };
             let message_path = git_path("docsys-upgrade-message");
             let files_path = git_path("docsys-upgrade-files");
+            // the commit the record was written on: a record from an earlier
+            // HEAD was committed by hand, or abandoned, and is no move now
+            let head_path = git_path("docsys-upgrade-head");
+            let head = || {
+                docsys::git::cmd(&repo)
+                    .args(["rev-parse", "-q", "--verify", "HEAD"])
+                    .output()
+                    .ok()
+                    .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+                    .unwrap_or_default()
+            };
+            let current = std::fs::read_to_string(&head_path).is_ok_and(|h| h.trim() == head());
+            if !current {
+                let _ = std::fs::remove_file(&message_path);
+                let _ = std::fs::remove_file(&files_path);
+                let _ = std::fs::remove_file(&head_path);
+            }
             let changed: Option<Vec<String>> = docsys::git::cmd(&repo)
                 .args(["status", "--porcelain", "--untracked-files=no"])
                 .output()
@@ -693,6 +710,7 @@ fn main() -> ExitCode {
             if !dirty {
                 let _ = std::fs::remove_file(&message_path);
                 let _ = std::fs::remove_file(&files_path);
+                let _ = std::fs::remove_file(&head_path);
             }
             if opts.apply && !opts.force && dirty && !(pending && outside.is_empty()) {
                 let named = if recorded.is_empty() || outside.is_empty() {
@@ -738,7 +756,8 @@ fn main() -> ExitCode {
                     };
                     if !files.is_empty() {
                         let recorded = std::fs::write(&message_path, &message)
-                            .and_then(|()| std::fs::write(&files_path, files.join("\n") + "\n"));
+                            .and_then(|()| std::fs::write(&files_path, files.join("\n") + "\n"))
+                            .and_then(|()| std::fs::write(&head_path, format!("{}\n", head())));
                         if let Err(e) = recorded {
                             eprintln!("upgrade: {}: {e}", message_path.display());
                             return ExitCode::from(1);
@@ -755,6 +774,7 @@ fn main() -> ExitCode {
                         }
                         let _ = std::fs::remove_file(&message_path);
                         let _ = std::fs::remove_file(&files_path);
+                        let _ = std::fs::remove_file(&head_path);
                         pending = false;
                         if !files.is_empty() {
                             committed = Some(message.lines().next().unwrap_or("").to_string());
