@@ -973,9 +973,7 @@ pub const TEMPLATES: [(&str, &str, [&str; 4]); 3] = [
 /// marker comment in every `.md` diff; put by hand, the marker vanished at
 /// the next generation. Empty when undeclared; the tool then changes nothing.
 pub fn generated_preamble(root: &Path) -> String {
-    let text = fs::read_to_string(root.join(".docmeta.yml")).unwrap_or_default();
-    let framed = format!("---\n{text}---\n");
-    let Some(fm) = crate::fm::parse(&framed) else {
+    let Some(fm) = crate::tree::docmeta_at(root) else {
         return String::new();
     };
     match fm.fields.get("generated_preamble") {

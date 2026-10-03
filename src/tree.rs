@@ -151,19 +151,28 @@ fn parse_tombstones(text: &str) -> Vec<String> {
         .collect()
 }
 
+/// The tree's `.docmeta.yml`, read the one way every value is read (D-002);
+/// `None` when there is no such file.
+pub fn docmeta_at(root: &Path) -> Option<fm::Frontmatter> {
+    fs::read_to_string(root.join(".docmeta.yml"))
+        .ok()
+        .map(|text| fm::parse_fields(&text))
+}
+
+/// One scalar of the tree's `.docmeta.yml`, as the tree reads it.
+pub fn docmeta_value(root: &Path, key: &str) -> Option<String> {
+    docmeta_at(root)?
+        .fields
+        .get(key)
+        .and_then(fm::Value::as_str)
+        .map(str::to_string)
+}
+
 impl DocTree {
     pub fn load(root: &Path) -> std::io::Result<DocTree> {
-        let docmeta_path = root.join(".docmeta.yml");
-        let (docmeta, docmeta_present, docmeta_problems) = match fs::read_to_string(&docmeta_path) {
-            Ok(text) => {
-                // .docmeta.yml is pure frontmatter fields without the fences.
-                let framed = format!("---\n{text}---\n");
-                match fm::parse(&framed) {
-                    Some(f) => (f.fields, true, f.problems),
-                    None => (BTreeMap::new(), true, vec!["unreadable".to_string()]),
-                }
-            }
-            Err(_) => (BTreeMap::new(), false, Vec::new()),
+        let (docmeta, docmeta_present, docmeta_problems) = match docmeta_at(root) {
+            Some(f) => (f.fields, true, f.problems),
+            None => (BTreeMap::new(), false, Vec::new()),
         };
 
         let extra_tracked: Vec<String> = docmeta

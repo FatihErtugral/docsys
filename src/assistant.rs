@@ -20,18 +20,11 @@ pub struct Outcome {
 fn set_domains(root: &Path, domains: &[String]) -> Result<Option<String>, String> {
     let dm = root.join(".docmeta.yml");
     let text = fs::read_to_string(&dm).map_err(|e| e.to_string())?;
-    let declared: Vec<&str> = text
-        .lines()
-        .find_map(|l| l.strip_prefix("domains:"))
-        .map(|v| {
-            v.trim()
-                .trim_start_matches('[')
-                .trim_end_matches(']')
-                .split(',')
-                .map(str::trim)
-                .filter(|s| !s.is_empty())
-                .collect()
-        })
+    let fields = crate::fm::parse_fields(&text);
+    let declared = fields
+        .fields
+        .get("domains")
+        .and_then(crate::fm::Value::as_list)
         .unwrap_or_default();
     if !declared.is_empty() {
         return Ok(None);
@@ -42,20 +35,29 @@ fn set_domains(root: &Path, domains: &[String]) -> Result<Option<String>, String
         domains.to_vec()
     };
     let line = format!("domains: [{}]", list.join(", "));
-    let out = if text.lines().any(|l| l.starts_with("domains:")) {
-        text.lines()
-            .map(|l| {
-                if l.starts_with("domains:") {
-                    line.clone()
-                } else {
-                    l.to_string()
+    let out = match fields.spans.get("domains") {
+        // the field's own lines give way to the one line, whatever shape it had
+        Some(span) => {
+            let mut out = String::new();
+            for (i, l) in text.lines().enumerate() {
+                if i == span.start {
+                    out.push_str(&line);
+                    out.push('\n');
+                } else if !span.contains(&i) {
+                    out.push_str(l);
+                    out.push('\n');
                 }
-            })
-            .collect::<Vec<_>>()
-            .join("\n")
-            + "\n"
-    } else {
-        format!("{text}{line}\n")
+            }
+            out
+        }
+        None => {
+            let sep = if text.is_empty() || text.ends_with('\n') {
+                ""
+            } else {
+                "\n"
+            };
+            format!("{text}{sep}{line}\n")
+        }
     };
     fs::write(&dm, out).map_err(|e| e.to_string())?;
     Ok(Some(list.join(", ")))
@@ -108,11 +110,7 @@ pub fn run(
     let _ = repo;
     // 2 · the base
     if root.join(".docmeta.yml").is_file() {
-        let profile = fs::read_to_string(root.join(".docmeta.yml"))
-            .unwrap_or_default()
-            .lines()
-            .find_map(|l| l.strip_prefix("profile:").map(|v| v.trim().to_string()))
-            .unwrap_or_default();
+        let profile = crate::tree::docmeta_value(root, "profile").unwrap_or_default();
         if profile != "knowledge-base" {
             return Err(format!(
                 "`{}` is a `{profile}` tree — an assistant's memory is a knowledge base; \

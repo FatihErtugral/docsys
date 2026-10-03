@@ -271,13 +271,7 @@ fn load_foreign(tree: &DocTree, token: &str) -> Result<(Page, String), String> {
              hand-placed content cannot masquerade as federated; re-run `docsys fetch`"
         ));
     };
-    let get = |k: &str| {
-        side.lines()
-            .find_map(|l| l.strip_prefix(k).and_then(|r| r.strip_prefix(": ")))
-            .unwrap_or("")
-            .trim()
-            .to_string()
-    };
+    let get = |k: &str| crate::fresh::sidecar_field(&side, k).unwrap_or_default();
     let body = strip_frontmatter(&text).replace("\r\n", "\n");
     let body = body.trim_matches('\n');
     let got = format!("fnv:{:016x}", fnv(body.as_bytes()));
@@ -553,10 +547,7 @@ pub fn fetch(root: &Path) -> Result<Vec<String>, String> {
             // applied to materialization).
             let held = std::fs::read_to_string(dir.join(format!("{id}.provenance.yml")))
                 .ok()
-                .and_then(|s| {
-                    s.lines()
-                        .find_map(|l| l.trim().strip_prefix("hash: ").map(str::to_string))
-                });
+                .and_then(|s| crate::fresh::sidecar_field(&s, "hash"));
             let publish_hash = published.get(id);
             let current = format!("fnv:{:016x}", fnv(body.as_bytes()));
             if let (Some(h), Some(p)) = (held.as_deref(), publish_hash) {

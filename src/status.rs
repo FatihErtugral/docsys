@@ -208,10 +208,10 @@ pub fn status(root: &Path, repo: Option<&Path>) -> Result<Status, String> {
                 if f.extension().is_some_and(|x| x == "md") {
                     ns.pages += 1;
                 } else if f.to_string_lossy().ends_with(".provenance.yml") {
-                    if let Some(date) = fs::read_to_string(&f).ok().and_then(|t| {
-                        t.lines()
-                            .find_map(|l| l.strip_prefix("fetched:").map(|v| v.trim().to_string()))
-                    }) {
+                    if let Some(date) = fs::read_to_string(&f)
+                        .ok()
+                        .and_then(|t| crate::fresh::sidecar_field(&t, "fetched"))
+                    {
                         if ns
                             .fetched
                             .as_deref()

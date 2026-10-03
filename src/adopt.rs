@@ -110,10 +110,10 @@ fn ensure_namespace(root: &Path, repo: &Path) -> String {
     let Ok(text) = fs::read_to_string(&dm) else {
         return "docmeta unreadable".to_string();
     };
-    if let Some(existing) = text
-        .lines()
-        .find_map(|l| l.strip_prefix("namespace:"))
-        .map(str::trim)
+    if let Some(existing) = crate::fm::parse_fields(&text)
+        .fields
+        .get("namespace")
+        .and_then(crate::fm::Value::as_str)
         .filter(|s| !s.is_empty())
     {
         return format!("{existing} (kept)");
@@ -293,17 +293,17 @@ fn ensure_docmeta(root: &Path, lang: &str) -> Result<&'static str, String> {
         return Ok("created via init (router, templates)");
     }
     // Append only the missing required keys; the owner's lines stay verbatim.
+    // A tree that declares no spec is read as the era a missing spec means,
+    // and is stamped with that same era (D-118): one rule, never two.
+    let declared = crate::fm::parse_fields(&existing).fields;
     let mut prefix = String::new();
-    if !existing.lines().any(|l| l.starts_with("spec:")) {
-        prefix.push_str(&format!("spec: docsys/{}\n", rules::spec_version()));
+    if !declared.contains_key("spec") {
+        prefix.push_str(&format!("spec: {}\n", crate::era::Era::unstated_spec()));
     }
-    if !existing.lines().any(|l| l.starts_with("profile:")) {
+    if !declared.contains_key("profile") {
         prefix.push_str("profile: project\n");
     }
-    if !existing
-        .lines()
-        .any(|l| l.starts_with("default_content_language:"))
-    {
+    if !declared.contains_key("default_content_language") {
         prefix.push_str(&format!("default_content_language: {lang}\n"));
     }
     if prefix.is_empty() {
@@ -504,11 +504,7 @@ pub fn run_placed(
     // A knowledge-base tree is lintable (0.3) but its adoption flow — id
     // backfill, legacy-checker delegation — is its own release. Refusing
     // beats half-adopting (the D-006 doctrine).
-    let dm = fs::read_to_string(root.join(".docmeta.yml")).unwrap_or_default();
-    if dm
-        .lines()
-        .any(|l| l.trim_start().starts_with("profile:") && l.contains("knowledge-base"))
-    {
+    if crate::hook::is_knowledge_base(root) {
         return Err(
             "this is a knowledge-base tree — lint and refs already understand it; \
              `adopt` support for the profile lands with the knowledge-base adoption release"
@@ -964,12 +960,7 @@ fn previous_adoption_block(existing: &str, root: &Path) -> Option<String> {
         heading.to_string()
     } else {
         // a report written before D-097: the tree's own creation date, else no date
-        let created = fs::read_to_string(root.join(".docmeta.yml"))
-            .ok()
-            .and_then(|t| {
-                t.lines()
-                    .find_map(|l| l.strip_prefix("created:").map(|v| v.trim().to_string()))
-            });
+        let created = crate::tree::docmeta_value(root, "created");
         match created {
             Some(d) if !d.is_empty() => format!("## Done — adoption ({d})"),
             _ => "## Done — adoption".to_string(),

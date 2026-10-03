@@ -1204,11 +1204,13 @@ pub(crate) fn source_hash(root: &Path, source: &str) -> Option<String> {
     sidecar_field(&text, "hash")
 }
 
-/// One `key: value` line of a provenance sidecar.
+/// One field of a provenance sidecar, read as every value is (D-002).
 pub(crate) fn sidecar_field(text: &str, key: &str) -> Option<String> {
-    text.lines()
-        .find_map(|l| l.strip_prefix(key).and_then(|r| r.strip_prefix(':')))
-        .map(|v| v.trim().to_string())
+    crate::fm::parse_fields(text)
+        .fields
+        .get(key)
+        .and_then(crate::fm::Value::as_str)
+        .map(str::to_string)
         .filter(|v| !v.is_empty())
 }
 

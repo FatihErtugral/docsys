@@ -54,6 +54,10 @@ pub struct Frontmatter {
     pub problems: Vec<String>,
     /// 0-based line index of the first body line (after the closing `---`).
     pub body_start: usize,
+    /// Each field's lines, its key line through the last line the parser
+    /// joined to it — a block list's items, a reflowed list — as 0-based line
+    /// indexes of the parsed text.
+    pub spans: BTreeMap<String, std::ops::Range<usize>>,
 }
 
 /// The text with the frontmatter's one-line `key:` removed; `None` when the
@@ -73,41 +77,40 @@ pub fn without_scalar(text: &str, key: &str) -> Option<String> {
     removed.then_some(out)
 }
 
-/// The text with the frontmatter's `keys` removed, each with the lines that
-/// continue it — a block list's indented items, a reflowed inline list up to
-/// its `]`; `None` when none is there. The body is never touched.
+/// The text with the frontmatter's `keys` removed, each with the lines the
+/// parser joins to it; `None` when none is there. The body is never touched.
 pub fn without_fields(text: &str, keys: &[&str]) -> Option<String> {
     let fm = parse(text)?;
-    let mut removed = false;
-    let mut out = String::with_capacity(text.len());
-    let mut skipping: Option<bool> = None; // Some(open inline list)
-    for (i, line) in text.split_inclusive('\n').enumerate() {
-        let inside = i > 0 && i < fm.body_start.saturating_sub(1);
-        if inside {
-            if let Some(open) = skipping {
-                let continues = if open {
-                    true
-                } else {
-                    line.starts_with(' ') || line.starts_with('\t')
-                };
-                if continues {
-                    if open && line.contains(']') {
-                        skipping = Some(false);
-                    }
-                    continue;
-                }
-                skipping = None;
-            }
-            if let Some(key) = keys.iter().find(|k| line.starts_with(&format!("{k}:"))) {
-                removed = true;
-                let value = line.trim_end().get(key.len() + 1..).unwrap_or("").trim();
-                skipping = Some(value.starts_with('[') && !value.contains(']'));
-                continue;
-            }
-        }
-        out.push_str(line);
+    let gone: Vec<&std::ops::Range<usize>> = keys.iter().filter_map(|k| fm.spans.get(*k)).collect();
+    if gone.is_empty() {
+        return None;
     }
-    removed.then_some(out)
+    Some(
+        text.split_inclusive('\n')
+            .enumerate()
+            .filter(|(i, _)| !gone.iter().any(|r| r.contains(i)))
+            .map(|(_, l)| l)
+            .collect(),
+    )
+}
+
+/// The fields of a file in the registered subset that has no fences —
+/// `.docmeta.yml`, a provenance sidecar — read by the frontmatter reader, so
+/// a value reads one way wherever it is read (D-002). Spans are the file's
+/// own line indexes.
+pub fn parse_fields(text: &str) -> Frontmatter {
+    let mut framed = String::with_capacity(text.len() + 8);
+    framed.push_str("---\n");
+    framed.push_str(text);
+    if !text.is_empty() && !text.ends_with('\n') {
+        framed.push('\n');
+    }
+    framed.push_str("---\n");
+    let mut fm = parse(&framed).unwrap_or_default();
+    for r in fm.spans.values_mut() {
+        *r = r.start.saturating_sub(1)..r.end.saturating_sub(1);
+    }
+    fm
 }
 
 fn is_key(s: &str) -> bool {
@@ -126,6 +129,27 @@ fn strip_quotes(v: &str) -> String {
         .and_then(|s| s.strip_suffix('"'))
         .or_else(|| v.strip_prefix('\'').and_then(|s| s.strip_suffix('\'')));
     stripped.unwrap_or(v).to_string()
+}
+
+/// A value without its trailing ` # comment` (D-002). A quoted value or an
+/// inline list keeps a `#` inside its quotes or brackets; a value that is
+/// only a comment is empty.
+fn uncommented(v: &str) -> &str {
+    if v.starts_with('#') {
+        return "";
+    }
+    let from = match v.chars().next() {
+        Some('[') => v.rfind(']').map_or(v.len(), |i| i + 1),
+        Some(q @ ('"' | '\'')) => v
+            .get(1..)
+            .and_then(|r| r.find(q))
+            .map_or(v.len(), |i| i + 2),
+        _ => 0,
+    };
+    match v.get(from..).and_then(|t| t.find(" #")) {
+        Some(i) => v.get(..from + i).unwrap_or(v).trim_end(),
+        None => v,
+    }
 }
 
 fn parse_inline_list(v: &str) -> Option<Vec<String>> {
@@ -161,6 +185,11 @@ pub fn parse(text: &str) -> Option<Frontmatter> {
     // several lines; the value is the same value, so the parser follows it to
     // the closing bracket instead of reading indented continuations as nesting.
     let mut open_list: Option<(String, String)> = None;
+    let join = |fm: &mut Frontmatter, key: &str, idx: usize| {
+        if let Some(r) = fm.spans.get_mut(key) {
+            r.end = idx + 1;
+        }
+    };
 
     for (idx, line) in lines {
         if line == "---" {
@@ -177,10 +206,11 @@ pub fn parse(text: &str) -> Option<Frontmatter> {
             continue;
         }
         if let Some((key, mut acc)) = open_list.take() {
+            join(&mut fm, &key, idx);
             acc.push(' ');
             acc.push_str(line.trim());
             if acc.contains(']') {
-                if let Some(items) = parse_inline_list(acc.trim()) {
+                if let Some(items) = parse_inline_list(uncommented(acc.trim())) {
                     fm.fields.insert(key, Value::List(items));
                 } else {
                     fm.problems
@@ -196,9 +226,10 @@ pub fn parse(text: &str) -> Option<Frontmatter> {
             // A formatter may push the opening bracket onto its own line.
             if line.trim_start().starts_with('[') {
                 pending_list_key = None;
+                join(&mut fm, &key, idx);
                 let acc = line.trim().to_string();
                 if acc.contains(']') {
-                    if let Some(items) = parse_inline_list(&acc) {
+                    if let Some(items) = parse_inline_list(uncommented(&acc)) {
                         fm.fields.insert(key, Value::List(items));
                     }
                 } else {
@@ -207,13 +238,14 @@ pub fn parse(text: &str) -> Option<Frontmatter> {
                 continue;
             }
             if let Some(item) = line.strip_prefix("  - ") {
+                join(&mut fm, &key, idx);
                 // `- key: value` opens a map entry (the §11 `verifies:`
                 // grammar); any other item is a scalar. A list never mixes
                 // the two — that is a finding, not a guess.
                 let map_field = item
                     .split_once(':')
                     .filter(|(k, v)| is_key(k.trim()) && (v.is_empty() || v.starts_with(' ')))
-                    .map(|(k, v)| (k.trim().to_string(), strip_quotes(v.trim())));
+                    .map(|(k, v)| (k.trim().to_string(), strip_quotes(uncommented(v.trim()))));
                 let entry = fm.fields.entry(key).or_insert_with(|| match map_field {
                     Some(_) => Value::Maps(Vec::new()),
                     None => Value::List(Vec::new()),
@@ -229,7 +261,9 @@ pub fn parse(text: &str) -> Option<Frontmatter> {
                         m.insert(k, v);
                         maps.push(m);
                     }
-                    (Value::List(items), None) => items.push(strip_quotes(item)),
+                    (Value::List(items), None) => {
+                        items.push(strip_quotes(uncommented(item.trim())));
+                    }
                     _ => fm
                         .problems
                         .push(format!("line {}: a list mixes scalars and maps", idx + 1)),
@@ -244,7 +278,8 @@ pub fn parse(text: &str) -> Option<Frontmatter> {
                         .split_once(':')
                         .filter(|(k, _)| is_key(k.trim()));
                     if let (Some(last), Some((k, v))) = (maps.last_mut(), field) {
-                        last.insert(k.trim().to_string(), strip_quotes(v.trim()));
+                        last.insert(k.trim().to_string(), strip_quotes(uncommented(v.trim())));
+                        join(&mut fm, &key, idx);
                         continue;
                     }
                 }
@@ -276,7 +311,9 @@ pub fn parse(text: &str) -> Option<Frontmatter> {
                 .push(format!("line {}: duplicate key `{key}`", idx + 1));
             continue;
         }
-        let rest = rest.trim();
+        fm.spans.insert(key.to_string(), idx..idx + 1);
+        // a comment after the value is not part of it
+        let rest = uncommented(rest.trim());
         if rest.is_empty() {
             // Either a block list follows, or the field is an empty scalar.
             pending_list_key = Some(key.to_string());
@@ -286,13 +323,8 @@ pub fn parse(text: &str) -> Option<Frontmatter> {
         } else if rest.starts_with('[') && !rest.contains(']') {
             open_list = Some((key.to_string(), rest.to_string()));
         } else {
-            // A comment after the value is not part of it.
-            let val = match rest.split_once(" #") {
-                Some((v, _)) => v,
-                None => rest,
-            };
             fm.fields
-                .insert(key.to_string(), Value::Str(strip_quotes(val)));
+                .insert(key.to_string(), Value::Str(strip_quotes(rest)));
         }
     }
 
@@ -502,6 +534,35 @@ mod tests_more {
         assert!(parse("\n---\na: 1\n---\n").is_none());
         assert!(parse("----\n").is_none());
         assert!(parse("---\n---\n").is_some());
+    }
+
+    #[test]
+    fn a_trailing_comment_leaves_every_value_form() {
+        let f = fm("---\nc: [auth, billing]   # the providers\nk: # none yet\nq: \"a # b\"  # quoted\nb:\n  - one # first\n  - \"two # 2\"\nv:\n  - path: src/a.rs  # the file\n    hash: \"fnv:1\" # recorded\n---\n");
+        assert_eq!(l(&f, "c"), vec!["auth", "billing"]);
+        assert!(
+            l(&f, "k").is_empty(),
+            "a key whose value is a comment is empty"
+        );
+        assert_eq!(s(&f, "q"), "a # b");
+        assert_eq!(l(&f, "b"), vec!["one", "two # 2"]);
+        let maps = f.fields["v"].as_maps().unwrap();
+        assert_eq!(maps[0]["path"], "src/a.rs");
+        assert_eq!(maps[0]["hash"], "fnv:1");
+        assert!(f.problems.is_empty(), "{:?}", f.problems);
+    }
+
+    #[test]
+    fn a_field_leaves_with_the_lines_the_parser_joins_to_it() {
+        // a formatter may push a list's bracket onto the next line, at column 0
+        assert_eq!(
+            super::without_fields(
+                "---\nverified_blocks:\n[aa, bb]\nid: a\n---\n",
+                &["verified_blocks"]
+            )
+            .as_deref(),
+            Some("---\nid: a\n---\n")
+        );
     }
 
     #[test]

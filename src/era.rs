@@ -47,11 +47,16 @@ impl Era {
         Era::of_spec(tree.docmeta_str("spec"))
     }
 
+    /// The spec a tree that declares none is read as (D-118), as its
+    /// `spec:` value.
+    pub fn unstated_spec() -> String {
+        format!("docsys/0.{FIRST}")
+    }
+
     /// The era of the tree at `root`, read straight from its `.docmeta.yml` —
     /// for a write that has no loaded tree.
     pub fn at(root: &Path) -> Era {
-        let text = std::fs::read_to_string(root.join(".docmeta.yml")).unwrap_or_default();
-        Era::of_spec(text.lines().find_map(|l| l.strip_prefix("spec:")))
+        Era::of_spec(crate::tree::docmeta_value(root, "spec").as_deref())
     }
 
     fn v05(self) -> bool {

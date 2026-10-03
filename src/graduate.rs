@@ -74,11 +74,7 @@ fn heading_level(line: &str) -> Option<usize> {
 /// `.docmeta.yml` `headings:` — each template section's canonical name and the
 /// name the tree shows (R-120).
 fn heading_map(root: &Path) -> Vec<(String, String)> {
-    let Ok(text) = fs::read_to_string(root.join(".docmeta.yml")) else {
-        return Vec::new();
-    };
-    let framed = format!("---\n{text}---\n");
-    fm::parse(&framed)
+    crate::tree::docmeta_at(root)
         .and_then(|f| {
             f.fields
                 .get("headings")
@@ -202,11 +198,7 @@ pub fn blocks(text: &str) -> Vec<Block> {
 /// authored rewrite of raw notes into a wiki page — not byte movement. A
 /// command that moved bytes there would fake the one step that is judgment.
 fn refuse_knowledge_base(root: &Path) -> Result<(), String> {
-    let dm = fs::read_to_string(root.join(".docmeta.yml")).unwrap_or_default();
-    if dm
-        .lines()
-        .any(|l| l.trim_start().starts_with("profile:") && l.contains("knowledge-base"))
-    {
+    if crate::hook::is_knowledge_base(root) {
         return Err(
             "knowledge-base graduation is distillation, not movement (R-092) — author the \
              wiki page, list the raw notes in `sources:`; nothing is moved or removed"
@@ -291,46 +283,37 @@ fn add_graduated_to(text: &str, ids: &[String]) -> String {
     if ids.is_empty() {
         return text.to_string();
     }
-    let mut lines: Vec<String> = text.lines().map(str::to_string).collect();
-    let close = lines
-        .iter()
-        .enumerate()
-        .skip(1)
-        .find(|(_, l)| l.as_str() == "---")
-        .map(|(i, _)| i);
-    let Some(close) = close else {
+    let Some(parsed) = fm::parse(text).filter(|f| f.body_start > 0) else {
         return text.to_string();
     };
-    let existing = lines
-        .iter()
-        .take(close)
-        .position(|l| l.starts_with("graduated_to:"));
-    match existing {
-        Some(i) => {
-            let line = lines.get(i).cloned().unwrap_or_default();
-            let inner = line
-                .trim_start_matches("graduated_to:")
-                .trim()
-                .trim_start_matches('[')
-                .trim_end_matches(']')
-                .trim();
-            let mut items: Vec<String> = if inner.is_empty() {
-                Vec::new()
-            } else {
-                inner.split(',').map(|s| s.trim().to_string()).collect()
-            };
-            for id in ids {
-                if !items.iter().any(|x| x == id) {
-                    items.push(id.clone());
-                }
-            }
-            if let Some(slot) = lines.get_mut(i) {
-                *slot = format!("graduated_to: [{}]", items.join(", "));
-            }
+    let mut items: Vec<String> = parsed
+        .fields
+        .get("graduated_to")
+        .and_then(fm::Value::as_list)
+        .map(<[String]>::to_vec)
+        .unwrap_or_default();
+    for id in ids {
+        if !items.iter().any(|x| x == id) {
+            items.push(id.clone());
         }
-        None => lines.insert(close, format!("graduated_to: [{}]", ids.join(", "))),
     }
-    let mut out = lines.join("\n");
+    let line = format!("graduated_to: [{}]", items.join(", "));
+    // the field's own lines give way to the one line; absent, it goes last
+    let span = parsed
+        .spans
+        .get("graduated_to")
+        .cloned()
+        .unwrap_or(parsed.body_start - 1..parsed.body_start - 1);
+    let mut out: Vec<String> = Vec::new();
+    for (i, l) in text.lines().enumerate() {
+        if i == span.start {
+            out.push(line.clone());
+        }
+        if !span.contains(&i) {
+            out.push(l.to_string());
+        }
+    }
+    let mut out = out.join("\n");
     if text.ends_with('\n') {
         out.push('\n');
     }
@@ -709,5 +692,20 @@ mod tests {
             .unwrap();
         assert!(line.contains("ref-a") && line.contains("ref-c"), "{line}");
         assert_eq!(merged.matches("graduated_to:").count(), 1);
+    }
+
+    #[test]
+    fn graduated_to_merges_the_value_the_parser_reads() {
+        let block = "---\nid: x\ngraduated_to:\n  - ref-a   # the first\nstatus: done\n---\nbody\n";
+        let merged = add_graduated_to(block, &["ref-b".to_string()]);
+        assert_eq!(
+            merged,
+            "---\nid: x\ngraduated_to: [ref-a, ref-b]\nstatus: done\n---\nbody\n"
+        );
+        let commented = add_graduated_to(
+            "---\nid: x\ngraduated_to: [ref-a]  # so far\n---\n",
+            &["ref-a".to_string()],
+        );
+        assert_eq!(commented, "---\nid: x\ngraduated_to: [ref-a]\n---\n");
     }
 }

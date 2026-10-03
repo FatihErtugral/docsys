@@ -185,27 +185,32 @@ const PRIVATE_KEYS: [&str; 6] = [
 ];
 
 /// The `.docmeta.yml` with what names people, places or projects removed:
-/// the private keys' values, and every `<…@…>` address.
+/// each field as the tree reads it (D-002), the private keys' values and
+/// every `<…@…>` address replaced, and no comment — a comment is prose the
+/// owner or adopt wrote, and it can name anything.
 pub fn redact_docmeta(text: &str) -> String {
+    let parsed = crate::fm::parse_fields(text);
+    let mut keys: Vec<(&String, &std::ops::Range<usize>)> = parsed.spans.iter().collect();
+    keys.sort_by_key(|(_, r)| r.start);
     let mut out = String::new();
-    let mut in_private_block = false;
-    for line in text.lines() {
-        if in_private_block && line.starts_with(' ') {
-            continue;
-        }
-        in_private_block = false;
-        // a comment is prose the owner or adopt wrote: it can name anything
-        if line.trim_start().starts_with('#') {
-            continue;
-        }
-        let key = line.split_once(':').map(|(k, _)| k.trim());
-        if let Some(k) = key.filter(|k| PRIVATE_KEYS.contains(k) && !line.starts_with(' ')) {
-            out.push_str(&format!("{k}: <redacted>\n"));
-            in_private_block = true;
-            continue;
-        }
-        out.push_str(&redact_emails(line));
-        out.push('\n');
+    for (k, _) in keys {
+        let value = if PRIVATE_KEYS.contains(&k.as_str()) {
+            "<redacted>".to_string()
+        } else {
+            match parsed.fields.get(k) {
+                Some(crate::fm::Value::Str(v)) => redact_emails(v),
+                Some(crate::fm::Value::List(items)) => format!(
+                    "[{}]",
+                    items
+                        .iter()
+                        .map(|i| redact_emails(i))
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                ),
+                Some(crate::fm::Value::Maps(_)) | None => "<redacted>".to_string(),
+            }
+        };
+        out.push_str(&format!("{k}: {value}\n"));
     }
     out
 }
@@ -315,14 +320,8 @@ pub fn draft(d: &Draft) -> Result<String, String> {
     );
     if let Some(root) = d.root {
         let docmeta = std::fs::read_to_string(root.join(".docmeta.yml")).unwrap_or_default();
-        let field = |k: &str| {
-            docmeta
-                .lines()
-                .find_map(|l| l.strip_prefix(k))
-                .and_then(|v| v.strip_prefix(':'))
-                .map(|v| v.trim().to_string())
-                .unwrap_or_else(|| "?".to_string())
-        };
+        let field =
+            |k: &str| crate::tree::docmeta_value(root, k).unwrap_or_else(|| "?".to_string());
         env.push_str(&format!(
             "- tree: profile {}, {}\n",
             field("profile"),
@@ -387,6 +386,20 @@ mod tests {
         assert!(out.contains("maintainers: <redacted>\nconsume: <redacted>\nprofile: project\n"));
         assert!(out.contains("headings: [Context=<x>]"), "{out}");
         assert_eq!(redact_emails("a <x@y.z> b <c>"), "a <email> b <c>");
+    }
+
+    #[test]
+    fn a_private_value_leaves_with_every_line_the_parser_joins_to_it() {
+        let text = "spec: docsys/0.5\nmaintainers:\n[ayse, bora]\nconsume: [auth=/home/x/auth#docs,\n  billing=/home/x/b#docs]\nprofile: project   # ayse's team\n";
+        let out = redact_docmeta(text);
+        assert!(
+            !out.contains("ayse") && !out.contains("bora") && !out.contains("/home/x"),
+            "{out}"
+        );
+        assert!(
+            out.contains("maintainers: <redacted>\nconsume: <redacted>\nprofile: project\n"),
+            "{out}"
+        );
     }
 
     #[test]

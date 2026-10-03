@@ -77,8 +77,8 @@ fn consumed(tree: &DocTree) -> Vec<String> {
 /// `.docmeta.yml` with one more `consume:` entry, whatever shape the list
 /// has (inline, block, absent).
 fn with_entry(text: &str, entry: &str) -> String {
-    let lines: Vec<&str> = text.lines().collect();
-    let Some(at) = lines.iter().position(|l| l.starts_with("consume:")) else {
+    let parsed = crate::fm::parse_fields(text);
+    let Some(span) = parsed.spans.get("consume").cloned() else {
         let mut out = text.to_string();
         if !out.is_empty() && !out.ends_with('\n') {
             out.push('\n');
@@ -86,30 +86,33 @@ fn with_entry(text: &str, entry: &str) -> String {
         out.push_str(&format!("consume: [{entry}]\n"));
         return out;
     };
-    let mut out: Vec<String> = lines.iter().map(|l| (*l).to_string()).collect();
-    let line = lines.get(at).copied().unwrap_or_default();
-    let rest = line.trim_start_matches("consume:").trim();
-    if rest.starts_with('[') {
-        let inner = rest.trim_start_matches('[').trim_end_matches(']').trim();
-        let new = if inner.is_empty() {
-            format!("consume: [{entry}]")
-        } else {
-            format!("consume: [{inner}, {entry}]")
-        };
-        if let Some(slot) = out.get_mut(at) {
-            *slot = new;
-        }
-    } else {
-        // block list: after the last `  - ` item of this key
-        let mut end = at;
-        for (i, l) in lines.iter().enumerate().skip(at + 1) {
-            if l.starts_with("  - ") {
-                end = i;
-            } else if !l.trim().is_empty() {
-                break;
+    let lines: Vec<&str> = text.lines().collect();
+    let block = lines.get(span.start + 1..span.end).is_some_and(|rest| {
+        !rest.is_empty()
+            && rest
+                .iter()
+                .all(|l| l.starts_with("  - ") || l.trim_start().starts_with('#'))
+    });
+    let mut out: Vec<String> = Vec::new();
+    for (i, l) in lines.iter().enumerate() {
+        if block {
+            out.push((*l).to_string());
+            if i + 1 == span.end {
+                out.push(format!("  - {entry}"));
             }
+        } else if i == span.start {
+            // an inline list, reflowed or not, becomes one line with the entry
+            let mut items: Vec<String> = parsed
+                .fields
+                .get("consume")
+                .and_then(crate::fm::Value::as_list)
+                .map(<[String]>::to_vec)
+                .unwrap_or_default();
+            items.push(entry.to_string());
+            out.push(format!("consume: [{}]", items.join(", ")));
+        } else if !span.contains(&i) {
+            out.push((*l).to_string());
         }
-        out.insert(end + 1, format!("  - {entry}"));
     }
     let mut joined = out.join("\n");
     joined.push('\n');
@@ -264,6 +267,18 @@ mod tests {
         assert_eq!(
             with_entry("consume:\n  - a\n  - b\nx: y\n", "c"),
             "consume:\n  - a\n  - b\n  - c\nx: y\n"
+        );
+    }
+
+    #[test]
+    fn an_entry_joins_the_list_the_parser_reads() {
+        assert_eq!(
+            with_entry("consume: [a]   # the providers\nx: y\n", "c"),
+            "consume: [a, c]\nx: y\n"
+        );
+        assert_eq!(
+            with_entry("consume: [a,\n  b]\nx: y\n", "c"),
+            "consume: [a, b, c]\nx: y\n"
         );
     }
 }

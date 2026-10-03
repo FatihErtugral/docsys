@@ -504,13 +504,7 @@ pub enum CommitPolicy {
 }
 
 pub fn commit_policy(root: &Path) -> CommitPolicy {
-    let require = fs::read_to_string(root.join(".docmeta.yml")).is_ok_and(|t| {
-        t.lines().any(|l| {
-            l.strip_prefix("commit_policy:")
-                .is_some_and(|v| v.trim().trim_matches('"') == "require")
-        })
-    });
-    if require {
+    if crate::tree::docmeta_value(root, "commit_policy").as_deref() == Some("require") {
         CommitPolicy::Require
     } else {
         CommitPolicy::Ask
@@ -571,12 +565,7 @@ pub fn payload_places(payload: &str) -> (Option<String>, Option<String>) {
 }
 
 pub fn is_knowledge_base(root: &Path) -> bool {
-    fs::read_to_string(root.join(".docmeta.yml")).is_ok_and(|t| {
-        t.lines().any(|l| {
-            l.strip_prefix("profile:")
-                .is_some_and(|v| v.trim() == "knowledge-base")
-        })
-    })
+    crate::tree::docmeta_value(root, "profile").as_deref() == Some("knowledge-base")
 }
 
 /// The `raw/`-relative name of an EXISTING record the tool is about to write
@@ -980,15 +969,18 @@ pub fn post_tool_use(repo: &Path, root: &Path, payload: &str, today: &str) -> Re
 /// The page with its `updated:` line set to `today`; `None` when the page
 /// has no such line (nothing to keep honest) or already says so.
 pub fn bump_updated(text: &str, today: &str) -> Option<String> {
+    // the frontmatter's own field, read where the parser reads it
+    let fields = crate::fm::parse(text)
+        .filter(|f| f.body_start > 0)
+        .unwrap_or_else(|| crate::fm::parse_fields(text));
+    let at = fields.spans.get("updated")?.start;
     let mut changed = false;
     let mut out = String::with_capacity(text.len());
-    for line in text.split_inclusive('\n') {
-        if line.starts_with("updated:") {
+    for (i, line) in text.split_inclusive('\n').enumerate() {
+        if i == at {
             let nl = if line.ends_with('\n') { "\n" } else { "" };
             let new = format!("updated: {today}{nl}");
-            if new != line {
-                changed = true;
-            }
+            changed = new != line;
             out.push_str(&new);
         } else {
             out.push_str(line);
@@ -1341,6 +1333,18 @@ mod tests {
         assert_eq!(
             bump_updated("updated: x", "2026-08-26").as_deref(),
             Some("updated: 2026-08-26")
+        );
+    }
+
+    #[test]
+    fn updated_is_the_frontmatter_field_and_never_a_body_line() {
+        assert_eq!(
+            bump_updated(
+                "---\nid: a\nupdated: 2026-01-01\n---\nupdated: in the body\n",
+                "2026-08-26"
+            )
+            .as_deref(),
+            Some("---\nid: a\nupdated: 2026-08-26\n---\nupdated: in the body\n")
         );
     }
 }
