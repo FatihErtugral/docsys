@@ -192,3 +192,34 @@ fn the_echoed_command_is_written_once_without_the_home_directory() {
     assert!(!body.contains(home.to_str().unwrap()), "{body}");
     let _ = fs::remove_dir_all(&repo);
 }
+
+/// The command a pointer names says something about that rule, and a value
+/// the command cannot use is a bad invocation, exit 2 — with `--draft` or
+/// without (D-116).
+#[test]
+fn feedback_reads_its_rule_and_refuses_what_it_cannot_use() {
+    let run = |args: &[&str]| {
+        std::process::Command::new(env!("CARGO_BIN_EXE_docsys"))
+            .args(args)
+            .env("DOCSYS_NO_AUTO_INSTALL", "1")
+            .current_dir(std::env::temp_dir())
+            .output()
+            .unwrap()
+    };
+    let bare = run(&["feedback"]);
+    let ruled = run(&["feedback", "--rule", "R-108"]);
+    assert!(ruled.status.success(), "{ruled:?}");
+    let said = String::from_utf8_lossy(&ruled.stdout);
+    assert_ne!(ruled.stdout, bare.stdout, "the rule is read");
+    assert!(
+        said.contains("R-108") && said.contains("docsys feedback --draft --rule R-108"),
+        "{said}"
+    );
+    for bad in [
+        &["feedback", "--rule", "R-999"][..],
+        &["feedback", "--type", "nonsense"],
+        &["feedback", "extra"],
+    ] {
+        assert_eq!(run(bad).status.code(), Some(2), "{bad:?}");
+    }
+}

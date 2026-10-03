@@ -681,7 +681,38 @@ fn main() -> ExitCode {
             ExitCode::SUCCESS
         }
         ("feedback", None) => {
+            // a value the command cannot use is a bad invocation, draft or not
+            if let Some(extra) = opts.positional.first() {
+                eprintln!(
+                    "feedback: `{extra}` is no argument of feedback — `docsys feedback --help`"
+                );
+                return ExitCode::from(2);
+            }
+            if let Some(k) = opts.kind.as_deref() {
+                if !docsys::feedback::TYPES.contains(&k) {
+                    eprintln!(
+                        "feedback: `{k}` is not one of: {}",
+                        docsys::feedback::TYPES.join(", ")
+                    );
+                    return ExitCode::from(2);
+                }
+            }
+            let rule_line = match opts.rule.as_deref() {
+                Some(r) => match docsys::rules::rule_sentence(r) {
+                    Some(s) => Some((r, s)),
+                    None => {
+                        eprintln!("feedback: `{r}` is no rule of the embedded spec");
+                        return ExitCode::from(2);
+                    }
+                },
+                None => None,
+            };
             if !opts.draft {
+                // the pointer's command: that rule, and how to dispute it
+                if let Some((r, sentence)) = rule_line {
+                    println!("{r}: {sentence}\n");
+                    println!("A finding of it that is wrong is a false positive. Draft the issue, the command that reported it included:\n  docsys feedback --draft --rule {r} --command \"docsys …\"\n");
+                }
                 print!("{}", docsys::feedback::guide());
                 return ExitCode::SUCCESS;
             }
