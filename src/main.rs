@@ -682,24 +682,34 @@ fn main() -> ExitCode {
             }
         }
         ("adopt", None) => {
-            // the workflow flags are refused before anything is written
+            let repo = opts.repo.clone().unwrap_or_else(|| PathBuf::from("."));
+            let root = if opts.root.is_absolute() {
+                opts.root.clone()
+            } else {
+                repo.join(&opts.root)
+            };
+            // the workflow flags are refused before anything is written; a tree
+            // adopt creates declares this docsys's spec
+            let era = if root.join(".docmeta.yml").is_file() {
+                docsys::era::Era::at(&root)
+            } else {
+                docsys::era::Era::of_spec(Some(&format!(
+                    "docsys/{}",
+                    docsys::rules::spec_version()
+                )))
+            };
             let ci = match docsys::workflow::Ci::from_flags(
                 opts.ci_runner.as_deref(),
                 opts.ci_install.as_deref(),
                 opts.ci_sha256.as_deref(),
                 opts.verify_on_approval.as_deref(),
+                era,
             ) {
                 Ok(ci) => ci,
                 Err(e) => {
                     eprintln!("adopt: {e}");
                     return ExitCode::from(2);
                 }
-            };
-            let repo = opts.repo.clone().unwrap_or_else(|| PathBuf::from("."));
-            let root = if opts.root.is_absolute() {
-                opts.root.clone()
-            } else {
-                repo.join(&opts.root)
             };
             if opts.obsidian {
                 match docsys::adopt::obsidian(&root) {

@@ -46,7 +46,7 @@ pub const COMMANDS: &[Command] = &[
             ("--ci-runner <label>,…", "the runner labels of the CI workflow written when .github/ exists"),
             ("--ci-install cargo|release", "how the workflow installs docsys"),
             ("--ci-sha256 <target>=<hex>,…", "the release binary's checksums, with --ci-install release"),
-            ("--verify-on-approval <mode>", "how a review's approval is recorded: in the pull request's description (the default on docsys/0.5), a follow-up pull request, a direct push, or not"),
+            ("--verify-on-approval <mode>", "how a review's approval is recorded: `description` on a docsys/0.5 tree; on a docsys/0.4 tree `pull-request` (a follow-up pull request) or `direct` (a push); the first is each tree's default, `off` records none, and a mode the tree cannot read is refused"),
             ("--obsidian", "also write .obsidian settings and a stale-work view"),
         ],
         example: "docsys adopt --repo . --root docs",

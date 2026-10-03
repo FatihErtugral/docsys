@@ -40,6 +40,32 @@ impl Verify {
         }
     }
 
+    /// The mode a tree reads: on docsys/0.5 the approval rides the pull
+    /// request's description into history (D-126); before, the job writes
+    /// the records a docsys/0.4 tree reads (D-105).
+    pub fn of_era(era: crate::era::Era) -> Verify {
+        if era.verification_from_history() {
+            Verify::Description
+        } else {
+            Verify::PullRequest
+        }
+    }
+
+    /// A mode whose job records what the tree never reads is refused.
+    pub fn readable_by(self, era: crate::era::Era) -> Result<(), String> {
+        match (era.verification_from_history(), self) {
+            (true, Verify::PullRequest | Verify::Direct) => Err(format!(
+                "--verify-on-approval {}: its job writes records into pages, and a docsys/0.5 tree reads an approval from history instead (D-126) — use `description` (the default) or `off`",
+                self.name()
+            )),
+            (false, Verify::Description) => Err(
+                "--verify-on-approval description: the `Approved-by:` line it adds is read from history, which a docsys/0.4 tree does not do (D-118) — use `pull-request` (its default), `direct` or `off`, or move the tree with `docsys upgrade`"
+                    .to_string(),
+            ),
+            _ => Ok(()),
+        }
+    }
+
     fn named(s: &str) -> Option<Verify> {
         [
             Verify::PullRequest,
@@ -93,11 +119,15 @@ impl Ci {
         install: Option<&str>,
         sha256: Option<&str>,
         verify: Option<&str>,
+        era: crate::era::Era,
     ) -> Result<Option<Ci>, String> {
         if runner.is_none() && install.is_none() && sha256.is_none() && verify.is_none() {
             return Ok(None);
         }
-        let mut ci = Ci::default();
+        let mut ci = Ci {
+            verify: Verify::of_era(era),
+            ..Ci::default()
+        };
         if let Some(r) = runner {
             let labels: Vec<String> = r.split(',').map(|l| l.trim().to_string()).collect();
             if let Some(bad) = labels.iter().find(|l| !is_label(l)) {
@@ -113,6 +143,7 @@ impl Ci {
                     "--verify-on-approval takes description, pull-request, direct or off, not `{v}`"
                 )
             })?;
+            ci.verify.readable_by(era)?;
         }
         let known = || {
             TARGETS

@@ -171,7 +171,10 @@ fn ensure_ci_workflow(repo: &Path, root_rel: &str, ci: Option<&Ci>) -> CiOutcome
             opens_pull_requests: existing.contains("gh pr create"),
         };
     }
-    let ci = ci.cloned().unwrap_or_default();
+    let ci = ci.cloned().unwrap_or_else(|| Ci {
+        verify: Verify::of_era(crate::era::Era::at(&repo.join(root_rel))),
+        ..Ci::default()
+    });
     let verify = ci.verify;
     let text = workflow::render(&workflow::Workflow {
         version: agents::TEMPLATE_VERSION.to_string(),

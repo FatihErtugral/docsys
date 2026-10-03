@@ -175,12 +175,15 @@ fn verify_off_renders_no_verify_job() {
 
 #[test]
 fn the_flags_are_read_and_a_release_install_without_sha256_is_refused() {
-    assert_eq!(Ci::from_flags(None, None, None, None), Ok(None));
+    let v05 = docsys::era::Era::of_spec(Some("docsys/0.5"));
+    let v04 = docsys::era::Era::of_spec(Some("docsys/0.4"));
+    assert_eq!(Ci::from_flags(None, None, None, None, v05), Ok(None));
     let ci = Ci::from_flags(
         Some("self-hosted,linux"),
         Some("release"),
         Some(&format!("x86_64-unknown-linux-musl={SUM_A}")),
         Some("off"),
+        v05,
     )
     .unwrap()
     .unwrap();
@@ -193,7 +196,8 @@ fn the_flags_are_read_and_a_release_install_without_sha256_is_refused() {
         )])
     );
     assert_eq!(ci.verify, Verify::Off);
-    let only_mode = Ci::from_flags(None, None, None, Some("direct"))
+    // direct is a docsys/0.4 tree's mode (D-105)
+    let only_mode = Ci::from_flags(None, None, None, Some("direct"), v04)
         .unwrap()
         .unwrap();
     assert_eq!(
@@ -204,7 +208,7 @@ fn the_flags_are_read_and_a_release_install_without_sha256_is_refused() {
         }
     );
     let refused = |r: Option<&str>, i: Option<&str>, s: Option<&str>, v: Option<&str>| {
-        Ci::from_flags(r, i, s, v).unwrap_err()
+        Ci::from_flags(r, i, s, v, v05).unwrap_err()
     };
     assert!(refused(None, Some("release"), None, None).contains("--ci-sha256"));
     assert!(refused(
@@ -254,7 +258,7 @@ fn adopt_writes_the_workflow_its_flags_describe_and_keeps_it_after() {
             "--ci-runner",
             "self-hosted,linux",
             "--verify-on-approval",
-            "direct",
+            "description",
         ],
     );
     assert!(
@@ -270,7 +274,7 @@ fn adopt_writes_the_workflow_its_flags_describe_and_keeps_it_after() {
     )));
     assert!(
         first.ends_with(
-            " branch=main runner=self-hosted,linux install=cargo verify=direct root=docs"
+            " branch=main runner=self-hosted,linux install=cargo verify=description root=docs"
         ),
         "{first}"
     );
@@ -594,4 +598,56 @@ fn a_release_install_fails_when_the_pin_is_not_its_version() {
     );
     assert!(run("9.9.9").status.success());
     let _ = fs::remove_dir_all(&dir);
+}
+
+/// An approval mode that records nothing a tree reads is refused before
+/// anything is written: a docsys/0.5 tree reads approvals from history, so a
+/// job that writes records into pages verifies nothing (D-126); a docsys/0.4
+/// tree reads only those records, so the description line verifies nothing
+/// there (D-118). Each tree's default is the mode it reads.
+#[test]
+fn an_approval_mode_the_tree_cannot_read_is_refused_and_each_era_gets_its_own() {
+    for mode in ["pull-request", "direct"] {
+        let repo = repo_with_github(&format!("v05-{mode}"));
+        let out = docsys(&repo, &["adopt", "--verify-on-approval", mode]);
+        assert_eq!(out.status.code(), Some(2), "{out:?}");
+        assert!(
+            String::from_utf8_lossy(&out.stderr).contains("`description`"),
+            "{out:?}"
+        );
+        assert!(
+            !repo.join(FILE).exists() && !repo.join("docs").exists(),
+            "nothing written"
+        );
+        let _ = fs::remove_dir_all(&repo);
+    }
+    let v04 = |name: &str| {
+        let repo = repo_with_github(name);
+        fs::create_dir_all(repo.join("docs")).unwrap();
+        fs::write(
+            repo.join("docs/.docmeta.yml"),
+            "spec: docsys/0.4\nprofile: project\ndefault_content_language: en\n",
+        )
+        .unwrap();
+        repo
+    };
+    let repo = v04("v04-default");
+    let out = docsys(&repo, &["adopt"]);
+    assert!(out.status.success(), "{out:?}");
+    let first = fs::read_to_string(repo.join(FILE)).unwrap();
+    assert!(
+        first
+            .lines()
+            .next()
+            .unwrap()
+            .contains(" verify=pull-request "),
+        "a docsys/0.4 tree gets the job that writes its records: {}",
+        first.lines().next().unwrap()
+    );
+    let _ = fs::remove_dir_all(&repo);
+    let repo = v04("v04-description");
+    let out = docsys(&repo, &["adopt", "--verify-on-approval", "description"]);
+    assert_eq!(out.status.code(), Some(2), "{out:?}");
+    assert!(!repo.join(FILE).exists(), "nothing written");
+    let _ = fs::remove_dir_all(&repo);
 }
