@@ -50,9 +50,8 @@ info    raw-records        docs/raw/  1 record(s): from 0.5 a record layer — t
 auto    spec-line          docs/.docmeta.yml  `spec: docsys/0.4` → `spec: docsys/0.5`
 auto    pin                docs/.docsys-version  no pin → `0.16.0`: every docsys call here runs it
 -- 24 automatic, 5 for a person, 1 for information
-judged by docsys/0.5 as the tree is now: 8 new finding(s), 1 gone — the steps below clear their part
+judged by docsys/0.5 as the tree is now: 7 new finding(s), 1 gone — the steps below clear their part
 + WARN R-024 reference/expiry.md [record] a verification field in the page — on docsys/0.5 the state is read from history (an `Approved-by:` after the last body change, D-126), and this no longer holds; `docsys upgrade --apply` takes it out
-+ WARN R-024 reference/refresh.md [record] a verification field in the page — on docsys/0.5 the state is read from history (an `Approved-by:` after the last body change, D-126), and this no longer holds; `docsys upgrade --apply` takes it out
 + WARN R-050 reference/expiry.md [updated] `updated:` is not kept on docsys/0.5 — a page's date is its last content change in history; `docsys upgrade --apply` removes the line
 + WARN R-050 reference/refresh.md [updated] `updated:` is not kept on docsys/0.5 — a page's date is its last content change in history; `docsys upgrade --apply` removes the line
 + WARN R-054 work/features/token-rotation.md [updated] `updated:` is not kept on docsys/0.5 — a page's date is its last content change in history; `docsys upgrade --apply` removes the line

@@ -111,6 +111,9 @@ pub struct Upgrade {
     /// journal lines a branch from before the move wrote after it: the
     /// commit's message carries them into history (D-125)
     pub carried: Vec<String>,
+    /// the findings the next version adds and removes, before the steps
+    added: Vec<String>,
+    removed: Vec<String>,
 }
 
 impl Upgrade {
@@ -336,6 +339,7 @@ pub fn run_with(
         common(&ctx, &mut u, apply)?;
         (m.apply)(&ctx, &mut u, apply)?;
         spec_line(&ctx, &mut u, apply)?;
+        render_preview(&ctx, &mut u);
         if let Some(text) = note(m.release) {
             u.notes.push((m.release.to_string(), text));
         }
@@ -494,8 +498,33 @@ fn preview(ctx: &Ctx, u: &mut Upgrade) {
     };
     let now = findings();
     let next = crate::era::preview(u.to, findings);
-    let added: Vec<&String> = next.difference(&now).collect();
-    let removed: Vec<&String> = now.difference(&next).collect();
+    u.added = next.difference(&now).cloned().collect();
+    u.removed = now.difference(&next).cloned().collect();
+}
+
+/// The preview's lines, once the steps are known: a record the
+/// verified-record step converts holds after the move, so its finding is not
+/// one the move adds (D-101, D-126).
+fn render_preview(ctx: &Ctx, u: &mut Upgrade) {
+    let converted: Vec<String> = u
+        .items
+        .iter()
+        .filter(|i| i.step == "verified-record" && i.strategy == "auto")
+        .map(|i| {
+            i.file
+                .strip_prefix(&ctx.prefix)
+                .unwrap_or(&i.file)
+                .to_string()
+        })
+        .collect();
+    let kept = |f: &String| {
+        !(f.contains(" R-024 ")
+            && converted
+                .iter()
+                .any(|page| f.contains(&format!(" {page} [record]"))))
+    };
+    let added: Vec<String> = u.added.iter().filter(|f| kept(f)).cloned().collect();
+    let removed = u.removed.clone();
     u.preview.push(format!(
             "judged by docsys/0.{} as the tree is now: {} new finding(s), {} gone — the steps below clear their part",
             u.to,
