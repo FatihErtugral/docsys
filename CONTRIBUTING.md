@@ -49,7 +49,7 @@ cargo test
 ```
 
 CI runs these plus a dogfood job (`docsys adopt` on a fresh repository) on
-Linux, macOS, and Windows — all must be green.
+Linux and macOS — all must be green.
 
 - Keep commit messages plain and descriptive of the change.
 - Update `CHANGELOG.md` under the appropriate version section.

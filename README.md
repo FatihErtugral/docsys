@@ -442,9 +442,11 @@ run is printed instead. Two repositories on different versions work side by
 side, and a teammate who pulls a new pin runs it on the next call.
 
 No Rust toolchain? Grab a prebuilt binary for Linux (static musl,
-x86_64/aarch64), macOS (Intel/Apple Silicon), or Windows from the
+x86_64/aarch64) or macOS (Intel/Apple Silicon) from the
 [releases page](https://github.com/FatihErtugral/docsys/releases) and put it
 on your PATH.
+
+Windows: run docsys inside WSL (Ubuntu); native Windows is not supported.
 
 `adopt` is idempotent — re-run it after an upgrade and only what changed is
 rewritten. It lands:

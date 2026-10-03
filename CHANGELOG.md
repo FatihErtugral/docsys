@@ -68,6 +68,7 @@ declares `spec: docsys/0.5`; a tree that declares `docsys/0.4` is served as
 
 ### Changed
 
+- No native Windows build is released any more, and CI tests Linux and macOS.
 - A page's verification is read from history: verified when a commit
   carrying `Approved-by:` from a maintainer follows its last body change.
   Nothing is written into the page and no follow-up pull request is opened;

@@ -21,8 +21,6 @@ jobs:
             target: aarch64-apple-darwin
           - os: macos-latest
             target: x86_64-apple-darwin
-          - os: windows-latest
-            target: x86_64-pc-windows-msvc
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v5
@@ -32,8 +30,7 @@ jobs:
       - run: rustup target add ${{ matrix.target }}
       - run: cargo build --release --locked --target ${{ matrix.target }}
 
-      - name: package (unix)
-        if: runner.os != 'Windows'
+      - name: package
         run: |
           name="docsys-${GITHUB_REF_NAME}-${{ matrix.target }}"
           mkdir "$name"
@@ -41,17 +38,6 @@ jobs:
           cp README.md SPEC.md LICENSE-MIT LICENSE-APACHE "$name/"
           tar czf "$name.tar.gz" "$name"
           shasum -a 256 "$name.tar.gz" > "$name.tar.gz.sha256"
-      - name: package (windows)
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: |
-          $name = "docsys-$env:GITHUB_REF_NAME-${{ matrix.target }}"
-          New-Item -ItemType Directory -Path $name | Out-Null
-          Copy-Item "target/${{ matrix.target }}/release/docsys.exe" $name/
-          Copy-Item README.md, SPEC.md, LICENSE-MIT, LICENSE-APACHE $name/
-          Compress-Archive -Path $name -DestinationPath "$name.zip"
-          "$((Get-FileHash "$name.zip" -Algorithm SHA256).Hash.ToLower())  $name.zip" |
-            Out-File "$name.zip.sha256" -Encoding ascii
 
       - name: upload to the release
         env:
@@ -65,5 +51,5 @@ jobs:
           gh release create "$GITHUB_REF_NAME" --title "$GITHUB_REF_NAME" \
             --notes-file notes.md 2>/dev/null || true
           shopt -s nullglob
-          assets=(docsys-*.tar.gz docsys-*.tar.gz.sha256 docsys-*.zip docsys-*.zip.sha256)
+          assets=(docsys-*.tar.gz docsys-*.tar.gz.sha256)
           gh release upload "$GITHUB_REF_NAME" "${assets[@]}" --clobber

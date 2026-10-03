@@ -18,7 +18,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
+        os: [ubuntu-latest, macos-latest]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v5
@@ -31,27 +31,15 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
+        os: [ubuntu-latest, macos-latest]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v5
       - run: rustup toolchain install stable --profile minimal
       - run: cargo build --release --locked
       - name: end-to-end from a clean box (adopt · doctor · gate · kb · federation · export)
-        if: runner.os != 'Windows'
         shell: bash
         run: |
           set -euo pipefail
           export PATH="$PWD/target/release:$PATH"
           ./ci/e2e.sh
-      - name: adopt a fresh repository (Windows — file:// transport is POSIX-path)
-        if: runner.os == 'Windows'
-        shell: bash
-        run: |
-          set -euo pipefail
-          bin="$PWD/target/release/docsys"
-          mkdir demo && cd demo && git init -q
-          "$bin" adopt
-          "$bin" lint --root docs
-          "$bin" doctor --repo . --root docs
-          test -f ADOPTION.md && test -f .claude/settings.json
