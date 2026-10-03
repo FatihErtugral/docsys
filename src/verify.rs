@@ -86,7 +86,7 @@ fn who(tree: &DocTree, repo: &Path, by: Option<&str>) -> Result<(String, Option<
             let l = login.to_lowercase();
             return maintainers
                 .iter()
-                .find(|m| m.login.as_deref() == Some(l.as_str()))
+                .find(|m| m.login_or_handle() == l.as_str())
                 .map(|m| (m.handle.clone(), m.email.clone()))
                 .ok_or_else(|| {
                     format!(
@@ -286,7 +286,7 @@ pub fn verify_range(
         let l = login.to_lowercase();
         if !crate::checks::maintainer_handles(&tree)
             .iter()
-            .any(|m| m.login.as_deref() == Some(l.as_str()))
+            .any(|m| m.login_or_handle() == l.as_str())
         {
             return Ok(Range::NotAMaintainer(login.to_string()));
         }

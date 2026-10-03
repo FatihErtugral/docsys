@@ -199,8 +199,9 @@ two acts apart (§3.2, D-092):
   consumes moving, makes it unverified again; outside history it reads
   "unknown". Nothing is left to merge.
 - `.docmeta.yml` may declare `maintainers:` — `handle`, `handle <email>`, or
-  `handle <email> @login` with the login a host's review approval carries.
-  Then an approval and `confirmed:` on a work file must name one of them
+  `handle <email> @login` with the login a host's review approval carries; an
+  entry without `@login` is matched by its handle, which then doubles as the
+  login. Then an approval and `confirmed:` on a work file must name one of them
   (R-208). This is the code review's authority extended to the page, not a
   new role: the people who may approve a change are the people who may say a
   page is true. An empty list means anyone.

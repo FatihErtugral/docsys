@@ -763,7 +763,8 @@ pub fn run_placed(
                 md,
                 "- [ ] The verify-on-approval job knows a maintainer by the `@login` a host\n\
                  \x20     approval carries, and these `maintainers:` entries carry no `@login`: {}.\n\
-                 \x20     Write each as `handle <email> @login` in .docmeta.yml.\n",
+                 \x20     Each handle stands for the login; where it is not the person's host login,\n\
+                 \x20     write the entry as `handle <email> @login` in .docmeta.yml.\n",
                 without.join(", ")
             );
         }

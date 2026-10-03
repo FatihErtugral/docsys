@@ -69,7 +69,7 @@ pub fn maintainer_of(maintainers: &[crate::checks::Maintainer], value: &str) -> 
     if let Some(login) = lower.strip_prefix('@') {
         return maintainers
             .iter()
-            .find(|m| m.login.as_deref() == Some(login.trim()))
+            .find(|m| m.login_or_handle() == login.trim())
             .map(|m| m.handle.clone());
     }
     if let Some((_, email)) = lower.rsplit_once('<') {

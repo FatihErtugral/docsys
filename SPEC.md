@@ -294,10 +294,11 @@ who know. The profile separates the two acts: anyone writes; a declared few
 vouch. Nothing here changes a tree that declares no maintainers.
 
 **R-208** `lint` · MUST — When `.docmeta.yml` declares `maintainers:` (a list of
-`handle` or `handle <email>` entries), the person a record names MUST be one
-of them: the first word of `confirmed:` on a work file (R-081), and the
-`Approved-by:` trailer of an approval (R-024) — `@login`, `handle` or
-`handle <email>`. A record naming anyone else **is an error**; an approval
+`handle`, `handle <email>` or `handle <email> @login` entries), the person a
+record names MUST be one of them: the first word of `confirmed:` on a work file
+(R-081), and the `Approved-by:` trailer of an approval (R-024) — `@login`,
+`handle` or `handle <email>`. An entry that names no `@login` is matched by its
+handle where a host's approval carries a login: the handle doubles as the login. A record naming anyone else **is an error**; an approval
 naming anyone else verifies nothing. Where version-control history is available and the entry carries an
 email, the maintainer's act MUST be in the record's history: among the commits
 that changed the record since the body last changed, one is authored by that

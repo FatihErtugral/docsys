@@ -554,3 +554,41 @@ fn show_names_the_step_the_state_asks_for() {
     );
     let _ = fs::remove_dir_all(&repo);
 }
+
+/// A maintainer entry with no `@login` — R-208's `handle` form — is matched
+/// by a host's approval through its handle: the handle doubles as the login.
+#[test]
+fn a_handle_without_a_login_doubles_as_the_login() {
+    let (repo, root) = project("handle-login");
+    let meta = root.join(".docmeta.yml");
+    let text = fs::read_to_string(&meta).unwrap();
+    fs::write(
+        &meta,
+        text.replace(
+            "maintainers: [ayse <ayse@example.com> @ayse-gh]",
+            "maintainers: [tester]",
+        ),
+    )
+    .unwrap();
+    git(&repo, &["commit", "-qam", "one maintainer, by handle"]);
+    let out = docsys(&repo, &["verify", "--approval", "@tester"]);
+    assert_eq!(
+        String::from_utf8_lossy(&out.stdout).trim(),
+        "Approved-by: @tester",
+        "{out:?}"
+    );
+    git(
+        &repo,
+        &[
+            "commit",
+            "-q",
+            "--allow-empty",
+            "-m",
+            "squash of an approved pull request",
+            "-m",
+            "Verifies: reference/retry.md\nApproved-by: @tester",
+        ],
+    );
+    assert!(verified(&root));
+    let _ = fs::remove_dir_all(&repo);
+}

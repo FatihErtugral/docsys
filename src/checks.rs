@@ -453,6 +453,14 @@ pub struct Maintainer {
     pub login: Option<String>,
 }
 
+impl Maintainer {
+    /// The login a host's approval carries: the entry's `@login`, or its
+    /// handle when it names none (R-208).
+    pub fn login_or_handle(&self) -> &str {
+        self.login.as_deref().unwrap_or(&self.handle)
+    }
+}
+
 pub(crate) fn maintainer_handles(tree: &DocTree) -> Vec<Maintainer> {
     tree.docmeta_list("maintainers")
         .iter()
