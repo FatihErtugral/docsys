@@ -376,6 +376,24 @@ fn code_file(arg: &str, repo: &std::path::Path) -> Option<String> {
         .map(|p| p.to_string_lossy().replace('\\', "/"))
 }
 
+/// `migrate`'s root and repository: a given `--repo` is its top level (D-098),
+/// and the legacy root, named from where the command stands, is then given in
+/// full so that it is read inside that repository.
+fn migrate_paths(opts: &Opts) -> (PathBuf, Option<PathBuf>) {
+    let Some(given) = opts.repo.as_deref() else {
+        return (opts.root.clone(), None);
+    };
+    let top = docsys::place::repo_top(given);
+    let root = if top.as_path() != given && opts.root.is_relative() {
+        std::env::current_dir()
+            .and_then(|c| c.join(&opts.root).canonicalize())
+            .unwrap_or_else(|_| opts.root.clone())
+    } else {
+        opts.root.clone()
+    };
+    (root, Some(top))
+}
+
 /// The tree `agents` writes its relays for, relative to the repository: the
 /// root given when it is a tree, else the repository's one tree (D-098, D-099).
 fn agents_root(opts: &Opts) -> PathBuf {
@@ -499,6 +517,16 @@ fn main() -> ExitCode {
     });
     if let Some(p) = &here {
         opts.root = p.root.clone();
+        // every command reads the repository from here: a given --repo is its
+        // top level, and a relative --dir the agent layer there (D-098)
+        if let Some(top) = &p.repo {
+            if opts.repo.is_some() {
+                opts.repo = Some(top.clone());
+            }
+            if opts.dir.is_relative() && top.as_path() != std::path::Path::new(".") {
+                opts.dir = top.join(&opts.dir);
+            }
+        }
     }
     // A pinned tree runs its own docsys (D-120). `upgrade` is how a newer one
     // moves the pin; a hook dispatches too, but never waits for an install.
@@ -893,10 +921,18 @@ fn main() -> ExitCode {
                 match docsys::rules::check_budget(opts.max_lines) {
                     Ok(_) => {
                         if let Some(target) = &opts.plan {
+                            // the tree whose preamble the block carries, found
+                            // from where this runs (D-098)
+                            let root = docsys::place::locate(
+                                &docsys::place::cwd_anchor(),
+                                &opts.root,
+                                None,
+                            )
+                            .root;
                             match docsys::rules::write_agents_block_with(
                                 target,
-                                &docsys::migrate::generated_preamble(&opts.root),
-                                docsys::era::Era::at(&opts.root).journal_from_history(),
+                                &docsys::migrate::generated_preamble(&root),
+                                docsys::era::Era::at(&root).journal_from_history(),
                             ) {
                                 Ok(_) => {
                                     println!(
@@ -1908,10 +1944,17 @@ next: review, `git add -A && git commit`, then open an agent session here."
             ExitCode::SUCCESS
         }
         ("agents", None) if opts.kb => {
-            // The base is the docs root's parent when the root is the base
-            // itself (a knowledge base is usually its own repository).
+            // The base is the repository's one tree, wherever this runs (D-098):
+            // a knowledge base is usually its own repository.
             let base = if opts.root.as_path() == std::path::Path::new("docs") {
-                PathBuf::from(".")
+                let repo = opts
+                    .dir
+                    .parent()
+                    .filter(|p| !p.as_os_str().is_empty())
+                    .unwrap_or(std::path::Path::new("."));
+                docsys::git::toplevel(repo)
+                    .and_then(|top| docsys::place::only_tree(&top))
+                    .unwrap_or_else(|| PathBuf::from("."))
             } else {
                 opts.root.clone()
             };
@@ -2076,9 +2119,9 @@ next: review, `git add -A && git commit`, then open an agent session here."
         ("migrate", Some("inventory")) => match migrate::inventory(&opts.root) {
             Ok(plan) => {
                 print!("{plan}");
-                if let Some(repo) = &opts.repo {
+                if let (root, Some(repo)) = migrate_paths(&opts) {
                     println!("# -- inbound references from the repo (will need rewriting) --");
-                    for (file, hits) in migrate::inbound_report(repo, &opts.root) {
+                    for (file, hits) in migrate::inbound_report(&repo, &root) {
                         println!("# inbound: {file} · {hits} reference(s)");
                     }
                 }
@@ -2101,7 +2144,8 @@ next: review, `git add -A && git commit`, then open an agent session here."
                     return ExitCode::from(2);
                 }
             };
-            match migrate::apply(&opts.root, &plan, &opts.lang, opts.repo.as_deref()) {
+            let (root, repo) = migrate_paths(&opts);
+            match migrate::apply(&root, &plan, &opts.lang, repo.as_deref()) {
                 Ok(done) => {
                     println!(
                         "moved {} · kept {} · archived {} · links rewritten {}",

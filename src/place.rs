@@ -107,6 +107,15 @@ fn spelled(found: &Path, given: &Path) -> PathBuf {
     }
 }
 
+/// A given `--repo` as the top level of its repository (D-098), spelled as
+/// given when it is that already; the path itself outside a repository.
+pub fn repo_top(given: &Path) -> PathBuf {
+    match git::toplevel(given) {
+        Some(t) => spelled(&t, given),
+        None => given.to_path_buf(),
+    }
+}
+
 /// The place of a command that operates on an existing tree. `anchors` are
 /// tried in order (a hook passes the edited file's directory, the payload's
 /// `cwd`, the process's, `$CLAUDE_PROJECT_DIR`); a given `--repo` is the
@@ -136,10 +145,7 @@ pub fn locate(anchors: &[PathBuf], root: &Path, repo: Option<&Path>) -> Place {
         .map(|f| spelled(&f, &literal))
         .unwrap_or(literal);
     let top = match repo {
-        Some(r) => Some(match git::toplevel(r) {
-            Some(t) => spelled(&t, r),
-            None => r.to_path_buf(),
-        }),
+        Some(r) => Some(repo_top(r)),
         None => git::toplevel(&found).map(|t| rel_to_cwd(&t)),
     };
     Place {

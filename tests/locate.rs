@@ -435,3 +435,130 @@ fn agents_from_a_subdirectory_writes_the_repositorys_own_layer() {
     assert!(!repo.join(".claude/hooks/post-edit-updated.sh").exists());
     let _ = fs::remove_dir_all(&repo);
 }
+
+/// Every command that reads the repository reads all of it from a
+/// subdirectory (D-098): a given `--repo` is its top level, and the agent
+/// layer `--dir` names is the one at the top. The same command from the top
+/// and from below says the same and writes the same place.
+#[test]
+fn a_command_that_reads_the_repository_sees_it_all_from_below() {
+    let repo = project("repo-from-below");
+    let deep = repo.join("apps/x/src");
+    // a code citation outside the subdirectory: only a walk from the top sees it
+    fs::write(
+        repo.join("src/cite.rs"),
+        "// doc: token-ttl\npub fn cite() {}\n",
+    )
+    .unwrap();
+    fs::create_dir_all(repo.join("docs/howto")).unwrap();
+    fs::write(
+        repo.join("docs/howto/release.md"),
+        "---\nid: release\ntype: howto\n---\n# Release\n\nThis page lists the release steps; read it before tagging.\n\n1. Tag the version.\n2. Push the tag.\n",
+    )
+    .unwrap();
+    ok(&repo, &["add", "-A"]);
+    ok(&repo, &["commit", "-qm", "a citation and a howto"]);
+    for args in [
+        &["backlinks", "token-ttl", "--repo", "."][..],
+        &["graph", "--repo", "."],
+        &["mentions", "token-ttl"],
+    ] {
+        let top = docsys_all(&repo, args);
+        assert_eq!(top, docsys_all(&deep, args), "{args:?}");
+        if args.first() != Some(&"mentions") {
+            assert!(top.1.contains("src/cite.rs"), "{args:?}: {}", top.1);
+        }
+    }
+    // the rules block carries the tree's own preamble, written from anywhere
+    let meta = repo.join("docs/.docmeta.yml");
+    let text = fs::read_to_string(&meta).unwrap();
+    fs::write(
+        &meta,
+        format!("{text}generated_preamble: \"Owned by the platform team.\"\n"),
+    )
+    .unwrap();
+    let agents_md = repo.join("AGENTS.md");
+    let target = agents_md.to_str().unwrap();
+    let block = |dir: &Path| {
+        let _ = fs::remove_file(&agents_md);
+        let (code, out) = docsys_all(dir, &["rules", "--agents-md", "--plan", target]);
+        assert_eq!(code, 0, "{out}");
+        fs::read_to_string(&agents_md).unwrap()
+    };
+    let top = block(&repo);
+    assert!(top.contains("Owned by the platform team."), "{top}");
+    assert_eq!(block(&deep), top);
+    // a compiled skill lands in the agent layer at the top
+    let (code, out) = docsys_all(&deep, &["compile", "howto/release"]);
+    assert_eq!(code, 0, "{out}");
+    assert!(!deep.join(".claude").exists(), "{out}");
+    assert!(
+        repo.join(".claude/skills/release/SKILL.md").is_file(),
+        "{out}"
+    );
+    let _ = fs::remove_dir_all(&repo);
+}
+
+/// `migrate inventory --repo .` reports every inbound reference of the
+/// repository, from wherever it runs (D-098).
+#[test]
+fn a_migration_sees_the_repositorys_references_from_below() {
+    let repo = tmp("migrate-below");
+    ok(&repo, &["init", "-q"]);
+    fs::create_dir_all(repo.join("pkg/legacy")).unwrap();
+    fs::write(repo.join("pkg/legacy/setup.md"), "# Setup\n\nInstall it.\n").unwrap();
+    fs::write(repo.join("README.md"), "See pkg/legacy/setup.md.\n").unwrap();
+    fs::write(repo.join("pkg/NOTES.md"), "See legacy/setup.md.\n").unwrap();
+    let inbound = |dir: &Path, root: &str| -> Vec<String> {
+        let (code, out) = docsys_all(
+            dir,
+            &["migrate", "inventory", "--root", root, "--repo", "."],
+        );
+        assert_eq!(code, 0, "{out}");
+        out.lines()
+            .filter(|l| l.starts_with("# inbound:"))
+            .map(str::to_string)
+            .collect()
+    };
+    let top = inbound(&repo, "pkg/legacy");
+    assert!(top.iter().any(|l| l.contains("README.md")), "{top:?}");
+    assert_eq!(inbound(&repo.join("pkg"), "legacy"), top);
+    let _ = fs::remove_dir_all(&repo);
+}
+
+/// `agents --kb` from a subdirectory of a knowledge base writes the relays
+/// `agents --kb` writes at its top: the base is the repository's one tree.
+#[test]
+fn agents_for_a_knowledge_base_from_below_writes_what_it_writes_at_the_top() {
+    let repo = tmp("kb-agents-below");
+    ok(&repo, &["init", "-q"]);
+    let (code, out) = docsys_all(
+        &repo,
+        &["init", "--profile", "knowledge-base", "--root", "."],
+    );
+    assert_eq!(code, 0, "{out}");
+    let (code, out) = docsys_all(&repo, &["agents", "--kb"]);
+    assert_eq!(code, 0, "{out}");
+    let relays = |r: &Path| -> Vec<(String, String)> {
+        let mut v: Vec<(String, String)> = fs::read_dir(r.join(".claude/hooks"))
+            .unwrap()
+            .flatten()
+            .map(|e| {
+                (
+                    e.file_name().to_string_lossy().into_owned(),
+                    fs::read_to_string(e.path()).unwrap(),
+                )
+            })
+            .collect();
+        v.sort();
+        v
+    };
+    let top = relays(&repo);
+    let below = repo.join("wiki/ops");
+    fs::create_dir_all(&below).unwrap();
+    let (code, out) = docsys_all(&below, &["agents", "--kb", "--force"]);
+    assert_eq!(code, 0, "{out}");
+    assert!(!below.join(".claude").exists(), "{out}");
+    assert_eq!(relays(&repo), top, "{out}");
+    let _ = fs::remove_dir_all(&repo);
+}

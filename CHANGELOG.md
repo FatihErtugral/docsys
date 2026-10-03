@@ -137,9 +137,11 @@ declares `spec: docsys/0.5`; a tree that declares `docsys/0.4` is served as
   around the rules block changed by a re-run that changes nothing (D-110).
 
 - docsys works from any directory of the repository, and a hook finds its
-  tree from its payload (D-098): `refs --repo .` inspects the whole
-  repository, `agents` writes the agent layer at the top, and `debt close` or
-  `question close` outside a tree says R-160.
+  tree from its payload (D-098): a given `--repo` is the repository's top and
+  `--dir` the agent layer there for every command — `refs`, `backlinks`,
+  `graph` and `migrate` read the whole repository, `agents` and `compile`
+  write at the top, `rules --agents-md --plan` carries the tree's preamble —
+  and `debt close` or `question close` outside a tree says R-160.
 - The gate of a linked worktree resolves pins at the repository's top, and
   `adopt` writes the gate there (D-100).
 - The relays run from any directory and default to the tree's own root (D-099).
