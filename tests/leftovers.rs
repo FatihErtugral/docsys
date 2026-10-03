@@ -632,13 +632,21 @@ fn text_naming_a_retired_concept_is_a_leftover() {
     write(
         &repo,
         "CLAUDE.md",
-        "# Team\n\nAfter each task, add a journal line.\n",
+        "# Team\n\nAfter each task, add a journal line.\nA new page starts as `verification: unverified` until a maintainer runs `docsys verify`.\n",
     );
     commit_all(&repo, "the team's own text");
     let out = idle(&repo);
     assert!(
         row(&out, "manual", "retired-concepts", "CLAUDE.md:3")
             .is_some_and(|l| l.contains("`journal line`")),
+        "{out}"
+    );
+    // a docsys/0.5 page carries no verification: the cross-check replaces it (D-130)
+    assert!(
+        row(&out, "manual", "retired-concepts", "CLAUDE.md:4")
+            .is_some_and(|l| l.contains("`verification: unverified`")
+                && l.contains("/docsys-crosscheck")
+                && !l.contains("Approved-by")),
         "{out}"
     );
     let _ = fs::remove_dir_all(&repo);
