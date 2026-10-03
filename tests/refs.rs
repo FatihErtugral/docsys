@@ -125,11 +125,11 @@ fn agents_install_writes_assets_and_respects_existing() {
     .unwrap();
     let dir = base.join(".claude");
     let done = docsys::agents::install(&dir, false).unwrap();
-    assert_eq!(done.written.len(), 9, "{:?}", done.written);
+    assert_eq!(done.written.len(), 10, "{:?}", done.written);
     assert!(!done.written.iter().any(|f| f.contains("post-edit")));
     // Second run without --force skips everything.
     let again = docsys::agents::install(&dir, false).unwrap();
-    assert_eq!(again.skipped.len(), 9);
+    assert_eq!(again.skipped.len(), 10);
     // what people know is the interview's; what code and history say is the
     // seed's — each command's description says which, and the interview ends
     // by naming the next step
@@ -152,14 +152,15 @@ fn agents_install_writes_assets_and_respects_existing() {
     let upgrade = fs::read_to_string(dir.join("commands/docsys-upgrade.md")).unwrap();
     for must in [
         "docsys upgrade --json",
-        "`docsys verify --show` line",
         "re-read it as the rules block says",
-        "the verification is theirs to record",
-        "A sha256 value is never invented",
+        "A sha256 value is never written",
+        "`SHA256SUMS`",
         "git log -1 --format=%B",
     ] {
         assert!(upgrade.contains(must), "{must}");
     }
+    // a docsys/0.5 page carries no verification (D-130)
+    assert!(!upgrade.contains("verif"), "{upgrade}");
     assert!(
         upgrade.lines().count() <= 40,
         "{} lines",

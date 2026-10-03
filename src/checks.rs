@@ -339,13 +339,10 @@ fn check_permanent_frontmatter(tree: &DocTree, r: &mut Report) {
                 }
             }
         }
-        if crate::era::Era::of(tree).verification_from_history() {
-            legacy_record_checks(tree, page, fm, r);
-        }
         if tree.profile == Profile::KnowledgeBase {
             kb_page_checks(tree, page, fm, r);
         } else if fm.fields.contains_key("verification")
-            && !crate::era::Era::of(tree).verification_from_history()
+            && crate::era::Era::of(tree).page_verification()
         {
             // a project page that opts into verification (§3.2, D-092) carries
             // the same record contract as a wiki page
@@ -380,32 +377,6 @@ fn check_permanent_frontmatter(tree: &DocTree, r: &mut Report) {
         }
     }
     r.inspected.insert("permanent-frontmatter", inspected);
-}
-
-/// On a docsys/0.5 tree the verification is read from history (R-024, D-126):
-/// a record in the page is valid evidence while it holds, and named otherwise.
-fn legacy_record_checks(tree: &DocTree, page: &Page, fm: &crate::fm::Frontmatter, r: &mut Report) {
-    const RECORD: [&str; 5] = [
-        "verification",
-        "verified_by",
-        "verified_rev",
-        "verified_blocks",
-        "verified_sources",
-    ];
-    if !RECORD.iter().any(|k| fm.fields.contains_key(*k))
-        || crate::approval::holding_record(tree, page)
-    {
-        return;
-    }
-    r.findings.push(Finding::warn(
-        R024,
-        &page.rel,
-        "record",
-        "a verification field in the page — on docsys/0.5 the state is read from history \
-         (an `Approved-by:` after the last body change, D-126), and this no longer holds; \
-         `docsys upgrade --apply` takes it out"
-            .to_string(),
-    ));
 }
 
 /// The verification record (R-024's values, R-028's record) — the knowledge
@@ -554,23 +525,9 @@ pub(crate) fn record_handle(value: &str) -> String {
 }
 
 fn check_maintainers(tree: &DocTree, r: &mut Report) {
-    // A scalar is not a list: it names no maintainer, and R-208 would check
-    // nothing without a word.
-    let scalar = crate::era::Era::of(tree)
-        .scalar_maintainers()
-        .then(|| tree.docmeta_str("maintainers"))
-        .flatten();
-    if let Some(v) = scalar.map(str::trim).filter(|v| !v.is_empty()) {
-        r.findings.push(Finding::warn(
-            R208,
-            "-",
-            "maintainers",
-            format!(
-                "`maintainers: {v}` is a single value, not a list — it names no maintainer and \
-                 R-208 checks nothing; write `maintainers: [{v}]` or a block list \
-                 (`maintainers:` then `  - {v}`)"
-            ),
-        ));
+    // a docsys/0.5 tree has no maintainer: nothing is vouched for (D-130)
+    if !crate::era::Era::of(tree).page_verification() {
+        return;
     }
     let maintainers = maintainer_handles(tree);
     // a list that cannot be read is R-161's finding, and every command that
@@ -579,14 +536,11 @@ fn check_maintainers(tree: &DocTree, r: &mut Report) {
         return;
     }
     let known = |h: &str| maintainers.iter().any(|m| m.handle == h);
-    let from_history = crate::era::Era::of(tree).verification_from_history();
     let mut inspected = 0usize;
     for page in &tree.pages {
         let Some(fm) = &page.fm else { continue };
         let field = match page.kind {
             Kind::Tracked => "confirmed",
-            // a docsys/0.5 approval's maintainer is read where it is (D-126)
-            Kind::Permanent if from_history => continue,
             Kind::Permanent => "verified_by",
             _ => continue,
         };
@@ -630,7 +584,8 @@ fn kb_page_checks(tree: &DocTree, page: &Page, fm: &crate::fm::Frontmatter, r: &
     if get("domain").is_none() {
         missing.push("domain");
     }
-    if get("verification").is_none() && !crate::era::Era::of(tree).verification_from_history() {
+    let verification = crate::era::Era::of(tree).page_verification();
+    if get("verification").is_none() && verification {
         missing.push("verification");
     }
     if !fm.fields.contains_key("sources") {
@@ -654,7 +609,9 @@ fn kb_page_checks(tree: &DocTree, page: &Page, fm: &crate::fm::Frontmatter, r: &
             ));
         }
     }
-    verification_record_checks(page, fm, r);
+    if verification {
+        verification_record_checks(page, fm, r);
+    }
     // R-029: readers navigate this profile by directory; the segment must not
     // contradict the page.
     if let Some(t) = get("type") {
@@ -2663,9 +2620,6 @@ pub fn run_with(tree: &DocTree, ctx: &Context) -> Report {
     }
     check_templates(tree, &mut r);
     check_sources(tree, &mut r);
-    if crate::era::Era::of(tree).anchored_verification() {
-        crate::fresh::check_block_bindings(tree, &mut r);
-    }
     if crate::era::Era::of(tree).acknowledged_pins() {
         crate::ack::check(tree, &mut r);
     }

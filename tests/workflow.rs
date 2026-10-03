@@ -117,29 +117,6 @@ fn the_cargo_install_on_one_runner_with_a_follow_up_pull_request() {
     );
 }
 
-/// docsys/0.5's approval job (D-126): a maintainer's approval adds its line to
-/// the pull request's description; a review triggers it, and only it.
-#[test]
-fn the_cargo_install_with_the_approval_in_the_description() {
-    let golden = include_str!("golden/workflow-cargo-description.yml");
-    assert!(golden.contains("  pull_request_review:\n    types: [submitted]\n"));
-    assert!(golden.contains(
-        "    if: github.event_name != 'pull_request_review' && github.event.action != 'closed'"
-    ));
-    assert!(golden.contains("docsys verify --approval \"@$LOGIN\""));
-    assert!(!golden.contains("gh pr create") && !golden.contains("git push"));
-    matches_golden(
-        &params(
-            "main",
-            &["ubuntu-latest"],
-            Install::Cargo,
-            Verify::Description,
-            "docs",
-        ),
-        golden,
-    );
-}
-
 #[test]
 fn the_release_install_on_three_runner_labels_pushing_directly() {
     matches_golden(
@@ -178,12 +155,14 @@ fn the_flags_are_read_and_a_release_install_without_sha256_is_refused() {
     let v05 = docsys::era::Era::of_spec(Some("docsys/0.5"));
     let v04 = docsys::era::Era::of_spec(Some("docsys/0.4"));
     assert_eq!(Ci::from_flags(None, None, None, None, v05), Ok(None));
+    // the sha256 values a docsys/0.4 tree's release install holds, as 0.15.1
+    // took them (D-118); tests/ci_install.rs holds docsys/0.5's
     let ci = Ci::from_flags(
         Some("self-hosted,linux"),
         Some("release"),
         Some(&format!("x86_64-unknown-linux-musl={SUM_A}")),
         Some("off"),
-        v05,
+        v04,
     )
     .unwrap()
     .unwrap();
@@ -208,7 +187,7 @@ fn the_flags_are_read_and_a_release_install_without_sha256_is_refused() {
         }
     );
     let refused = |r: Option<&str>, i: Option<&str>, s: Option<&str>, v: Option<&str>| {
-        Ci::from_flags(r, i, s, v, v05).unwrap_err()
+        Ci::from_flags(r, i, s, v, v04).unwrap_err()
     };
     assert!(refused(None, Some("release"), None, None).contains("--ci-sha256"));
     assert!(refused(
@@ -239,11 +218,18 @@ fn the_flags_are_read_and_a_release_install_without_sha256_is_refused() {
 
     // the binary refuses before it writes anything
     let repo = repo_with_github("refused");
+    fs::create_dir_all(repo.join("docs")).unwrap();
+    let docmeta = "spec: docsys/0.4\nprofile: project\ndefault_content_language: en\n";
+    fs::write(repo.join("docs/.docmeta.yml"), docmeta).unwrap();
     let out = docsys(&repo, &["adopt", "--ci-install", "release"]);
     let err = String::from_utf8_lossy(&out.stderr);
     assert_eq!(out.status.code(), Some(2), "{err}");
     assert!(err.contains("--ci-sha256 <target>=<hex>"), "{err}");
-    assert!(!repo.join("docs").exists());
+    assert_eq!(
+        fs::read_dir(repo.join("docs")).unwrap().count(),
+        1,
+        "nothing but the tree's .docmeta.yml"
+    );
     assert!(!repo.join(FILE).exists());
     let _ = fs::remove_dir_all(&repo);
 }
@@ -251,16 +237,7 @@ fn the_flags_are_read_and_a_release_install_without_sha256_is_refused() {
 #[test]
 fn adopt_writes_the_workflow_its_flags_describe_and_keeps_it_after() {
     let repo = repo_with_github("flags");
-    let out = docsys(
-        &repo,
-        &[
-            "adopt",
-            "--ci-runner",
-            "self-hosted,linux",
-            "--verify-on-approval",
-            "description",
-        ],
-    );
+    let out = docsys(&repo, &["adopt", "--ci-runner", "self-hosted,linux"]);
     assert!(
         out.status.success(),
         "{}",
@@ -273,12 +250,10 @@ fn adopt_writes_the_workflow_its_flags_describe_and_keeps_it_after() {
         docsys::agents::TEMPLATE_VERSION
     )));
     assert!(
-        first.ends_with(
-            " branch=main runner=self-hosted,linux install=cargo verify=description root=docs"
-        ),
+        first.ends_with(" branch=main runner=self-hosted,linux install=cargo root=docs"),
         "{first}"
     );
-    assert_eq!(text.matches("runs-on: [self-hosted, linux]\n").count(), 2);
+    assert_eq!(text.matches("runs-on: [self-hosted, linux]\n").count(), 1);
     // CI installs the version the tree pins, which adopt wrote (D-120)
     assert!(text.contains(
         "cargo install docsys --version \"${{ steps.docsys-pin.outputs.version }}\" --locked"
@@ -306,22 +281,17 @@ fn adopt_without_flags_writes_the_defaults_and_a_tree_at_the_top_is_root_dot() {
     let repo = repo_with_github("defaults");
     docsys::adopt::run(&repo, &repo.join("docs"), "en").unwrap();
     let text = fs::read_to_string(repo.join(FILE)).unwrap();
-    // a docsys/0.5 tree: the approval rides the description (D-126)
+    // a docsys/0.5 tree keeps no verification: no approval job (D-130)
     assert!(
-        text.lines().next().unwrap().ends_with(
-            " branch=main runner=ubuntu-latest install=cargo verify=description root=docs"
-        ),
+        text.lines()
+            .next()
+            .unwrap()
+            .ends_with(" branch=main runner=ubuntu-latest install=cargo root=docs"),
         "{text}"
     );
-    assert!(
-        text.contains("gh pr edit") && !text.contains("gh pr create"),
-        "{text}"
-    );
+    assert!(!text.contains("gh pr"), "{text}");
     let report = fs::read_to_string(repo.join("ADOPTION.md")).unwrap();
-    assert!(
-        report.contains("squash and merge commit messages to the pull"),
-        "{report}"
-    );
+    assert!(!report.contains("squash and merge"), "{report}");
     // the tree is the repository: `--root .`, never an empty one
     let top = repo_with_github("top");
     let out = docsys(&top, &["adopt", "--root", "."]);
@@ -372,48 +342,6 @@ fn the_push_trigger_names_the_default_branch_of_origin() {
     );
     assert_eq!(workflow::default_branch(&repo), "main");
     let _ = fs::remove_dir_all(&repo);
-}
-
-#[test]
-fn the_checklist_names_maintainers_a_host_approval_cannot_match() {
-    let repo = repo_with_github("logins");
-    let docs = repo.join("docs");
-    docsys::migrate::init_profile(&docs, "en", "project").unwrap();
-    let dm = docs.join(".docmeta.yml");
-    let text = fs::read_to_string(&dm).unwrap();
-    assert!(text.contains("maintainers: []\n"), "{text}");
-    fs::write(
-        &dm,
-        text.replace(
-            "maintainers: []\n",
-            "maintainers: [ayse <ayse@example.com> @ayse-gh, mehmet <mehmet@example.com>, deniz]\n",
-        ),
-    )
-    .unwrap();
-    docsys::adopt::run(&repo, &docs, "en").unwrap();
-    let report = fs::read_to_string(repo.join("ADOPTION.md")).unwrap();
-    let line = report
-        .lines()
-        .find(|l| l.contains("carry no `@login`"))
-        .unwrap_or_else(|| panic!("{report}"));
-    assert!(line.contains("mehmet, deniz"), "{line}");
-    assert!(!line.contains("ayse"), "{line}");
-    assert!(report.contains("handle <email> @login"), "{report}");
-    // no verify job, nothing to match
-    let off = repo_with_github("logins-off");
-    let docs = off.join("docs");
-    docsys::migrate::init_profile(&docs, "en", "project").unwrap();
-    fs::write(docs.join(".docmeta.yml"), fs::read_to_string(&dm).unwrap()).unwrap();
-    let out = docsys(&off, &["adopt", "--verify-on-approval", "off"]);
-    assert!(out.status.success());
-    let report = fs::read_to_string(off.join("ADOPTION.md")).unwrap();
-    assert!(!report.contains("@login"), "{report}");
-    assert!(
-        !report.contains("create and approve pull requests"),
-        "{report}"
-    );
-    let _ = fs::remove_dir_all(&repo);
-    let _ = fs::remove_dir_all(&off);
 }
 
 #[test]
@@ -600,19 +528,17 @@ fn a_release_install_fails_when_the_pin_is_not_its_version() {
     let _ = fs::remove_dir_all(&dir);
 }
 
-/// An approval mode that records nothing a tree reads is refused before
-/// anything is written: a docsys/0.5 tree reads approvals from history, so a
-/// job that writes records into pages verifies nothing (D-126); a docsys/0.4
-/// tree reads only those records, so the description line verifies nothing
-/// there (D-118). Each tree's default is the mode it reads.
+/// An approval job is a docsys/0.4 tree's: a docsys/0.5 page carries no
+/// verification, so a job is refused before anything is written (D-130),
+/// and a docsys/0.4 tree gets the job that writes its records (D-118).
 #[test]
-fn an_approval_mode_the_tree_cannot_read_is_refused_and_each_era_gets_its_own() {
+fn an_approval_job_is_refused_on_0_5_and_each_era_gets_its_own() {
     for mode in ["pull-request", "direct"] {
         let repo = repo_with_github(&format!("v05-{mode}"));
         let out = docsys(&repo, &["adopt", "--verify-on-approval", mode]);
         assert_eq!(out.status.code(), Some(2), "{out:?}");
         assert!(
-            String::from_utf8_lossy(&out.stderr).contains("`description`"),
+            String::from_utf8_lossy(&out.stderr).contains("(D-130)"),
             "{out:?}"
         );
         assert!(

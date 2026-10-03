@@ -1,5 +1,0 @@
-EXIT	0
-WARN	R-024	reference/bound.md	record
-WARN	R-024	reference/demoted.md	record
-WARN	R-024	reference/edited.md	record
-WARN	R-212	reference/bound.md	src/ttl.rs#lifetime

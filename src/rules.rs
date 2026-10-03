@@ -171,7 +171,7 @@ pub fn agents_md() -> String {
            `docsys backlinks <code-file>`, so the code carries no comment for it\n\
          - inside docs a page is linked as `[[dir/id]]` — the full path from the\n\
            docs root (R-070)\n\
-         - a page pinned to code (`verifies:`) that lint reports stale is re-read\n\
+         - a page pinned to code (`pins:`) that lint reports stale is re-read\n\
            against the code, then `docsys pin --refresh <page>` — never refreshed blind\n\
          - a blocked Bash call is blocked whole: `git add … && git commit` re-runs\n\
            from the `add`; what landed is `git show HEAD:<file>`, not the tree\n\
@@ -183,14 +183,13 @@ pub fn agents_md() -> String {
     );
     out.push_str(VERSION_SECTION);
     out.push_str("\nJudgment stays with you, but inside these rules:\n");
-    // The procedures an agent needs at the moment it writes or verifies a
-    // page, their question and options verbatim from §14.3 (D-114); a rule
-    // that has one is stated there, not twice
+    // The procedures an agent needs at the moment it writes a page, their
+    // question and options verbatim from §14.3 (D-114); a rule that has one
+    // is stated there, not twice
     const WRITE: [&str; 5] = ["P/R-031", "P/R-033", "P/R-045", "P/R-102", "P/R-123"];
-    const VERIFY: &str = "P/R-025";
     for (id, sentence) in &rules {
         let p = format!("P/{id}");
-        if WRITE.contains(&p.as_str()) || p == VERIFY {
+        if WRITE.contains(&p.as_str()) {
             continue;
         }
         out.push_str(&format!("- {id}: {sentence}\n"));
@@ -205,12 +204,7 @@ pub fn agents_md() -> String {
          - work deferred on purpose → `docsys debt add`; once repaid, `docsys debt\n\
            close` (R-108)\n",
     );
-    out.push_str("\nWhen you verify:\n");
-    out.push_str(&procedure_head(VERIFY).unwrap_or_default());
-    out.push_str(
-        "- a maintainer's explicit word in the session is their approval: it is\n\
-           recorded under their identity, never the session's (D-096)\n",
-    );
+    out.push_str("\nWhen a person asks whether pages still hold: `/docsys-crosscheck`.\n");
     out.push_str(
         "\nWhen a decision procedure exists, follow it: `docsys rules --procedures`.\n\
          When no option fits, the escape is always legitimate — an honest \"I don't\n\
@@ -337,7 +331,7 @@ mod tests {
         let s = agents_md();
         // a rule with an inline procedure is stated once, as the procedure
         assert!(s.contains("- P/R-031 — ") && !s.contains("- R-031:"), "{s}");
-        assert!(s.contains("- P/R-025 — ") && !s.contains("- R-025:"), "{s}");
+        assert!(!s.contains("R-025") && !s.contains("verif"), "{s}");
         assert!(s.contains("R-081:"), "{s}");
         assert!(s.contains("docsys backlinks <code-file>"), "{s}");
         let lines = s.lines().count();
@@ -393,12 +387,10 @@ mod tests_teach {
     /// verifies (D-114) — their QUESTION lines exactly as §14.3 has them —
     /// within the budget (R-165).
     #[test]
-    fn the_block_carries_the_writing_and_verifying_procedures_verbatim() {
+    fn the_block_carries_the_writing_procedures_verbatim() {
         let block = agents_md();
         let authored = procedures().unwrap();
-        for id in [
-            "P/R-031", "P/R-033", "P/R-045", "P/R-102", "P/R-123", "P/R-025",
-        ] {
+        for id in ["P/R-031", "P/R-033", "P/R-045", "P/R-102", "P/R-123"] {
             let question = authored
                 .lines()
                 .skip_while(|l| !l.trim_start().starts_with(&format!("{id} — ")))

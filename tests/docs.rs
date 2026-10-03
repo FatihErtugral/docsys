@@ -18,7 +18,7 @@ fn decision(id: &str) -> &'static str {
 
 #[test]
 fn no_document_says_what_this_release_retired() {
-    // D-126: a docsys/0.5 tree runs three relays, no post-edit one
+    // D-130: a docsys/0.5 tree runs three relays, no post-edit one
     for gone in [
         "installs four hooks",
         "four relay hooks",
@@ -31,20 +31,33 @@ fn no_document_says_what_this_release_retired() {
     }
     assert!(
         !decision("D-122").contains("The post-edit relay keeps one job"),
-        "D-122 against D-126"
+        "D-122 against D-130"
     );
-    // D-126: the approval rides the description; D-105's modes are 0.4's
-    assert!(
-        !CHANGELOG.contains("approvals land through a pull request"),
-        "CHANGELOG against its D-126 entry"
-    );
-    assert!(
-        CHANGELOG.contains("`description`"),
-        "CHANGELOG names the default mode"
-    );
+    // D-130: a docsys/0.5 page carries no verification; the approval job is
+    // a docsys/0.4 tree's alone
+    let this_release = CHANGELOG.split("## [0.15.1]").next().unwrap_or("");
+    for gone in [
+        "approvals land through a pull request",
+        "`description`",
+        "Approved-by:",
+        "verify --show",
+        "pin … --block",
+        "reads `unverified`",
+    ] {
+        assert!(!this_release.contains(gone), "CHANGELOG: `{gone}`");
+    }
+    for gone in [
+        "Approved-by",
+        "a maintainer verifies",
+        "turns unverified",
+        "audit the\nwiki",
+        "`.verifies/`",
+    ] {
+        assert!(!README.contains(gone), "README: `{gone}`");
+    }
     assert!(
         !decision("D-105").contains("`pull-request`, the default for a new adoption"),
-        "D-105 against D-126"
+        "D-105 against D-130"
     );
     // R-106 is withdrawn: history dates a page, an `updated:` is no error
     assert!(

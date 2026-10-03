@@ -218,7 +218,7 @@ const FEATURE: &str = "---\nid: cart-key\nstatus: active\n---\n# Cart key\n\n## 
 
 /// A committed docsys/0.5 tree with a feature file and its two prepared
 /// destinations.
-fn tree_0_5(name: &str, spec: &str, maintainers: &str) -> (PathBuf, PathBuf) {
+fn tree_0_5(name: &str, spec: &str) -> (PathBuf, PathBuf) {
     let repo = tmp(name);
     git_in(&repo, &["init", "-q"]);
     git_in(&repo, &["config", "user.email", "t@example.invalid"]);
@@ -232,7 +232,7 @@ fn tree_0_5(name: &str, spec: &str, maintainers: &str) -> (PathBuf, PathBuf) {
     };
     w(
         ".docmeta.yml",
-        &format!("spec: {spec}\nprofile: project\ndefault_content_language: en\nmaintainers: {maintainers}\n"),
+        &format!("spec: {spec}\nprofile: project\ndefault_content_language: en\n"),
     );
     w(
         "index.md",
@@ -271,7 +271,7 @@ fn filled(root: &std::path::Path, contract: &str) -> String {
 
 #[test]
 fn on_a_0_5_tree_graduation_ends_by_removing_the_work_file() {
-    let (repo, root) = tree_0_5("removes", "docsys/0.5", "[]");
+    let (repo, root) = tree_0_5("removes", "docsys/0.5");
     let plan = filled(&root, "move:reference/keys");
     let done = graduate::apply_confirmed(&root, &plan, false, "owner").unwrap();
     assert_eq!(done.moved, 2);
@@ -318,11 +318,7 @@ fn on_a_0_5_tree_graduation_ends_by_removing_the_work_file() {
 fn the_removal_waits_for_every_block_of_value_and_for_the_persons_word() {
     // a block outside the retained sections that stays: refused, by name,
     // and nothing is written
-    let (repo, root) = tree_0_5(
-        "refuses",
-        "docsys/0.5",
-        "[\"owner <owner@example.invalid>\"]",
-    );
+    let (repo, root) = tree_0_5("refuses", "docsys/0.5");
     let plan = filled(&root, "keep");
     let err = graduate::apply_confirmed(&root, &plan, false, "owner")
         .err()
@@ -340,12 +336,7 @@ fn the_removal_waits_for_every_block_of_value_and_for_the_persons_word() {
             .unwrap()
             .contains("SHA of cart-id")
     );
-    // a word from someone who is no maintainer: refused (R-208)
     let plan = filled(&root, "move:reference/keys");
-    let err = graduate::apply_confirmed(&root, &plan, false, "visitor")
-        .err()
-        .unwrap();
-    assert!(err.contains("R-208"), "{err}");
     // a plan that sends nothing anywhere is no graduation
     let nothing = graduate::plan(&root, "work/features/cart-key.md").unwrap();
     let err = graduate::apply_confirmed(&root, &nothing, false, "owner")
@@ -379,7 +370,7 @@ fn the_removal_waits_for_every_block_of_value_and_for_the_persons_word() {
     let _ = fs::remove_dir_all(&repo);
 
     // a docsys/0.4 tree keeps its files
-    let (repo, root) = tree_0_5("era", "docsys/0.4", "[]");
+    let (repo, root) = tree_0_5("era", "docsys/0.4");
     let plan = filled(&root, "move:reference/keys");
     let err = graduate::apply_confirmed(&root, &plan, false, "owner")
         .err()

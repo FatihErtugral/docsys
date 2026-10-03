@@ -174,8 +174,8 @@ fn a_type_folder_appears_with_its_first_page() {
     assert_eq!(index, "# Documentation\n");
 }
 
-/// On docsys/0.5 a page's verification is history's: no command writes a
-/// state field into a page, and none asks for one (D-126).
+/// A docsys/0.5 page carries no verification: no command writes a state
+/// field into a page, and none asks for one (D-130).
 #[test]
 fn no_0_5_command_writes_or_asks_for_a_page_state_field() {
     let repo = tmp("no-state");
@@ -189,11 +189,17 @@ fn no_0_5_command_writes_or_asks_for_a_page_state_field() {
     let root = repo.join("docs");
     for args in [
         &["page", "new", "reference", "plain"][..],
-        &["page", "new", "reference", "drafted", "--unverified"],
+        &["page", "new", "reference", "drafted"],
     ] {
         let out = docsys(&repo, args);
         assert!(out.status.success(), "{args:?}: {out:?}");
     }
+    let out = docsys(
+        &repo,
+        &["page", "new", "reference", "marked", "--unverified"],
+    );
+    assert_eq!(out.status.code(), Some(2), "{out:?}");
+    assert!(!root.join("reference/marked.md").exists());
     for id in ["plain", "drafted"] {
         let p = root.join(format!("reference/{id}.md"));
         let text = fs::read_to_string(&p).unwrap();
@@ -214,8 +220,18 @@ fn no_0_5_command_writes_or_asks_for_a_page_state_field() {
     }
     git(&repo, &["add", "-A"]);
     git(&repo, &["commit", "-qm", "two pages"]);
+    let head = || {
+        Command::new("git")
+            .args(["rev-parse", "HEAD"])
+            .current_dir(&repo)
+            .output()
+            .unwrap()
+            .stdout
+    };
+    let before = head();
     let out = docsys(&repo, &["verify", "reference/plain", "--commit"]);
-    assert!(out.status.success(), "{out:?}");
+    assert_eq!(out.status.code(), Some(2), "{out:?}");
+    assert_eq!(head(), before);
     // a migration into the tree
     fs::create_dir_all(repo.join("notes")).unwrap();
     fs::write(

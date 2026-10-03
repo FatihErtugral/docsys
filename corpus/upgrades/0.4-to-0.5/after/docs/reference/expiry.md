@@ -2,7 +2,7 @@
 id: expiry
 type: reference
 sources: []
-verifies:
+pins:
   - path: src/auth.rs
     symbol: expire
 ---

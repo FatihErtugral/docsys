@@ -102,14 +102,6 @@ fn no_command_and_no_relay_writes_a_date_and_no_agent_text_names_it() {
     fs::create_dir_all(repo.join("src")).unwrap();
     fs::write(repo.join("src/app.rs"), CODE).unwrap();
     docsys(&repo, &["adopt"], None);
-    let meta = repo.join("docs/.docmeta.yml");
-    let text = fs::read_to_string(&meta).unwrap();
-    assert!(text.contains("maintainers: []"), "{text}");
-    fs::write(
-        &meta,
-        text.replace("maintainers: []", "maintainers: [t <t@example.invalid>]"),
-    )
-    .unwrap();
     git(&repo, &["add", "-A"]);
     git(
         &repo,
@@ -119,15 +111,7 @@ fn no_command_and_no_relay_writes_a_date_and_no_agent_text_names_it() {
     // a permanent page and a work page, written as an agent would
     docsys(
         &repo,
-        &[
-            "page",
-            "new",
-            "reference",
-            "a",
-            "--title",
-            "A",
-            "--unverified",
-        ],
+        &["page", "new", "reference", "a", "--title", "A"],
         None,
     );
     docsys(
@@ -176,7 +160,7 @@ fn no_command_and_no_relay_writes_a_date_and_no_agent_text_names_it() {
         Some(&payload),
     );
 
-    // a pin, a re-read after the code moved, a maintainer's verification
+    // a pin and a re-read after the code moved
     docsys(
         &repo,
         &["pin", "reference/a", "src/app.rs", "--symbol", "f"],
@@ -189,9 +173,6 @@ fn no_command_and_no_relay_writes_a_date_and_no_agent_text_names_it() {
         &repo,
         &["-c", "core.hooksPath=/dev/null", "commit", "-qm", "page"],
     );
-    // the approval is its own commit, and writes nothing into the page (D-126)
-    docsys(&repo, &["verify", "a", "--by", "t"], None);
-
     // a graduation into the page
     let plan = docsys(&repo, &["graduate", "plan", "work/features/f.md"], None);
     let filled = plan.replacen("\tkeep", "\tmove:reference/a", 1);

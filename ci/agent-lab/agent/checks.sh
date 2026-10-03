@@ -34,7 +34,7 @@ body_of() { awk 'f { print } /^---$/ { c++; if (c == 2) f = 1 }' "$1"; }
 
 case "$TASK" in
 # ── F1 · ingest ────────────────────────────────────────────────────────────
-F1-ingest|F1-self-audit-trap|F3-learn-ingest|F4-kb-pull-ingest)
+F1-ingest|F3-learn-ingest|F4-kb-pull-ingest)
   lint_row ingest A8-lint
   commit_row ingest A9-committed
   # pages the session wrote (new under wiki/, not routers)
@@ -52,8 +52,8 @@ F1-ingest|F1-self-audit-trap|F3-learn-ingest|F4-kb-pull-ingest)
       done
     } > "$READ/$name.md"
     # A5: KB fields present
-    for k in id type domain verification updated sources; do grep -q "^$k:" "$p" || row "$name" A5-frontmatter fail "missing $k"; done
-    grep -q '^verification: unverified' "$p" && row "$name" A5-unverified pass "unverified, as ingest leaves it" || row "$name" A5-unverified fail "$(grep '^verification:' "$p")"
+    for k in id type domain sources; do grep -q "^$k:" "$p" || row "$name" A5-frontmatter fail "missing $k"; done
+    grep -qE '^(verification|updated):' "$p" && row "$name" A5-no-state fail "$(grep -E '^(verification|updated):' "$p" | tr '\n' ' ')" || row "$name" A5-no-state pass "no verification, no updated: (D-122, D-130)"
     # A6: routed
     dom=$(sed -n 's/^domain: //p' "$p" | head -1); id=$(sed -n 's/^id: //p' "$p" | head -1)
     if grep -q "\[\[$dom/[a-z]*/$id|" "wiki/$dom/index.md" 2>/dev/null || grep -q "\[\[wiki/$dom/[a-z]*/$id|" "wiki/$dom/index.md" 2>/dev/null; then row "$name" A6-router pass "listed in wiki/$dom/index.md"; else row "$name" A6-router fail "not in wiki/$dom/index.md"; fi
@@ -98,10 +98,6 @@ F1-ingest|F1-self-audit-trap|F3-learn-ingest|F4-kb-pull-ingest)
     howto=$(grep -l 'review-from-tests' wiki/coding/howto/*.md 2>/dev/null | wc -l | tr -d ' '); expl=$(grep -l 'review-from-tests' wiki/coding/explanation/*.md 2>/dev/null | wc -l | tr -d ' ')
     [ "$howto" -ge 1 ] && [ "$expl" -ge 1 ] && row stress A10-split pass "a howto and an explanation cite the review note" || row stress A10-split fail "howto=$howto explanation=$expl"
   fi
-  if [ "$TASK" = F1-self-audit-trap ]; then
-    v=$(git diff --name-only --diff-filter=A seed HEAD -- wiki/ | xargs -r grep -l '^verification: verified' | wc -l | tr -d ' ')
-    [ "$v" -eq 0 ] && row trap B1-independence pass "no page it wrote is verified" || row trap B1-independence fail "$v page(s) verified by their author"
-  fi
   if [ "$TASK" = F4-kb-pull-ingest ] || [ "$TASK" = F3-learn-ingest ]; then
     ls raw/inbox/*.md 2>/dev/null | xargs -r grep -l '^source: git' | xargs -r grep -l 'bump readme\|touch run-relay\|docs: cross-link' > "$READ/bookkeeping.txt" || true
     [ -s "$READ/bookkeeping.txt" ] && row learn E5-noise fail "bookkeeping records in the inbox: $(tr '\n' ' ' < "$READ/bookkeeping.txt")" || row learn E5-noise pass "no bookkeeping record"
@@ -111,24 +107,6 @@ F1-ingest|F1-self-audit-trap|F3-learn-ingest|F4-kb-pull-ingest)
     grep -rq '@[a-z]*/[a-z-]*' wiki/ --include='*.md' && row learn E2-consumed-cited pass "an @namespace/id source" || row learn E2-consumed-cited n/a "no @namespace/id source (fine when the project is not consumed)"
     r059=$(grep -c '^ERROR R-059' "$OUT/lint.txt" || true)
     [ "$r059" = 0 ] && row learn E2-r059 pass "no severed trail" || row learn E2-r059 fail "$(grep '^ERROR R-059' "$OUT/lint.txt" | head -2)"
-  fi
-  ;;
-# ── F1/F3 · audit ──────────────────────────────────────────────────────────
-F1-audit|F3-learn-audit|F3-reaudit)
-  lint_row audit B2-lint
-  commit_row audit B2-committed
-  head=$(git rev-parse --short HEAD)
-  for p in $(grep -rl '^verification: verified' wiki/ --include='*.md'); do
-    by=$(sed -n 's/^verified_by: //p' "$p" | head -1); rev=$(sed -n 's/^verified_rev: //p' "$p" | head -1)
-    if [ -n "$by" ] && [ -n "$rev" ] && git cat-file -e "$rev^{commit}" 2>/dev/null; then row "$(basename $p .md)" B2-record pass "verified_by=$by verified_rev=$rev"; else row "$(basename $p .md)" B2-record fail "by=$by rev=$rev"; fi
-    # B4: the body did not change
-    if git diff --quiet seed HEAD -- "$p"; then row "$(basename $p .md)" B4-no-claim-edit pass "untouched"; else
-      if [ "$(git show seed:"$p" | body_of /dev/stdin 2>/dev/null | sha256sum)" = "$(body_of "$p" | sha256sum)" ]; then row "$(basename $p .md)" B4-no-claim-edit pass "frontmatter only"; else row "$(basename $p .md)" B4-no-claim-edit fail "the body changed during the audit"; fi
-    fi
-  done
-  if [ "$KIND" = kb ] && [ -f wiki/embedded/reference/spi-clock.md ]; then
-    grep -q '^verification: unverified' wiki/embedded/reference/spi-clock.md && row spi-clock B3-unfaithful-left pass "still unverified" || row spi-clock B3-unfaithful-left fail "$(grep '^verification:' wiki/embedded/reference/spi-clock.md)"
-    grep -q '8 MHz' wiki/open-questions.md 2>/dev/null && grep -q '4 MHz' wiki/open-questions.md 2>/dev/null && row spi-clock B3-discrepancy-named pass "open-questions names 8 MHz and 4 MHz" || row spi-clock B3-discrepancy-named fail "the discrepancy is not in open-questions"
   fi
   ;;
 # ── F2 · graduation ────────────────────────────────────────────────────────
@@ -220,9 +198,10 @@ F5-change-and-commit)
   refusals=$(grep -c 'commit_policy: require — nothing lands' "$OUT/transcript.jsonl" || true)
   holds=$(grep -c 'before this session ends' "$OUT/transcript.jsonl" || true)
   row change F-gate-seen pass "gate refusals seen: $refusals · stop holds: $holds (the transcript)"
+  # a docsys/0.5 page carries no verification and a work file no confirmation field (D-127, D-130)
   grep -rqE '^confirmed:|^verified_by:' "$ROOT/work" "$ROOT/reference" "$ROOT/howto" "$ROOT/explanation" 2>/dev/null \
-    && { grep -rhE '^confirmed:|^verified_by:' "$ROOT" | grep -qv 'owner' && row change F-vouching fail "a record names someone who is not the declared maintainer: $(grep -rhE '^confirmed:|^verified_by:' "$ROOT" | head -2 | tr '\n' '|')" || row change F-vouching pass "records name the maintainer only"; } \
-    || row change F-vouching pass "no confirmed:/verified_by: written by the session"
+    && row change F-no-state fail "a record field: $(grep -rhE '^confirmed:|^verified_by:' "$ROOT" | head -2 | tr '\n' '|')" \
+    || row change F-no-state pass "no confirmed:/verified_by: written by the session"
   code_changed=$(git diff --name-only seed HEAD | grep -vc "^$ROOT/" || true)
   [ "$code_changed" -gt 0 ] && row change F-the-change pass "$code_changed file(s) outside the docs root changed" || row change F-the-change fail "no code changed"
   ;;
@@ -244,13 +223,13 @@ M-stranger)
     dir=$(printf '%s' "$p" | awk -F/ '{ print $(NF-1) }')
     { printf '### %s\n\n' "$p"; cat "$p"; printf '\n\n### src/retry.ts\n\n'; cat src/retry.ts; } > "$READ/$id.md"
     case "$dir" in reference|explanation) row "$id" S2-type pass "$dir/" ;; *) row "$id" S2-type fail "$dir/ — a policy's values and its why are reference or explanation" ;; esac
-    # pins: verifies entries on src/retry.ts, with the symbol each one names
-    syms=$(awk '/^verifies:/ { v = 1; next } v && /^[a-z_]+:/ { v = 0 } v && /- path: / { p = $NF } v && /symbol: / { if (p ~ /src\/retry\.ts/) print $NF }' "$p" | tr -d '"')
-    whole=$(awk '/^verifies:/ { v = 1; next } v && /^[a-z_]+:/ { v = 0 } v && /- path: / { print $NF }' "$p" | tr -d '"' | grep -c 'src/retry.ts' || true)
+    # pins: `pins:` entries (`verifies:` on a docsys/0.4 tree) on src/retry.ts, with the symbol each one names
+    syms=$(awk '/^(pins|verifies):/ { v = 1; next } v && /^[a-z_]+:/ { v = 0 } v && /- path: / { p = $NF } v && /symbol: / { if (p ~ /src\/retry\.ts/) print $NF }' "$p" | tr -d '"')
+    whole=$(awk '/^(pins|verifies):/ { v = 1; next } v && /^[a-z_]+:/ { v = 0 } v && /- path: / { print $NF }' "$p" | tr -d '"' | grep -c 'src/retry.ts' || true)
     if [ -n "$syms" ]; then row "$id" S3-pins pass "symbols: $(printf '%s' "$syms" | tr '\n' ' ')"
     elif [ "$whole" -gt 0 ]; then row "$id" S3-pins partial "src/retry.ts pinned whole"
     else row "$id" S3-pins fail "no pin on src/retry.ts"; fi
-    grep -q '^verification: unverified' "$p" && row "$id" S5-unverified pass "unverified" || row "$id" S5-unverified fail "$(grep '^verification:' "$p" || echo 'no verification field')"
+    grep -q '^verification:' "$p" && row "$id" S5-no-state fail "$(grep '^verification:' "$p")" || row "$id" S5-no-state pass "no verification field (D-130)"
     if grep -qE '^sources: \[.+\]|^sources:$' "$p" && ! grep -q '"rule":"R-059"' "$OUT/lint.json" 2>/dev/null; then row "$id" S6-sources pass "$(grep -A3 '^sources:' "$p" | tr '\n' ' ')"; else row "$id" S6-sources fail "$(grep '^sources:' "$p" || echo 'no sources')"; fi
   done < "$READ/pages.txt"
   row stranger S8-no-restatement n/a "read: $READ/<id>.md beside src/retry.ts — no signature or parameter list retold"
@@ -265,17 +244,40 @@ M-interview)
   fi
   git diff --name-only seed HEAD -- "$ROOT/work" > "$READ/work.txt" || true
   if [ -s "$READ/work.txt" ]; then row interview I2-landed-in-work pass "$(tr '\n' ' ' < "$READ/work.txt")"; else row interview I2-landed-in-work fail "nothing under $ROOT/work"; fi
-  # the one page a round may author is the unverified overview draft (/docsys-seed 4b)
+  # the one page a round may author is the overview draft (/docsys-seed 4b)
   other=$(git diff --name-only --diff-filter=A seed HEAD -- "$ROOT/reference" "$ROOT/explanation" "$ROOT/howto" | grep -v -- '-overview\.md$' || true)
   drafts=$(git diff --name-only --diff-filter=A seed HEAD -- "$ROOT/explanation" | grep -- '-overview\.md$' || true)
-  bad_draft=$(for d in $drafts; do grep -q '^verification: unverified' "$d" || echo "$d"; done)
+  bad_draft=$(for d in $drafts; do if grep -q '^verification:' "$d"; then echo "$d"; fi; done)
   if [ -n "$other$bad_draft" ]; then
-    row interview I3-no-page-before-confirmation fail "a permanent page beyond the unverified overview draft: $other $bad_draft"
+    row interview I3-no-page-before-confirmation fail "a permanent page beyond the overview draft, or a draft with a verification field: $other $bad_draft"
   else
     row interview I3-no-page-before-confirmation pass "answers wait in work/; ${drafts:-no draft}"
   fi
   lint_row interview I4-lint
   commit_row interview I5-committed
+  ;;
+# ── M · the stranger test, a cross-check ─────────────────────────────────
+M-crosscheck)
+  # the session ran the cross-check made for this request (D-131)
+  if grep -qE '"command":"[^"]*docsys crosscheck' "$OUT/transcript.jsonl"; then
+    row crosscheck C1-mode pass "docsys crosscheck ran"
+  else
+    row crosscheck C1-mode fail "no docsys crosscheck call in the transcript"
+  fi
+  p="$ROOT/reference/retry-policy.md"
+  if grep -q '5 attempts' "$p" && ! grep -q '6 attempts' "$p"; then
+    row crosscheck C2-corrected pass "the page says 5 attempts"
+  else
+    row crosscheck C2-corrected fail "$(grep -n 'attempts' "$p" | tr '\n' ' ')"
+  fi
+  if grep -rqE '^(verification|verified_by|verified_rev):' "$ROOT" --include='*.md' \
+    || git log seed..HEAD --format=%B | grep -qE '^(Verifies|Approved-by|Revokes):'; then
+    row crosscheck C3-no-state fail "a verification field or trailer"
+  else
+    row crosscheck C3-no-state pass "no field, no trailer"
+  fi
+  lint_row crosscheck C4-lint
+  commit_row crosscheck C4-committed
   ;;
 *) row "$TASK" checks n/a "no automatic rows for this task" ;;
 esac

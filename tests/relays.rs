@@ -100,7 +100,7 @@ fn adopt_wires_the_project_dir_form_and_bakes_the_trees_root() {
     assert!(sync.contains("--root documentation"), "{sync}");
     assert!(sync.contains("<sha> -- documentation/`"), "{sync}");
     let settings = fs::read_to_string(r.join(".claude/settings.json")).unwrap();
-    // a docsys/0.5 tree runs no post-edit relay (D-126)
+    // a docsys/0.5 tree runs no post-edit relay (D-130)
     assert!(!settings.contains("post-edit-updated"), "{settings}");
     for name in ["session-intent", "pre-commit-docs", "stop-docs-reminder"] {
         assert!(

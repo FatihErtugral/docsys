@@ -105,14 +105,6 @@ impl Era {
         self.0 >= V05
     }
 
-    /// D-101: `verify` records the body's and the consumed sources' hashes,
-    /// lint checks them without history, an edit demotes a verified page, a
-    /// revoke keeps the record. Before: the record names who and which
-    /// revision, and history is the only check.
-    pub fn anchored_verification(self) -> bool {
-        self.v05()
-    }
-
     /// §2.4 for R-106 and R-085: a page's last change is its last CONTENT
     /// change. Before: any commit that touched the file.
     pub fn content_history(self) -> bool {
@@ -127,7 +119,7 @@ impl Era {
     }
 
     /// D-119: a pin is fresh while an acknowledgement of its region's token
-    /// form exists under `.verifies/<page-id>/`; a refresh writes
+    /// form exists under `.pins/<page-id>/`; a refresh writes
     /// acknowledgements, never the page. Before: the region's canonical hash
     /// in the page's own `hash:` line, rewritten with `updated:` on every
     /// refresh.
@@ -150,12 +142,6 @@ impl Era {
     /// D-108: a ledger's field markers are ASCII ` -- `; an em dash makes the
     /// entry non-matching. Before: a spaced em dash was read as ` -- `.
     pub fn ascii_ledger(self) -> bool {
-        self.v05()
-    }
-
-    /// R-208: a scalar `maintainers:` names nobody, and is reported.
-    /// Before: read silently as an empty list.
-    pub fn scalar_maintainers(self) -> bool {
         self.v05()
     }
 
@@ -200,14 +186,6 @@ impl Era {
         self.v05()
     }
 
-    /// D-126: a page's verification is read from history — an approval
-    /// commit (`Approved-by:` naming a maintainer) after its last body change;
-    /// nothing is written into the page. Before: the record in the page's
-    /// frontmatter (D-101's anchored record on a 0.5 tree from before).
-    pub fn verification_from_history(self) -> bool {
-        self.v05()
-    }
-
     /// D-127: `graduate apply --confirmed` moves the last blocks and removes
     /// the work file; the commit names the destinations. Before: the file
     /// stays as `graduated`, its `confirmed:` written on it.
@@ -221,10 +199,26 @@ impl Era {
         self.v05()
     }
 
+    /// D-130: a page carries a verification record — docsys/0.4's, as 0.15.1
+    /// kept it. From docsys/0.5 on a page carries none; a person cross-checks
+    /// pages with an agent when they ask.
+    pub fn page_verification(self) -> bool {
+        !self.v05()
+    }
+
     /// D-040: a call that runs `git add` before its commit is asked about the
     /// untracked files that `git add` may take too. Before: the tracked
     /// changes alone.
     pub fn untracked_in_question(self) -> bool {
+        self.v05()
+    }
+
+    /// D-111, D-120: the CI workflow names no docsys version and no sha256 —
+    /// its release install reads the pin and checks the archive against that
+    /// release's SHA256SUMS, and an upgrade replaces an owner's install that
+    /// names either. Before: a release install holds the sha256 values the
+    /// person copied, and an owner's workflow is named, never rewritten.
+    pub fn pinned_ci_install(self) -> bool {
         self.v05()
     }
 }
@@ -241,6 +235,6 @@ mod tests {
         assert_eq!(Era::of_spec(Some("docsys/0.4")), Era(4));
         assert_eq!(Era::of_spec(None), Era(4));
         assert_eq!(Era::of_spec(Some("docsys/1.0")), Era(4));
-        assert!(Era(5).anchored_verification() && !Era(4).anchored_verification());
+        assert!(Era(4).page_verification() && !Era(5).page_verification());
     }
 }

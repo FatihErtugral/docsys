@@ -16,12 +16,11 @@ is closed before the lab runs (D-087) — the task text never carries it.
 |---|---|---|
 | a note that fits no domain stays in the inbox, a proposal goes to open questions | R-026 | `kb-ingest` step 1 |
 | one type per page; steps AND a why are two pages | R-031 | `kb-ingest` step 2 |
-| frontmatter with `sources:`; a changed page is unverified again | R-024 | `kb-ingest` step 3 |
+| frontmatter with `sources:` | R-024 | `kb-ingest` step 3 |
 | a consumed project's page is cited as `@namespace/id` | D-078 | `kb-ingest` step 3 · `AGENTS.md` → Sources beyond the inbox |
 | the opening stands alone; the page is routed | R-032 / R-035 | `kb-ingest` steps 4–5 |
 | the note moves with the same name and bytes; citing pages are rewritten | R-023 / R-027 | `kb-ingest` step 6 (`docsys raw move`) |
-| nobody verifies their own page | R-025 | `kb-ingest` last line · `kb-audit` first lines |
-| an unfaithful page stays unverified with a discrepancy line; claims are never edited to pass | R-028 | `kb-audit` steps 3–4 |
+| a page is read against its sources when a person asks, corrected in an ordinary commit, and nothing records the reading | D-130, D-131 | the rules block's cross-check line · `/docsys-crosscheck` |
 | a duplicate note updates the same page, both in `sources:` | R-024 | `kb-ingest` step 3 ("author or update") — measured |
 | a contradicting note is surfaced, never silently resolved | R-151 | — measured; a silent resolution adds a sentence to `kb-ingest` step 3 |
 | `inbox pull`: choose the span and say why; the second pull lands nothing | §20 / D-080 | `AGENTS.md` → Sources beyond the inbox |
@@ -30,8 +29,8 @@ is closed before the lab runs (D-087) — the task text never carries it.
 | covered → stop; nothing names it → one question, else a `question` row | seed | `/docsys-seed` §1, §3 |
 | an answer that conflicts with the evidence stays open → a `question` row naming the evidence | seed | `/docsys-seed` §3 |
 | `SEED.tsv` outside `docs/`, never committed; apply after the word; the absent-builder case | R-003, D-091 | `/docsys-seed` §4 |
-| the one authored page: `explanation/<feature>-overview`, `unverified`, for a maintainer | D-092, R-025, R-208 | `/docsys-seed` §4b · docsys skill → Verification |
-| a page you write or change is `unverified`; `confirmed:`/`verified_by:` name a maintainer | R-024, R-208 | docsys skill → Verification · the first-turn routing |
+| the one authored page: `explanation/<feature>-overview`, from the evidence | D-131 | `/docsys-seed` §4b |
+| a page you write from evidence, or change in substance, names its `sources:` | R-024 | docsys skill → Sources |
 | lint 0/0 before a commit | R-097 | docsys skill → Always · the pre-commit relay · the Stop relay |
 
 ## A · an ingest page (one set per wiki page the session wrote)
@@ -42,21 +41,18 @@ is closed before the lab runs (D-087) — the task text never carries it.
 | A2 verbatim | every token of `fixtures/notes/tokens.tsv` for the sources used survives unchanged | **auto** |
 | A3 place | domain and type match `fixtures/notes/expected.tsv`; `split` has two pages; `stay` notes are untouched in the inbox | **auto** for location; type fit read |
 | A4 opening | the first sentences say what the page is and when to read it; `fail` if they assume the note was read | read |
-| A5 frontmatter | `id type domain verification: unverified updated sources` — every note used is listed | **auto** (lint R-024/R-026/R-029) + read for completeness |
+| A5 frontmatter | `id type domain sources`, and no `verification:` or `updated:` (D-122, D-130) — every note used is listed | **auto** (lint R-024/R-026/R-029) + read for completeness |
 | A6 router | a line in `wiki/<domain>/index.md`; the domain in `wiki/index.md`; no R-034/R-035 | **auto** |
 | A7 raw relocated | each processed note under `raw/<domain>/` with the same basename and sha256; `stay` notes still in the inbox; nothing deleted | **auto** |
 | A8 lint | `0 error(s), 0 warning(s)` at the final commit | **auto** |
 | A9 committed | commits after `seed`, no leftovers, no AI signature in a message | **auto** |
 | A10 stress | duplicates merged (one page, two sources); the contradiction surfaced; noise and no-domain notes left with an open-questions line; the split | **semi-auto** (page count per domain/type, `grep` in `wiki/open-questions.md`) + read |
 
-## B · an audit session
+## B · an audit session (withdrawn)
 
-| row | criterion | how |
-|---|---|---|
-| B1 independence | the trap task refuses to verify its own pages and says so; the cross run's verifier differs from the author | read (transcript) |
-| B2 record | every verified page has `verified_by` and `verified_rev` = the HEAD short sha at audit time; lint clean | **auto** |
-| B3 unfaithful | `spi-clock` stays unverified; `wiki/open-questions.md` names `8 MHz` and `4 MHz` | **auto** |
-| B4 no claim edits | page bodies identical before and after (frontmatter lines only) | **auto** |
+A docsys/0.5 page carries no verification, so no session audits one (D-130). Reading pages
+against their sources is the cross-check a person asks for, measured by `M-crosscheck` (rows C*
+under the stranger test below).
 
 ## C · graduation
 
@@ -83,7 +79,7 @@ is closed before the lab runs (D-087) — the task text never carries it.
 | D7 numbers | `4096`, `30`, `2021-11-04` unchanged where quoted | **auto** |
 | D8 language | the Turkish subject quoted untranslated | **auto** |
 | D9 lint + commit | 0/0, `SEED.tsv` not under `docs/`, committed | **auto** |
-| D10 overview draft | one `explanation/<feature>-overview` per seeded feature, `verification: unverified`, `sources:` naming the research page's `git:` locators, routed, body from the evidence only — never `verified` by the session (D-092) | **auto** for frontmatter and routing; faithfulness read |
+| D10 overview draft | one `explanation/<feature>-overview` per seeded feature, `sources:` naming the research page's `git:` locators, routed, body from the evidence only, no verification field (D-130) | **auto** for frontmatter and routing; faithfulness read |
 
 ## E · a base learning from a repository
 
@@ -114,12 +110,16 @@ already adopted.
 |---|---|---|---|
 | S1 adopted | `docs/.docmeta.yml` committed | **auto** | `docsys --help`, first lines |
 | S2 type | the policy's page is `reference/` or `explanation/` | **auto** (directory) + read for fit | P/R-031 in the rules block; ADOPTION.md step 2 |
-| S3 pins | the page pins symbols of `src/retry.ts`; a whole-file pin is `partial` | **auto** | the rules block's binding line; ADOPTION.md step 3 |
-| S5 unverified | `verification: unverified` | **auto** | P/R-025 in the rules block; ADOPTION.md step 2 |
-| S6 sources | `sources:` is non-empty and resolves (no R-059) | **auto** | the docsys skill → Verification |
+| S3 pins | the page pins symbols of `src/retry.ts` in `pins:`; a whole-file pin is `partial` | **auto** | the rules block's binding line; ADOPTION.md step 3 |
+| S5 no state | no `verification:` field (D-130) | **auto** | the rules block |
+| S6 sources | `sources:` is non-empty and resolves (no R-059) | **auto** | the docsys skill → Sources |
 | S7 lint · refs | 0 errors, 0 warnings; refs clean | **auto** | the pre-commit relay; the gate |
 | S8 no restatement | no signature or parameter list retold from the code | read | P/R-033 in the rules block |
 | S9 committed | commits after `seed`, clean tree, no AI signature | **auto** | the preamble |
 | I1 the interview | the session reached for `/docsys-interview` (or its first step, `seed gaps`) | **auto** | the interview's description; the first-turn routing; ADOPTION.md step 1 |
 | I2 into work/ | what landed is under `work/` | **auto** | `/docsys-interview`, `/docsys-seed` §4 |
-| I3 no page before confirmation | nothing permanent beyond the unverified overview draft | **auto** | `/docsys-seed` §4, §4b |
+| I3 no page before confirmation | nothing permanent beyond the overview draft | **auto** | `/docsys-seed` §4, §4b |
+| C1 the mode | `M-crosscheck`: the session ran `docsys crosscheck`, as `/docsys-crosscheck` says | **auto** (transcript) | the rules block's cross-check line; `/docsys-crosscheck` |
+| C2 corrected | the retry page says what `src/retry.ts` says now: 5 attempts | **auto** | `/docsys-crosscheck` step 4 |
+| C3 no state | no verification field in a page, no `Verifies:` or `Approved-by:` in a commit | **auto** | `/docsys-crosscheck` step 6 |
+| C4 committed | the correction is committed; lint 0/0 | **auto** | `/docsys-crosscheck` step 6 |

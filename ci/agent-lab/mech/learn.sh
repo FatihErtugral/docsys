@@ -3,8 +3,8 @@
 # projects. `consume discover`, `docsys assistant` in one command (and
 # idempotent), the git connector's arithmetic (`--since`, `--limit`,
 # `--all`, `--as`, bookkeeping skipped, nothing landed twice), the record
-# shape, the `@namespace/id` lifecycle (clean after fetch, unverified when the
-# source moves, status counting it, D-126), `forget` on a cited record, and
+# shape, the `@namespace/id` lifecycle (clean after fetch, and a cross-check
+# that reads the moved source, D-131), `forget` on a cited record, and
 # `lookup`. Exact strings throughout.
 source "$(dirname "${BASH_SOURCE[0]}")/../lib.sh"
 lab_binary
@@ -86,26 +86,18 @@ printf '# coding\n\n- [[coding/explanation/relay-in-one-page|Relay in one page]]
 grep -q 'coding/index' wiki/index.md || printf -- '- [[coding/index|Coding]] -- code.\n' >> wiki/index.md
 expect_clean $F cites-fetched-page .
 git add -A && git commit -qm "learned from relay" 2>"$O/commit.err" || check $F commit-1 FAIL "$(cat "$O/commit.err")"
-docsys verify relay-in-one-page --root . > "$O/verify.out" 2>&1 || check $F verify FAIL "$(cat "$O/verify.out")"
-expect_clean $F verified-against-fetched .
-expect_true $F verified-read "the page reads verified" sh -c "docsys status --root . | grep -q '^wiki: 1 page(s), 0 unverified'"
+expect_true $F wiki-counted "status counts the page and names no state" sh -c "docsys status --root . | grep -qx 'wiki: 1 page(s)'"
 ( cd "$E/relay" && awk '{ if (index($0, "Four attempts, exponential backoff") == 1) print "Six attempts, exponential backoff starting at 200 ms, then a dead letter."; else print }' docs/reference/retry-policy.md > r.tmp && mv r.tmp docs/reference/retry-policy.md && dated_commit . 2026-08-01 "relay: six attempts" "Four was not enough for the slow dependency; six, measured, finishes under 13 s." )
 docsys fetch --root . >/dev/null 2>&1 || true
-docsys status --root . > "$O/status.out"
-expect_in $F source-moved "1 unverified — wiki/coding/explanation/relay-in-one-page.md" "$O/status.out"
-expect_in $F status-sources-moved "sources: 1 verified page(s) whose consumed sources moved since verification" "$O/status.out"
+docsys crosscheck relay-in-one-page --root . > "$O/crosscheck.out" 2>&1 || check $F crosscheck FAIL "$(cat "$O/crosscheck.out")"
+expect_in $F crosscheck-source "  source: @relay/retry-policy" "$O/crosscheck.out"
+expect_in $F fetched-text "Six attempts" ".federation/relay/retry-policy.md"
 docsys inbox pull "$E/relay" --since 2026-01-01 --root . > "$O/pull6.out" 2>&1 || true
 expect_true $F new-commit-lands "the six-attempts commit lands" grep -q '^captured: raw/inbox/.*six-attempts' "$O/pull6.out"
-# D-126: a stale verification is the derived state "unverified", not a stored claim to clean up
-# first — the fetch and the record land, and another audit verifies against the new baseline
+# the fetch and the record land in one commit; the page stays as written
+# until a cross-check corrects it (D-130, D-131)
 git add -A && git commit -qm "relay moved: fetched, pulled" 2>"$O/commit.err" || check $F commit-fetch FAIL "$(cat "$O/commit.err")"
-expect_clean $F unverified-again .
-expect_true $F still-unverified "the page still reads unverified after the commit" sh -c "docsys status --root . | grep -q '1 unverified — wiki/coding/explanation/relay-in-one-page.md'"
-docsys verify relay-in-one-page --root . > "$O/verify2.out" 2>&1 || check $F re-verify FAIL "$(cat "$O/verify2.out")"
-expect_clean $F re-verified .
-docsys status --root . > "$O/status3.out"
-expect_in $F re-verified-reads "wiki: 1 page(s), 0 unverified" "$O/status3.out"
-expect_in $F re-verified-sources "sources: 0 verified page(s) whose consumed sources moved since verification" "$O/status3.out"
+expect_clean $F clean-after-fetch .
 
 say "$F · 5 forgetting a cited record is refused; the page first"
 rec=$(ls raw/inbox/*-relay-*backoff*.md | head -1)

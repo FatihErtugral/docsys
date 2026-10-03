@@ -107,9 +107,9 @@ fn kind_of(page: &Page) -> String {
     }
 }
 
-/// `blocks` is `Some` in a tree that keeps block records (§21), holding the
-/// blocks whose bound pin is stale.
-fn caveat_of(page: &Page, blocks: Option<&[String]>) -> Option<String> {
+/// A hit's caveat: a work file's status, and on a docsys/0.4 tree a page's
+/// verification as 0.15.1 marked it; a docsys/0.5 page carries none (D-130).
+fn caveat_of(page: &Page, verification: bool) -> Option<String> {
     let fm = page.fm.as_ref()?;
     if page.kind == Kind::Tracked {
         return fm
@@ -118,39 +118,16 @@ fn caveat_of(page: &Page, blocks: Option<&[String]>) -> Option<String> {
             .and_then(Value::as_str)
             .map(|s| format!("status: {s}"));
     }
-    // how much of a page whose body or pins moved still reads as verified,
-    // when a block record says (R-028, R-212)
-    let partial = blocks
-        .and_then(|stale| crate::blocks::reading(fm, &page.text, stale))
-        .filter(crate::blocks::Reading::partial)
-        .map(|r| {
-            let by = fm
-                .fields
-                .get("verified_by")
-                .and_then(Value::as_str)
-                .unwrap_or("?");
-            format!(" — {}/{} blocks as verified by {by}", r.found, r.of)
-        })
-        .unwrap_or_default();
+    if !verification {
+        return None;
+    }
     match fm.fields.get("verification").and_then(Value::as_str) {
-        // a record with its blocks says, without history, whether the page
-        // still holds what was verified (D-101)
-        Some("verified") => {
-            let moved = crate::blocks::holds(fm, &page.text) == Some(false);
-            if moved {
-                Some(format!("verified, but the body changed since{partial}"))
-            } else if !partial.is_empty() {
-                Some(format!("verified{partial}"))
-            } else {
-                None
-            }
-        }
-        None => None,
-        Some(v) => Some(format!("{v}{partial}")),
+        Some("verified") | None => None,
+        Some(v) => Some(v.to_string()),
     }
 }
 
-fn hit_of(page: &Page, token: String, words: &[String], blocks: Option<&[String]>) -> Option<Hit> {
+fn hit_of(page: &Page, token: String, words: &[String], verification: bool) -> Option<Hit> {
     let id = id_of(page);
     let title = title_of(page, &id);
     let summary = crate::export::summary_of(page);
@@ -161,7 +138,7 @@ fn hit_of(page: &Page, token: String, words: &[String], blocks: Option<&[String]
         rel: page.rel.clone(),
         title,
         summary,
-        caveat: caveat_of(page, blocks),
+        caveat: caveat_of(page, verification),
         score,
     })
 }
@@ -170,33 +147,13 @@ fn hit_of(page: &Page, token: String, words: &[String], blocks: Option<&[String]
 /// pages, then each consumed namespace's materialized pages — best first.
 pub fn lookup(root: &Path, words: &[String]) -> Result<Vec<Hit>, String> {
     let tree = DocTree::load(root).map_err(|e| e.to_string())?;
-    let era = crate::era::Era::of(&tree);
-    let repo = era
-        .anchored_verification()
-        .then(|| crate::repo_of(&tree.root))
-        .flatten();
-    // a docsys/0.5 page's verification is history's (D-126)
-    let approvals = era
-        .verification_from_history()
-        .then(|| crate::approval::Approvals::of(&tree));
+    let verification = crate::era::Era::of(&tree).page_verification();
     let mut hits = Vec::new();
     for page in &tree.pages {
-        let Some(fm) = page.fm.as_ref() else { continue };
-        if !matches!(page.kind, Kind::Permanent | Kind::Tracked) {
+        if page.fm.is_none() || !matches!(page.kind, Kind::Permanent | Kind::Tracked) {
             continue;
         }
-        // only a page with a block record has blocks a stale pin can take away
-        let stale = match &repo {
-            Some(r) if crate::blocks::record_of(fm).is_some() || approvals.is_some() => {
-                crate::fresh::stale_blocks(&tree.root, r, era, fm)
-            }
-            _ => Vec::new(),
-        };
-        let blocks = era.anchored_verification().then_some(stale.as_slice());
-        if let Some(mut h) = hit_of(page, id_of(page), words, blocks) {
-            if let (Some(a), Kind::Permanent) = (&approvals, page.kind) {
-                h.caveat = crate::approval::caveat(&tree, a, page, &stale);
-            }
+        if let Some(h) = hit_of(page, id_of(page), words, verification) {
             hits.push(h);
         }
     }
@@ -244,8 +201,7 @@ pub fn lookup(root: &Path, words: &[String]) -> Result<Vec<Hit>, String> {
                 text,
             };
             let id = id_of(&page);
-            let blocks = era.anchored_verification().then_some(&[][..]);
-            if let Some(h) = hit_of(&page, format!("@{ns}/{id}"), words, blocks) {
+            if let Some(h) = hit_of(&page, format!("@{ns}/{id}"), words, verification) {
                 hits.push(h);
             }
         }
@@ -337,28 +293,28 @@ mod tests {
             Kind::Permanent,
         );
         let w = |s: &str| s.split(' ').map(String::from).collect::<Vec<_>>();
-        let h = hit_of(&p, "token-ttl".into(), &w("ttl"), None).unwrap();
+        let h = hit_of(&p, "token-ttl".into(), &w("ttl"), true).unwrap();
         assert_eq!(h.score, 8);
         assert_eq!(h.title, "Token lifetime");
         assert_eq!(
-            hit_of(&p, "token-ttl".into(), &w("lifetime"), None)
+            hit_of(&p, "token-ttl".into(), &w("lifetime"), true)
                 .unwrap()
                 .score,
             5
         );
         assert_eq!(
-            hit_of(&p, "token-ttl".into(), &w("auth"), None)
+            hit_of(&p, "token-ttl".into(), &w("auth"), true)
                 .unwrap()
                 .score,
             4
         );
         assert_eq!(
-            hit_of(&p, "token-ttl".into(), &w("renewal"), None)
+            hit_of(&p, "token-ttl".into(), &w("renewal"), true)
                 .unwrap()
                 .score,
             1
         );
-        assert!(hit_of(&p, "token-ttl".into(), &w("ttl banana"), None).is_none());
+        assert!(hit_of(&p, "token-ttl".into(), &w("ttl banana"), true).is_none());
         assert!(h.caveat.is_none());
     }
 
@@ -369,7 +325,7 @@ mod tests {
             "---\nid: jitter\nstatus: draft\nupdated: 2026-01-01\n---\n\n## Context\n\nSpread firings.\n",
             Kind::Tracked,
         );
-        let h = hit_of(&d, "jitter".into(), &["jitter".into()], None).unwrap();
+        let h = hit_of(&d, "jitter".into(), &["jitter".into()], true).unwrap();
         assert_eq!(h.kind, "feature");
         assert_eq!(h.caveat.as_deref(), Some("status: draft"));
         let u = page(
@@ -377,7 +333,7 @@ mod tests {
             "---\nid: x\ntype: howto\ndomain: ops\nverification: unverified\nupdated: 2026-01-01\nsources: []\n---\n# X\n",
             Kind::Permanent,
         );
-        let h = hit_of(&u, "x".into(), &["x".into()], None).unwrap();
+        let h = hit_of(&u, "x".into(), &["x".into()], true).unwrap();
         assert_eq!(h.caveat.as_deref(), Some("unverified"));
     }
 }

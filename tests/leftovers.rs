@@ -227,45 +227,60 @@ fn a_moved_tree_with_no_leftover_says_so_in_one_line() {
 /// runners, a release install of a version written in an `env:` block.
 fn owned_workflow(version: &str) -> String {
     format!(
-        "name: docs\non:\n  pull_request:\n  push:\n    branches: [develop]\njobs:\n  docs:\n    runs-on: [self-hosted, linux, docs-runner]\n    env:\n      DOCSYS_VERSION: v{version}\n      DOCSYS_SHA256_LINUX_X64: {}\n      DOCSYS_SHA256_LINUX_ARM64: {}\n    steps:\n      - uses: actions/checkout@v4\n        with:\n          fetch-depth: 0\n      - name: install the docsys release archive\n        run: |\n          curl -fsSL -o docsys.tar.gz \"https://releases.example.invalid/docsys/${{DOCSYS_VERSION}}/docsys-${{DOCSYS_VERSION}}-linux-x64.tar.gz\"\n          echo \"${{DOCSYS_SHA256_LINUX_X64}}  docsys.tar.gz\" | sha256sum -c -\n          tar -xzf docsys.tar.gz\n      - run: ./docsys lint --repo . --root docs\n",
+        "name: docs\non:\n  pull_request:\n  push:\n    branches: [develop]\njobs:\n  docs:\n    runs-on: [self-hosted, linux, docs-runner]\n    env:\n      DOCSYS_VERSION: v{version}\n      DOCSYS_SHA256_LINUX_X64: {}\n      DOCSYS_SHA256_LINUX_ARM64: {}\n    steps:\n      - uses: actions/checkout@v4\n        with:\n          fetch-depth: 0\n      - name: install the docsys release archive\n        run: |\n          curl -fsSL -o docsys.tar.gz \"https://releases.example.invalid/docsys/${{DOCSYS_VERSION}}/docsys-${{DOCSYS_VERSION}}-linux-x64.tar.gz\"\n          echo \"${{DOCSYS_SHA256_LINUX_X64}}  docsys.tar.gz\" | sha256sum -c -\n          tar -xzf docsys.tar.gz -C \"$RUNNER_TEMP\"\n          echo \"$RUNNER_TEMP\" >> \"$GITHUB_PATH\"\n      - run: docsys lint --repo . --root docs\n",
         "1".repeat(64),
         "2".repeat(64)
     )
 }
 
-/// What an owner's release-install workflow must change with the tree, and
-/// nothing else: the version it installs, on its line, and the sha256 values
-/// the person copies from the release page — never a template default, never
-/// a value docsys made up.
+/// What an owner's release-install workflow changes with the tree, and
+/// nothing else (D-111, D-120): its version and sha256 lines go, its install
+/// step becomes this version's, which reads the pin and checks the release's
+/// SHA256SUMS — never a template default, never a value docsys made up.
 fn assert_only_what_moves(out: &str) {
-    let own = env!("CARGO_PKG_VERSION");
-    let line = row(
-        out,
-        "manual",
-        "ci-workflow",
-        ".github/workflows/docsys.yml:10",
-    )
-    .unwrap_or_else(|| panic!("{out}"));
-    assert!(
-        line.contains("docsys 0.15.1") && line.contains(own),
-        "{line}"
+    let wf = ".github/workflows/docsys.yml";
+    let line = row(out, "auto", "ci-workflow", wf).unwrap_or_else(|| panic!("{out}"));
+    assert!(line.contains("SHA256SUMS"), "{line}");
+    let diff = out
+        .split_once(&format!("\n# {wf}\n"))
+        .map(|(_, d)| d)
+        .unwrap_or_else(|| panic!("{out}"));
+    let changed: Vec<&str> = diff
+        .lines()
+        .filter(|l| {
+            (l.starts_with('-') || l.starts_with('+'))
+                && !l.starts_with("---")
+                && !l.starts_with("+++")
+        })
+        .collect();
+    let sums = format!(
+        "+          curl -fsSL -o SHA256SUMS \"{}/v$v/SHA256SUMS\"",
+        docsys::workflow::RELEASES
     );
     assert!(
-        line.contains("sha256") && line.contains("release page"),
-        "{line}"
+        changed.contains(&"-      DOCSYS_VERSION: v0.15.1") && changed.contains(&sums.as_str()),
+        "{diff}"
     );
-    for default in [
-        "\n# .github/workflows/docsys.yml\n",
-        "ubuntu-latest",
-        "branches: [main]",
-        "install=cargo",
-        &"1".repeat(64),
-    ] {
+    for l in &changed {
+        assert!(
+            !l.contains("runs-on") && !l.contains("branches"),
+            "`{l}` in {diff}"
+        );
+        if l.starts_with('+') {
+            assert!(
+                !l.split(|c: char| !c.is_ascii_hexdigit())
+                    .any(|t| t.len() == 64),
+                "a sha256 written: `{l}`"
+            );
+        }
+    }
+    for default in ["ubuntu-latest", "branches: [main]", "install=cargo"] {
         assert!(!out.contains(default), "`{default}` in {out}");
     }
 }
 
-/// An owner's workflow, in the move's plan: only what moves with the tree.
+/// An owner's workflow, in the move's plan: only what installs docsys moves
+/// with the tree, shown as a diff, and the move writes it.
 #[test]
 fn an_owners_workflow_hears_only_what_moves_with_the_tree() {
     let repo = build("owned-plan");
@@ -273,11 +288,25 @@ fn an_owners_workflow_hears_only_what_moves_with_the_tree() {
     write(&repo, wf, &owned_workflow("0.15.1"));
     commit_all(&repo, "ci: our runners, our release install");
     assert_only_what_moves(&stdout(&docsys(&repo, &["upgrade"])));
-    let out = docsys(&repo, &["upgrade", "--apply", "--commit"]);
-    assert!(out.status.success(), "{out:?}");
     assert_eq!(
         fs::read_to_string(repo.join(wf)).unwrap(),
-        owned_workflow("0.15.1")
+        owned_workflow("0.15.1"),
+        "the plan writes nothing"
+    );
+    let out = docsys(&repo, &["upgrade", "--apply", "--commit"]);
+    assert!(out.status.success(), "{out:?}");
+    let moved = fs::read_to_string(repo.join(wf)).unwrap();
+    assert!(
+        moved.starts_with("name: docs\non:\n  pull_request:\n  push:\n    branches: [develop]\njobs:\n  docs:\n    runs-on: [self-hosted, linux, docs-runner]\n    steps:\n"),
+        "{moved}"
+    );
+    assert!(
+        moved.ends_with("          echo \"$RUNNER_TEMP/$name\" >> \"$GITHUB_PATH\"\n      - run: docsys lint --repo . --root docs\n"),
+        "{moved}"
+    );
+    assert!(
+        !moved.contains("DOCSYS_") && !moved.contains("0.15.1"),
+        "{moved}"
     );
     let _ = fs::remove_dir_all(&repo);
 }
@@ -285,7 +314,8 @@ fn an_owners_workflow_hears_only_what_moves_with_the_tree() {
 /// Leftover 1: a workflow that installs a version other than the tree's pin,
 /// in every shape the classification knows — untouched (its install reading
 /// the pin, or a release install holding another version's sha256 values),
-/// a rendering from before the stamp, and the owner's own.
+/// a rendering from before the stamp, and the owner's own, whose install
+/// names a version, whichever (D-111, D-120).
 #[test]
 fn a_workflow_that_installs_another_version_is_a_leftover() {
     use docsys::workflow::{render, Ci, Install, Verify, Workflow};
@@ -300,7 +330,7 @@ fn a_workflow_that_installs_another_version_is_a_leftover() {
         ci: Ci {
             runner: vec!["ubuntu-latest".to_string()],
             install,
-            verify: Verify::Description,
+            verify: Verify::Off,
         },
     };
     // untouched, its install reading the pin: regenerated
@@ -311,7 +341,8 @@ fn a_workflow_that_installs_another_version_is_a_leftover() {
         row(&out, "auto", "ci-workflow", wf).is_some_and(|l| l.contains("regenerated from 0.15.9")),
         "{out}"
     );
-    // untouched, a release install: another version's sha256 values
+    // untouched, a release install: another version's sha256 values, which
+    // the regenerated install no longer holds
     let sum = "3".repeat(64);
     write(
         &repo,
@@ -323,9 +354,9 @@ fn a_workflow_that_installs_another_version_is_a_leftover() {
     );
     commit_all(&repo, "a release install an earlier build stamped");
     let out = idle(&repo);
-    let line = row(&out, "manual", "ci-workflow", wf).unwrap_or_else(|| panic!("{out}"));
+    let line = row(&out, "auto", "ci-workflow", wf).unwrap_or_else(|| panic!("{out}"));
     assert!(
-        line.contains("0.15.9") && line.contains(own) && line.contains("release page"),
+        line.contains("regenerated from 0.15.9") && line.contains("SHA256SUMS"),
         "{line}"
     );
     assert!(!out.contains(&sum), "never a value made up: {out}");
@@ -343,13 +374,21 @@ fn a_workflow_that_installs_another_version_is_a_leftover() {
         row(&out, "auto", "ci-workflow", wf).is_some_and(|l| l.contains("the 0.15 workflow")),
         "{out}"
     );
-    // the owner's: the version on its line, the sha256 values to copy
+    // the owner's: its version and sha256 lines go, its install reads the pin
     write(&repo, wf, &owned_workflow("0.15.1"));
     commit_all(&repo, "ci: our runners");
     assert_only_what_moves(&idle(&repo));
-    // the owner's, installing the version the tree pins: nothing left
+    // the owner's, naming the version the tree pins today: the next upgrade
+    // would need it edited, so it moves too; once moved, nothing is left
     write(&repo, wf, &owned_workflow(own));
     commit_all(&repo, "ci: our runners, the pinned version");
+    assert!(
+        row(&idle(&repo), "auto", "ci-workflow", wf).is_some(),
+        "{}",
+        idle(&repo)
+    );
+    let out = docsys(&repo, &["upgrade", "--apply"]);
+    assert!(out.status.success(), "{out:?}");
     assert_eq!(
         idle(&repo),
         "docsys upgrade: docsys/0.5 — no leftover of an earlier version\n"
@@ -417,22 +456,25 @@ fn the_post_edit_relay_and_its_wire_are_a_leftover() {
     let _ = fs::remove_dir_all(&repo);
 }
 
-/// Leftover 4: `updated:` lines, and every verification field a page still
-/// holds. One that still holds leaves the page with its approval carried
-/// into the commit, so the page reads verified from history.
+/// Leftover 4: `updated:` lines, every verification field a page still
+/// holds, a pin list and its acknowledgements under their 0.4 names, and a
+/// maintainer list: a docsys/0.5 page carries no verification, and the move
+/// carries none over (D-130).
 #[test]
 fn date_lines_and_record_fields_in_pages_are_leftovers() {
     let repo = moved("fields");
     let moved_at = git(&repo, &["rev-parse", "--short=7", "HEAD"]);
     let refresh = repo.join("docs/reference/refresh.md");
     let text = fs::read_to_string(&refresh).unwrap();
+    assert!(text.contains("\npins:\n"), "{text}");
     fs::write(
         &refresh,
         text.replacen(
             "type: reference\n",
             &format!("type: reference\nupdated: 2026-09-03\nverification: verified\nverified_by: maintainer\nverified_rev: {moved_at}\n"),
             1,
-        ),
+        )
+        .replacen("\npins:\n", "\nverifies:\n", 1),
     )
     .unwrap();
     let expiry = repo.join("docs/reference/expiry.md");
@@ -446,34 +488,70 @@ fn date_lines_and_record_fields_in_pages_are_leftovers() {
         ),
     )
     .unwrap();
+    assert!(repo.join("docs/.pins").is_dir());
+    git(&repo, &["mv", "docs/.pins", "docs/.verifies"]);
+    let meta = repo.join("docs/.docmeta.yml");
+    let text = fs::read_to_string(&meta).unwrap();
+    assert!(!text.contains("maintainers"), "{text}");
+    fs::write(&meta, format!("{text}maintainers: [ayse]\n")).unwrap();
     commit_all(&repo, "a branch from before the move");
     let out = idle(&repo);
     assert!(
         row(&out, "auto", "dates", "docs").is_some_and(|l| l.contains("from 1 page(s)")),
         "{out}"
     );
+    for page in ["docs/reference/expiry.md", "docs/reference/refresh.md"] {
+        assert!(
+            row(&out, "auto", "records", page)
+                .is_some_and(|l| l.contains("D-130") && !l.contains("Approved-by")),
+            "{page}: {out}"
+        );
+    }
     assert!(
-        row(&out, "auto", "records", "docs/reference/expiry.md").is_some(),
+        row(&out, "auto", "pin-names", "docs/reference/refresh.md").is_some(),
         "{out}"
     );
     assert!(
-        row(&out, "auto", "records", "docs/reference/refresh.md")
-            .is_some_and(|l| l.contains("Approved-by:")),
-        "a record that holds is a leftover too: {out}"
+        row(&out, "auto", "pin-names", "docs/.verifies").is_some(),
+        "{out}"
+    );
+    assert!(
+        row(&out, "auto", "maintainers", "docs/.docmeta.yml").is_some(),
+        "{out}"
     );
     let done = docsys(&repo, &["upgrade", "--apply", "--commit"]);
     assert!(done.status.success(), "{done:?}");
     for page in [&refresh, &expiry] {
         let text = fs::read_to_string(page).unwrap();
-        for field in ["updated:", "verification:", "verified_by:", "verified_rev:"] {
+        for field in [
+            "updated:",
+            "verification:",
+            "verified_by:",
+            "verified_rev:",
+            "verifies:",
+        ] {
             assert!(!text.contains(&format!("\n{field}")), "{text}");
         }
     }
-    let shown = stdout(&docsys(&repo, &["verify", "--show", "reference/refresh"]));
+    assert!(fs::read_to_string(&refresh).unwrap().contains("\npins:\n"));
+    assert!(repo.join("docs/.pins").is_dir());
+    assert!(!repo.join("docs/.verifies").exists());
+    assert!(!fs::read_to_string(&meta).unwrap().contains("maintainers"));
+    let message = git(&repo, &["log", "-1", "--format=%B"]);
     assert!(
-        shown.starts_with("reference/refresh.md (verified)"),
-        "{shown}"
+        !message.contains("Approved-by:") && !message.contains("Verifies:"),
+        "{message}"
     );
+    assert_eq!(git(&repo, &["status", "--porcelain"]), "");
+    let again = idle(&repo);
+    for step in ["records", "pin-names", "maintainers"] {
+        assert!(
+            !again
+                .lines()
+                .any(|l| l.split_whitespace().nth(1) == Some(step)),
+            "{step}: {again}"
+        );
+    }
     let _ = fs::remove_dir_all(&repo);
 }
 

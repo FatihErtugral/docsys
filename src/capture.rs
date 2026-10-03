@@ -467,17 +467,16 @@ pub fn page_new(
         };
         (rel, body)
     } else if VALID_TYPES.contains(&kind) {
-        // --unverified (D-092): a page written from evidence that nobody has
-        // vouched for yet — the record fields a maintainer will fill (R-028)
-        // a docsys/0.5 page takes part in verification by its `sources:`,
-        // and its state is history's (D-126)
-        let verification = match (
-            unverified,
-            crate::era::Era::at(root).verification_from_history(),
-        ) {
-            (true, true) => "sources: []\n",
-            (true, false) => "verification: unverified\nsources: []\n",
-            (false, _) => "",
+        // --unverified (D-092): a docsys/0.4 page written from evidence that
+        // nobody has vouched for yet; a docsys/0.5 page carries no
+        // verification (D-130)
+        if unverified && !crate::era::Era::at(root).page_verification() {
+            return Err(crate::say::NO_VERIFICATION.to_string());
+        }
+        let verification = if unverified {
+            "verification: unverified\nsources: []\n"
+        } else {
+            ""
         };
         // on docsys/0.5 the layout routes the type directories (D-123)
         let routed = crate::era::Era::at(root).directory_routes();

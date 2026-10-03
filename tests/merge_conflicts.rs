@@ -8,10 +8,11 @@
 //! typical documentation change, integrated into one tree in three orders
 //! under merge, squash and rebase. On a docsys/0.5 tree no file under the
 //! documentation root conflicts but a topic file of debt or questions — a
-//! risk the owner accepted (D-124), counted apart — and no approval needs a
-//! follow-up pull request (D-126). The same branches on a docsys/0.4 tree,
-//! under the same binary, are the control: there the shared files conflict
-//! and approvals need follow-ups, so a harness that saw nothing would fail.
+//! risk the owner accepted (D-124), counted apart — and no page carries a
+//! verification, so no approval job runs (D-130). The same branches on a
+//! docsys/0.4 tree, under the same binary, are the control: there the shared
+//! files conflict and approvals need follow-up pull requests, so a harness
+//! that saw nothing would fail.
 
 use std::collections::BTreeMap;
 use std::fs;
@@ -120,29 +121,20 @@ fn base(name: &str, spec: &str) -> PathBuf {
     commit(&repo, "code", DAY0);
     docsys(&repo, &["adopt"], DAY0);
     let meta = repo.join("docs/.docmeta.yml");
-    let text = fs::read_to_string(&meta)
-        .unwrap()
-        .replace("spec: docsys/0.5", &format!("spec: {spec}"))
-        .replace(
-            "maintainers: []",
-            "maintainers: [\"t <t@example.invalid> @t\"]",
-        );
-    fs::write(&meta, text).unwrap();
     let v04 = spec == "docsys/0.4";
+    let mut text = fs::read_to_string(&meta)
+        .unwrap()
+        .replace("spec: docsys/0.5", &format!("spec: {spec}"));
+    if v04 {
+        text.push_str("maintainers: [\"t <t@example.invalid> @t\"]\n");
+    }
+    fs::write(&meta, text).unwrap();
+    // a docsys/0.4 page starts unverified; a 0.5 one carries no verification
+    let unverified: &[&str] = if v04 { &["--unverified"] } else { &[] };
     for (id, symbols) in PAGES {
-        docsys(
-            &repo,
-            &[
-                "page",
-                "new",
-                "reference",
-                id,
-                "--title",
-                id,
-                "--unverified",
-            ],
-            DAY0,
-        );
+        let mut args = vec!["page", "new", "reference", id, "--title", id];
+        args.extend(unverified);
+        docsys(&repo, &args, DAY0);
         let page = repo.join(format!("docs/reference/{id}.md"));
         let head = fs::read_to_string(&page).unwrap();
         let head = head.split("<!--").next().unwrap().trim_end().to_string();
@@ -245,19 +237,11 @@ fn branch(repo: &Path, n: usize, action: &str, v04: bool) -> String {
     match parts[0] {
         "add-page" => {
             let id = format!("new{}", parts[1]);
-            docsys(
-                repo,
-                &[
-                    "page",
-                    "new",
-                    "reference",
-                    &id,
-                    "--title",
-                    &id,
-                    "--unverified",
-                ],
-                day,
-            );
+            let mut args = vec!["page", "new", "reference", &id, "--title", &id];
+            if v04 {
+                args.push("--unverified");
+            }
+            docsys(repo, &args, day);
             let page = repo.join(format!("docs/reference/{id}.md"));
             let head = fs::read_to_string(&page).unwrap();
             let head = head.split("<!--").next().unwrap().trim_end().to_string();
@@ -370,12 +354,23 @@ fn branch(repo: &Path, n: usize, action: &str, v04: bool) -> String {
                 day,
             );
         }
-        "verify" => {
+        // a docsys/0.4 maintainer verifies the page; on 0.5 a cross-check
+        // corrects it in an ordinary commit (D-131)
+        "verify" if v04 => {
             docsys(
                 repo,
                 &["verify", &format!("reference/{}", parts[1]), "--by", "t"],
                 day,
             );
+        }
+        "verify" => {
+            let id = parts[1];
+            let page = repo.join(format!("docs/reference/{id}.md"));
+            let text = fs::read_to_string(&page).unwrap().replace(
+                &format!("Paragraph 4 of {id}: one fact, stated once."),
+                &format!("Paragraph 4 of {id}: one fact, corrected by a cross-check."),
+            );
+            fs::write(&page, text).unwrap();
         }
         other => panic!("{other}"),
     }
@@ -446,8 +441,8 @@ impl Tally {
 }
 
 /// Integrate `names` into a `main` reset to `base`, one pull request at a
-/// time; after each, the approval job of a tree's era runs.
-fn integrate(repo: &Path, names: &[String], mode: &str, tally: &mut Tally) {
+/// time; after each, on a docsys/0.4 tree, its approval job runs.
+fn integrate(repo: &Path, names: &[String], mode: &str, v04: bool, tally: &mut Tally) {
     let day = "2026-09-30";
     ok(git(repo, &["checkout", "-q", "-f", "main"], day), "main");
     ok(git(repo, &["reset", "-q", "--hard", "base"], day), "reset");
@@ -467,11 +462,7 @@ fn integrate(repo: &Path, names: &[String], mode: &str, tally: &mut Tally) {
             "squash" => {
                 let _ = git(repo, &["merge", "--squash", "-q", name], day);
                 files = keep_both(repo, day);
-                let _ = git(
-                    repo,
-                    &["commit", "-qm", &format!("{name}\n\nApproved-by: t")],
-                    day,
-                );
+                let _ = git(repo, &["commit", "-qm", name], day);
             }
             _ => {
                 ok(
@@ -504,8 +495,11 @@ fn integrate(repo: &Path, names: &[String], mode: &str, tally: &mut Tally) {
             }
         }
         tally.count(&files);
-        // the approval job: on docsys/0.4 it records each page the pull
-        // request touched, and the records need a follow-up pull request
+        if !v04 {
+            continue;
+        }
+        // the approval job records each page the pull request touched, and
+        // the records need a follow-up pull request
         let after = ok(git(repo, &["rev-parse", "HEAD"], day), "head")
             .trim()
             .to_string();
@@ -555,7 +549,7 @@ fn measure(spec: &str, modes: &[&str], seeds: &[u64]) -> Tally {
     let mut tally = Tally::default();
     for mode in modes {
         for seed in seeds {
-            integrate(&repo, &order(&names, *seed), mode, &mut tally);
+            integrate(&repo, &order(&names, *seed), mode, v04, &mut tally);
         }
     }
     let _ = fs::remove_dir_all(&repo);
@@ -563,17 +557,13 @@ fn measure(spec: &str, modes: &[&str], seeds: &[u64]) -> Tally {
 }
 
 #[test]
-fn twenty_branches_merge_with_no_documentation_conflict_and_no_follow_up() {
+fn twenty_branches_merge_with_no_documentation_conflict() {
     let now = measure("docsys/0.5", &["merge", "squash", "rebase"], &[1, 2, 3]);
     eprintln!("docsys/0.5: {now:?}");
     assert!(
         now.docs.is_empty(),
         "documentation files conflicted on a docsys/0.5 tree: {:?}",
         now.docs
-    );
-    assert_eq!(
-        now.follow_ups, 0,
-        "approvals needed follow-up pull requests"
     );
 
     // the control: the same branches on a docsys/0.4 tree conflict where many

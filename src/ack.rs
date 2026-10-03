@@ -9,7 +9,7 @@
 //! a page both had to refresh. And the hash was the region's canonical text:
 //! two pull requests that only inserted `doc:` citations staled 188 pins.
 //!
-//! So a re-read is recorded as a file, `<root>/.verifies/<page-id>/<hash>`,
+//! So a re-read is recorded as a file, `<root>/.pins/<page-id>/<hash>`,
 //! holding the one line `<page-id> <hash>`, where the hash is the region's
 //! token form — what can change the code's meaning, never its layout or its
 //! comments. The content is unique to its page and its region version on
@@ -26,7 +26,7 @@ use crate::model::{Finding, RuleId};
 use crate::tree::DocTree;
 
 /// The reserved directory under the documentation root (R-044).
-pub const DIR: &str = ".verifies";
+pub const DIR: &str = ".pins";
 
 const R113: RuleId = RuleId("R-113");
 
@@ -434,7 +434,7 @@ mod tests {
         assert!(!write(&root, "p", &h1).unwrap());
         assert!(write(&root, "p", &h2).unwrap());
         assert_eq!(
-            fs::read_to_string(root.join(".verifies/p").join(&h1)).unwrap(),
+            fs::read_to_string(root.join(".pins/p").join(&h1)).unwrap(),
             format!("p {h1}\n")
         );
         let keep: BTreeSet<String> = [h2.clone()].into_iter().collect();
@@ -444,7 +444,7 @@ mod tests {
             remove_except(&root, "p", &BTreeSet::new()).unwrap(),
             vec![h2]
         );
-        assert!(!root.join(DIR).exists(), "an empty .verifies/ is removed");
+        assert!(!root.join(DIR).exists(), "an empty .pins/ is removed");
         let _ = fs::remove_dir_all(&root);
     }
 

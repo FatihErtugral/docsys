@@ -287,7 +287,7 @@ fn identical_region_identical_file() {
     }
     let conflicts = integrate(&repo, "m", &["a", "b"], Integrate::Merge);
     assert!(conflicts.is_empty(), "docs conflicts {conflicts:?}");
-    let acks: Vec<_> = fs::read_dir(repo.join("docs/.verifies/two-pins"))
+    let acks: Vec<_> = fs::read_dir(repo.join("docs/.pins/two-pins"))
         .unwrap()
         .filter_map(|e| e.ok())
         .collect();

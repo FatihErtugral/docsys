@@ -523,9 +523,9 @@ fn adopt_writes_the_ci_workflow_and_hardens_the_gate_once_clean() {
         wf.contains("--range \"origin/${{ github.base_ref }}...HEAD\""),
         "{wf}"
     );
-    // D-095, D-126: a declared approver's approval rides the description
-    assert!(wf.contains("\n  approval:\n"), "{wf}");
-    assert!(wf.contains("docsys verify --approval \"@$LOGIN\""), "{wf}");
+    // a docsys/0.5 page carries no verification: no approval job (D-130)
+    assert!(!wf.contains("approval"), "{wf}");
+    assert!(!wf.contains("docsys verify"), "{wf}");
     let hook = fs::read_to_string(repo.join(".git/hooks/pre-commit")).unwrap();
     assert!(hook.contains("docsys_gate_exit=0"), "{hook}");
 
@@ -558,7 +558,7 @@ fn adopt_writes_the_ci_workflow_and_hardens_the_gate_once_clean() {
 // ------------------------------------------- acknowledged pins (D-119, a 0.5 tree)
 
 fn ack_names(docs: &Path, id: &str) -> Vec<String> {
-    let mut names: Vec<String> = fs::read_dir(docs.join(".verifies").join(id))
+    let mut names: Vec<String> = fs::read_dir(docs.join(".pins").join(id))
         .map(|d| {
             d.filter_map(|e| e.ok())
                 .filter_map(|e| e.file_name().into_string().ok())
@@ -593,7 +593,7 @@ fn a_0_5_pin_is_an_acknowledgement_and_a_refresh_never_writes_the_page() {
     assert_eq!(first.len(), 1, "{first:?}");
     let name = first.first().unwrap();
     assert_eq!(
-        fs::read_to_string(docs.join(".verifies/refresh").join(name)).unwrap(),
+        fs::read_to_string(docs.join(".pins/refresh").join(name)).unwrap(),
         format!("refresh {name}\n")
     );
     git(&repo, &["add", "-A"]);
@@ -685,7 +685,7 @@ fn pin_gc_removes_what_no_current_region_needs() {
     let done = fresh::gc(&docs, &repo).unwrap();
     assert_eq!(done.len(), 2, "{done:?}");
     assert!(
-        done.iter().any(|l| l.contains(".verifies/retired-page/")),
+        done.iter().any(|l| l.contains(".pins/retired-page/")),
         "{done:?}"
     );
     assert!(
@@ -694,7 +694,7 @@ fn pin_gc_removes_what_no_current_region_needs() {
         "{done:?}"
     );
     assert_eq!(ack_names(&docs, "refresh"), kept);
-    assert!(!docs.join(".verifies/retired-page").exists());
+    assert!(!docs.join(".pins/retired-page").exists());
     assert!(
         fresh::gc(&docs, &repo).unwrap().is_empty(),
         "a second run removes nothing"
@@ -750,7 +750,7 @@ fn the_legacy_conversion_acknowledges_only_what_0_15_recorded_as_fresh() {
         before,
         "a plan writes nothing"
     );
-    assert!(!docs.join(".verifies").exists());
+    assert!(!docs.join(".pins").exists());
     let outcome = |pin: &str| {
         plan.iter()
             .find(|c| c.pin == pin)
@@ -820,7 +820,7 @@ fn the_legacy_conversion_acknowledges_only_what_0_15_recorded_as_fresh() {
 }
 
 #[test]
-fn a_0_4_tree_keeps_hash_lines_and_never_writes_verifies() {
+fn a_0_4_tree_keeps_hash_lines_and_never_writes_an_acknowledgement() {
     let day = "2026-09-01";
     let (repo, docs) = repo("ack-control", day);
     fresh::pin(
@@ -852,7 +852,7 @@ fn a_0_4_tree_keeps_hash_lines_and_never_writes_verifies() {
         pinned,
         "the page carries the new hash"
     );
-    assert!(!docs.join(".verifies").exists());
+    assert!(!docs.join(".pins").exists());
     assert!(
         errors(&docs, &repo).is_empty(),
         "{:?}",

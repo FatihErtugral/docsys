@@ -159,7 +159,7 @@ able to report, per rule, which check covers it.
 
 **R-011** `ci` · MUST — Every check MUST report how many units it inspected,
 and the distinction that matters is *empty population* versus *dead scan*. An
-empty population — no tracked work yet, no `verifies` blocks, no foreign
+empty population — no tracked work yet, no `pins` blocks, no foreign
 references — reports zero and passes: a fresh tree is not a broken one. A
 **dead scan** — the check's configured scope matched no files even though files
 of that kind exist in the tree — MUST report failure, not success. A check
@@ -181,17 +181,17 @@ version; the minor component MUST NOT be required to match.
 ### 2.4 Definitions
 
 **Content change.** A change to a page is a *content change* unless it touches
-only: the verification record a docsys/0.4 tree kept (R-028), a `verifies:`
-hash recorded after a re-read (R-111), the `updated` field a docsys/0.4 tree kept, a `sources:` path
+only: the verification record a docsys/0.4 tree kept, a pin's hash a
+docsys/0.4 tree recorded after a re-read (R-111), the `updated` field a docsys/0.4 tree kept, a `sources:` path
 rewrite performed under R-027, or a structural change performed by a migration
 under R-172. Every rule that reads "content change" — R-024, R-050, R-082,
 R-085 — reads this definition. This is a definition, not a rule:
 it cannot be violated, so it carries no enforcement tag and incurs no coverage
 obligation.
 
-> Without this, a mechanical `sources:` rewrite would flip every resting page to
-> `unverified`, and a migration would date every page it touched to the day it
-> ran.
+> Without this, a mechanical `sources:` rewrite would count as a change of every
+> page it touched, and a migration would date every page it touched to the day
+> it ran.
 
 ---
 
@@ -208,7 +208,7 @@ shared across profiles.
 | Flowing layer | `work/` | `raw/` |
 | Permanent layer | `reference/` `howto/` `explanation/` `tutorial/` | `wiki/<domain>/<type>/` |
 | Grouping axis | none | domain |
-| Extra field | `verification` (optional, §3.2) | `verification` (required) |
+| Extra field | none | `domain` (R-026) |
 | Record layer | `raw/` (optional) | `raw/` |
 
 **R-021** WITHDRAWN — a special case of R-022: absent a reference there is no
@@ -229,37 +229,15 @@ content whose deletion is legally required is not a violation.
 
 **R-027** `cmd` · MUST — Relocating a file under `raw/` MUST rewrite every
 `sources:` entry that pointed at the old path. A relocation that severs the
-evidence trail of a `wiki/` page is a silent failure of the kind R-151 forbids. The command is `docsys raw move <record> <domain>`: the record moves under `raw/<domain>/` (through git when tracked, bytes untouched), the `sources:` entries of every citing page are rewritten in the frontmatter, and the body is not touched — a verification survives the move (§2.4, D-085).
+evidence trail of a `wiki/` page is a silent failure of the kind R-151 forbids. The command is `docsys raw move <record> <domain>`: the record moves under `raw/<domain>/` (through git when tracked, bytes untouched), the `sources:` entries of every citing page are rewritten in the frontmatter, and the body is not touched (§2.4, D-085).
 
 **R-024** `lint` · MUST — A `wiki/` page carries `sources:` listing the `raw/`
-paths it rests on. Its verification is read from history, never written into
-it (D-126): the page is `verified` when an approval for it lies between the
-commit that last changed its body — its block sequence (D-103) — or a source
-it consumes (`@namespace/id`, §13), and `HEAD`. An approval is a commit whose
-`Approved-by:` trailer names a maintainer (R-208) and that either changed the
-page or names it in a `Verifies:` trailer; a later commit naming it in a
-`Revokes:` trailer takes it back. A body edited since `HEAD`, or changed by a
-commit no approval followed, is `unverified`; outside history the state is
-"unknown". The claim is checked, not trusted, and nothing is left to merge: a
-squash keeps the approval when the merge commit carries the pull request's
-description and its `Approved-by:` line. An approval made on a branch counts at
-the commit that brought it into the line `HEAD` follows — a merge, a squash
-that quotes it, a rebase — when the body it read is the body that landed; a
-later edit on the branch, or a concurrent one, outruns it. A record written before — `verified`
-with `verified_blocks` — stays valid evidence while its blocks are the body's;
-a record that no longer holds, or a `verification:` field without one, **is
-reported** until `docsys upgrade --apply` takes it out.
+paths it rests on. A page carries no verification state (D-130): what it rests
+on is read when a person asks for a cross-check (§3.2).
 
-**R-025** `agent` · MUST — Only an independent session may set `verified`. The
-session that produced a page never verifies it on its own judgment. This holds
-in both profiles (§3.2). The exception is the authority itself: when the person
-in the session is a declared maintainer (the working copy's git identity is
-theirs, R-208) and says the page is right, that word is the verification and
-the session records it (`docsys verify <page>`) — a second session would only
-repeat what the maintainer just did (D-096).
+**R-025** WITHDRAWN — no page is verified, so no session sets it (D-130).
 
-**R-028** WITHDRAWN — the record is history: the approval commit says who,
-and its place in history says which body (R-024, D-126).
+**R-028** WITHDRAWN — the record is gone with page verification (D-130).
 
 **R-026** `lint` · MUST — `domain` values are declared in `.docmeta.yml`. A page
 whose domain is not declared **is reported**; content that fits no declared
@@ -276,58 +254,28 @@ who arrives that way.
 
 **R-059** `lint` · MUST — Every `sources:` entry MUST resolve. R-071 covers only
 wiki-links, so without this a manual move or deletion under `raw/` severs a
-verified page's evidence trail with nothing reporting it — including when R-027's
+page's evidence trail with nothing reporting it — including when R-027's
 command path was bypassed entirely. An entry may name version-control
 evidence — `git:<sha>`, `tag:<ref>`, `git:<sha>:<path>[@L<a>-L<b>]` — resolved
-against the repository the tree lives in. Where the verification doctrine
-applies (a knowledge base's permanent pages) a severed entry **is an error**;
+against the repository the tree lives in. On a knowledge base's permanent
+pages a severed entry **is an error**;
 on any other page that declares sources (a seeded work file) it **is
 reported**: evidence that moved must be seen, not block the tree.
 
 ---
 
-### 3.2 Verification and maintainers in the project profile
+### 3.2 Sources and cross-checks
 
-Documentation forms while the work happens — by whoever does the work, an
-agent included — and the people who did the work are not always the people
-who know. The profile separates the two acts: anyone writes; a declared few
-vouch. Nothing here changes a tree that declares no maintainers.
+A page carries no verification state, in either profile: no field, no record,
+no approval, no maintainer (D-130). A permanent page written from evidence
+names what it rests on in `sources:`, and its pins say when the code it
+describes moved (§11). When a person asks, an agent reads pages against their
+sources and the code their pins resolve to — `/docsys-crosscheck`, with
+`docsys crosscheck` listing what each page rests on (D-131) — corrects what is wrong in
+an ordinary commit, and records what it cannot settle as a question or a debt
+item (R-108). It writes no state.
 
-**R-208** `lint` · MUST — When `.docmeta.yml` declares `maintainers:` (a list of
-`handle`, `handle <email>` or `handle <email> @login` entries), the person a
-record names MUST be one of them: the first word of `confirmed:` on a work file
-(R-081), and the `Approved-by:` trailer of an approval (R-024) — `@login`,
-`handle` or `handle <email>`. An entry that names no `@login` is matched by its
-handle where a host's approval carries a login: the handle doubles as the login. A record naming anyone else **is an error**; an approval
-naming anyone else verifies nothing. Where version-control history is available and the entry carries an
-email, the maintainer's act MUST be in the record's history: among the commits
-that changed the record since the body last changed, one is authored by that
-email or names it in a `Co-authored-by:`, `Reviewed-by:` or `Approved-by:`
-trailer — otherwise **an error**: the vouching is the maintainer's own act, not a
-line somebody typed on their behalf. A host's squash merge that keeps the squashed
-authors as trailers keeps the act; a bookkeeping commit that leaves the body
-unchanged neither makes nor breaks it (D-102). An empty or absent list means anyone, as
-before.
-
-A permanent page in the `project` profile takes part in verification when it
-names something its claims are checked against (P/R-025) — a source in
-`sources:`, or a pin to the code; R-024 and
-R-059 then apply to it exactly as to a wiki page (§3.1). A page written from
-evidence by the session that did the work — the seeding overview (D-092), a
-reference updated beside a contract change — is `unverified` until a
-maintainer approves it. Readers, people and agents alike, see the state:
-`lookup` marks it, `status` counts it, and `export` may refuse or mark it
-(R-151). `docsys page new <type> <id> --unverified` writes an empty `sources:`
-for the author to fill. A code
-review's approval is a maintainer's word (D-095), and the word is read from
-git: the `Approved-by:` line a host's approval job adds to the pull request's
-description lands in the merge commit with it, and no follow-up pull request
-is needed (D-126). Without a host, `docsys verify <page>` makes the
-maintainer's own commit, an empty one carrying `Verifies: <page>` with the
-hash of the body it read, and `Approved-by:` — the handle from the git identity matched against
-`maintainers:`, refused while the page carries an uncommitted change or a
-source does not resolve — and `--revoke` makes one carrying `Revokes:`
-(D-094).
+**R-208** WITHDRAWN — no one vouches, so no list of who may (D-130).
 
 ## 4. Layout
 
@@ -527,8 +475,8 @@ identical entries diff differently.
 
 **R-044** `lint` · MUST — The following names are reserved and excluded from
 orphan and type checks: `_archive/`, `_templates/`, `_unsorted/`,
-`.federation/`, `.verifies/`. Files under `.federation/` are governed by §13 when federation
-is active, and do not exist otherwise. Files under `.verifies/` are
+`.federation/`, `.pins/`. Files under `.federation/` are governed by §13 when federation
+is active, and do not exist otherwise. Files under `.pins/` are
 acknowledgements (R-110): not pages, never linted as pages, removed by `docsys
 pin --gc` when no pin's current region matches them.
 Files under `_archive/` are additionally excluded from resolution checks
@@ -574,7 +522,7 @@ lang: tr                 # optional
 internal: true           # optional — excluded from export
 aliases: [token-lifetime]  # optional — retired identifiers (§6.2)
 defines: "adr-*"         # optional — this page defines an identifier family
-verifies:                # optional — freshness pin (§11)
+pins:                    # optional — freshness pin (§11)
   - path: src/auth/refresh.rs
     symbol: refresh_token
     hash: "sha256:a3f9c1…"
@@ -884,8 +832,8 @@ syntax; it only refuses self-proof.
 references. Code moves; documentation stays. Where code must be shown, the
 snippet is embedded with a comment explaining why it is there. This requires
 judgment: a path inside a quoted stack trace or an embedded snippet is not a
-reference. The `verifies` block (§11) is an audit binding, not a reference, and
-is exempt.
+reference. The `pins` block (§11) is a binding to the code, not a reference,
+and is exempt.
 
 **R-075** `lint` · MUST NOT — Absolute filesystem paths (`/home/...`, `C:\...`)
 and **relative** links that traverse outside the tree root are errors, except
@@ -968,7 +916,7 @@ leaves the tree (R-091), a graduation's record is the removing commit's
 `Confirmed-by:` line. Passing tests or a green build means `active`. The lint
 half: a file at `done` or `graduated` without `confirmed:` **is reported** — the
 record is what lets a later audit distinguish a confirmed transition from an
-agent's guess, the same reason an approval names a maintainer (R-024).
+agent's guess.
 
 **R-082** `lint` · MUST — `graduated` is terminal, and a graduated file receives
 no further **content change** (§2.4). Where version-control history is available,
@@ -1180,15 +1128,16 @@ commit landed.
 A permanent page may pin itself to a region of code.
 
 ```yaml
-verifies:
+pins:
   - path: src/auth/refresh.rs
     symbol: refresh_token
 ```
 
-**R-110** `lint` · MAY — A page MAY declare `verifies`: the code regions its
+**R-110** `lint` · MAY — A page MAY declare `pins` (a docsys/0.4 tree's
+`verifies`, D-130): the code regions its
 claims rest on, each a `path` and optionally a `symbol` (R-114). A pin is fresh
 while an **acknowledgement** exists for its region as the region reads now: the
-file `.verifies/<page-id>/<region hash>` under the documentation root, written
+file `.pins/<page-id>/<region hash>` under the documentation root, written
 when someone re-read the page against that region (`docsys pin`, `docsys pin
 --refresh`). Otherwise the page is stale. The page itself holds no hash: a
 refresh writes acknowledgements, never the page — so two changes that refresh
@@ -1218,11 +1167,11 @@ that cannot normalize registers the gap and hashes the bytes as written
 
 A **page's** content hash covers its **body** — everything after the closing
 frontmatter delimiter; a file without frontmatter hashes whole. Frontmatter is
-identity and bookkeeping, and a bookkeeping change (a verification record) must not
+identity and bookkeeping, and a bookkeeping change must not
 churn manifests, compiled skills and materializations estate-wide. Frontmatter
 is not left unguarded: for materialized pages it is reconstructed from the
-manifest and checked by R-137; `verifies` hashes cover the referenced code
-region, unchanged.
+manifest and checked by R-137; pin hashes cover the referenced code region,
+unchanged.
 
 A pin's **region hash** is `sha256` over the region's **token form**, not its
 canonical form: comments removed, whitespace between tokens removed, every
@@ -1640,18 +1589,6 @@ rule, indented so none parses as a rule declaration. Procedures name the
     VERIFY   : audit type-mixing review (reads each page against the table)
     NEVER    : force content into the nearest type
 
-    P/R-025 — verify a knowledge-base page
-    EVIDENCE : the page; its sources:; who authored it (history)
-    QUESTION : did this session produce any of the page's content?
-    OPTIONS  : yes → do not verify — leave for another session
-               no  → check every claim against sources:, then the
-               maintainer approves it (`docsys verify <page>`)
-    DEFAULT  : do not verify
-    ESCAPE   : authorship unclear → do not verify + question item
-    VERIFY   : R-024 approval in history; audit checks the approver differs
-               from the author
-    NEVER    : verify your own output
-
     P/R-032 — open a page so it stands alone
     EVIDENCE : the page's first two sentences
     QUESTION : could a reader with no context tell what this is and when to
@@ -1697,7 +1634,7 @@ rule, indented so none parses as a rule declaration. Procedures name the
 
     P/R-074 — a path appears in documentation
     EVIDENCE : the surrounding text; is it inside a fence or quotation? A
-               path inside a `verifies:` block is an audit binding (§11),
+               path inside a `pins:` block is a binding to the code (§11),
                exempt by R-074's own text — not this procedure's business
     QUESTION : is the path a pointer the reader should follow, or quoted
                material (trace, log, example)?
@@ -1821,7 +1758,6 @@ content_url: "…"                 # required when publishing (R-145)
 work_categories: []              # additional tracked-work categories (R-042)
 epics: []                        # declared epic labels (R-058)
 domains: []                      # knowledge-base profile only (R-026)
-maintainers: []                  # who may confirm work and verify pages (R-208); empty = anyone
 commit_policy: ask               # ask (asks once) | require (no commit without its documentation, R-209)
 
 scan_exclude: []                 # added to version-control ignores (R-077)
@@ -2007,7 +1943,7 @@ produce another round of contradictions.
 
 - Which lexical contexts count as a `doc:` reference: comments, strings, fenced
   code, generated files, quoted logs
-- How `verifies: symbol` resolves per language, and what happens when a symbol is
+- How a pin's `symbol` resolves per language, and what happens when a symbol is
   ambiguous
 - The sentence-boundary algorithm behind R-057's summary default
 - Which link forms create reachability edges for R-034
@@ -2051,7 +1987,6 @@ produce another round of contradictions.
   first slice taken by the implementation (D-064): `graph` exports
   page→page links, graduation and code→page citations as DOT, JSON or JSON
   Canvas; the cross-tree case waits on federation
-- Whether `verification` should extend to the `project` profile
 - Epic status aggregation when legs disagree
 - Generated API references: linked from the router, or addressed by identifier
 
@@ -2140,19 +2075,7 @@ connector's whole job is the left three columns.
 
 ---
 
-## 21. Pins bound to blocks (EXPERIMENTAL)
+## 21. Pins bound to blocks (WITHDRAWN)
 
-A verification vouches for a body's blocks (R-024, D-103); a pin may say which
-block it backs,
-so that a stale pin costs the re-read of that block, not of the page.
-
-> **Why experimental.** One implementation, no second tree yet. Until a second
-> team's tree has bound pins to blocks, this rule binds nothing; a tree that
-> never writes `block:` is untouched by it.
-
-**R-212** `lint` · MAY — A `verifies:` entry MAY carry `block:`, the hash of the
-block it backs. A stale pin (R-111) then names its block, and on a verified page
-only that block stops reading as verified. A binding whose block no longer
-exists in the body **is reported**: the block was rewritten, and the pin must be
-bound again (`docsys pin <page> <path> --symbol <s> --block <n>`) or the binding
-dropped.
+**R-212** WITHDRAWN — a pin bound a block of a verified page; no page is
+verified (D-130).

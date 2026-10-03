@@ -208,8 +208,8 @@ fn every_relay_works_from_a_subdirectory() {
     );
     ok(&repo, &["commit", "-qm", "page"]);
 
-    // a docsys/0.5 tree runs no post-edit relay: its date and its
-    // verification are history's (D-126)
+    // a docsys/0.5 tree runs no post-edit relay: its date is history's and
+    // it carries no verification (D-122, D-130)
     assert!(!repo.join(".claude/hooks/post-edit-updated.sh").exists());
 
     // the first-turn digest counts the tree's pages
@@ -421,7 +421,7 @@ fn a_write_command_outside_a_tree_refuses_with_r160() {
 
 /// `agents` from a subdirectory installs into the agent layer `adopt` wrote at
 /// the repository's top — never a second one where it stands — and only the
-/// relays the tree's era runs (D-098, D-126).
+/// relays the tree's era runs (D-098, D-130).
 #[test]
 fn agents_from_a_subdirectory_writes_the_repositorys_own_layer() {
     let repo = project("agents-sub");

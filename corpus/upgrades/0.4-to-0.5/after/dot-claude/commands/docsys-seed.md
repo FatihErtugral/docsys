@@ -67,7 +67,7 @@ Rows are TAB-separated; `docsys seed plan` prints their grammar.
 ## 4b · The overview draft (the one page you may author)
 
 After the rows land, per seeded feature:
-`docsys page new explanation <feature>-overview --unverified`, its body
+`docsys page new explanation <feature>-overview`, its body
 written from the evidence only — what step 2 presented — in the tree's
 language, with `sources:` naming the same `git:` locators and files the
 research page cites. The draft is where a reader starts on day one.

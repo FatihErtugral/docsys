@@ -173,9 +173,9 @@ pub fn run(repo: &Path, root: &Path, claude_dir: &Path) -> Diagnosis {
             crate::agents::TEMPLATE_VERSION
         ));
     }
-    // a docsys/0.5 tree runs no post-edit relay (D-126); one left from before
+    // a docsys/0.5 tree runs no post-edit relay (D-130); one left from before
     // is said, never failed
-    let post_edit = !crate::era::Era::at(root).verification_from_history();
+    let post_edit = crate::era::Era::at(root).page_verification();
     for (rel, want_event) in HOOKS {
         let path = claude_dir.join(rel);
         let exists = path.is_file();

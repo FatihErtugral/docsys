@@ -151,16 +151,10 @@ destination pages are prepared first (R-099): `docsys graduate plan
 <work-file>`, then `docsys graduate apply`. Every `doc:` citation of the
 file's id moves to a destination in the same commit (D-127).
 
-## Verification (who vouches)
+## Sources
 
-Anyone writes — you included — and nothing you write is the truth yet. A
-permanent page you author from evidence, or change in substance, names what it
-rests on in `sources:`; `docsys help verify` says how an approval is
-recorded. When
-`.docmeta.yml` declares
-`maintainers:`, an approval and a confirmation must name one of them (R-208):
-the people who review the code are the people who vouch for the page. A
-reader — a person or an agent — sees the state and reads accordingly.
+A permanent page you author from evidence, or change in substance, names what
+it rests on in `sources:`.
 
 ## Compile (a howto into a skill)
 
@@ -179,34 +173,67 @@ allowed-tools: Bash(docsys *), Bash(git status:*), Bash(git diff:*), Bash(git lo
 # /docsys-upgrade — move the tree, then finish what needs a person
 
 The tool applies what is mechanical and you read what needs reading; the
-person decides whether the tree moves, each edit you propose, each
-verification, each sha256 value, each line they keep as it is, and whether
-the follow-ups go in a commit or a pull request. Nothing is committed or
-recorded before they said yes.
+person decides whether the tree moves, each edit you propose, each line they
+keep as it is, and whether the follow-ups go in a commit or a pull request.
+Nothing is committed before they said yes.
 
 1. Run `docsys upgrade --json` and show the person the notes and the plan:
    `auto` items the tool applies, `manual` items that are theirs, `info`.
    Then `docsys upgrade --apply --commit`.
-2. A CI workflow its owner edited (`ci-workflow`, at `file:line`): propose
-   that line with the version the item names, and nothing else of theirs.
+2. A CI workflow its owner edited (`ci-workflow`): an `auto` item is the
+   move's own — show the person its diff. A `manual` item at `file:line`
+   names what to change there so the install reads the pin: propose that
+   edit, and nothing else of theirs.
 3. A pin listed for a re-read (`pins`): re-read it as the rules block says.
    If the page holds, run the item's `command`; if not, propose the page edit.
-4. A verified page listed for a maintainer (`verified-record`): give the
-   person its `docsys verify --show` line. Read the blocks with the person if
-   they ask; the verification is theirs to record with the item's `command`.
-5. A relay, skill, command or contract its owner edited (a diff): propose
+4. A relay, skill, command or contract its owner edited (a diff): propose
    one text that keeps the owner's lines and takes the new ones.
-6. A line of the team's own text that names a retired concept
+5. A line of the team's own text that names a retired concept
    (`retired-concepts`, at `file:line`): propose that line rewritten with the
    item's replacement, keeping the owner's other words.
-7. A sha256 value is never invented: ask the person, or point to the
-   release page the workflow names.
-8. The follow-ups are described by the upgrade commit's message
+6. A sha256 value is never written: a docsys/0.5 workflow checks the
+   archive against its release's `SHA256SUMS`.
+7. The follow-ups are described by the upgrade commit's message
    (`git log -1 --format=%B`).
-9. Last, the audit: the move ended with the leftover list — what an earlier
+8. Last, the audit: the move ended with the leftover list — what an earlier
    version left, each with its file and its fix. Walk the person through each
    item, and through `docsys lint`, until both are clean, or what is left is
    what they keep.
+"#;
+
+/// `/docsys-crosscheck`: the person names the pages; the agent reads each
+/// against what it names and the code it pins, corrects and records, then
+/// stops.
+const DOCSYS_CROSSCHECK: &str = r#"---
+description: Read pages against their sources and the code — the pages the person names, or every page changed since a revision; correct what is wrong in one commit, record what cannot be settled
+allowed-tools: Bash(docsys *), Bash(git add:*), Bash(git commit:*), Bash(git diff:*), Bash(git log:*), Bash(git show:*), Bash(git status:*), Read, Grep, Glob, Edit
+---
+
+# /docsys-crosscheck [<page>… | <ref>] — read pages against their evidence
+
+The person starts it; you read, correct and record, then stop. The evidence
+is what a page names in `sources:` and the code its pins resolve to now.
+
+1. The pages: the ones the person named, or every page changed since the
+   revision they gave (a branch, a tag, a commit). Given neither, ask which.
+2. Run `docsys crosscheck <page>…` or `docsys crosscheck --since <ref>`: each
+   page, its `sources:`, and each pin's code lines now —
+   `path:L<first>-L<last>`, a whole file, or why the pin does not resolve.
+3. Read each page whole, then every statement in it against those sources
+   and lines. Follow a source to what it names; read beyond a pin's lines
+   only where they leave a statement open.
+4. A statement the code or a source contradicts: correct that statement,
+   and nothing the evidence does not touch.
+5. What you cannot settle — a statement the evidence neither confirms nor
+   contradicts, two sources that disagree, a pin that no longer resolves
+   while the code does not say which side is wrong: record it as the rules
+   block says, `docsys question add` or `docsys debt add` with
+   `--topic <page-id>`, and leave the page's words as they are.
+6. The corrections go in one ordinary commit whose message says what was
+   corrected on which page. Nothing marks a page as cross-checked: write no
+   verification field, trailer or record, in the page or anywhere else.
+7. End with a short report: the pages read, what was corrected, and each
+   question or debt item recorded.
 "#;
 
 /// The export skill: turns "create the end-user doc for X" into a procedure.
@@ -262,10 +289,9 @@ did, so only those sections needed the work.
 "#;
 
 // --- knowledge-base agent layer (`docsys agents --kb`) -----------------------
-// The four organs of a personal knowledge base: capture writes, ingest
-// distils, audit verifies independently, lookup answers. The binary enforces
-// the contract (ids, sources, verification records, raw immutability); these
-// carry the judgment. Field-shaped: every rule here was paid for by a real
+// The organs of a personal knowledge base: capture writes, ingest distils,
+// lookup answers (a docsys/0.4 base also audits). The binary enforces the
+// contract (ids, sources, raw immutability); these carry the judgment. Field-shaped: every rule here was paid for by a real
 // base whose constitution predated the spec and matched it.
 
 const KB_CAPTURE: &str = r#"---
@@ -317,8 +343,7 @@ For each file in `raw/inbox/`:
    rests on a consumed project's own page cites it as `@namespace/id`
    (materialized under `.federation/`; AGENTS.md → Sources beyond the inbox);
    a claim that rests on a connector record cites the record's path like any
-   note. A page that changes is unverified until it is approved again — an
-   approval vouches for the content it read, not for what came after.
+   note.
 4. Open with one or two sentences that stand alone (R-032): a reader arrives
    here from a search, not from the top of a chain.
 5. **Route it**: add the page to `wiki/<domain>/index.md`, and the domain to
@@ -329,13 +354,11 @@ For each file in `raw/inbox/`:
    old path is rewritten by the tool (R-027). Never `git mv` and edit
    `sources:` by hand: the hand edit is where evidence trails were severed.
 7. Gate: `docsys lint --root <base>` — finish clean or report what blocks.
-
-Never verify your own work (R-025) — that is kb-audit's job, in another
-session — unless the person you are working with is a declared maintainer
-(`.docmeta.yml` `maintainers:`, the working copy's git identity) and says the
-page is right: then `docsys verify <page>` records their word, not yours
-(D-096).
 "#;
+
+/// The knowledge base's audit organ: a docsys/0.4 base's, as 0.15.1 wrote it,
+/// retired with page verification from docsys/0.5 on (D-130).
+pub const KB_AUDIT_SKILL: &str = "skills/kb-audit/SKILL.md";
 
 const KB_AUDIT: &str = r#"---
 name: kb-audit
@@ -350,18 +373,18 @@ verification needs another session, or the maintainer in this one: a declared
 maintainer who reads the page and says it is right verifies it with
 `docsys verify <page>` (their identity, their word — D-096).
 
-For each unverified page (`docsys status` lists them), or the ones named:
+For each `verification: unverified` page (or the ones named):
 
 1. Read the page and every file in its `sources:`.
 2. Judge faithfulness: is every claim supported? Any contradiction? A missing
    or empty source is a failure, not a pass.
-3. **Faithful** → `docsys verify <page> --by "<who or which session>"` makes
-   the audit's commit, carrying `Verifies:` and `Approved-by:` (the page must
-   be committed as it is; D-126). Without that commit the claim is
-   unauditable.
-4. **Not faithful** → leave/return it to `unverified` and add an open
-   question (`docsys question add`) naming the specific discrepancy, in the
-   base's language. Never edit the
+3. **Faithful** → `docsys verify <page> --by "<who or which session>"` sets
+   `verification: verified` and records the audit (R-028): `verified_by:` and
+   `verified_rev:` (the base's current revision; the page must be committed
+   as it is). Without that record the claim is unauditable.
+4. **Not faithful** → leave/return it to `unverified` and append one line to
+   `wiki/open-questions.md` naming the specific discrepancy —
+   `- [ ] YYYY-MM-DD …` (R-108), in the base's language. Never edit the
    page's claims to make them pass — that is authoring, and it would need
    another audit.
 5. Gate: `docsys lint --root <base>`.
@@ -386,9 +409,7 @@ Read-only. Never write, never fix what you find; report gaps instead.
    page; then grep `wiki/` for tags and headings.
 3. Still nothing → **say it is not in the base.** Never answer from your own
    knowledge while implying the base said it; offer to capture the question.
-4. Answer WITH the page path, and say plainly when the page is
-   `unverified` — an unaudited page may be wrong, and the reader decides how
-   much to lean on it.
+4. Answer WITH the page path.
 
 `raw/` is evidence, not an answer: quote it only to show where a page came
 from.
@@ -427,16 +448,14 @@ A personal knowledge base: plain markdown and git, no database, no lock-in.
   session's own settings speak; code identifiers, commands and quotations
   are never translated
 - Never: invent what the base does not hold · act outward without the
-  person's confirmation · edit a record · verify its own page
+  person's confirmation · edit a record
 
 ## The loop
 
-capture → `raw/inbox/` · ingest → a wiki page + archived source · audit →
-`verified` with a record · lookup → an answer with its source.
+capture → `raw/inbox/` · ingest → a wiki page + archived source · lookup →
+an answer with its source.
 
 Rules that are not mechanical:
-- Nothing is verified by the session that wrote it.
-- A changed page is `unverified` again.
 - A note that fits no domain stays in the inbox; a domain is proposed as an
   open question and earns its place only after several notes.
 - An open question is a line in `wiki/open-questions/<topic>.md`, written by
@@ -451,27 +470,26 @@ Rules that are not mechanical:
   names a project in `.docmeta.yml`; `docsys fetch` materializes its
   exported pages under `.federation/<namespace>/`, committed as the baseline.
   A wiki page that rests on such a page cites it as `@namespace/id` in
-  `sources:`; lint says when that source moved after the page was verified.
+  `sources:`.
 - **The git connector** — `docsys inbox pull <repo> [--since <date>]
   [--limit <n>]` lands one record per commit worth reading (bookkeeping
   commits — no body, docs only — are skipped unless `--all`) through the
   same write gate as any note; a second pull lands nothing twice. Choose the
   span and say why; then ingest the records like notes: what the project
   decided, not what it did.
-- **The digest** — `docsys status` first: the inbox, pages by state, open
+- **The digest** — `docsys status` first: the inbox, the pages, open
   items, consumed namespaces, findings. `docsys assistant --root .
   --projects <dir>` stood this base up and keeps its consumed projects
   current, in one command.
 
 ## Hooks
 
-`docsys agents --kb` wires four relays into `.claude/settings.json` (an
+`docsys agents --kb` wires three relays into `.claude/settings.json` (an
 existing file is merged into, never overwritten): the first message of a
 session gets the organ routing; a `Write`/`Edit` on an existing `raw/`
 record is blocked (R-023) — new knowledge is a new file in `raw/inbox/`,
-relocation is `docsys raw move`; an edited verified wiki page whose body
-changed turns unverified; `git commit` runs the gate; the end of a turn names what
-waits in the inbox. Everything warns and nothing blocks, except the two
+relocation is `docsys raw move`; `git commit` runs the gate; the end of a
+turn names what waits in the inbox. Everything warns and nothing blocks, except the two
 guards on the irreversible: the record and the commit.
 
 ## Forgetting
@@ -485,10 +503,7 @@ organ; it does not erase history — that is a person's `git filter-repo`.
 
 ## Gate
 
-`docsys lint --root .` — before any commit, after any change. Inside the
-repository it also checks that a `verified` page still holds the body that
-was verified (R-024): a changed body is an error until the page is
-`unverified` again.
+`docsys lint --root .` — before any commit, after any change.
 "#;
 
 /// The knowledge base's contract as `agents --kb` writes it, the version
@@ -527,7 +542,7 @@ pub struct Layer<'a> {
 /// knowledge base's layer is refused on a tree that is none, a project's on a
 /// knowledge base, so a project's gates and wires are never rewritten with
 /// another profile's; and the relays are the ones the tree's own spec runs —
-/// no post-edit relay on docsys/0.5 (D-118, D-126).
+/// no post-edit relay on docsys/0.5 (D-118, D-130).
 pub fn install_layer(l: &Layer) -> Result<Installed, String> {
     let docmeta = crate::tree::docmeta_at(l.tree);
     let is_kb = docmeta.as_ref().is_some_and(|f| {
@@ -643,11 +658,18 @@ fn install_kb_layer(claude_dir: &Path, base_dir: &Path, force: bool) -> Result<I
     }
     for (rel, content) in [
         ("commands/docsys-upgrade.md", DOCSYS_UPGRADE),
+        (CROSSCHECK_COMMAND, DOCSYS_CROSSCHECK),
         ("skills/kb-capture/SKILL.md", KB_CAPTURE),
         ("skills/kb-ingest/SKILL.md", KB_INGEST),
-        ("skills/kb-audit/SKILL.md", KB_AUDIT),
+        (KB_AUDIT_SKILL, KB_AUDIT),
         ("skills/kb-lookup/SKILL.md", KB_LOOKUP),
     ] {
+        // `docsys crosscheck` reads a docsys/0.5 base alone, and its audit
+        // organ is a docsys/0.4 base's (D-130)
+        let v04 = crate::era::Era::at(base_dir).page_verification();
+        if (rel == CROSSCHECK_COMMAND && v04) || (rel == KB_AUDIT_SKILL && !v04) {
+            continue;
+        }
         let path = claude_dir.join(rel);
         if path.exists() && !force {
             out.skipped.push(rel.to_string());
@@ -755,6 +777,8 @@ pub fn install(claude_dir: &Path, force: bool) -> Result<Installed, String> {
 /// relative to the repository, as the relays' default.
 const UPGRADE_COMMAND: &str = "commands/docsys-upgrade.md";
 
+const CROSSCHECK_COMMAND: &str = "commands/docsys-crosscheck.md";
+
 pub fn install_with_preamble(
     claude_dir: &Path,
     force: bool,
@@ -781,7 +805,7 @@ fn install_project_layer(
     preamble: &str,
     root_arg: &str,
 ) -> Result<Installed, String> {
-    let files: [(&str, &str, bool); 10] = [
+    let files: [(&str, &str, bool); 11] = [
         ("hooks/pre-commit-docs.sh", PRE_COMMIT_DOCS, true),
         ("hooks/stop-docs-reminder.sh", STOP_DOCS_REMINDER, true),
         ("hooks/post-edit-updated.sh", POST_EDIT_UPDATED, true),
@@ -790,6 +814,7 @@ fn install_project_layer(
         ("commands/docsys-seed.md", DOCSYS_SEED, false),
         ("commands/docsys-interview.md", DOCSYS_INTERVIEW, false),
         (UPGRADE_COMMAND, DOCSYS_UPGRADE, false),
+        (CROSSCHECK_COMMAND, DOCSYS_CROSSCHECK, false),
         ("skills/docsys/SKILL.md", SKILL_MD, false),
         ("skills/docsys-export/SKILL.md", EXPORT_SKILL, false),
     ];
@@ -806,11 +831,13 @@ fn install_project_layer(
         .unwrap_or(Path::new("."));
     // a docsys/0.4 tree keeps the post-edit relay, and the assets 0.15.1
     // wrote: no `/docsys-upgrade`, and none of this docsys's own texts, which
-    // would teach it 0.5 — the upgrade writes them (D-118, D-126)
+    // would teach it 0.5 — the upgrade writes them (D-118, D-130)
     let before_05 = keeps_post_edit(repo, root_arg);
     let tree_04 = before_05 && repo.join(root_arg).join(".docmeta.yml").is_file();
     for (rel, content, executable) in files {
-        if (rel == POST_EDIT && !before_05) || (rel == UPGRADE_COMMAND && before_05) {
+        if (rel == POST_EDIT && !before_05)
+            || ((rel == UPGRADE_COMMAND || rel == CROSSCHECK_COMMAND) && before_05)
+        {
             continue;
         }
         let path = claude_dir.join(rel);
@@ -1057,7 +1084,7 @@ pub fn canonicalize_wires(doc: &mut Json) -> Option<usize> {
 }
 
 /// Take every wire of one relay out of a settings document — the post-edit
-/// relay a docsys/0.5 tree no longer runs (D-126). The number taken out.
+/// relay a docsys/0.5 tree no longer runs (D-130). The number taken out.
 pub fn remove_relay_wires(doc: &mut Json, relay: &str) -> usize {
     let name = relay.strip_prefix("hooks/").unwrap_or(relay);
     let Json::Obj(fields) = doc else { return 0 };
@@ -1175,7 +1202,7 @@ Rows are TAB-separated; `docsys seed plan` prints their grammar.
 ## 4b · The overview draft (the one page you may author)
 
 After the rows land, per seeded feature:
-`docsys page new explanation <feature>-overview --unverified`, its body
+`docsys page new explanation <feature>-overview`, its body
 written from the evidence only — what step 2 presented — in the tree's
 language, with `sources:` naming the same `git:` locators and files the
 research page cites. The draft is where a reader starts on day one.
@@ -1348,13 +1375,13 @@ pub fn stale_hooks(claude_dir: &Path) -> Vec<(String, String)> {
 }
 
 /// The post-edit relay. A docsys/0.4 tree keeps it; on a 0.5 tree a page's
-/// date and its verification are history's, and it has nothing left to do
-/// (D-122, D-126).
+/// date is history's and a page carries no verification, so it has nothing
+/// left to do (D-122, D-130).
 pub const POST_EDIT: &str = "hooks/post-edit-updated.sh";
 
 /// Whether the tree at `<repo>/<root_arg>` keeps the post-edit relay.
 pub fn keeps_post_edit(repo: &Path, root_arg: &str) -> bool {
-    !crate::era::Era::at(&repo.join(root_arg)).verification_from_history()
+    crate::era::Era::at(&repo.join(root_arg)).page_verification()
 }
 
 /// The relays a tree is wired with.
@@ -1576,12 +1603,15 @@ pub fn relay_for(rel: &str, root_arg: &str) -> Option<String> {
 /// absent). `docsys upgrade` refreshes a file a release wrote and nobody
 /// edited (`released`), and leaves any other text to its owner.
 pub fn owned_assets(kb: bool) -> Vec<(&'static str, &'static str, bool)> {
-    let mut out = vec![("commands/docsys-upgrade.md", DOCSYS_UPGRADE, true)];
+    let mut out = vec![
+        ("commands/docsys-upgrade.md", DOCSYS_UPGRADE, true),
+        (CROSSCHECK_COMMAND, DOCSYS_CROSSCHECK, true),
+    ];
     if kb {
         out.extend([
             ("skills/kb-capture/SKILL.md", KB_CAPTURE, false),
             ("skills/kb-ingest/SKILL.md", KB_INGEST, false),
-            ("skills/kb-audit/SKILL.md", KB_AUDIT, false),
+            (KB_AUDIT_SKILL, KB_AUDIT, false),
             ("skills/kb-lookup/SKILL.md", KB_LOOKUP, false),
         ]);
     } else {

@@ -81,15 +81,13 @@ pub fn compile(root: &Path, claude_dir: &Path, page: &str, force: bool) -> Resul
             p.rel
         ));
     }
-    let verified = if crate::era::Era::of(&tree).verification_from_history() {
-        matches!(
-            crate::approval::Approvals::of(&tree).state(&p.rel),
-            crate::approval::State::Verified { .. }
-        )
-    } else {
-        fm.fields.get("verification").and_then(Value::as_str) == Some("verified")
-    };
-    if tree.profile == Profile::KnowledgeBase && !verified {
+    // a docsys/0.4 knowledge base compiles a verified howto only; a 0.5 one
+    // keeps no verification (D-130)
+    let verified = fm.fields.get("verification").and_then(Value::as_str) == Some("verified");
+    if tree.profile == Profile::KnowledgeBase
+        && crate::era::Era::of(&tree).page_verification()
+        && !verified
+    {
         return Err(format!(
             "{}: `verification` is not `verified` — a knowledge-base howto compiles after \
              an independent audit, never from the session that wrote it (R-025, D-073)",

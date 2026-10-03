@@ -30,6 +30,8 @@ pub struct Status {
     pub records: usize,
     pub records_uncited: usize,
     pub permanent: usize,
+    /// a docsys/0.4 tree keeps page verification; a 0.5 tree has none (D-130)
+    pub verification: bool,
     pub unverified: Vec<String>,
     /// tracked work files by status (project profile)
     pub work: BTreeMap<String, usize>,
@@ -46,16 +48,9 @@ pub struct Status {
     pub sources_moved: usize,
     /// entries in `.forgotten.yml` (D-084)
     pub forgotten: usize,
-    /// verified pages anchored by their block record whose `verified_rev` is not in
-    /// this history — a squash or a rebase; the hash is the evidence (D-101)
-    pub rev_gone: usize,
     /// a 0.5 tree's acknowledgements whose page id pins nothing any more
     /// (D-119) — `None` in a 0.4 tree, which keeps none
     pub orphan_acks: Option<usize>,
-    /// pages whose block record holds only part of the body now — a block
-    /// edited, or one whose bound pin is stale — with the blocks found again
-    /// and the body's count (R-028, R-212); `None` in a 0.4 tree
-    pub partially_verified: Option<Vec<(String, usize, usize)>>,
     pub first_errors: Vec<String>,
 }
 
@@ -141,21 +136,15 @@ pub fn status(root: &Path, repo: Option<&Path>) -> Result<Status, String> {
         // a project has no ingest organ: its records wait for nothing (D-112)
         Profile::Project => (s.records, s.records_uncited) = records(&tree, repo),
     }
-    // a docsys/0.5 page's verification is history's (D-126)
-    let from_history = crate::era::Era::of(&tree).verification_from_history();
-    let approvals = from_history.then(|| crate::approval::Approvals::of(&tree));
+    s.verification = crate::era::Era::of(&tree).page_verification();
     for page in &tree.pages {
         let Some(fm) = &page.fm else { continue };
         match page.kind {
             Kind::Permanent => {
                 s.permanent += 1;
-                let unverified = match &approvals {
-                    Some(a) => a.is_unverified(&tree, page),
-                    None => {
-                        fm.fields.get("verification").and_then(Value::as_str) == Some("unverified")
-                    }
-                };
-                if unverified {
+                if s.verification
+                    && fm.fields.get("verification").and_then(Value::as_str) == Some("unverified")
+                {
                     s.unverified.push(page.rel.clone());
                 }
             }
@@ -238,50 +227,7 @@ pub fn status(root: &Path, repo: Option<&Path>) -> Result<Status, String> {
         }
     }
     s.forgotten = crate::forget::count(root);
-    if let Some(repo) = repo.filter(|_| !from_history) {
-        for page in tree.pages.iter().filter(|p| p.kind == Kind::Permanent) {
-            let Some(fm) = &page.fm else { continue };
-            let get = |k: &str| fm.fields.get(k).and_then(Value::as_str);
-            if get("verification") != Some("verified") || !fm.fields.contains_key("verified_blocks")
-            {
-                continue;
-            }
-            let Some(rev) = get("verified_rev") else {
-                continue;
-            };
-            let held = crate::git::cmd(repo)
-                .args(["cat-file", "-e", &format!("{}^{{commit}}", rev.trim())])
-                .stdout(std::process::Stdio::null())
-                .stderr(std::process::Stdio::null())
-                .status()
-                .is_ok_and(|st| st.success());
-            if !held {
-                s.rev_gone += 1;
-            }
-        }
-    }
     let era = crate::era::Era::of(&tree);
-    if era.anchored_verification() {
-        let mut partial = Vec::new();
-        for page in tree.pages.iter().filter(|p| p.kind == Kind::Permanent) {
-            let Some(fm) = &page.fm else { continue };
-            if approvals.is_none() && crate::blocks::record_of(fm).is_none() {
-                continue;
-            }
-            let stale = repo
-                .map(|r| crate::fresh::stale_blocks(root, r, era, fm))
-                .unwrap_or_default();
-            // on docsys/0.5 against what the last approval read (D-126)
-            let reading = match &approvals {
-                Some(a) => a.reading(page, &stale).map(|(r, _)| r),
-                None => crate::blocks::reading(fm, &page.text, &stale),
-            };
-            if let Some(r) = reading.filter(crate::blocks::Reading::partial) {
-                partial.push((page.rel.clone(), r.found, r.of));
-            }
-        }
-        s.partially_verified = Some(partial);
-    }
     if era.acknowledged_pins() {
         let pinning: std::collections::BTreeSet<String> = tree
             .pages
@@ -300,17 +246,13 @@ pub fn status(root: &Path, repo: Option<&Path>) -> Result<Status, String> {
                 .sum(),
         );
     }
-    // a docsys/0.5 approval read the source as it was then (D-126)
-    if let Some(a) = &approvals {
-        s.sources_moved = a.sources_moved();
-    }
     // what lint would say, once
     let (report, _) = crate::lint_in(root, repo);
     for f in &report.findings {
         if f.severity == Severity::Error {
             s.errors += 1;
             *s.by_rule.entry(f.rule.0.to_string()).or_insert(0) += 1;
-            if approvals.is_none() && f.rule.0 == "R-024" && f.subject.starts_with('@') {
+            if s.verification && f.rule.0 == "R-024" && f.subject.starts_with('@') {
                 s.sources_moved += 1;
             }
             if s.first_errors.len() < 5 {
@@ -345,7 +287,9 @@ pub fn render(s: &Status, root: &Path) -> String {
             s.records, s.records_uncited
         ));
     }
-    if s.profile == "knowledge-base" {
+    if s.profile == "knowledge-base" && !s.verification {
+        out.push_str(&format!("wiki: {} page(s)\n", s.permanent));
+    } else if s.profile == "knowledge-base" {
         out.push_str(&format!(
             "wiki: {} page(s), {} unverified{}\n",
             s.permanent,
@@ -400,9 +344,9 @@ pub fn render(s: &Status, root: &Path) -> String {
         s.skills_compiled,
         s.by_rule.get("R-095").copied().unwrap_or(0)
     ));
-    // a docsys/0.5 tree writes no `updated:` and keeps no record a body could
-    // outrun: its page reads unverified instead (D-122, D-126)
-    if crate::era::Era::at(root).verification_from_history() {
+    // a docsys/0.5 tree writes no `updated:` and keeps no verification (D-122,
+    // D-130)
+    if !s.verification {
         out.push_str(&format!(
             "freshness: {} stale pin(s), {} untouched draft(s)\n",
             s.by_rule.get("R-111").copied().unwrap_or(0),
@@ -421,7 +365,7 @@ pub fn render(s: &Status, root: &Path) -> String {
             .saturating_sub(s.sources_moved)
     ));
     }
-    if !s.consumed.is_empty() {
+    if s.verification && !s.consumed.is_empty() {
         out.push_str(&format!(
             "sources: {} verified page(s) whose consumed sources moved since verification\n",
             s.sources_moved
@@ -436,23 +380,6 @@ pub fn render(s: &Status, root: &Path) -> String {
     if let Some(n) = s.orphan_acks.filter(|n| *n > 0) {
         out.push_str(&format!(
             "pins: {n} acknowledgement(s) no page pins any more — `docsys pin --gc` removes them\n"
-        ));
-    }
-    if let Some(pages) = s.partially_verified.as_ref().filter(|p| !p.is_empty()) {
-        let list: Vec<String> = pages
-            .iter()
-            .map(|(page, found, of)| format!("{page} {found}/{of}"))
-            .collect();
-        out.push_str(&format!(
-            "blocks: {} page(s) partially verified — {} — `docsys verify --show <page>` lists what to re-read\n",
-            pages.len(),
-            list.join(", ")
-        ));
-    }
-    if s.rev_gone > 0 {
-        out.push_str(&format!(
-            "verification: {} verified page(s) anchored by their block record; their revision is not in this history (a squash or a rebase) — nothing to do\n",
-            s.rev_gone
         ));
     }
     out.push_str(&format!(
@@ -518,11 +445,19 @@ pub fn render_json(s: &Status) -> String {
     let acks = s.orphan_acks.map_or(String::new(), |n| {
         format!(",\"acknowledgements_orphaned\":{n}")
     });
-    let partial = s.partially_verified.as_ref().map_or(String::new(), |p| {
-        format!(",\"partially_verified\":{}", p.len())
-    });
+    // a docsys/0.4 tree's verification, as 0.15.1 said it (D-130)
+    let unverified = if s.verification {
+        format!(",\"unverified\":[{}]", unverified.join(","))
+    } else {
+        String::new()
+    };
+    let sources_moved = if s.verification {
+        format!(",\"sources_moved\":{}", s.sources_moved)
+    } else {
+        String::new()
+    };
     format!(
-        "{{\"profile\":\"{}\",\"namespace\":{},\"inbox\":{},\"inbox_oldest\":{}{records},\"permanent\":{},\"unverified\":[{}],\"work\":{{{}}},\"questions_open\":{},\"debt_open\":{},\"consumed\":[{}],\"skills_compiled\":{},\"errors\":{},\"warnings\":{},\"by_rule\":{{{}}},\"sources_moved\":{},\"forgotten\":{},\"rev_gone\":{}{acks}{partial},\"first_errors\":[{}]}}\n",
+        "{{\"profile\":\"{}\",\"namespace\":{},\"inbox\":{},\"inbox_oldest\":{}{records},\"permanent\":{}{unverified},\"work\":{{{}}},\"questions_open\":{},\"debt_open\":{},\"consumed\":[{}],\"skills_compiled\":{},\"errors\":{},\"warnings\":{},\"by_rule\":{{{}}}{sources_moved},\"forgotten\":{}{acks},\"first_errors\":[{}]}}\n",
         esc(&s.profile),
         s.namespace
             .as_ref()
@@ -532,7 +467,6 @@ pub fn render_json(s: &Status) -> String {
             .as_ref()
             .map_or("null".to_string(), |d| format!("\"{}\"", esc(d))),
         s.permanent,
-        unverified.join(","),
         work.join(","),
         s.questions_open,
         s.debt_open,
@@ -541,9 +475,7 @@ pub fn render_json(s: &Status) -> String {
         s.errors,
         s.warnings,
         by_rule.join(","),
-        s.sources_moved,
         s.forgotten,
-        s.rev_gone,
         first.join(",")
     )
 }

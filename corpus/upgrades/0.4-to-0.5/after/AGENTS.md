@@ -17,7 +17,7 @@ is the whole binding, read from the code's side with
 `docsys backlinks <code-file>`, so the code carries no comment for it
 - inside docs a page is linked as `[[dir/id]]` — the full path from the
 docs root (R-070)
-- a page pinned to code (`verifies:`) that lint reports stale is re-read
+- a page pinned to code (`pins:`) that lint reports stale is re-read
 against the code, then `docsys pin --refresh <page>` — never refreshed blind
 - a blocked Bash call is blocked whole: `git add … && git commit` re-runs
 from the `add`; what landed is `git show HEAD:<file>`, not the tree
@@ -74,14 +74,7 @@ When you write a page:
 - work deferred on purpose → `docsys debt add`; once repaid, `docsys debt
 close` (R-108)
 
-When you verify:
-- P/R-025 — verify a knowledge-base page
-  QUESTION : did this session produce any of the page's content?
-  OPTIONS  : yes → do not verify — leave for another session
-             no  → check every claim against sources:, then the
-             maintainer approves it (`docsys verify <page>`)
-- a maintainer's explicit word in the session is their approval: it is
-recorded under their identity, never the session's (D-096)
+When a person asks whether pages still hold: `/docsys-crosscheck`.
 
 When a decision procedure exists, follow it: `docsys rules --procedures`.
 When no option fits, the escape is always legitimate — an honest "I don't

@@ -176,7 +176,6 @@ fn discover_lists_the_trees_under_a_directory_and_writes_nothing() {
 #[test]
 fn a_raw_record_is_never_an_answer() {
     let base = tmp("kb");
-    // a base with a history, so its pages' verification can be read (D-126)
     assert!(Command::new("git")
         .args(["init", "-q"])
         .current_dir(&base)
@@ -211,7 +210,8 @@ fn a_raw_record_is_never_an_answer() {
     );
     let hits = lookup::lookup(&base, &["fee".to_string()]).unwrap();
     assert_eq!(tokens(&hits), vec!["fx-fee"], "{hits:?}");
-    assert_eq!(hits[0].caveat.as_deref(), Some("unverified"));
+    // a docsys/0.5 page carries no verification to caveat (D-130)
+    assert_eq!(hits[0].caveat, None);
 }
 
 #[test]

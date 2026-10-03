@@ -3,8 +3,6 @@
 //! never closes declares nothing anyone may act on, a file that is not UTF-8
 //! is named, and a flag's value is never another flag (D-002, D-129).
 
-use docsys::approval::{Approvals, State};
-use docsys::tree::DocTree;
 use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -104,19 +102,20 @@ fn project(name: &str, docmeta: &str) -> (PathBuf, PathBuf) {
 }
 
 const SPEC_05: &str = "spec: docsys/0.5\nprofile: project\ndefault_content_language: en\n";
+const SPEC_04: &str = "spec: docsys/0.4\nprofile: project\ndefault_content_language: en\n";
 
+/// A docsys/0.4 tree keeps 0.15.1's verification, and an unclosed
+/// `maintainers:` names nobody there: `verify` refuses, by its line (D-002).
 #[test]
-fn an_unclosed_maintainers_list_lets_nobody_approve() {
-    let unclosed = format!("{SPEC_05}maintainers: [ayse <ayse@example.com> @ayse-gh\n");
-    let (repo, root) = project("maintainers", &unclosed);
+fn an_unclosed_maintainers_list_lets_nobody_verify() {
+    let unclosed = format!("{SPEC_04}maintainers: [ayse <ayse@example.com> @ayse-gh\n");
+    let (repo, _) = project("maintainers", &unclosed);
     let refusal = ".docmeta.yml: `maintainers` on line 4 opens a list that never closes with `]`";
     let before = head(&repo);
-    // `verify` by the git identity, by `--by` with a handle and with a login
     for args in [
         &["verify", "retry"][..],
         &["verify", "retry", "--by", "t"],
         &["verify", "retry", "--by", "@ayse-gh"],
-        &["verify", "retry", "--revoke"],
     ] {
         let out = docsys(&repo, args);
         assert_eq!(
@@ -127,83 +126,6 @@ fn an_unclosed_maintainers_list_lets_nobody_approve() {
         assert!(stderr(&out).contains(refusal), "{args:?}: {out:?}");
         assert_eq!(head(&repo), before, "{args:?} committed nothing");
     }
-    // the approval job adds no line, and says why
-    let out = docsys(&repo, &["verify", "--approval", "@ayse-gh"]);
-    assert_eq!(out.status.code(), Some(2), "{out:?}");
-    assert!(stderr(&out).contains(refusal), "{out:?}");
-    assert!(out.stdout.is_empty(), "{out:?}");
-    // graduation's word is a maintainer's
-    fs::write(repo.join("plan.txt"), "# source: work/features/x.md\n").unwrap();
-    let out = docsys(
-        &repo,
-        &[
-            "graduate",
-            "apply",
-            "--plan",
-            "plan.txt",
-            "--confirmed",
-            "t",
-        ],
-    );
-    assert_eq!(out.status.code(), Some(2), "{out:?}");
-    assert!(stderr(&out).contains(refusal), "{out:?}");
-    fs::remove_file(repo.join("plan.txt")).unwrap();
-    // no approval in history counts as a maintainer's while the list is unread
-    for by in ["t", "ayse <ayse@example.com>"] {
-        git(
-            &repo,
-            &[
-                "commit",
-                "-q",
-                "--allow-empty",
-                "-m",
-                "docs: verify retry",
-                "-m",
-                &format!("Verifies: reference/retry.md\nApproved-by: {by}"),
-            ],
-        );
-    }
-    let tree = DocTree::load(&root).unwrap();
-    let page = tree
-        .pages
-        .iter()
-        .find(|p| p.rel == "reference/retry.md")
-        .unwrap();
-    assert_eq!(
-        Approvals::of(&tree).state("reference/retry.md"),
-        State::Unverified
-    );
-    assert!(docsys::approval::last_approval(&tree, page).is_none());
-    // nor does a record a page kept from before
-    let blocks = docsys::blocks::hashes(
-        "This page states the retry policy; read it before changing it.\n\nThree attempts.\n",
-    );
-    let with_record = PAGE.replace(
-        "sources: [src/retry.rs]\n",
-        &format!(
-            "sources: [src/retry.rs]\nverification: verified\nverified_by: t\nverified_rev: 0000000\nverified_blocks: [{}]\n",
-            blocks.join(", ")
-        ),
-    );
-    fs::write(root.join("reference/legacy.md"), &with_record).unwrap();
-    let tree = DocTree::load(&root).unwrap();
-    let legacy = tree
-        .pages
-        .iter()
-        .find(|p| p.rel == "reference/legacy.md")
-        .unwrap();
-    assert!(!docsys::approval::holding_record(&tree, legacy));
-    // closed, the same history counts the maintainer's approval
-    fs::write(
-        root.join(".docmeta.yml"),
-        format!("{SPEC_05}maintainers: [ayse <ayse@example.com> @ayse-gh]\n"),
-    )
-    .unwrap();
-    let tree = DocTree::load(&root).unwrap();
-    assert!(matches!(
-        Approvals::of(&tree).state("reference/retry.md"),
-        State::Verified { .. }
-    ));
     let _ = fs::remove_dir_all(&repo);
 }
 

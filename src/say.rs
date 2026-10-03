@@ -198,7 +198,7 @@ pub fn upgrade_preview(to: u32, added: usize, removed: usize) -> String {
 
 /// Each phrase of the agent text that names the journal, as a docsys/0.5
 /// tree hears it and as a 0.4 tree heard it from 0.15.1 (D-118).
-const ERA_PHRASES: [(&str, &str); 12] = [
+const ERA_PHRASES: [(&str, &str); 15] = [
     (
         "improvement (refactor, performance, cleanup), research. If the",
         "improvement (refactor, performance, cleanup), research, idea-note. If the",
@@ -243,9 +243,22 @@ const ERA_PHRASES: [(&str, &str); 12] = [
         "ingest → one wiki page per note (id, type, domain,\nsources),",
         "ingest → one wiki page per note (id, type, domain, verification: unverified,\nsources),",
     ),
+    // a docsys/0.5 base keeps no verification (D-130); a 0.4 one hears 0.15.1
     (
-        "page; an approval is the maintainer's commit (`docsys verify`).",
-        "page; `verified` records verified_by and verified_rev.",
+        "capture,\ningest or lookup;",
+        "capture,\ningest, audit or lookup;",
+    ),
+    (
+        "rewritten by the tool). lookup → `docsys",
+        "rewritten by the tool). audit → only in a session that did not write the\npage; `verified` records verified_by and verified_rev. lookup → `docsys",
+    ),
+    (
+        "the hook blocks the attempt. Gate: docsys lint",
+        "the hook blocks the attempt. A wiki page whose body changes is unverified\nagain. Gate: docsys lint",
+    ),
+    (
+        "edit a record).",
+        "edit a record, verify its own page).",
     ),
 ];
 
@@ -260,12 +273,11 @@ pub fn era_text(root: &Path, text: &str) -> String {
         .fold(text.to_string(), |t, (now, before)| t.replace(now, before))
 }
 
+/// What a docsys/0.5 tree has instead of page verification (D-130).
+pub const NO_VERIFICATION: &str = "a docsys/0.5 page carries no verification — `/docsys-crosscheck` has an agent check pages against their sources and code, and fix what is wrong";
+
 /// Every text above as a docsys/0.5 tree hears it, in each mode: what the
 /// one-home check reads (D-129).
-/// Where an upgrade's carried approvals live, said once before the merge
-/// (D-126).
-pub const CARRIED_MERGE: &str = "the carried approvals live in the upgrade's commit messages: merge it with a merge commit, or keep the commit bodies in the squash message — a squash message without them leaves those pages unverified";
-
 pub fn catalog() -> Vec<String> {
     let code = vec!["src/x.rs".to_string()];
     let plans = vec!["SEED.tsv".to_string()];
@@ -295,7 +307,7 @@ pub fn catalog() -> Vec<String> {
     out.push(message_budget(7, 5));
     out.extend([GATE_HARD, GATE_WARN, MESSAGE_HARD, MESSAGE_WARN].map(String::from));
     out.push(upgrade_preview(5, 3, 0));
-    out.push(CARRIED_MERGE.to_string());
+    out.push(NO_VERIFICATION.to_string());
     out
 }
 

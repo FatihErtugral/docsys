@@ -382,7 +382,7 @@ fn run(
 ) -> Result<Outcome, String> {
     refuse_knowledge_base(root)?;
     let tree = match confirmed {
-        Some(who) => {
+        Some(_) => {
             if !crate::era::Era::at(root).graduation_removes() {
                 return Err(format!(
                     "this tree {}, where a graduated file stays: graduate without --confirmed and \
@@ -391,15 +391,8 @@ fn run(
                     crate::era::served(root)
                 ));
             }
-            let tree = crate::tree::DocTree::load(root).map_err(|e| e.to_string())?;
-            let maintainers = crate::checks::maintainer_handles(&tree);
-            maintainers.readable()?;
-            if crate::approval::maintainer_of(&maintainers, who).is_none() {
-                return Err(format!(
-                    "`{who}` names no maintainer in .docmeta.yml — the word that graduates a file is a maintainer's (R-208)"
-                ));
-            }
-            Some(tree)
+            // the confirmation is the word of whoever gives it (D-130)
+            Some(crate::tree::DocTree::load(root).map_err(|e| e.to_string())?)
         }
         None => None,
     };

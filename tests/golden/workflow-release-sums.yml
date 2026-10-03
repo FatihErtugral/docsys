@@ -1,0 +1,61 @@
+# docsys-template: 9.9.9 sha256:@HASH@ branch=main runner=self-hosted,linux install=release root=docs
+# docsys documentation workflow, written by `docsys adopt` (D-111). Line 1 records how
+# it was rendered and a hash of everything else in this file: while the hash holds,
+# docsys may regenerate it; once the file is edited, it is yours.
+name: docsys
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, closed]
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  docs:
+    if: github.event.action != 'closed'
+    runs-on: [self-hosted, linux]
+    concurrency:
+      group: docsys-${{ github.event.pull_request.number || github.ref }}
+      cancel-in-progress: true
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - name: docsys, the release the tree pins, checked against its SHA256SUMS
+        shell: bash
+        run: |
+          v=$(head -n 1 "docs/.docsys-version" 2>/dev/null | tr -d '[:space:]' || true)
+          if [ -z "$v" ]; then
+            echo "docsys: docs/.docsys-version names no docsys version to install" >&2
+            exit 1
+          fi
+          case "$(uname -s)-$(uname -m)" in
+            Linux-x86_64) target=x86_64-unknown-linux-musl ;;
+            Linux-aarch64) target=aarch64-unknown-linux-musl ;;
+            Darwin-x86_64) target=x86_64-apple-darwin ;;
+            Darwin-arm64) target=aarch64-apple-darwin ;;
+            *) echo "docsys: no release archive for a $(uname -s)-$(uname -m) runner" >&2; exit 1 ;;
+          esac
+          name="docsys-v$v-$target"
+          cd "$RUNNER_TEMP"
+          curl -fsSL -o "$name.tar.gz" "@RELEASES@/v$v/$name.tar.gz"
+          curl -fsSL -o SHA256SUMS "@RELEASES@/v$v/SHA256SUMS"
+          awk -v f="$name.tar.gz" '$2 == f' SHA256SUMS > "$name.tar.gz.sha256"
+          if [ ! -s "$name.tar.gz.sha256" ]; then
+            echo "docsys: the SHA256SUMS of docsys $v lists no $name.tar.gz" >&2
+            exit 1
+          fi
+          if command -v sha256sum >/dev/null; then
+            sha256sum -c "$name.tar.gz.sha256"
+          else
+            shasum -a 256 -c "$name.tar.gz.sha256"
+          fi
+          tar -xzf "$name.tar.gz"
+          echo "$RUNNER_TEMP/$name" >> "$GITHUB_PATH"
+      - run: docsys lint --repo . --root docs
+      - run: docsys refs --repo . --root docs
+      - if: github.event_name == 'pull_request'
+        run: docsys gate --repo . --root docs --range "origin/${{ github.base_ref }}...HEAD"

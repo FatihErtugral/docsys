@@ -647,8 +647,8 @@ fn a_commit_points_at_each_rule_once() {
 }
 
 /// `status` on a docsys/0.5 tree counts what the tree still has: no counter
-/// of `updated:` lines nothing writes, no verified page "whose body moved" —
-/// such a page reads unverified (D-122, D-126).
+/// of `updated:` lines nothing writes, and no verified page "whose body
+/// moved" — a page carries no verification (D-122, D-130).
 #[test]
 fn status_on_a_0_5_tree_names_no_retired_counter() {
     let repo = adopted("status-counters", "ask");

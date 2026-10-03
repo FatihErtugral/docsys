@@ -46,7 +46,7 @@ agent leg; the mechanical leg needs bash, git, coreutils, grep, awk.
 | `tasks/` | what a person would say — one or two sentences per task, no procedure |
 | `rubric.md` | the criteria, which are automatic, and where the agent read each expectation |
 | `agent/run-task.sh` | one session + mechanical capture + `checks.sh` |
-| `agent/run-matrix.sh` | the four chains per model, the cross audit, the cost cap |
+| `agent/run-matrix.sh` | the four chains per model and the cost cap |
 | `agent/run-real.sh` | the real-repository leg (clones from GitHub, remotes removed, codenames) |
 | `agent/score.sh` | merges `auto.tsv` and the reader's `score.tsv` into `REPORT-agent.md` |
 | `REPORT-mechanical.md` · `REPORT-agent.md` · `FINDINGS.md` | the committed results |

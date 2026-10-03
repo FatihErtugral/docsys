@@ -131,7 +131,7 @@ It prints nothing.
 EOF
 printf -- '- [[reference/entry|Entry]] -- what main prints.\n' >> docs/index.md
 docsys pin reference/entry main.rs >/dev/null || fail "pin did not land"
-[ -n "$(ls docs/.verifies/entry 2>/dev/null)" ] || fail "pin wrote no acknowledgement"   # a docsys/0.5 tree: beside the page, never in it (D-119)
+[ -n "$(ls docs/.pins/entry 2>/dev/null)" ] || fail "pin wrote no acknowledgement"   # a docsys/0.5 tree: beside the page, never in it (D-119)
 git add -A && git commit -qm "entry page, pinned"
 docsys lint --root docs | grep -- '-- 0 error(s)' >/dev/null || fail "a fresh pin is not clean"
 echo 'fn main() { println!("hi") }' > main.rs
@@ -213,20 +213,21 @@ docsys inbox add --source calendar --id evt-1 --title "Dentist again" --root . |
 docsys status --root . > /tmp/status.out || fail "status failed: $(cat /tmp/status.out)"   # to a file first: grep -q would close the pipe early
 grep -q 'inbox: 3 note(s)' /tmp/status.out || fail "status miscounts the inbox: $(cat /tmp/status.out)"
 grep -q 'consumed: auth 1 page(s) fetched' /tmp/status.out || fail "status does not name the consumed namespace"
-grep -q '1 unverified' /tmp/status.out || fail "status does not name the unverified page"
+grep -q 'wiki: 1 page(s)' /tmp/status.out || fail "status does not count the wiki page: $(cat /tmp/status.out)"
+! grep -q 'verified' /tmp/status.out || fail "status speaks of verification on a docsys/0.5 base"
 docsys status --root . --json > /tmp/status.json || fail "status --json failed"
 grep -q '"inbox":3' /tmp/status.json || fail "status --json disagrees"
-# staying current: verify the page against the source as fetched, then let the provider move
+# staying current: the provider moves, fetch brings it, and a cross-check
+# reads the page against it; a docsys/0.5 base records no verification (D-130, D-131)
 git add -A && git commit -qm "learned from auth"
-docsys verify auth-in-one-page --root . >/dev/null || fail "the maintainer could not verify the page"
-git log -1 --format=%B | grep '^Approved-by: ' >/dev/null || fail "verify made no approval commit"
-docsys status --root . | grep '0 unverified\|wiki: 1 page(s)$' >/dev/null || true
-docsys lint --root . | grep -- '-- 0 error(s), 0 warning(s)' >/dev/null || fail "a page verified against the fetched source is not clean: $(docsys lint --root . | head -3)"
+if docsys verify auth-in-one-page --root . >/dev/null 2>&1; then fail "verify ran on a docsys/0.5 base"; fi
+docsys lint --root . | grep -- '-- 0 error(s), 0 warning(s)' >/dev/null || fail "the learned page is not clean: $(docsys lint --root . | head -3)"
 (cd "$WORK/auth" && sed 's/in one page\./in one page, now with tokens./' docs/howto/use-auth.md > /tmp/use-auth.tmp \
   && mv /tmp/use-auth.tmp docs/howto/use-auth.md && git add -A && git commit -qm "auth: tokens")
 docsys fetch --root . >/dev/null
-docsys status --root . | grep '1 unverified — wiki/coding/explanation/auth-in-one-page.md' >/dev/null || fail "a moved source did not stale the page that rested on it: $(docsys status --root .)"
-docsys status --root . > /tmp/status2.out; grep -q 'sources: 1 verified page(s) whose consumed sources moved' /tmp/status2.out || fail "status does not count the moved source: $(cat /tmp/status2.out)"
+docsys crosscheck auth-in-one-page --root . > /tmp/crosscheck.out || fail "crosscheck failed: $(cat /tmp/crosscheck.out)"
+grep -q '^  source: @auth/use-auth$' /tmp/crosscheck.out || fail "crosscheck does not name the page's source: $(cat /tmp/crosscheck.out)"
+[ -z "$(git status --porcelain -- wiki)" ] || fail "crosscheck wrote into the wiki"
 cd "$WORK"
 
 say "12 · one command: an assistant's memory over every project in a directory"

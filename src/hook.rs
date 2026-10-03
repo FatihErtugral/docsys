@@ -824,9 +824,9 @@ pub fn is_live_page(file: &str, root_rel: &str) -> bool {
 /// demotes it (R-024); on a docsys/0.4 tree the page's `updated:` is also
 /// bumped, as 0.15 did. `today` is injected so the rewrite is testable.
 pub fn post_tool_use(repo: &Path, root: &Path, payload: &str, today: &str) -> Reply {
-    // a docsys/0.5 page's date and verification are history's: nothing to
-    // keep (D-122, D-126)
-    if crate::era::Era::at(root).verification_from_history() {
+    // a docsys/0.5 page's date is history's and it carries no verification:
+    // nothing to keep (D-122, D-130)
+    if !crate::era::Era::at(root).page_verification() {
         return Reply::ok();
     }
     let Some(file) = parse_json(payload).and_then(|j| {
@@ -882,20 +882,18 @@ pub fn bump_updated(text: &str, today: &str) -> Option<String> {
 /// The knowledge base's first-turn text: organs, not work types (D-076).
 pub const KB_ROUTING: &str = "<session-doc-routing>
 First turn, knowledge base. Name the organ before anything else — capture,
-ingest, audit or lookup; the skill of that name carries the discipline.
+ingest or lookup; the skill of that name carries the discipline.
 
 capture → ONE new file in raw/inbox/, the note in the user's own words plus
 one line on why it is worth keeping; never classify, never touch wiki/.
 ingest → one wiki page per note (id, type, domain,
 sources), routed from the domain index; the note moves to raw/<domain>/ with
 `docsys raw move <record> <domain>` (bytes untouched, citing pages' sources
-rewritten by the tool). audit → only in a session that did not write the
-page; an approval is the maintainer's commit (`docsys verify`). lookup → `docsys
+rewritten by the tool). lookup → `docsys
 lookup <words>` first, then the page; \"not in the base\" is a complete answer.
 
 raw/ is content-immutable: an existing record is never edited or deleted, and
-the hook blocks the attempt. A wiki page whose body changes is unverified
-again. Gate: docsys lint (inside the repository).
+the hook blocks the attempt. Gate: docsys lint (inside the repository).
 Speak the person's language, turn by turn — the one they just wrote in; every
 file under wiki/ (pages, indexes, open questions) keeps the base's declared
 language, whatever the session's own language setting says; code identifiers
@@ -919,7 +917,7 @@ in. Five items:
 4. Languages — conversation mirrors the person, turn by turn; pages keep the
    base's default_content_language; code identifiers are never translated.
 5. Never — what it must never do (defaults: invent what the base does not
-   hold, act outward without confirmation, edit a record, verify its own page).
+   hold, act outward without confirmation, edit a record).
 When the person answers, replace the placeholder block under ## Character in
 AGENTS.md with the answers (keep everything else in the file), then give a
 five-line summary of how you will communicate from now on, and continue with
@@ -1014,13 +1012,9 @@ fn tree_digest(root: &Path) -> String {
         .iter()
         .filter(|p| p.kind == Kind::Permanent)
         .count();
-    // a docsys/0.5 page's verification is history's (D-126)
-    let unverified = if crate::era::Era::of(&tree).verification_from_history() {
-        let a = crate::approval::Approvals::of(&tree);
-        tree.pages
-            .iter()
-            .filter(|p| a.is_unverified(&tree, p))
-            .count()
+    // a docsys/0.5 page carries no verification (D-130)
+    let unverified = if !crate::era::Era::of(&tree).page_verification() {
+        0
     } else {
         tree.pages
             .iter()
@@ -1327,10 +1321,8 @@ mod tests_routing {
         )
         .unwrap();
         assert_eq!(era_text(&root, ROUTING), ROUTING);
-        // on docsys/0.5 help explains how an approval is recorded (D-114, D-129)
-        assert!(crate::agents::skill_text()
-            .replace('\n', " ")
-            .contains("`docsys help verify`"));
+        // a docsys/0.5 page carries no verification (D-130)
+        assert!(!crate::agents::skill_text().contains("verif"));
         assert!(!ROUTING.contains("verified_by"));
         let _ = fs::remove_dir_all(&root);
     }

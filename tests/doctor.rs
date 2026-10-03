@@ -154,7 +154,7 @@ fn hookspath_is_read_from_git_not_from_config_text() {
 }
 
 /// `docsys agents` on a docsys/0.5 tree, from the repository's top, writes
-/// no post-edit relay (D-126), and says the layer is wired only when every
+/// no post-edit relay (D-130), and says the layer is wired only when every
 /// relay it wrote is.
 #[test]
 fn agents_on_a_0_5_tree_writes_no_post_edit_relay() {

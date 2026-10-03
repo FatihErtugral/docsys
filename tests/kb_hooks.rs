@@ -167,8 +167,8 @@ fn an_existing_record_is_guarded_and_a_new_note_passes() {
     assert_eq!(code, 0, "{err}");
 }
 
-/// A docsys/0.5 base runs no post-edit relay: a page's date and its
-/// verification are history's (D-122, D-126), and the hook, if a stale wire
+/// A docsys/0.5 base runs no post-edit relay: a page's date is history's and
+/// it carries no verification (D-122, D-130), and the hook, if a stale wire
 /// still calls it, changes nothing — a record least of all.
 #[test]
 fn a_wiki_edit_writes_nothing_and_a_record_never_changes() {
@@ -256,39 +256,6 @@ fn the_doctor_finds_the_layer_alive() {
     assert_eq!(d.failed, 0, "{:?}", d.lines);
 }
 
-/// An audit's approval is a commit, and holds until the body moves (R-024,
-/// D-126); a record typed into the page is not one.
-#[test]
-fn a_verified_page_must_still_hold_the_verified_body() {
-    let base = build_base("verified");
-    let page = base.join("wiki/ops/reference/rotation.md");
-    let rel = "wiki/ops/reference/rotation.md";
-    let state =
-        || docsys::approval::Approvals::of(&docsys::tree::DocTree::load(&base).unwrap()).state(rel);
-    assert_eq!(state(), docsys::approval::State::Unverified);
-    git(
-        &base,
-        &[
-            "commit",
-            "-q",
-            "--allow-empty",
-            "-m",
-            "audit",
-            "-m",
-            "Verifies: wiki/ops/reference/rotation.md\nApproved-by: other-session",
-        ],
-    );
-    assert!(
-        matches!(state(), docsys::approval::State::Verified { .. }),
-        "{:?}",
-        state()
-    );
-    // the body moves: the approval describes content that is gone
-    let text = fs::read_to_string(&page).unwrap();
-    fs::write(&page, text.replace("Monthly.", "Weekly.")).unwrap();
-    assert_eq!(state(), docsys::approval::State::Unverified);
-}
-
 #[test]
 fn an_existing_settings_file_is_merged_into_and_never_clobbered() {
     let base = tmp("settings-merge");
@@ -329,7 +296,7 @@ fn an_existing_settings_file_is_merged_into_and_never_clobbered() {
     ] {
         assert!(text.contains(hook), "{hook} missing:\n{text}");
     }
-    // a docsys/0.5 base runs no post-edit relay (D-126)
+    // a docsys/0.5 base runs no post-edit relay (D-130)
     assert!(!text.contains("post-edit-updated.sh"), "{text}");
     let (p, h, m) = (
         text.find("\"permissions\"").unwrap(),
@@ -390,9 +357,12 @@ fn the_installed_layer_names_the_sources_beyond_the_inbox() {
         "R-027",
         "(noise) stays too, with one open question",
         "`docsys question add`",
-        "unless the person you are working with is a declared maintainer",
     ] {
         assert!(ingest.contains(needle), "kb-ingest lacks `{needle}`");
+    }
+    // a docsys/0.5 base keeps no verification and no maintainer (D-130)
+    for gone in ["verif", "maintainer", "audit"] {
+        assert!(!ingest.contains(gone), "kb-ingest still says `{gone}`");
     }
     assert!(
         !ingest.contains("move the note from"),

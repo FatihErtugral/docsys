@@ -136,7 +136,7 @@ fn only_a_howto_compiles_and_an_authored_skill_is_kept() {
 }
 
 #[test]
-fn a_knowledge_base_howto_compiles_only_when_verified() {
+fn a_knowledge_base_howto_needs_a_verification_on_a_0_4_base_only() {
     let base = tmp("kb");
     let git = |args: &[&str]| {
         let out = std::process::Command::new("git")
@@ -188,19 +188,19 @@ fn a_knowledge_base_howto_compiles_only_when_verified() {
     .unwrap();
     git(&["add", "-A"]);
     git(&["commit", "-qm", "the rotation"]);
+    // a docsys/0.5 base keeps no verification: the howto compiles (D-130)
     let claude = base.join(".claude");
-    let err = compile::compile(&base, &claude, "rotate-keys", false).unwrap_err();
-    assert!(err.contains("verified"), "{err}");
-    // an audit in another session: its approval is a commit (D-126)
-    git(&[
-        "commit",
-        "-q",
-        "--allow-empty",
-        "-m",
-        "audit: rotate keys",
-        "-m",
-        "Verifies: wiki/ops/howto/rotate-keys.md\nApproved-by: auditor",
-    ]);
     compile::compile(&base, &claude, "rotate-keys", false).unwrap();
     assert!(claude.join("skills/rotate-keys/SKILL.md").is_file());
+    // a docsys/0.4 base compiles a verified howto only, as 0.15.1 did (D-118)
+    let text = fs::read_to_string(&dm)
+        .unwrap()
+        .replace("spec: docsys/0.5", "spec: docsys/0.4");
+    fs::write(&dm, text).unwrap();
+    let page_text = fs::read_to_string(&page)
+        .unwrap()
+        .replace("domain: ops\n", "domain: ops\nverification: unverified\n");
+    fs::write(&page, page_text).unwrap();
+    let err = compile::compile(&base, &claude, "rotate-keys", true).unwrap_err();
+    assert!(err.contains("verified"), "{err}");
 }

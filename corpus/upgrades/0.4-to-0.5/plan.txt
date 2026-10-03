@@ -6,13 +6,20 @@ Upgrading to docsys 0.16.0:
 - Every clone must install docsys >= 0.16.0 before pulling this change; a gate
   under .git/hooks cannot warn an old binary.
 - `docsys upgrade` prints the plan; `docsys upgrade --apply --commit` moves the
-  tree in one commit, and one empty commit for each further approver whose
-  verifications it carries. The items it lists for a person are theirs to
-  finish.
-- On docsys/0.5 a verified page whose body or consumed source moved is no
-  longer a lint error or a gate refusal: it reads `unverified` until a
-  maintainer approves it again; drift between code and a page still blocks
-  through its pins (R-111, D-126).
+  tree in one commit. The items it lists for a person are theirs to finish.
+- docsys/0.5 keeps no page verification: the move takes every verification
+  field out of every page and carries none, `.docmeta.yml` names no
+  maintainer, and `verify`, `page new --unverified` and an approval job are
+  refused there. To have pages checked against their sources and code, a
+  person runs `/docsys-crosscheck`; drift between code and a page still
+  blocks through its pins (R-111, D-130, D-131).
+- CI stops naming a docsys version or a sha256: `docsys upgrade` replaces
+  what installs docsys in your workflow — the `env:` lines with the version
+  and the archives' sha256 values, and the install step — with an install
+  that reads `.docsys-version` and checks the archive against the
+  `SHA256SUMS` its release publishes. The plan shows the diff; runners,
+  triggers and every other step stay as you wrote them, and no later upgrade
+  edits CI again.
 - A branch opened before the move runs the same `docsys upgrade --apply
   --commit` once before it merges: it converts the branch's own additions the
   same way, and only a topic both sides added to can conflict. Merged without
@@ -21,7 +28,7 @@ Upgrading to docsys 0.16.0:
   the upgrade, and a re-run moves each item once and carries the branch's
   journal entries into its commit's message.
 
-auto    hook-wires         .claude/settings.json  1 post-edit wire(s) taken out: a page's date and its verification are history's, and the relay has nothing left to do (D-126)
+auto    hook-wires         .claude/settings.json  1 post-edit wire(s) taken out: a page's date is history's and a page carries no verification, so the relay has nothing left to do (D-122, D-130)
 auto    hook-wires         .claude/settings.json  3 change(s): every docsys wire to `"$CLAUDE_PROJECT_DIR"/.claude/hooks/<name>.sh`, duplicates folded
 auto    hook-scripts       .claude/hooks/pre-commit-docs.sh  refreshed: a text docsys 0.12.0 wrote, untouched — it now starts in the project directory, names the tree's root, and names the pinned docsys to a binary from before pins
 manual  hook-scripts       .claude/hooks/stop-docs-reminder.sh  edited by its owner — the diff to this version's relay is below
@@ -29,31 +36,33 @@ auto    hook-scripts       .claude/hooks/post-edit-updated.sh  removed, with its
 auto    hook-scripts       .claude/hooks/session-intent.sh  refreshed: a text docsys 0.12.0 wrote, untouched — it now starts in the project directory, names the tree's root, and names the pinned docsys to a binary from before pins
 auto    git-gate           .git/hooks/pre-commit  the docsys block rewritten for this version, its mode kept
 auto    git-gate           .git/hooks/commit-msg  the docsys block written, its mode kept: it reads the commit message, and under `commit_policy: require` code with no documentation needs `Docs: <why>` (D-125)
-auto    ci-workflow        .github/workflows/docsys.yml  the 0.15 workflow, untouched: regenerated, pinned to this version; its approval job moves from direct to description — the approval rides the pull request's description (D-126)
+auto    ci-workflow        .github/workflows/docsys.yml  the 0.15 workflow, untouched: regenerated, pinned to this version; its `direct` approval job leaves — a docsys/0.5 page carries no verification (D-130)
 auto    rules-block        AGENTS.md  the generated block refreshed in place
 auto    assets             .claude/commands/docsys-upgrade.md  written: new in this version
+auto    assets             .claude/commands/docsys-crosscheck.md  written: new in this version
 manual  assets             .claude/commands/docsys-sync.md  edited by its owner — the diff to this version's text is below
 auto    assets             .claude/commands/docsys-seed.md  refreshed: a text docsys 0.15.0 wrote, untouched
 auto    assets             .claude/commands/docsys-interview.md  refreshed: a text docsys 0.7.0 wrote, untouched
 auto    assets             .claude/skills/docsys/SKILL.md  refreshed: a text docsys 0.15.0 wrote, untouched
 auto    assets             .claude/skills/docsys-export/SKILL.md  refreshed: a text docsys 0.4.0 wrote, untouched
 auto    dates              docs  `updated:` removed from 6 page(s) and template(s): a page's date is its last content change in history (D-122)
-manual  verified-record    docs/reference/expiry.md  the body changed since @REV@ — never recorded blind; a maintainer reads it and verifies it again: `docsys verify reference/expiry.md`
-auto    verified-record    docs/reference/refresh.md  the body @REV@ holds is the body now: its approval goes into the move's commit as `Verifies:` and `Approved-by: maintainer`, and the record leaves the page (D-126)
 manual  pins               docs/reference/expiry.md  `src/auth.rs#expire`: stale before the upgrade, still stale — re-read the page against it: `docsys pin --refresh reference/expiry.md`
 auto    pins               docs/reference/refresh.md  `src/auth.rs#refresh_token`: acknowledged beside the page
 auto    ledger-separators  docs/work/debt.md  work/debt.md line 3
 auto    ledgers            docs/work/debt.md  1 open item(s) into work/debt/; the ledger goes (D-124)
 auto    ledgers            docs/work/questions.md  no open item; the ledger goes (D-124)
 auto    journal            docs/work/journal.md  → docs/_archive/journal/journal.md, as written; the journal is history from here on (D-125)
-auto    records            docs/reference/expiry.md  the verification record taken out: it no longer holds, and the state is read from history — an `Approved-by:` after the body's last change (D-126)
+auto    records            docs/reference/expiry.md  the verification fields taken out: docsys/0.5 keeps no page verification — `/docsys-crosscheck` checks a page against its sources and code when a person asks (D-130)
+auto    records            docs/reference/refresh.md  the verification fields taken out: docsys/0.5 keeps no page verification — `/docsys-crosscheck` checks a page against its sources and code when a person asks (D-130)
+auto    pin-names          docs/reference/expiry.md  `verifies:` renamed `pins:`: a pin says when the code moved, and vouches for nothing (D-130)
+auto    pin-names          docs/reference/refresh.md  `verifies:` renamed `pins:`: a pin says when the code moved, and vouches for nothing (D-130)
+auto    maintainers        docs/.docmeta.yml  `maintainers:` taken out: a docsys/0.5 page carries no verification, and a confirmation is the word of whoever gives it (D-130)
 manual  code-citations     src/auth.rs:8  `doc: expiry` sits mid-comment: from 0.5 it is prose (R-072) — move it to the start of its comment, or leave it as prose
 info    raw-records        docs/raw/  1 record(s): from 0.5 a record layer — their dangling references are reported, an edited record stops the commit (R-023)
 auto    spec-line          docs/.docmeta.yml  `spec: docsys/0.4` → `spec: docsys/0.5`
 auto    pin                docs/.docsys-version  no pin → `0.16.0`: every docsys call here runs it
--- 24 automatic, 5 for a person, 1 for information
-judged by docsys/0.5 as the tree is now: 7 new finding(s), 1 gone — the steps above clear their part
-+ WARN R-024 reference/expiry.md [record] a verification field in the page — on docsys/0.5 the state is read from history (an `Approved-by:` after the last body change, D-126), and this no longer holds; `docsys upgrade --apply` takes it out
+-- 28 automatic, 4 for a person, 1 for information
+judged by docsys/0.5 as the tree is now: 6 new finding(s), 1 gone — the steps above clear their part
 + WARN R-050 reference/expiry.md [updated] `updated:` is not kept on docsys/0.5 — a page's date is its last content change in history; `docsys upgrade --apply` removes the line
 + WARN R-050 reference/refresh.md [updated] `updated:` is not kept on docsys/0.5 — a page's date is its last content change in history; `docsys upgrade --apply` removes the line
 + WARN R-054 work/features/token-rotation.md [updated] `updated:` is not kept on docsys/0.5 — a page's date is its last content change in history; `docsys upgrade --apply` removes the line

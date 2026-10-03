@@ -328,14 +328,12 @@ fn a_0_4_tree_moves_to_the_expected_0_5_tree_and_a_second_run_changes_nothing() 
     );
     expect_text("expected.tsv", &findings(&repo.join("docs"), &repo));
 
-    // the approval the record held is read back from the move's commit
-    // (D-126), the page holding no record
-    let shown = docsys(&repo, &["verify", "--show", "reference/refresh"]);
+    // the move carries no verification: no page holds a record, and the
+    // commit names no approval (D-130)
+    let message = git(&repo, &["log", "-1", "--format=%B", &moved_at]);
     assert!(
-        String::from_utf8_lossy(&shown.stdout).contains(&format!(
-            "3/3 blocks as verified by maintainer at {moved_at} — nothing to re-read"
-        )),
-        "{shown:?}"
+        !message.contains("Approved-by:") && !message.contains("Verifies:"),
+        "{message}"
     );
 
     // a second run: nothing automatic, nothing written, no commit
@@ -732,6 +730,58 @@ fn a_knowledge_base_contract_is_refreshed_only_while_untouched() {
             assert!(
                 stdout.contains("auto    kb-contract        AGENTS.md"),
                 "{stdout}"
+            );
+        }
+        let _ = fs::remove_dir_all(&kb);
+    }
+}
+
+/// A knowledge base's audit organ leaves with page verification (D-130): the
+/// move removes the text a release wrote, names an edited one for its owner,
+/// and the moved base's leftover check names an untouched one no more.
+#[test]
+fn the_move_retires_the_knowledge_base_audit_organ() {
+    for edited in [false, true] {
+        let kb = tmp(&format!("kb-audit-{edited}"));
+        git(&kb, &["init", "-q", "-b", "main"]);
+        git(&kb, &["config", "user.email", "t@example.invalid"]);
+        git(&kb, &["config", "user.name", "t"]);
+        let out = docsys(&kb, &["init", "--profile", "knowledge-base", "--root", "."]);
+        assert!(out.status.success(), "{out:?}");
+        let dm = kb.join(".docmeta.yml");
+        let text = fs::read_to_string(&dm).unwrap().replace(
+            &format!("spec: docsys/{}", docsys::rules::spec_version()),
+            "spec: docsys/0.4",
+        );
+        fs::write(&dm, text).unwrap();
+        fs::remove_file(kb.join(".docsys-version")).unwrap();
+        let out = docsys(&kb, &["agents", "--kb", "--root", "."]);
+        assert!(out.status.success(), "{out:?}");
+        let audit = kb.join(".claude/skills/kb-audit/SKILL.md");
+        assert!(audit.is_file(), "a docsys/0.4 base has its audit organ");
+        if edited {
+            let text = fs::read_to_string(&audit).unwrap();
+            fs::write(&audit, format!("{text}\nOur own last step.\n")).unwrap();
+        }
+        commit_quietly(&kb, "the base as 0.15 left it");
+        let out = docsys(&kb, &["upgrade", "--apply", "--commit", "--root", "."]);
+        assert!(out.status.success(), "{out:?}");
+        let stdout = String::from_utf8_lossy(&out.stdout);
+        let row = |strategy: &str| {
+            format!("{strategy:<7} assets             .claude/skills/kb-audit/SKILL.md  ")
+        };
+        if edited {
+            assert!(audit.is_file());
+            assert!(stdout.contains(&row("manual")), "{stdout}");
+        } else {
+            assert!(!audit.exists());
+            assert!(!kb.join(".claude/skills/kb-audit").exists());
+            assert!(stdout.contains(&row("auto")), "{stdout}");
+            assert_eq!(git(&kb, &["status", "--porcelain"]), "");
+            let idle = docsys(&kb, &["upgrade", "--root", "."]);
+            assert!(
+                !String::from_utf8_lossy(&idle.stdout).contains("kb-audit"),
+                "{idle:?}"
             );
         }
         let _ = fs::remove_dir_all(&kb);
@@ -1963,81 +2013,12 @@ fn the_move_declares_the_spec_whatever_the_line_held() {
     }
 }
 
-/// The record fields a page's verification took leave every page (D-126); a
-/// record that holds is carried into the move's commit as the approval 0.5
-/// reads from history: `Verifies:` with the body's hash, `Approved-by:` naming
-/// the approver the record names.
+/// A docsys/0.5 page carries no verification (D-130): the move takes every
+/// record field out of every page, carries no approval anywhere, renames a
+/// page's `verifies:` to `pins:` and takes `maintainers:` out of .docmeta.yml.
 #[test]
-fn a_verified_page_reads_verified_from_history_with_no_record_in_it() {
-    let (repo, _) = build("carried");
-    let out = docsys(&repo, &["upgrade", "--apply", "--commit"]);
-    assert!(out.status.success(), "{out:?}");
-    let page = fs::read_to_string(repo.join("docs/reference/refresh.md")).unwrap();
-    for field in [
-        "verification:",
-        "verified_by:",
-        "verified_rev:",
-        "verified_blocks:",
-    ] {
-        assert!(!page.contains(field), "no record in the page: {page}");
-    }
-    let body = git(&repo, &["log", "-1", "--format=%B"]);
-    assert!(
-        body.contains(&format!(
-            "\nVerifies: reference/refresh.md {}\nApproved-by: maintainer",
-            docsys::approval::body_hash(&page)
-        )),
-        "{body}"
-    );
-    let (shown, _) = said(&docsys(&repo, &["verify", "--show", "reference/refresh"]));
-    assert!(
-        shown.starts_with("reference/refresh.md (verified)") && shown.contains("by maintainer"),
-        "{shown}"
-    );
-    let _ = fs::remove_dir_all(&repo);
-}
-
-/// The trailers are what carries the approval: a move committed without
-/// them leaves the page unverified.
-#[test]
-fn a_move_committed_without_its_trailers_leaves_the_page_unverified() {
-    let (repo, _) = build("no-trailers");
-    let out = docsys(&repo, &["upgrade", "--apply"]);
-    assert!(out.status.success(), "{out:?}");
-    let draft = repo.join(".git/docsys-upgrade-message");
-    let message = fs::read_to_string(&draft).unwrap();
-    assert!(message.contains("\nApproved-by: "), "{message}");
-    let stripped: String = message
-        .lines()
-        .filter(|l| !l.starts_with("Approved-by:") && !l.starts_with("Verifies:"))
-        .map(|l| format!("{l}\n"))
-        .collect();
-    fs::write(&draft, stripped).unwrap();
-    git(&repo, &["add", "-A"]);
-    git(
-        &repo,
-        &[
-            "-c",
-            "core.hooksPath=/dev/null",
-            "commit",
-            "-q",
-            "-F",
-            ".git/docsys-upgrade-message",
-        ],
-    );
-    let (shown, _) = said(&docsys(&repo, &["verify", "--show", "reference/refresh"]));
-    assert!(
-        shown.starts_with("reference/refresh.md (unverified)"),
-        "{shown}"
-    );
-    let _ = fs::remove_dir_all(&repo);
-}
-
-/// A record whose verifier is no declared maintainer never counted (R-208):
-/// it is not carried, and the page is listed for a maintainer.
-#[test]
-fn a_record_by_no_declared_maintainer_is_not_carried() {
-    let (repo, _) = build("not-a-maintainer");
+fn the_move_strips_every_verification_and_carries_none() {
+    let (repo, _) = build("strip");
     let meta = repo.join("docs/.docmeta.yml");
     fs::write(
         &meta,
@@ -2046,85 +2027,45 @@ fn a_record_by_no_declared_maintainer_is_not_carried() {
             .replace("maintainers: []", "maintainers: [ayse]"),
     )
     .unwrap();
-    commit_quietly(&repo, "maintainers");
-    let (plan, _) = said(&docsys(&repo, &["upgrade"]));
-    assert!(
-        plan.lines().any(|l| l.starts_with(
-            "manual  verified-record    docs/reference/refresh.md  verified by `maintainer`"
-        )),
-        "{plan}"
-    );
-    let out = docsys(&repo, &["upgrade", "--apply", "--commit"]);
-    assert!(out.status.success(), "{out:?}");
-    let body = git(&repo, &["log", "-1", "--format=%B"]);
-    assert!(!body.contains("Approved-by:"), "{body}");
-    let (shown, _) = said(&docsys(&repo, &["verify", "--show", "reference/refresh"]));
-    assert!(
-        shown.starts_with("reference/refresh.md (unverified)"),
-        "{shown}"
-    );
-    let _ = fs::remove_dir_all(&repo);
-}
-
-/// One commit is one approver's act: with two approvers, the move carries
-/// the first one's pages and the other gets an empty commit right after it,
-/// so each page is credited to its own approver.
-#[test]
-fn two_approvers_are_each_credited_with_their_own_pages() {
-    let (repo, _) = build("two-approvers");
-    let meta = repo.join("docs/.docmeta.yml");
-    fs::write(
-        &meta,
-        fs::read_to_string(&meta)
-            .unwrap()
-            .replace("maintainers: []", "maintainers: [ayse, bora]"),
-    )
-    .unwrap();
-    let refresh = repo.join("docs/reference/refresh.md");
-    fs::write(
-        &refresh,
-        fs::read_to_string(&refresh)
-            .unwrap()
-            .replace("verified_by: maintainer", "verified_by: ayse"),
-    )
-    .unwrap();
-    let rotation = repo.join("docs/reference/rotation.md");
-    let page = |record: &str| {
-        format!("---\nid: rotation\ntype: reference\n{record}sources: [src/auth.rs]\n---\n# Rotation\n\nA token rotates when it expires.\n")
-    };
-    fs::write(&rotation, page("verification: unverified\n")).unwrap();
-    commit_quietly(&repo, "rotation, and its maintainers");
-    let at = git(&repo, &["rev-parse", "--short=7", "HEAD"]);
-    fs::write(
-        &rotation,
-        page(&format!(
-            "verification: verified\nverified_by: bora\nverified_rev: {at}\n"
-        )),
-    )
-    .unwrap();
-    commit_quietly(&repo, "rotation verified");
+    commit_quietly(&repo, "a maintainer");
     let head = git(&repo, &["rev-parse", "HEAD"]);
     let out = docsys(&repo, &["upgrade", "--apply", "--commit"]);
     assert!(out.status.success(), "{out:?}");
     assert_eq!(
         git(&repo, &["rev-list", "--count", &format!("{head}..HEAD")]),
-        "2",
-        "the move, then the second approver's own commit"
+        "1"
     );
-    for n in ["HEAD", "HEAD~1"] {
-        let body = git(&repo, &["log", "-1", "--format=%B", n]);
-        assert_eq!(body.matches("Approved-by:").count(), 1, "{body}");
+    let message = git(&repo, &["log", "-1", "--format=%B"]);
+    assert!(
+        !message.contains("Approved-by:") && !message.contains("Verifies:"),
+        "{message}"
+    );
+    let mut pages = Vec::new();
+    walk(&repo.join("docs"), &repo.join("docs"), &mut pages);
+    for rel in pages.iter().filter(|p| p.ends_with(".md")) {
+        let text = fs::read_to_string(repo.join("docs").join(rel)).unwrap();
+        let front = text.split("\n---\n").next().unwrap_or_default();
+        for field in [
+            "verification:",
+            "verified_by:",
+            "verified_rev:",
+            "verified_blocks:",
+            "verified_sources:",
+            "verifies:",
+        ] {
+            assert!(!front.contains(field), "{rel}: {field}\n{text}");
+        }
     }
-    for (page, by) in [
-        ("reference/refresh", "ayse"),
-        ("reference/rotation", "bora"),
-    ] {
-        let (shown, _) = said(&docsys(&repo, &["verify", "--show", page]));
-        assert!(
-            shown.contains("(verified)") && shown.contains(&format!("by {by}")),
-            "{shown}"
-        );
-    }
+    let expiry = fs::read_to_string(repo.join("docs/reference/expiry.md")).unwrap();
+    assert!(expiry.contains("\npins:\n"), "{expiry}");
+    assert!(repo.join("docs/.pins").is_dir());
+    assert!(!repo.join("docs/.verifies").exists());
+    let docmeta = fs::read_to_string(&meta).unwrap();
+    assert!(!docmeta.contains("maintainers"), "{docmeta}");
+    assert!(!docmeta.contains("R-208"), "{docmeta}");
+    // the blank line that set the list apart leaves with it
+    assert!(!docmeta.contains("\n\n\n"), "{docmeta}");
+    assert!(!docmeta.ends_with("\n\n"), "{docmeta}");
     let _ = fs::remove_dir_all(&repo);
 }
 
@@ -2196,169 +2137,5 @@ fn a_pin_fresh_on_0_15_stays_fresh_after_the_move() {
         page.contains("symbol: settle") && !page.contains("symbol: ready"),
         "{page}"
     );
-    let _ = fs::remove_dir_all(&repo);
-}
-
-/// A carried approval approves the pages it names and no other: the move's
-/// commit changes many pages — their `updated:` lines leave — and a page
-/// nobody verified stays unverified after it (D-126).
-#[test]
-fn a_carried_approval_verifies_only_the_pages_it_names() {
-    let (repo, _) = build("named-only");
-    fs::write(
-        repo.join("docs/reference/limits.md"),
-        "---\nid: limits\ntype: reference\nupdated: 2026-09-01\nverification: unverified\nsources: [src/auth.rs]\n---\n# Limits\n\nA token lives one hour.\n",
-    )
-    .unwrap();
-    commit_quietly(&repo, "a page nobody verified");
-    let out = docsys(&repo, &["upgrade", "--apply", "--commit"]);
-    assert!(out.status.success(), "{out:?}");
-    let changed = git(&repo, &["show", "--name-only", "--format=", "HEAD"]);
-    assert!(changed.contains("docs/reference/limits.md"), "{changed}");
-    let (shown, _) = said(&docsys(&repo, &["verify", "--show", "reference/limits"]));
-    assert!(
-        shown.starts_with("reference/limits.md (unverified)"),
-        "{shown}"
-    );
-    let (shown, _) = said(&docsys(&repo, &["verify", "--show", "reference/refresh"]));
-    assert!(shown.contains("(verified)"), "{shown}");
-    let _ = fs::remove_dir_all(&repo);
-}
-
-/// The message GitHub writes for a squash with `COMMIT_MESSAGES`: the
-/// title, then every commit of the pull request, bodies included.
-fn github_squash_message(repo: &Path, range: &str, title: &str) -> String {
-    let shas = git(repo, &["rev-list", "--reverse", range]);
-    let commits: Vec<(String, String)> = shas
-        .lines()
-        .map(|sha| {
-            (
-                git(repo, &["log", "-1", "--format=%s", sha]),
-                git(repo, &["log", "-1", "--format=%b", sha]),
-            )
-        })
-        .collect();
-    match commits.as_slice() {
-        [(subject, body)] => format!("{subject} (#7)\n\n{body}\n"),
-        many => format!(
-            "{title} (#7)\n\n{}\n",
-            many.iter()
-                .map(|(subject, body)| format!("* {subject}\n\n{body}"))
-                .collect::<Vec<_>>()
-                .join("\n\n")
-        ),
-    }
-}
-
-/// A squash keeps what the move carried (D-126): the upgrade's pull request
-/// squashed with GitHub's `COMMIT_MESSAGES` — one approver, or the move and
-/// a second approver's own commit — leaves each carried page verified,
-/// credited to its own approver, and a page nobody verified unverified.
-#[test]
-fn a_squashed_upgrade_keeps_its_carried_approvals() {
-    for two in [false, true] {
-        let (repo, _) = build(if two { "squash-two" } else { "squash-one" });
-        let mut credited = vec![("reference/refresh", "maintainer")];
-        if two {
-            let meta = repo.join("docs/.docmeta.yml");
-            fs::write(
-                &meta,
-                fs::read_to_string(&meta)
-                    .unwrap()
-                    .replace("maintainers: []", "maintainers: [ayse, bora]"),
-            )
-            .unwrap();
-            let refresh = repo.join("docs/reference/refresh.md");
-            fs::write(
-                &refresh,
-                fs::read_to_string(&refresh)
-                    .unwrap()
-                    .replace("verified_by: maintainer", "verified_by: ayse"),
-            )
-            .unwrap();
-            let rotation = repo.join("docs/reference/rotation.md");
-            let page = |record: &str| {
-                format!("---\nid: rotation\ntype: reference\n{record}sources: [src/auth.rs]\n---\n# Rotation\n\nA token rotates when it expires.\n")
-            };
-            fs::write(&rotation, page("verification: unverified\n")).unwrap();
-            commit_quietly(&repo, "rotation, and its maintainers");
-            let at = git(&repo, &["rev-parse", "--short=7", "HEAD"]);
-            fs::write(
-                &rotation,
-                page(&format!(
-                    "verification: verified\nverified_by: bora\nverified_rev: {at}\n"
-                )),
-            )
-            .unwrap();
-            credited = vec![
-                ("reference/refresh", "ayse"),
-                ("reference/rotation", "bora"),
-            ];
-        }
-        fs::write(
-            repo.join("docs/reference/limits.md"),
-            "---\nid: limits\ntype: reference\nupdated: 2026-09-01\nverification: unverified\nsources: [src/auth.rs]\n---\n# Limits\n\nA token lives one hour.\n",
-        )
-        .unwrap();
-        commit_quietly(&repo, "the tree before the move");
-        git(&repo, &["checkout", "-q", "-b", "upgrade"]);
-        let out = docsys(&repo, &["upgrade", "--apply", "--commit"]);
-        assert!(out.status.success(), "{out:?}");
-        let message = github_squash_message(&repo, "main..upgrade", "Move the docs to docsys/0.5");
-        git(&repo, &["checkout", "-q", "main"]);
-        git(&repo, &["merge", "--squash", "-q", "upgrade"]);
-        fs::write(repo.join("squash.txt"), &message).unwrap();
-        git(
-            &repo,
-            &[
-                "-c",
-                "core.hooksPath=/dev/null",
-                "commit",
-                "-q",
-                "-F",
-                "squash.txt",
-            ],
-        );
-        fs::remove_file(repo.join("squash.txt")).unwrap();
-        for (page, by) in &credited {
-            let (shown, _) = said(&docsys(&repo, &["verify", "--show", page]));
-            assert!(
-                shown.contains("(verified)") && shown.contains(&format!("by {by}")),
-                "two approvers: {two}\n{shown}\n{message}"
-            );
-        }
-        let (shown, _) = said(&docsys(&repo, &["verify", "--show", "reference/limits"]));
-        assert!(
-            shown.starts_with("reference/limits.md (unverified)"),
-            "two approvers: {two}\n{shown}"
-        );
-        let _ = fs::remove_dir_all(&repo);
-    }
-}
-
-/// Where the carried approvals live is said once, where the person reads it
-/// before the merge, and only when the move carried one (D-126).
-#[test]
-fn the_upgrade_says_once_how_to_merge_what_it_carried() {
-    let line = "keep the commit bodies in the squash message";
-    let (repo, _) = build("merge-line");
-    let out = docsys(&repo, &["upgrade", "--apply", "--commit"]);
-    let (stdout, _) = said(&out);
-    assert_eq!(stdout.matches(line).count(), 1, "{stdout}");
-    let _ = fs::remove_dir_all(&repo);
-    let (repo, _) = build("merge-line-none");
-    let refresh = repo.join("docs/reference/refresh.md");
-    fs::write(
-        &refresh,
-        fs::read_to_string(&refresh)
-            .unwrap()
-            .replace("verification: verified", "verification: unverified"),
-    )
-    .unwrap();
-    commit_quietly(&repo, "nothing verified");
-    let out = docsys(&repo, &["upgrade", "--apply", "--commit"]);
-    let (stdout, _) = said(&out);
-    assert!(out.status.success(), "{out:?}");
-    assert!(!stdout.contains(line), "{stdout}");
     let _ = fs::remove_dir_all(&repo);
 }

@@ -49,7 +49,7 @@ flowchart LR
 
     F ==>|"graduate — byte-exact,<br/>never rewritten"| PERM
     CODE -.->|"optional: doc: &lt;id&gt;<br/>never a path"| PERM
-    PERM -.->|"verifies: SHA-256 pin (§11)<br/>lint fails when the region moves"| CODE
+    PERM -.->|"pins: a code region (§11)<br/>lint fails when the region moves"| CODE
     HOW -->|"compile (complete steps only)<br/>skill pinned to the page's hash"| SKILL
 ```
 
@@ -80,7 +80,7 @@ flowchart TD
         M1[classify: which type?]
         M2[route: which block where?]
         M3[write: openings, distillations]
-        M4[verify: in another session]
+        M4[cross-check: pages against sources and code]
     end
     subgraph HUMAN["human  (authority)"]
         H1[approve plans]
@@ -121,8 +121,9 @@ two pre-existing violations the old tree already had.
 ## The session loop (agent layer)
 
 `docsys agents` installs the relay hooks — three on a docsys/0.5 tree, and on
-a docsys/0.4 tree a fourth that keeps `updated:` — four commands (`/docsys-sync`,
-`/docsys-seed`, `/docsys-interview`, `/docsys-upgrade`) and two skills. The hooks are two-line
+a docsys/0.4 tree a fourth that keeps `updated:` — five commands (`/docsys-sync`,
+`/docsys-seed`, `/docsys-interview`, `/docsys-upgrade`, `/docsys-crosscheck`)
+and two skills. The hooks are two-line
 relays: every decision is made by `docsys hook <event>` in the binary — a real
 JSON parser for the payload, heredoc-aware command detection, git paths read
 unquoted — and pinned by unit tests (D-051). `docsys rules` generates the
@@ -133,7 +134,7 @@ copy to drift (R-155).
 flowchart LR
     S([session starts]) --> SI["session-intent hook<br/>classify work type once"]
     SI --> WORK["agent works<br/>judgment via docsys rules --procedures"]
-    WORK -- "edits a verified page" --> PU["it reads unverified<br/>until a maintainer approves again"]
+    WORK -- "a person asks: still right?" --> CC["/docsys-crosscheck<br/>pages read against sources and code"]
     WORK -- "commit" --> PC["pre-commit hook<br/>docsys gate"]
     WORK -- "turn ends" --> ST["stop hook<br/>code moved, no docs and no Docs: line?<br/>(tree + unpushed commits) → remind"]
     PC -- "lint errors" --> BLOCK[BLOCKED — fix first]
@@ -159,14 +160,14 @@ without its record, because the conversation that holds the reasons may be
 closed by the time the commit lands. `DOCSYS_SKIP=1` still bypasses, but under
 `require` it leaves a dated debt item — an undocumented commit is visible debt,
 never a silent hole. The first turn carries `<docs-in-hand>`: the pages the
-tree already has, the unverified ones, the work in flight, the policy — so the
+tree already has, the work in flight, the policy — so the
 agent routes the work against what exists.
 
 The same relays serve a knowledge base (`docsys agents --kb`); the binary
 reads the root's profile and changes what they guard: a `Write`/`Edit` on an
 existing `raw/` record is blocked (the one irreversible write), the first turn
-names the four organs instead of the work types, a verified wiki page an edit
-changed turns unverified, and the end of a turn names what waits in the inbox (D-076).
+names the organs instead of the work types, and the end of a turn names what
+waits in the inbox (D-076).
 
 ## Graduation — the heart
 
@@ -185,75 +186,52 @@ flowchart LR
 obey and became a guarantee the command enforces (R-090): the model selects
 the mapping, the tool copies the bytes.
 
-## Who vouches — anyone writes, a maintainer verifies
+## Sources and cross-checks — a page is read, not stamped
 
 Documentation forms while the work happens, by whoever does it — the agent
-included — and not everyone who writes knows. The project profile keeps the
-two acts apart (§3.2, D-092):
+included. A page carries no verification state: nothing in it, beside it or
+in history says it was checked, so nothing conflicts on merge and nobody keeps
+a list of who may vouch (§3.2, D-130).
 
 - A permanent page written from evidence, or changed in substance, names in
-  `sources:` what its claims are checked against (`docsys page new <type> <id>
-  --unverified` writes the empty list to fill; until a source or a pin is
-  named, the page takes no part). It is readable on day one and says what it is.
-- Its verification is read from history, never written into it (R-024,
-  D-126): the page is verified when a maintainer's approval follows the
-  commit that last changed its body. A later body change, or a source it
-  consumes moving, makes it unverified again; outside history it reads
-  "unknown". Nothing is left to merge.
-- `.docmeta.yml` may declare `maintainers:` — `handle`, `handle <email>`, or
-  `handle <email> @login` with the login a host's review approval carries; an
-  entry without `@login` is matched by its handle, which then doubles as the
-  login. Then an approval and `confirmed:` on a work file must name one of them
-  (R-208). This is the code review's authority extended to the page, not a
-  new role: the people who may approve a change are the people who may say a
-  page is true. An empty list means anyone.
-- `status` counts the unverified pages; `lookup` marks them; a reader — a
-  person or an agent — sees the state and reads accordingly.
-- The maintainer in the session needs no second session (D-096): when the
-  person driving it is a declared maintainer and says the page is right, the
-  agent records that word with `docsys verify <page>`; anyone else's page
-  waits for a maintainer.
-- **A code review's approval is the word** (D-095). The GitHub workflow
-  `adopt` writes when `.github/` exists adds `Approved-by: @login` to the pull
-  request's description when a declared maintainer approves it — an edit to
-  the description, not to the commit, so every check's verdict stays. With
-  the repository's squash and merge messages set to the pull request's title
-  and description (`adopt` puts the setting on its checklist), the line lands
-  in the merge commit, and that commit is the verification of every page it
-  changed. No record is committed and no follow-up pull request opens.
-  Nothing else changes for the reviewer: they approve the change, as before.
-- Where no host does that — a rebase merge, an e-mailed patch — `docsys
-  verify <page>` makes the maintainer's own empty commit carrying `Verifies:`
-  with the hash of the body it read, and `Approved-by:`; it counts wherever
-  that body lands, a rebase included. `--revoke` makes one carrying `Revokes:`. It takes the
-  handle from the git identity and refuses while the page is uncommitted, a
-  source does not resolve, or something else is staged.
+  `sources:` what its claims rest on, and its pins say when the code it
+  describes moved (§11). It is readable on day one and says what it is.
+- When a person wants pages checked, they ask for a cross-check:
+  `/docsys-crosscheck` has an agent read the pages they name — or every page
+  changed since a revision — against their sources and the code their pins
+  resolve to now. `docsys crosscheck` lists what each page rests on and
+  writes nothing; the agent corrects what the code or a source contradicts in
+  one ordinary commit, and records what it cannot settle as a question or a
+  debt item (D-131).
+- A docsys/0.4 tree keeps 0.15.1's verification — `verification:`, `docsys
+  verify` and the `maintainers:` list — until `docsys upgrade` moves it
+  (D-118).
 
-```yaml
-# .docmeta.yml
-maintainers: [ayse <ayse@example.com> @ayse-gh, mehmet]
+```sh
+docsys crosscheck reference/token-ttl     # one page, its sources and its pinned lines
+docsys crosscheck --since origin/main     # every page this branch changed
 ```
 
 ## Freshness — drift is a hash, not a reviewer
 
-Documentation goes wrong quietly: the code moves, the page does not. Five
+Documentation goes wrong quietly: the code moves, the page does not. Four
 checks make that loud, all of them errors, none of them a reviewer's memory:
 
 ```mermaid
 flowchart LR
-    CODE["code region"] -- "verifies: sha256 pin" --> PAGE["permanent page"]
+    CODE["code region"] -- "pins: an acknowledged region" --> PAGE["permanent page"]
     PAGE -- "compile" --> SKILL[".claude/skills/&lt;id&gt;<br/>docsys_source_hash"]
     HIST["git history"] -- "the page's date<br/>days since draft moved" --> PAGE
     PROV["provider page<br/>(consumed, @ns/id)"] -- "fetch: provenance hash" --> WIKI["wiki page"]
-    HIST -- "an Approved-by: after its last change" --> WIKI
     PAGE --> LINT
     SKILL --> LINT
-    LINT -- "moved" --> ERR["ERROR, named:<br/>re-read, then pin --refresh / compile / audit"]
+    LINT -- "moved" --> ERR["ERROR, named:<br/>re-read, then pin --refresh / compile / fetch"]
 ```
 
-- **`verifies:`** — `docsys pin <page> <path> [--symbol <s>]` records a code
+- **`pins:`** — `docsys pin <page> <path> [--symbol <s>]` records a code
   region's SHA-256 beside the page, as an acknowledgement under
-  `<root>/.verifies/<page-id>/` (a `docsys/0.4` tree keeps it on the page);
+  `<root>/.pins/<page-id>/` (a `docsys/0.4` tree names the list `verifies:`
+  and keeps the hash on the page);
   lint recomputes it on every run and a moved region is an error until the
   page is re-read and `pin --refresh`ed (§11, R-111, D-119). A symbol resolves to its declaration — never to a use, a comment
   or a string — read per language family (Rust; TS/JS and the `<script>` of
@@ -269,21 +247,18 @@ flowchart LR
   error (R-085, D-070, D-071).
 - **Compiled skills** — `docsys compile <howto>` carries the page's hash; the
   skill is an error once the page moved (R-095).
-- **Verification** — a page is verified while its last approval follows its
-  last body change **and** the consumed sources it rests on have not moved
-  since (D-126): when a provider's page moves and `fetch` brings the new hash,
-  the pages approved against the old one read unverified, and `status` counts
-  them.
 - **CI** — `adopt` writes `.github/workflows/docsys.yml` (lint, refs, and
   `gate --range` on a pull request), and the pre-commit gate is hard as soon
   as the tree lints clean (D-072). The workflow runs on pull requests and
   pushes to the default branch with `permissions: contents: read`, cancels a
-  superseded run, and installs the docsys version that wrote it:
-  `cargo install docsys --version <v> --locked`, cached, on `ubuntu-latest`.
-  `--ci-runner <label>[,<label>…]` names other runners, and
-  `--ci-install release --ci-sha256 <target>=<hex>,…` installs the release
-  archive instead, checked against the sha256 values you copy from the
-  release page — for runners without a Rust toolchain. Line 1 records these
+  superseded run, and installs the docsys version the tree pins
+  (`.docsys-version`): `cargo install docsys --version <v> --locked`, cached,
+  on `ubuntu-latest`. `--ci-runner <label>[,<label>…]` names other runners,
+  and `--ci-install release` installs the release archive instead — for
+  runners without a Rust toolchain: the version the tree pins, checked
+  against the `SHA256SUMS` its release publishes, so no version and no sha256
+  is written into the workflow and an upgrade never needs a CI edit. Line 1
+  records these
   parameters and a hash of the file: a file nobody edited can be regenerated
   with them, and an edited one is yours (D-111).
 
@@ -343,7 +318,7 @@ docsys export feature app-side @auth/token-ttl --root docs --out guide.md
 The manifest is why this scales: an index of ids, hashes, titles and summaries
 — **no bodies** — so a refresh downloads what actually changed instead of
 cloning estates. On a real 66-page tree the manifest is 20 KB where the
-repository is 70 MB. Foreign pages compose only from the verified local state
+repository is 70 MB. Foreign pages compose only from the fetched local state
 (never a live query); an unfetched or locally edited materialization is refused
 by name, `internal: true` pages never cross the boundary, and every foreign
 stamp carries its fetch date so a stale composition is visible. A provider
@@ -380,9 +355,8 @@ flowchart LR
     RAW -- "ingest (session)" --> WIKI
     PROJ -- "fetch" --> FED
     FED -- "learn (session):<br/>sources: [@ns/id]" --> WIKI
-    WIKI -- "audit (another session)" --> VER["Approved-by: in history"]
-    FED -. "provider moved → fetch →<br/>status: page unverified, by name" .-> WIKI
-    WIKI -- "compile (verified howto)" --> SKILL["skill"]
+    WIKI -- "cross-check (on request)" --> FIX["corrections, in an ordinary commit"]
+    WIKI -- "compile (a howto)" --> SKILL["skill"]
     BASE -- "status" --> BRIEF["morning briefing<br/>(the model's words)"]
 ```
 
@@ -397,14 +371,13 @@ flowchart LR
   and refuses an unfetched one (D-078).
 - **Staying current.** The base pulls, nothing pushes (R-205): re-running
   `docsys assistant` (or `fetch` and `inbox pull` on a schedule) brings each
-  project's new pages and commits; a page verified against a source that has
-  since moved is an error until re-read and audited again (D-082); `docsys
-  status` says what waits — inbox, unverified pages, moved sources, stale
-  skills — and the assistant's morning words are the model's, from that
-  (D-080).
-- **What it may never do** is mechanical too: verify its own page (R-025),
-  edit a record (R-023), answer from memory when the base does not have it
-  (the lookup skill), act outward on its own (R-206).
+  project's new pages and commits; `docsys status` says what waits — inbox,
+  stale skills — and the assistant's morning words are the model's, from
+  that (D-080). A cross-check reads the pages that cite a changed provider
+  page against it (D-131).
+- **What it may never do** is mechanical too: edit a record (R-023), answer
+  from memory when the base does not have it (the lookup skill), act outward
+  on its own (R-206).
 - **Forgetting, on the person's word.** `docsys forget <page|record>
   --reason "…"` makes a topic unknown to every organ — the page archived with
   a tombstone, the record moved where nothing reads it and the connector never
@@ -477,8 +450,6 @@ happen without being asked:
 
 - the first message gets a routing block: the work type is named, and where
   each one lands
-- a verified page whose body changes reads unverified until a maintainer
-  approves it again
 - committing code without touching docs is asked about once, naming what
   moved; the same commit again proceeds
 
@@ -534,8 +505,8 @@ agent session in that directory and try the loop:
 
 - open with something ambiguous ("let's look at the timer") → the
   session-intent hook asks for the work type, once
-- have it edit a verified `docs/reference/` page → it turns unverified by
-  itself
+- ask whether the pages about a feature are still right → `/docsys-crosscheck`
+  reads them against their sources and code, and corrects what is wrong
 - change code and try to commit without touching docs → the pre-commit hook
   asks once, naming what moved; the same commit again proceeds
 - type `/docsys-sync` → a drift report over `docsys lint`, `docsys refs` and
@@ -567,8 +538,8 @@ hooks keep it current.
 When nobody can answer — a repository whose people are gone — the rows that
 need no memory still land on your word (`research`, `postmortem`,
 `question`), and the session may author one page per feature:
-`explanation/<feature>-overview`, `unverified`, from the evidence, routed —
-readable on day one, verified by a maintainer later (D-092).
+`explanation/<feature>-overview`, from the evidence, routed — readable on day
+one, and checked against its sources when someone asks (D-131).
 
 ### 4 · Capture and navigation
 
@@ -619,24 +590,21 @@ distilled with full discipline, and every claim keeps its evidence.
 ```sh
 mkdir brain && cd brain && git init -q
 docsys init --profile knowledge-base --root .   # raw/inbox/ + wiki/ + docmeta
-docsys agents --kb --root .                     # capture · ingest · audit · lookup
+docsys agents --kb --root .                     # capture · ingest · lookup
 $EDITOR .docmeta.yml                            # declare your domains:
 ```
 
 Then work in natural language with an agent in that directory: *"note this"*
 lands in `raw/inbox/`; *"process my inbox"* distils each note into
-`wiki/<domain>/<type>/`, archives the source and routes the page; *"audit the
-wiki"* verifies pages against their sources **in another session** and records
-who verified what; *"what do my notes say about X"* answers with the page path
-— or says the base does not have it.
+`wiki/<domain>/<type>/`, archives the source and routes the page; *"check
+these pages"* runs `/docsys-crosscheck`, which reads them against their
+sources and corrects what is wrong; *"what do my notes say about X"* answers
+with the page path — or says the base does not have it.
 
 What the binary guarantees underneath: `raw/` is content-immutable (an edited
 or deleted record is an error; the hook blocks the attempt; relocation is the
 expected flow, and `docsys raw move` does it while rewriting every citing page's
-`sources:`), every `sources:` entry must resolve, and a verification is
-checked, not trusted — it is read from history, so a page whose body, or
-whose consumed source, moved after its last approval reads unverified until it
-is audited again (D-126).
+`sources:`), and every `sources:` entry must resolve (R-024, R-059).
 
 ### 7 · Your own assistant (a base that learns from your projects)
 
@@ -650,7 +618,7 @@ docsys assistant --root ~/jarvis --projects ~/code --domains coding,ops
 ```
 
 It creates the base (a git repository, `raw/inbox/`, `wiki/`), installs the
-four organs and the relays, consumes every docsys project one level
+three organs and the relays, consumes every docsys project one level
 under `~/code` (another knowledge base is skipped), materializes their pages,
 lands their recent commits as records through the git connector, and prints
 the digest. Run it again any time: new projects and new commits are picked
@@ -659,7 +627,7 @@ parts:
 
 ```sh
 docsys init --profile knowledge-base --root .   # raw/inbox/ + wiki/
-docsys agents --kb --root .                     # four organs, the relays, the gate
+docsys agents --kb --root .                     # three organs, the relays, the gate
 docsys consume discover ~/code --root .         # every docsys tree under ~/code
 docsys consume add ~/code/relay --root .        # the ones you want, one line each
 docsys fetch --root .                           # their pages, materialized
@@ -676,20 +644,18 @@ speaking your language turn by turn; the pages keep the base's declared one.
 
 Then, in an agent session in that directory: *"study what my projects say
 about failure handling and write it up"* — a wiki page whose `sources:` are
-`@relay/retry-policy` and friends; another session audits it; *"process my
-inbox"* distils the commits; a howto that matured compiles into a skill
-(`docsys compile`). What the assistant may never do is also mechanical: no
-record is edited (the hook blocks it), no page is verified by the session
-that wrote it, no answer is given from memory when the base does not have
+`@relay/retry-policy` and friends; *"process my inbox"* distils the commits;
+a howto that matured compiles into a skill (`docsys compile`). What the
+assistant may never do is also mechanical: no record is edited (the hook
+blocks it), and no answer is given from memory when the base does not have
 it. Connectors beyond git — calendar, mail, tickets, clips — call the same
 gate: `docsys inbox add --source <name> --id <item>` (§20, experimental).
 
 Staying current is a schedule, not a hope: run `docsys assistant` again (a
 nightly job is enough — the tree holds records, never timers, R-205), and
 `fetch` brings every project's changed pages while `inbox pull` lands its new
-commits. The next `docsys lint` names every page that was verified against a
-source that has since moved (D-082); the next `docsys status` lists it under
-"sources"; the next session re-reads it and another one audits it.
+commits; a cross-check reads the pages that cite them against the new text
+(D-131).
 
 ## What keeps it honest
 
@@ -697,13 +663,12 @@ source that has since moved (D-082); the next `docsys status` lists it under
   or silently wrong (§2.2, R-151). Every warning names the file that must
   change (R-152).
 - **Drift is caught by a hash, not by a reviewer.** A page pins the code it
-  describes (`verifies:`); when that region moves, lint fails until someone
+  describes (`pins:`); when that region moves, lint fails until someone
   re-reads the page and refreshes the pin. History dates every page, and a
   draft left to rot is an error too (§11, R-085, D-070).
-- **A verification is checked, not trusted.** `verified` means "this body,
-  against these sources, at this revision"; the body and the consumed sources
-  are re-hashed against that revision on every lint, and a session never
-  verifies its own page (R-024, R-025, D-077, D-082).
+- **A page is read, not stamped.** Nothing records that a page was checked;
+  when a person asks, an agent reads it against its sources and its code and
+  corrects it in an ordinary commit (D-130, D-131).
 - **A check that inspected zero units fails** — a dead scan must never read as
   a clean tree (R-011). An unmigrated tree announces itself instead of passing
   silently.
@@ -773,7 +738,9 @@ docmeta, `@namespace/id` as a source, the knowledge-base hook layer, the
 connector write gate with the git connector, `status`, and `assistant` as the
 one command. A verification is now checked against its body and its consumed
 sources at `verified_rev`, so a base stays current by fetching, and lint says
-which pages fell behind.
+which pages fell behind. From docsys/0.5 a page carries no verification: a
+person asks for a cross-check instead, and nothing about it is recorded
+(D-130, D-131).
 
 Federation (§13) and connectors (§20) stay marked **experimental** in the
 spec. Federation's working slice: manifests, `fetch` over filesystem paths and

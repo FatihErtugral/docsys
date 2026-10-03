@@ -46,12 +46,9 @@ fn greenfield_adopt_scaffolds_everything_and_is_idempotent() {
         "`/docsys-seed <feature>`",
         "`/docsys-interview`",
         "2. [ ] Write pages by type",
-        "`docsys page new <type> <id> --unverified`",
+        "`docsys page new <type> <id>`",
         "3. [ ] Bind each page about code",
         "`docsys pin`",
-        "4. [ ] Name the maintainers",
-        "5. [ ] Start the verify flow",
-        "`docsys verify <page>`",
     ];
     let mut at = 0;
     for step in order {
@@ -419,7 +416,7 @@ fn adopt_merges_the_hook_wires_into_an_existing_settings_file() {
     ] {
         assert!(text.contains(hook), "{hook} missing:\n{text}");
     }
-    // a docsys/0.5 tree runs no post-edit relay (D-126)
+    // a docsys/0.5 tree runs no post-edit relay (D-130)
     assert!(!text.contains("post-edit-updated.sh"), "{text}");
     assert!(!claude.join("hooks/post-edit-updated.sh").exists());
     assert!(
@@ -1025,8 +1022,7 @@ fn a_0_4_tree_missing_an_asset_is_told_the_upgrade_writes_it() {
 }
 
 /// A docsys/0.4 tree with the workflow 0.15.1 wrote is adopted again without
-/// a step of 0.5's: its approval job commits the records itself, and the
-/// description-borne `Approved-by:` is a docsys/0.5 tree's (D-118, D-126).
+/// a step of 0.5's: its approval job commits the records itself (D-118).
 #[test]
 fn a_0_4_trees_checklist_names_no_0_5_step() {
     let (repo, _) = tree_04("v04-workflow");

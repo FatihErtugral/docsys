@@ -166,8 +166,6 @@ struct CiOutcome {
     verify_job: bool,
     /// and that job opens a follow-up pull request
     opens_pull_requests: bool,
-    /// and the approval rides the pull request's description (D-126)
-    in_description: bool,
 }
 
 /// `.github/workflows/docsys.yml` when the repository has a `.github/`: lint
@@ -182,7 +180,6 @@ fn ensure_ci_workflow(repo: &Path, root_rel: &str, ci: Option<&Ci>) -> CiOutcome
             summary: "skipped (no .github/)".to_string(),
             verify_job: false,
             opens_pull_requests: false,
-            in_description: false,
         };
     }
     let file = repo.join(workflow::PATH);
@@ -198,7 +195,6 @@ fn ensure_ci_workflow(repo: &Path, root_rel: &str, ci: Option<&Ci>) -> CiOutcome
             verify_job: existing.contains("\n  verify-on-approval:\n")
                 || existing.contains("\n  approval:\n"),
             opens_pull_requests: existing.contains("gh pr create"),
-            in_description: existing.contains("\n  approval:\n"),
         };
     }
     let ci = ci.cloned().unwrap_or_else(|| Ci {
@@ -221,14 +217,19 @@ fn ensure_ci_workflow(repo: &Path, root_rel: &str, ci: Option<&Ci>) -> CiOutcome
             summary: "failed".to_string(),
             verify_job: false,
             opens_pull_requests: false,
-            in_description: false,
         };
     }
     CiOutcome {
-        summary: format!("written (verify-on-approval: {})", verify.name()),
+        // a docsys/0.5 workflow has no approval job to name (D-130)
+        summary: if verify == Verify::Off
+            && !crate::era::Era::at(&repo.join(root_rel)).page_verification()
+        {
+            "written".to_string()
+        } else {
+            format!("written (verify-on-approval: {})", verify.name())
+        },
         verify_job: verify != Verify::Off,
         opens_pull_requests: verify == Verify::PullRequest,
-        in_description: verify == Verify::Description,
     }
 }
 
@@ -583,8 +584,8 @@ pub fn run_placed(
     // the owner's own hooks stay as they are. Only a file that is not JSON is
     // left alone, and then the merge goes to the checklist.
     let settings = claude.join("settings.json");
-    // a docsys/0.5 tree has no post-edit relay (D-126)
-    let snippet = agents::settings_snippet(!crate::era::Era::at(root).verification_from_history());
+    // a docsys/0.5 tree has no post-edit relay (D-130)
+    let snippet = agents::settings_snippet(crate::era::Era::at(root).page_verification());
     let settings_unparsable = match agents::wire_settings(&settings, &snippet)? {
         agents::Wired::Created => {
             changed = true;
@@ -748,13 +749,9 @@ pub fn run_placed(
          1. [ ] Collect what exists: what code and history say, per feature, with\n\
          \x20      `/docsys-seed <feature>`; what only people know with `/docsys-interview`.\n\
          2. [ ] Write pages by type — reference, howto, explanation — with\n\
-         \x20      `docsys page new <type> <id> --unverified`.\n\
+         \x20      `docsys page new <type> <id>`.\n\
          3. [ ] Bind each page about code to the region it promises about with\n\
-         \x20      `docsys pin`.\n\
-         4. [ ] Name the maintainers in `.docmeta.yml` (`maintainers:`) and keep the CI\n\
-         \x20      workflow green.\n\
-         5. [ ] Start the verify flow: a maintainer reads each page against its\n\
-         \x20      sources and records it with `docsys verify <page>`.\n"
+         \x20      `docsys pin`.\n"
     });
     if ci.summary.starts_with("skipped") {
         md.push_str(
@@ -769,15 +766,6 @@ pub fn run_placed(
              \x20     records. Turn on Settings > Actions > General > Workflow permissions >\n\
              \x20     \"Allow GitHub Actions to create and approve pull requests\", or delete the\n\
              \x20     workflow and run `docsys adopt --verify-on-approval direct` (or `off`).\n",
-        );
-    }
-    if ci.in_description {
-        md.push_str(
-            "- [ ] Set the repository's squash and merge commit messages to the pull\n\
-             \x20     request's title and description (Settings > General > Pull Requests),\n\
-             \x20     so the `Approved-by:` line the approval job adds lands in the merge\n\
-             \x20     commit (D-126). A rebase merge carries no description: there a\n\
-             \x20     maintainer runs `docsys verify <page>`.\n",
         );
     }
     if ci.verify_job {

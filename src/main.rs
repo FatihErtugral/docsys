@@ -61,7 +61,6 @@ struct Opts {
     confirmed: Option<String>,
     commit: bool,
     revoke: bool,
-    show: bool,
     from_trailers: bool,
     target: Option<String>,
     since: Option<String>,
@@ -71,7 +70,6 @@ struct Opts {
     deferred: Option<String>,
     repay_when: Option<String>,
     answer: Option<String>,
-    approval: Option<String>,
     topic: Option<String>,
     context: Option<String>,
     date: Option<String>,
@@ -86,7 +84,6 @@ struct Opts {
     refresh: bool,
     gc: bool,
     symbol: Option<String>,
-    block: Option<usize>,
     as_ns: Option<String>,
     source: Option<String>,
     source_id: Option<String>,
@@ -203,7 +200,6 @@ fn parse_opts(args: &[String]) -> Result<Opts, String> {
         confirmed: None,
         commit: false,
         revoke: false,
-        show: false,
         from_trailers: false,
         target: None,
         since: None,
@@ -213,7 +209,6 @@ fn parse_opts(args: &[String]) -> Result<Opts, String> {
         deferred: None,
         repay_when: None,
         answer: None,
-        approval: None,
         topic: None,
         context: None,
         date: None,
@@ -228,7 +223,6 @@ fn parse_opts(args: &[String]) -> Result<Opts, String> {
         refresh: false,
         gc: false,
         symbol: None,
-        block: None,
         as_ns: None,
         source: None,
         source_id: None,
@@ -258,8 +252,6 @@ fn parse_opts(args: &[String]) -> Result<Opts, String> {
         let v = if docsys::help::takes_value(a) {
             let need = match a.as_str() {
                 "--message" => "--message needs a file".to_string(),
-                "--approval" => "--approval needs a @login".to_string(),
-                "--block" => "--block needs a block number".to_string(),
                 other => format!("{other} needs a value"),
             };
             value(&mut it, &need)?.clone()
@@ -291,7 +283,6 @@ fn parse_opts(args: &[String]) -> Result<Opts, String> {
             }
             "--commit" => o.commit = true,
             "--revoke" => o.revoke = true,
-            "--show" => o.show = true,
             "--from-trailers" => o.from_trailers = true,
             "--skipped" => o.skipped = true,
             "--target" => o.target = Some(val()),
@@ -302,7 +293,6 @@ fn parse_opts(args: &[String]) -> Result<Opts, String> {
             "--deferred" => o.deferred = Some(val()),
             "--repay-when" => o.repay_when = Some(val()),
             "--answer" => o.answer = Some(val()),
-            "--approval" => o.approval = Some(val()),
             "--topic" => o.topic = Some(val()),
             "--context" => o.context = Some(val()),
             "--reason" => o.note = Some(val()),
@@ -329,12 +319,6 @@ fn parse_opts(args: &[String]) -> Result<Opts, String> {
             "--refresh" => o.refresh = true,
             "--gc" => o.gc = true,
             "--symbol" => o.symbol = Some(val()),
-            "--block" => {
-                o.block = Some(val().parse().map_err(|_| {
-                    "--block needs a block number, as `docsys verify --show <page>` numbers them"
-                        .to_string()
-                })?);
-            }
             "--as" => o.as_ns = Some(val()),
             "--source" => o.source = Some(val()),
             "--id" => o.source_id = Some(val()),
@@ -722,14 +706,7 @@ fn main() -> ExitCode {
             // the commit the record was written on: a record from an earlier
             // HEAD was committed by hand, or abandoned, and is no move now
             let head_path = git_path("docsys-upgrade-head");
-            // the messages of the approvers after the first (D-126)
-            let draft_path = |n: usize| git_path(&format!("docsys-upgrade-approval-{n}"));
-            let drafts =
-                || -> Vec<PathBuf> { (1..).map(draft_path).take_while(|p| p.is_file()).collect() };
             let forget = || {
-                for p in drafts() {
-                    let _ = std::fs::remove_file(p);
-                }
                 let _ = std::fs::remove_file(&message_path);
                 let _ = std::fs::remove_file(&files_path);
                 let _ = std::fs::remove_file(&head_path);
@@ -848,18 +825,7 @@ fn main() -> ExitCode {
                         Ok(m) if pending => m,
                         _ => docsys::upgrade::message(&u),
                     };
-                    let approvals: Vec<String> = if pending {
-                        drafts()
-                            .iter()
-                            .filter_map(|p| std::fs::read_to_string(p).ok())
-                            .collect()
-                    } else {
-                        docsys::upgrade::approval_messages(&u)
-                    };
                     if !files.is_empty() {
-                        for p in drafts() {
-                            let _ = std::fs::remove_file(p);
-                        }
                         let recorded = std::fs::write(&message_path, &message)
                             .and_then(|()| {
                                 std::fs::write(
@@ -867,13 +833,7 @@ fn main() -> ExitCode {
                                     docsys::upgrade::record_text(&repo, &files),
                                 )
                             })
-                            .and_then(|()| std::fs::write(&head_path, format!("{}\n", head())))
-                            .and_then(|()| {
-                                approvals
-                                    .iter()
-                                    .enumerate()
-                                    .try_for_each(|(n, m)| std::fs::write(draft_path(n + 1), m))
-                            });
+                            .and_then(|()| std::fs::write(&head_path, format!("{}\n", head())));
                         if let Err(e) = recorded {
                             eprintln!("upgrade: {}: {e}", message_path.display());
                             return ExitCode::from(1);
@@ -886,10 +846,6 @@ fn main() -> ExitCode {
                                 "the move is written and waits for its commit: once git takes it, `docsys upgrade --apply --commit` commits it, or stage what it wrote and `git commit -F {}`",
                                 docsys::place::shown(&message_path).display()
                             );
-                            return ExitCode::from(1);
-                        }
-                        if let Err(e) = docsys::upgrade::commit_approvals(&repo, &approvals) {
-                            eprintln!("upgrade: {e}");
                             return ExitCode::from(1);
                         }
                         forget();
@@ -908,9 +864,6 @@ fn main() -> ExitCode {
                     if let Some(subject) = &committed {
                         println!("committed: {subject}");
                     }
-                    if opts.apply && !u.approvals.is_empty() {
-                        println!("{}", docsys::say::CARRIED_MERGE);
-                    }
                 }
                 if opts.apply && opts.commit {
                     if !u.last {
@@ -923,21 +876,6 @@ fn main() -> ExitCode {
                         "now commit it as one commit (R-177): stage what it wrote, then `git commit -F {}` — the message names the move and carries the note above",
                         docsys::place::shown(&message_path).display()
                     );
-                    let waiting: Vec<String> = drafts()
-                        .iter()
-                        .map(|p| {
-                            format!(
-                                "`git commit --allow-empty --only -F {}`",
-                                docsys::place::shown(p).display()
-                            )
-                        })
-                        .collect();
-                    if !waiting.is_empty() {
-                        println!(
-                            "then each other approver's carried approvals, an empty commit each: {}",
-                            waiting.join(", ")
-                        );
-                    }
                     if !u.last {
                         println!(
                             "\nthen run `docsys upgrade` again: the next move is its own commit"
@@ -1527,6 +1465,21 @@ fn main() -> ExitCode {
                 }
             }
         }
+        ("crosscheck", None) => match docsys::crosscheck::run(
+            &opts.root,
+            &repo_or_cwd,
+            &opts.positional,
+            opts.since.as_deref(),
+        ) {
+            Ok(c) => {
+                print!("{}", if opts.json { c.to_json() } else { c.render() });
+                ExitCode::SUCCESS
+            }
+            Err(e) => {
+                eprintln!("crosscheck: {e}");
+                ExitCode::from(2)
+            }
+        },
         ("inbox", Some("add")) => {
             let (Some(source), Some(id)) = (opts.source.clone(), opts.source_id.clone()) else {
                 eprintln!("inbox add needs --source <name> and --id <item id at the source>");
@@ -1631,21 +1584,11 @@ next: review, `git add -A && git commit`, then open an agent session here."
                 }
             }
         }
-        ("verify", None) if opts.approval.is_some() => {
-            // the approval job: the line a maintainer's approval adds to the
-            // pull request's description (D-126)
-            match docsys::verify::approval_line(&opts.root, opts.approval.as_deref().unwrap_or(""))
-            {
-                Ok(Some(line)) => {
-                    println!("{line}");
-                    ExitCode::SUCCESS
-                }
-                Ok(None) => ExitCode::SUCCESS,
-                Err(e) => {
-                    eprintln!("verify: {e}");
-                    ExitCode::from(2)
-                }
-            }
+        // a docsys/0.5 page carries no verification: a person cross-checks
+        // it with an agent instead (D-130)
+        ("verify", None) if !docsys::era::Era::at(&opts.root).page_verification() => {
+            eprintln!("verify: {}", docsys::say::NO_VERIFICATION);
+            ExitCode::from(2)
         }
         ("verify", None) if opts.range.is_some() => {
             match docsys::verify::verify_range(
@@ -1686,22 +1629,6 @@ next: review, `git add -A && git commit`, then open an agent session here."
                 }
             }
         }
-        ("verify", None) if opts.show => match opts.positional.first() {
-            Some(page) => match docsys::verify::show(&opts.root, page) {
-                Ok(text) => {
-                    print!("{text}");
-                    ExitCode::SUCCESS
-                }
-                Err(e) => {
-                    eprintln!("verify: {e}");
-                    ExitCode::from(2)
-                }
-            },
-            None => {
-                eprintln!("verify --show needs <page-id|page-path>");
-                ExitCode::from(2)
-            }
-        },
         ("verify", None) => match opts.positional.first() {
             Some(page) => match docsys::verify::verify(
                 &opts.root,
@@ -1842,16 +1769,13 @@ next: review, `git add -A && git commit`, then open an agent session here."
                 }
             } else {
                 match (opts.positional.first(), opts.positional.get(1)) {
-                    (Some(page), Some(path)) => docsys::fresh::pin_block(
-                        &root,
-                        &repo,
-                        page,
-                        path,
-                        opts.symbol.as_deref(),
-                        opts.block,
-                    ),
+                    (Some(page), Some(path)) => {
+                        docsys::fresh::pin(&root, &repo, page, path, opts.symbol.as_deref())
+                    }
                     _ => {
-                        eprintln!("pin needs <page> <path> [--symbol <s>] [--block <n>], --refresh <page>, or --gc");
+                        eprintln!(
+                            "pin needs <page> <path> [--symbol <s>], --refresh <page>, or --gc"
+                        );
                         return ExitCode::from(2);
                     }
                 }
@@ -2254,9 +2178,9 @@ next: review, `git add -A && git commit`, then open an agent session here."
                     .parent()
                     .filter(|p| !p.as_os_str().is_empty())
                     .unwrap_or(std::path::Path::new("."));
-                // a docsys/0.5 tree has no post-edit relay (D-126)
-                let post_edit = !docsys::era::Era::at(&repo.join(agents_root(&opts)))
-                    .verification_from_history();
+                // a docsys/0.5 tree has no post-edit relay (D-130)
+                let post_edit =
+                    docsys::era::Era::at(&repo.join(agents_root(&opts))).page_verification();
                 let wired =
                     docsys::agents::settings_wired(&opts.dir.join("settings.json"), post_edit);
                 let holder = docsys::adopt::rules_block_holder(repo);

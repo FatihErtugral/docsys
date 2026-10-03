@@ -89,22 +89,9 @@ fn build(name: &str) -> PathBuf {
     );
     git(&base, &["add", "-A"]);
     git(&base, &["commit", "-q", "-m", "learned"]);
-    // another session's audit: its approval is a commit (D-126)
-    git(
-        &base,
-        &[
-            "commit",
-            "-q",
-            "--allow-empty",
-            "-m",
-            "audit",
-            "-m",
-            "Verifies: wiki/ops/howto/rotate-keys.md\nApproved-by: other",
-        ],
-    );
     compile::compile(&base, &base.join(".claude"), "rotate-keys", false).unwrap();
     git(&base, &["add", "-A"]);
-    git(&base, &["commit", "-q", "-m", "verified, compiled"]);
+    git(&base, &["commit", "-q", "-m", "compiled"]);
     assert!(errors(&base).is_empty(), "{:?}", errors(&base));
     base
 }

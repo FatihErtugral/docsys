@@ -1,7 +1,7 @@
 #![allow(clippy::panic, clippy::unwrap_used, clippy::expect_used)]
 // A docsys/0.4 tree keeps the verification record 0.15.1 wrote (D-118), and
-// a bookkeeping commit never moves a page's date (§2.4). On a docsys/0.5 tree
-// verification is history's: tests/approval.rs (D-126).
+// a bookkeeping commit never moves a page's date (§2.4). A docsys/0.5 tree
+// keeps no verification: tests/no_verification.rs (D-130).
 
 use std::fs;
 use std::path::{Path, PathBuf};

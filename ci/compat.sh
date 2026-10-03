@@ -10,8 +10,9 @@
 #   2. A: the new docsys refreshes a pin and records a verification; the old
 #      docsys then runs lint, refs and the range gate on it — green, nothing
 #      written that it does not read.
-#   3. A and B: the relays, the git gate, a pin refresh and a verification all
-#      work under the new docsys; A's CI commands pass with the old docsys,
+#   3. A and B: the relays, the git gate and a pin refresh work under the new
+#      docsys; A's verification too, while B's pages carry none and `verify`
+#      is refused there (D-130); A's CI commands pass with the old docsys,
 #      B's with the new one.
 #   4. B under the old docsys: every relay and the git gate say, in exactly one
 #      line, which docsys the tree needs, and stop. (A gate in warn mode prints
@@ -86,16 +87,14 @@ EOF
   with_old g commit -qm "adopt, one pinned page"
 }
 
-# The code under the pin moves, the page is re-read and refreshed, and a
-# maintainer records the verification: what every repository does every week.
-refresh_and_verify() {
+# The code under the pin moves and the page is re-read and refreshed: what
+# every repository does every week.
+refresh_pin() {
   local bin_path=$1
   sed -i.bak 's|    ttl / 2|    ttl.saturating_div(2)|' src/auth.rs && rm -f src/auth.rs.bak
   PATH="$bin_path" docsys pin --refresh reference/refresh >/dev/null
   g add -A
   PATH="$bin_path" g commit -qm "refresh: saturating" || fail "$(basename "$PWD"): the gate refused a refreshed pin"
-  PATH="$bin_path" docsys verify reference/refresh --by compat --commit >/dev/null \
-    || fail "$(basename "$PWD"): verify failed"
 }
 
 # What the CI workflow runs, with the given docsys.
@@ -147,10 +146,12 @@ echo "identical, apart from one notice line"
 
 say "2 · A: written by the new docsys, read by the old one"
 base_a=$(g rev-parse HEAD)
-refresh_and_verify "$NEW_PATH"
+refresh_pin "$NEW_PATH"
 grep -q '^    hash: "sha256:' docs/reference/refresh.md || fail "A: the refresh did not write the pin's hash into the page (0.4 format)"
-[ ! -e docs/.verifies ] || fail "A: the refresh wrote .verifies/ on a 0.4 tree"
-! grep -q '^verified_blocks:' docs/reference/refresh.md || fail "A: verify wrote a 0.5 record on a 0.4 tree"
+[ ! -e docs/.pins ] && [ ! -e docs/.verifies ] || fail "A: the refresh wrote acknowledgements on a 0.4 tree"
+# a maintainer records the verification, as 0.15.1 did
+with_new docsys verify reference/refresh --by compat --commit >/dev/null || fail "A: verify failed"
+grep -q '^verified_by: compat' docs/reference/refresh.md || fail "A: verify wrote no 0.4 record"
 ci_green "$OLD_PATH" "$base_a"
 echo "the old docsys reads it: lint, refs, gate green"
 
@@ -161,10 +162,15 @@ with_new docsys upgrade --apply --commit >/dev/null || fail "B: the upgrade did 
 grep -q '^spec: docsys/0.5' docs/.docmeta.yml || fail "B: still declares 0.4"
 sed -i.bak 's|^type: reference$|type: reference\nsources: [src/auth.rs]|' docs/reference/refresh.md && rm -f docs/reference/refresh.md.bak
 g add -A; with_new g commit -qm "refresh rests on the code"
-refresh_and_verify "$NEW_PATH"
-[ -d docs/.verifies/refresh ] || fail "B: the refresh wrote no acknowledgement"
-! grep -q '^verified' docs/reference/refresh.md || fail "B: verify wrote into the page"
-g log -1 --format=%B | grep -q '^Approved-by: ' || fail "B: verify made no approval commit"
+refresh_pin "$NEW_PATH"
+[ -d docs/.pins/refresh ] || fail "B: the refresh wrote no acknowledgement"
+grep -q '^pins:' docs/reference/refresh.md || fail "B: the page names no pins:"
+head_b=$(g rev-parse HEAD)
+if with_new docsys verify reference/refresh --commit >/dev/null 2>&1; then
+  fail "B: verify ran on a 0.5 tree"
+fi
+[ "$(g rev-parse HEAD)" = "$head_b" ] || fail "B: a refused verify made a commit"
+! grep -q '^verifi' docs/reference/refresh.md || fail "B: a verification field in the page"
 ci_green "$NEW_PATH" "$base_b"
 relays_run "B" "$(relays "$NEW_PATH")"
 cd "$WORK/a"

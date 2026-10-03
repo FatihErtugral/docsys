@@ -70,7 +70,7 @@ replay() { # <binary> <spec minor> <commit> <label>
     if ! (cd "$wt" && "$bin" pin --refresh "${page%.md}" --repo . --root "$ROOT" >/dev/null 2>&1); then
       skipped=$((skipped + 1))
     fi
-  done < <(grep -rl --include='*.md' '^verifies:' "$wt/$ROOT" || true)
+  done < <(grep -rlE --include='*.md' '^(pins|verifies):' "$wt/$ROOT" || true)
   g -C "$wt" add -A
   g -C "$wt" -c user.email=replay@example.invalid -c user.name=replay commit -qm "acknowledged at the parent"
   before=$(stale_pages "$wt" "$bin")

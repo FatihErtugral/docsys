@@ -324,7 +324,7 @@ fn homes() -> Vec<(&'static str, String)> {
     .unwrap();
     let read = |rel: &str| std::fs::read_to_string(dir.join(rel)).unwrap();
     let export = read(".claude/skills/docsys-export/SKILL.md");
-    let commands: String = ["interview", "seed", "sync", "upgrade"]
+    let commands: String = ["crosscheck", "interview", "seed", "sync", "upgrade"]
         .iter()
         .map(|c| read(&format!(".claude/commands/docsys-{c}.md")))
         .collect();
@@ -447,22 +447,17 @@ fn each_fact_is_said_in_one_place() {
             "index.md routes the pages",
             &["index.md` routes", "index.md routes", "reachable from"],
         ),
-        ("verify records an approval", &["docsys verify <page>"]),
+        (
+            "a person asks for a cross-check",
+            &["whether pages still hold", "pages are still right"],
+        ),
         (
             "a pinned tree runs its version",
             &["installed on first use", "runs its own version"],
         ),
         (
-            "what a re-verification reads",
-            &["re-verification reads", "what to read again"],
-        ),
-        (
             "a compiled skill is the page",
             &["byte for byte, pinned", "pinned to the page"],
-        ),
-        (
-            "the approval job's line",
-            &["approval job adds", "approval adds"],
         ),
         (
             "the work file leaves on the word",
@@ -498,6 +493,10 @@ fn each_fact_is_said_in_one_place() {
             ],
         ),
         ("a howto's complete steps", &["steps are complete"]),
+        (
+            "a cross-check reads pages against what they rest on",
+            &["against what they rest on", "against what it rests on"],
+        ),
         ("the plan skeleton", &["plan skeleton"]),
         (
             "a type's folder appears with its first page",
@@ -506,14 +505,6 @@ fn each_fact_is_said_in_one_place() {
         (
             "blocks move as written",
             &["never retype", "byte for byte", "byte-exact"],
-        ),
-        (
-            "verification is written nowhere in the page",
-            &["written into the page", "nothing in the page"],
-        ),
-        (
-            "a page from evidence is not the truth yet",
-            &["the truth yet", "not the truth"],
         ),
         (
             "confirmed work reaches permanent pages by graduation",
@@ -549,10 +540,6 @@ fn each_fact_is_said_in_one_place() {
         (
             "a stale pin is read first",
             &["refreshed blind", "re-reading the page", "did not read"],
-        ),
-        (
-            "the session that wrote it never verifies",
-            &["another session"],
         ),
         (
             "memory is no source",
@@ -595,15 +582,6 @@ fn each_fact_is_said_in_one_place() {
         (
             "the plan before the move",
             &["plan first", "only the plan is printed"],
-        ),
-        (
-            "a maintainer approves a page",
-            &[
-                "maintainer approves",
-                "a maintainer vouches",
-                "maintainer verifies later",
-                "verified once a maintainer",
-            ],
         ),
         (
             "a change's why",
