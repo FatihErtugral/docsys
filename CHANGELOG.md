@@ -58,6 +58,14 @@ declares `spec: docsys/0.5`; a tree that declares `docsys/0.4` is served as
 - A pin's evidence lives beside the page under `.verifies/`; a refresh never
   writes the page, and pull requests that refresh pins merge cleanly (D-119).
 - A pinned symbol resolves to its declaration, never to a use (D-106).
+- The journal is the commit history: `docsys journal` renders every commit
+  that changes the docs or carries a `Docs:` line, newest first, and
+  `journal add` prints the message it is; nothing is written beside history.
+  A new `commit-msg` gate reads that message: under `require`, code with no
+  documentation needs `Docs: <why>`; a removed item needs its trailer; a long
+  entry is said. `upgrade` moves `work/journal.md` and its slices under
+  `_archive/journal/` byte for byte (§10, R-100, R-101, R-104, D-125; R-103
+  and R-105 withdrawn).
 - Debt and questions are one file per open item, written by `docsys debt add`
   and `docsys question add`; closing removes the file and prints the
   `Resolved:` or `Answered:` line its commit carries, and `upgrade` moves each

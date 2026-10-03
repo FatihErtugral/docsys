@@ -114,6 +114,125 @@ fn run_scoped(
     ))
 }
 
+/// Whether a commit in `range` carries the `Docs:` trailer: on docsys/0.5
+/// it records code that needed no page (R-209, D-125).
+pub fn range_has_docs(repo: &Path, range: &str) -> bool {
+    crate::git::cmd(repo)
+        .args(["log", "--format=%B%x1e", range])
+        .output()
+        .ok()
+        .filter(|o| o.status.success())
+        .is_some_and(|o| {
+            String::from_utf8_lossy(&o.stdout)
+                .split('\u{1e}')
+                .any(|m| crate::journal::has_trailer(m.trim_start(), crate::journal::DOCS))
+        })
+}
+
+/// What the `commit-msg` gate says of a message about to land (D-125).
+#[derive(Debug, Default)]
+pub struct MessageVerdict {
+    /// under `commit_policy: require`, code with no documentation and no
+    /// `Docs:` line is refused
+    pub refusal: Option<String>,
+    /// said, never blocking
+    pub reports: Vec<String>,
+}
+
+/// A line of a commit message that is a trailer: `Key: value`.
+fn is_trailer(line: &str) -> bool {
+    line.split_once(": ").is_some_and(|(k, _)| {
+        !k.is_empty() && k.chars().all(|c| c.is_ascii_alphanumeric() || c == '-')
+    })
+}
+
+/// The `commit-msg` gate on a docsys/0.5 tree: the staged change set read
+/// with the message that will carry it.
+pub fn message(repo: &Path, root: &Path, text: &str) -> MessageVerdict {
+    let mut v = MessageVerdict::default();
+    if !crate::era::Era::at(root).journal_from_history() {
+        return v;
+    }
+    let prefix = crate::fresh::root_rel(repo, root);
+    let inside = |f: &str| prefix.is_empty() || f == prefix || f.starts_with(&format!("{prefix}/"));
+    let staged = |filter: &str| -> Vec<String> {
+        crate::git::cmd(repo)
+            .args(["diff", "--cached", "--name-only", filter])
+            .output()
+            .ok()
+            .filter(|o| o.status.success())
+            .map(|o| {
+                String::from_utf8_lossy(&o.stdout)
+                    .lines()
+                    .map(str::to_string)
+                    .collect()
+            })
+            .unwrap_or_default()
+    };
+    let files = staged("--diff-filter=ACDMRT");
+    let docs = files.iter().filter(|f| inside(f)).count();
+    let code: Vec<&String> = files.iter().filter(|f| !inside(f)).collect();
+    let message: String = text
+        .lines()
+        .filter(|l| !l.starts_with('#'))
+        .collect::<Vec<_>>()
+        .join("\n");
+    let documented = crate::journal::has_trailer(&message, crate::journal::DOCS);
+    let require = crate::hook::commit_policy(root) == crate::hook::CommitPolicy::Require;
+    if require && !code.is_empty() && docs == 0 && !documented {
+        let shown: Vec<&str> = code.iter().take(5).map(|s| s.as_str()).collect();
+        v.refusal = Some(format!(
+            "GATE commit_policy: require — this commit changes {} and no documentation, and its message says nothing of why: add a `Docs: <why>` line, or the page or work file the change needs (R-209)",
+            shown.join(", ")
+        ));
+    }
+    // a closed item's record is its commit's trailer (R-108)
+    let base = if prefix.is_empty() {
+        String::new()
+    } else {
+        format!("{prefix}/")
+    };
+    for (list, kb) in [
+        (crate::items::List::Debt, false),
+        (crate::items::List::Questions, false),
+        (crate::items::List::Questions, true),
+    ] {
+        let dir = format!("{base}{}/", list.dir(kb));
+        let removed = staged("--diff-filter=D")
+            .iter()
+            .filter(|f| f.starts_with(&dir) && f.ends_with(".md"))
+            .count();
+        if removed > 0 && !crate::journal::has_trailer(&message, list.trailer()) {
+            v.reports.push(format!(
+                "GATE this commit removes {removed} item(s) from {} and carries no `{}:` line — that line is the record of what closed them (R-108)",
+                list.dir(kb),
+                list.trailer()
+            ));
+        }
+    }
+    // an entry's body, trailers aside, keeps its budget (R-101)
+    if docs > 0 || documented {
+        let max: usize = crate::tree::DocTree::load(root)
+            .ok()
+            .and_then(|t| {
+                t.docmeta_str("journal_entry_max_lines")
+                    .and_then(|s| s.trim().parse().ok())
+            })
+            .unwrap_or(5);
+        let body = message
+            .lines()
+            .skip(1)
+            .filter(|l| !l.trim().is_empty() && !is_trailer(l))
+            .count();
+        if body > max {
+            v.reports.push(format!(
+                "GATE the message body is {body} lines; a journal entry keeps {max} — link the page, do not narrate (R-101)"
+            ));
+        }
+    }
+    v
+}
+
 #[cfg(test)]
 #[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 mod tests {

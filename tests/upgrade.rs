@@ -1114,3 +1114,45 @@ fn a_late_branchs_ledger_lines_are_absorbed_and_the_frozen_slice_keeps_its_bytes
     );
     let _ = fs::remove_dir_all(&repo);
 }
+
+/// D-125: the journal moves under `_archive/journal/` byte for byte, and a
+/// page that linked it links it where it is now (R-172).
+#[test]
+fn the_journal_moves_as_written_and_its_links_follow() {
+    let (repo, _) = build("journal-links");
+    let journal = repo.join("docs/work/journal.md");
+    let before = fs::read_to_string(&journal).unwrap();
+    let page = repo.join("docs/reference/refresh.md");
+    let text = fs::read_to_string(&page).unwrap();
+    fs::write(
+        &page,
+        format!("{text}\nWhy it moved: [[work/journal|the journal]].\n"),
+    )
+    .unwrap();
+    git(&repo, &["commit", "-qam", "a link to the journal"]);
+    let out = docsys(&repo, &["upgrade", "--apply", "--commit"]);
+    assert!(out.status.success(), "{out:?}");
+    assert!(!journal.exists());
+    assert_eq!(
+        fs::read_to_string(repo.join("docs/_archive/journal/journal.md")).unwrap(),
+        before,
+        "as written"
+    );
+    let text = fs::read_to_string(&page).unwrap();
+    assert!(
+        text.contains("[[_archive/journal/journal|the journal]]"),
+        "{text}"
+    );
+    let lint = docsys(&repo, &["lint"]);
+    assert!(
+        !String::from_utf8_lossy(&lint.stdout).contains("R-071"),
+        "{lint:?}"
+    );
+    let shown = docsys(&repo, &["journal"]);
+    assert!(
+        String::from_utf8_lossy(&shown.stdout)
+            .contains("<!-- frozen: _archive/journal/journal.md -->"),
+        "{shown:?}"
+    );
+    let _ = fs::remove_dir_all(&repo);
+}

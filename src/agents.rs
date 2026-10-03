@@ -100,8 +100,9 @@ wait for approval. Commit nothing.
    include both outputs (one line each if green). Freshness errors are drift
    by definition: a stale pin names the region that moved, an untouched draft
    names abandonment.
-2. Drift suspects: `docsys seed plan --repo . --root docs --since <date of
-   the newest journal entry>` — every feature history touched since, with
+2. Drift suspects: `docsys seed plan --repo . --root docs --since <the date
+   of the last commit to docs/, `git log -1 --format=%cs -- docs/`>` — every
+   feature history touched since, with
    its coverage. For each covered feature with commits, `git show --stat
    <sha> -- docs/`: did its page move with the code? Name the page that
    should have changed. An uncovered feature with commits is a seeding
@@ -109,8 +110,9 @@ wait for approval. Commit nothing.
 3. Graduation debt: `grep -rl '^status: done' docs/work/` — for each, what
    still-true knowledge exists nowhere permanent? Say concretely which section
    goes to which page (the R-049 table decides).
-4. Propose debt items (`- [ ] <debt> -- deferred: <reason> -- repay when:
-   <trigger>`) as an Edit diff; do not apply without approval.
+4. Propose debt items as the `docsys debt add <debt> --deferred <reason>
+   --repay-when <trigger>` lines that would write them; run none without
+   approval.
 
 No findings → say so; never invent debt.
 "#;
@@ -128,8 +130,9 @@ approval gates. Never re-implement what a command does; never skip a gate.
 ## Always
 
 - The work has a type — feature, bug, improvement, research — and a record:
-  a work file under `work/<category>/` or, at minimum, a journal entry that
-  links the files and says why. Under `commit_policy: require` (D-093) the
+  a work file under `work/<category>/` or, at minimum, a commit message that
+  says why — the journal is history, and a commit that changes no page
+  carries `Docs: <why>` (D-125). Under `commit_policy: require` (D-093) the
   gate refuses a commit without it and the end of a turn holds until it is
   written: the session may be gone when the commit lands, so the knowledge
   is captured while the session is here.
@@ -627,7 +630,8 @@ pub fn install_kb(claude_dir: &Path, base_dir: &Path, force: bool) -> Result<Ins
     // worktree's `.git` is a file; git says whether this is a repository.
     if crate::git::toplevel(&repo).is_some() {
         let clean = crate::adopt::gate_clean(base_dir, &repo);
-        let gate = crate::adopt::ensure_git_gate(&repo, &root_arg, clean);
+        let message = crate::era::Era::at(base_dir).journal_from_history();
+        let gate = crate::adopt::ensure_git_gate(&repo, &root_arg, clean, message);
         let mode = if clean {
             "hard"
         } else {
@@ -1008,13 +1012,12 @@ Write the rows the conversation produced into a plan file OUTSIDE `docs/`
 When no builder can answer — a repository whose people are gone, a person
 who says "land what history says, I will answer later" — the rows that need
 nobody's memory still land on that person's word: `research` (the evidence,
-reserved), `journal` (the chronology), `postmortem` (a commit's own account)
-and `question` (everything the builder would have been asked). Only `answer`
+reserved), `postmortem` (a commit's own account) and `question` (everything
+the builder would have been asked); the chronology is history's own. Only `answer`
 rows wait for a builder; a plan with none is not a plan withheld.
 Rows (TAB-separated; `docsys seed plan` prints the grammar): `research
 <feature> <shas>` reserves the feature; `answer <feature> <who> <text>`
-records the builder's words verbatim; `journal <date> <sha> <title>`
-back-fills chronology at its own date; `postmortem <slug> <sha>` quotes an
+records the builder's words verbatim; `postmortem <slug> <sha>` quotes an
 incident's commit; `debt` and `question` add dated items.
 Everything lands under `work/`. The permanent page comes later, through
 graduation, when the builder confirms.

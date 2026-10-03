@@ -110,12 +110,13 @@ fn gate_computes_the_code_without_docs_invariant() {
     assert_eq!(g.docs, 0);
     assert_eq!(g.scope, "staged");
     // staging a docs change answers the question
+    let index = fs::read_to_string(docs.join("index.md")).unwrap();
     fs::write(
-        docs.join("work/debt.md"),
-        "# Debt\n\n- [ ] 2026-08-16 x -- deferred: y -- repay when: z\n",
+        docs.join("index.md"),
+        format!("{index}\nThe tree routes its pages.\n"),
     )
     .unwrap();
-    git(&repo, &["add", "docs/work/debt.md"]);
+    git(&repo, &["add", "docs/index.md"]);
     let (g, _) = docsys::gate::run(&repo, &docs).unwrap();
     assert_eq!(g.docs, 1);
     assert!(!g.code.is_empty());

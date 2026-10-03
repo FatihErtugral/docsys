@@ -57,8 +57,17 @@ fn repo(name: &str, day: &str) -> (PathBuf, PathBuf) {
         ),
     )
     .unwrap();
-    // a 0.4 index routes pages one by one, as 0.15.1 wrote it
+    // a 0.4 tree as 0.15.1 wrote it: an index routing pages one by one, the
+    // journal and the ledgers in place
     fs::write(docs.join("index.md"), "# Documentation\n").unwrap();
+    fs::create_dir_all(docs.join("work")).unwrap();
+    fs::write(
+        docs.join("work/journal.md"),
+        format!("# Journal\n\n## {day} - initialized\n- documentation tree created\n"),
+    )
+    .unwrap();
+    fs::write(docs.join("work/debt.md"), "# Debt\n").unwrap();
+    fs::write(docs.join("work/questions.md"), "# Questions\n").unwrap();
     fs::create_dir_all(docs.join("reference")).unwrap();
     fs::write(
         docs.join("reference/refresh.md"),

@@ -188,7 +188,11 @@ fn a_personal_base_stands_up_in_two_commands() {
     // the project profile is unchanged by all this
     let proj = tmp("greenfield-proj");
     docsys::migrate::init_profile(&proj, "en", "project").unwrap();
-    assert!(proj.join("work/journal.md").is_file());
+    // a docsys/0.5 project: the journal is history, the index routes its types
+    assert!(!proj.join("work/journal.md").exists());
+    assert!(fs::read_to_string(proj.join("index.md"))
+        .unwrap()
+        .contains("- [[reference/|"));
     assert!(docsys::migrate::init_profile(&proj, "en", "nonsense").is_err());
 }
 

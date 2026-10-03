@@ -544,7 +544,8 @@ fn common(ctx: &Ctx, u: &mut Upgrade, apply: bool) -> Result<(), String> {
     }
 
     // git-gate: the block in this clone's pre-commit hook, its mode kept
-    match crate::adopt::gate_current(repo, root_rel) {
+    let message = Era(u.to).journal_from_history();
+    match crate::adopt::gate_current(repo, root_rel, message) {
         None => {
             u.item(
                 "info",
@@ -593,12 +594,16 @@ fn common(ctx: &Ctx, u: &mut Upgrade, apply: bool) -> Result<(), String> {
                 ),
             );
             if apply {
-                let done = crate::adopt::ensure_git_gate(repo, root_rel, false);
+                let done = crate::adopt::ensure_git_gate(repo, root_rel, false, message);
                 if done == "failed" {
                     return Err(format!("{file}: the gate block could not be written"));
                 }
                 if tracked {
                     u.written.push(file);
+                    let msg = rel(repo, &hooks.join("commit-msg"));
+                    if hooks.join("commit-msg").is_file() {
+                        u.written.push(msg);
+                    }
                 }
             }
         }
@@ -811,7 +816,98 @@ fn common(ctx: &Ctx, u: &mut Upgrade, apply: bool) -> Result<(), String> {
     if Era::of(&ctx.tree).item_files() {
         ledgers(ctx, u, apply)?;
     }
+    if Era::of(&ctx.tree).journal_from_history() {
+        journal(ctx, u, apply)?;
+    }
     Ok(())
+}
+
+/// journal: the journal is history from the move on (D-125). The journal
+/// file and its slices move under `_archive/journal/` byte for byte, keeping
+/// their names, so a branch that runs the same upgrade makes the same move;
+/// every link to them gets its new target (R-172).
+fn journal(ctx: &Ctx, u: &mut Upgrade, apply: bool) -> Result<(), String> {
+    let mut files: Vec<String> = Vec::new();
+    if ctx.root.join("work/journal.md").is_file() {
+        files.push("work/journal.md".to_string());
+    }
+    if let Ok(entries) = fs::read_dir(ctx.root.join("work/journal")) {
+        let mut names: Vec<String> = entries
+            .flatten()
+            .filter_map(|e| e.file_name().to_str().map(str::to_string))
+            .filter(|n| n.ends_with(".md"))
+            .collect();
+        names.sort();
+        files.extend(names.into_iter().map(|n| format!("work/journal/{n}")));
+    }
+    let mut moves: Vec<(String, String)> = Vec::new();
+    for rel in files {
+        let name = rel.rsplit('/').next().unwrap_or("journal.md");
+        let to = free_name(ctx.root, "_archive/journal", name, &moves);
+        u.item(
+            "auto",
+            "journal",
+            &format!("{}{rel}", ctx.prefix),
+            format!(
+                "→ {}{to}, as written; the journal is history from here on (D-125)",
+                ctx.prefix
+            ),
+        );
+        moves.push((rel, to));
+    }
+    if !apply || moves.is_empty() {
+        return Ok(());
+    }
+    fs::create_dir_all(ctx.root.join("_archive/journal")).map_err(|e| e.to_string())?;
+    for (from, to) in &moves {
+        fs::rename(ctx.root.join(from), ctx.root.join(to)).map_err(|e| e.to_string())?;
+        u.written.push(format!("{}{from}", ctx.prefix));
+        u.written.push(format!("{}{to}", ctx.prefix));
+    }
+    let _ = fs::remove_dir(ctx.root.join("work/journal"));
+    // the links that named the moved files name them where they are now
+    for page in &ctx.tree.pages {
+        let path = ctx.root.join(&page.rel);
+        let Ok(text) = fs::read_to_string(&path) else {
+            continue;
+        };
+        let mut new = text.clone();
+        for (from, to) in &moves {
+            let (from, to) = (from.trim_end_matches(".md"), to.trim_end_matches(".md"));
+            for end in ["]]", "|", "#"] {
+                new = new.replace(&format!("[[{from}{end}"), &format!("[[{to}{end}"));
+            }
+        }
+        if new != text {
+            fs::write(&path, new).map_err(|e| e.to_string())?;
+            u.written.push(format!("{}{}", ctx.prefix, page.rel));
+        }
+    }
+    Ok(())
+}
+
+/// `<dir>/<name>` when nothing holds that name yet, else the name with a date
+/// and a number beside it.
+fn free_name(root: &Path, dir: &str, name: &str, taken: &[(String, String)]) -> String {
+    let free = |rel: &str| !root.join(rel).exists() && !taken.iter().any(|(_, t)| t == rel);
+    let first = format!("{dir}/{name}");
+    if free(&first) {
+        return first;
+    }
+    let stem = name.trim_end_matches(".md");
+    let today = crate::migrate::today();
+    let mut n = 1;
+    loop {
+        let rel = if n == 1 {
+            format!("{dir}/{stem}-{today}.md")
+        } else {
+            format!("{dir}/{stem}-{today}-{n}.md")
+        };
+        if free(&rel) {
+            return rel;
+        }
+        n += 1;
+    }
 }
 
 /// ledgers: each open item of a docsys/0.4 ledger into its own file, its
@@ -1188,6 +1284,8 @@ fn move_0_4_to_0_5(ctx: &Ctx, u: &mut Upgrade, apply: bool) -> Result<(), String
 
     // ledgers: one file per open item, after the separators are ASCII (D-124)
     ledgers(ctx, u, apply)?;
+    // journal: history from here on, the files frozen under _archive/ (D-125)
+    journal(ctx, u, apply)?;
 
     // code-citations: a `doc:` 0.15 read mid-comment that 0.5 reads as prose
     if !kb {

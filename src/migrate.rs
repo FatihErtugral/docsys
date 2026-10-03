@@ -482,11 +482,15 @@ pub fn apply(
     }
     fs::write(&index, router).map_err(|e| e.to_string())?;
 
-    // work/ skeleton per R-043: journal and debt only.
+    // work/ skeleton per R-043: on a docsys/0.4 tree journal and debt; a 0.5
+    // tree's journal is history and its lists start empty (D-124, D-125)
     let work = root.join("work");
-    fs::create_dir_all(&work).map_err(|e| e.to_string())?;
     let journal = work.join("journal.md");
-    if !journal.exists() {
+    let ledgers = !crate::era::Era::at(root).journal_from_history();
+    if ledgers {
+        fs::create_dir_all(&work).map_err(|e| e.to_string())?;
+    }
+    if ledgers && !journal.exists() {
         fs::write(
             &journal,
             format!("# Journal\n\n## {date} - migrated\n- brownfield tree migrated into the docsys layout\n"),
@@ -494,7 +498,7 @@ pub fn apply(
         .map_err(|e| e.to_string())?;
     }
     let debt = work.join("debt.md");
-    if !debt.exists() {
+    if ledgers && !debt.exists() {
         fs::write(&debt, "# Debt\n").map_err(|e| e.to_string())?;
     }
 
@@ -544,7 +548,7 @@ pub fn init_profile(root: &Path, lang: &str, profile: &str) -> Result<(), String
     let spec = crate::rules::spec_version();
     match profile {
         "project" => {
-            fs::create_dir_all(root.join("work")).map_err(|e| e.to_string())?;
+            fs::create_dir_all(root).map_err(|e| e.to_string())?;
             w(
                 ".docmeta.yml",
                 format!("spec: docsys/{spec}\nprofile: project\ndefault_content_language: {lang}\ncreated: {date}\n\n# Who may confirm work and verify pages (R-208); empty = anyone, as before.\nmaintainers: []\n\n# The commit gate: ask (asks once) | require (no commit without its documentation, R-209).\ncommit_policy: ask\n"),
@@ -553,12 +557,8 @@ pub fn init_profile(root: &Path, lang: &str, profile: &str) -> Result<(), String
                 "index.md",
                 format!("# Documentation\n\n{}\n", DIRECTORY_ROUTES.join("\n")),
             )?;
-            w(
-                "work/journal.md",
-                format!("# Journal\n\n## {date} - initialized\n- documentation tree created\n"),
-            )?;
-            // debt and questions are one file per open item, created with
-            // the first one (R-043, D-124)
+            // the journal is history, and debt and questions are one file per
+            // open item, created with the first one (R-043, D-124, D-125)
             scaffold_list_files_and_templates(root)?;
         }
         "knowledge-base" => {

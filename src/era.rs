@@ -152,6 +152,14 @@ impl Era {
         self.v05()
     }
 
+    /// D-125: the journal is version-control history — a commit that changes
+    /// the docs or carries `Docs:` is an entry, `docsys journal` renders it,
+    /// and the `commit-msg` gate holds what `require` asks of a commit.
+    /// Before: `work/journal.md`, rotated into slices.
+    pub fn journal_from_history(self) -> bool {
+        self.v05()
+    }
+
     /// D-116: `lint`, `refs` and `gate` end with a pointer to `docsys feedback`
     /// under a finding of a rule that reads free text. Before: the findings alone.
     pub fn finding_pointers(self) -> bool {

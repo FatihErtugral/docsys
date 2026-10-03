@@ -61,13 +61,12 @@ Write the rows the conversation produced into a plan file OUTSIDE `docs/`
 When no builder can answer — a repository whose people are gone, a person
 who says "land what history says, I will answer later" — the rows that need
 nobody's memory still land on that person's word: `research` (the evidence,
-reserved), `journal` (the chronology), `postmortem` (a commit's own account)
-and `question` (everything the builder would have been asked). Only `answer`
+reserved), `postmortem` (a commit's own account) and `question` (everything
+the builder would have been asked); the chronology is history's own. Only `answer`
 rows wait for a builder; a plan with none is not a plan withheld.
 Rows (TAB-separated; `docsys seed plan` prints the grammar): `research
 <feature> <shas>` reserves the feature; `answer <feature> <who> <text>`
-records the builder's words verbatim; `journal <date> <sha> <title>`
-back-fills chronology at its own date; `postmortem <slug> <sha>` quotes an
+records the builder's words verbatim; `postmortem <slug> <sha>` quotes an
 incident's commit; `debt` and `question` add dated items.
 Everything lands under `work/`. The permanent page comes later, through
 graduation, when the builder confirms.

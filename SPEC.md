@@ -410,13 +410,12 @@ evolved" sections inside its reference pages.
 
 ### 4.2 Flowing layer
 
-**R-040** `lint` · MUST — The `project` profile defines six core work
-categories:
+**R-040** `lint` · MUST — The `project` profile defines five core work
+categories; the chronology — what happened, when — is the journal, read from
+version-control history (§10):
 
 ```
 work/
-├── journal.md      chronology — what happened, when
-├── journal/        archive slices
 ├── features/       work requiring a design decision
 ├── postmortems/    an incident with a lesson
 ├── research/       explored, no decision reached
@@ -425,10 +424,9 @@ work/
 ```
 
 **R-041** `lint` · MUST — Files under `features/`, `postmortems/`, and
-`research/` are *tracked work* and carry `status` (§8). `journal.md`, the
-item files under `debt/` and `questions/` (R-108), journal archive slices under
-`journal/`, and archived
-list-file slices under `_archive/` (R-108) are *list files*: they hold many
+`research/` are *tracked work* and carry `status` (§8). The item files under
+`debt/` and `questions/` (R-108), and the slices a docsys/0.4 tree's lists and
+journal left under `_archive/`, are *list files*: they hold many
 independent items, do not track the life of one unit of work, and MUST NOT
 carry `status`.
 
@@ -437,7 +435,7 @@ carry `status`.
 graduation target.
 
 **R-043** `advisory` · SHOULD — A directory is created when its first file is
-needed. Only `journal.md` is created at initialization. An empty
+needed. Nothing under `work/` is created at initialization. An empty
 directory reads as an obligation and produces filler content.
 
 ### 4.3 Tracked-work templates
@@ -1001,8 +999,8 @@ Categories are determined by output. A bug's output depends on one question:
 
 | Situation | Destination |
 |---|---|
-| One-off mistake, a wrong line | `journal.md` entry |
-| Can recur, but the code fix is the permanent answer | `journal.md` entry |
+| One-off mistake, a wrong line | a journal entry: the commit message (§10) |
+| Can recur, but the code fix is the permanent answer | a journal entry: the commit message (§10) |
 | Recurrence is prevented by a rule | invariant in `reference/` |
 | Root cause was systemic, or the cost exceeded the configured threshold | `postmortems/` |
 
@@ -1120,21 +1118,26 @@ fully written on the page is not ready to be compiled.
 
 ## 10. Journal
 
-**R-100** `lint` · MUST — A journal entry opens with `## YYYY-MM-DD` followed by a
-separator and a title. The separator is `-`, `--` or an em dash; requiring a
-character most keyboards cannot produce would put R-120's ASCII principle and
-this rule in conflict for no benefit. Between the date and the separator a tree
-MAY carry one bracketed annotation — `(448)`, `[ops]` — because entry counters
-and channel tags are common field conventions that leave the date first and
-machine-readable, which is all this rule protects.
+The journal — what happened, when, and why — is the tree's version-control
+history. A chronology kept in a file is what every branch writes at the same
+place: twenty merges a day conflicted on its top 27 times (D-125). History
+already orders, dates and attributes every change, so the journal is read from
+it, never written beside it.
 
-**R-101** `lint` · SHOULD — An entry is **at most 5 source lines**: what
+**R-100** `cmd` · MUST — A journal entry is a commit: one that changes the
+documentation tree, or one whose message carries a `Docs:` trailer — the why of
+a change that needed no page. Its date is the commit's, its title the subject,
+its lines the body. `docsys journal` renders the entries as `## YYYY-MM-DD -
+<title>` with their lines beneath, and after them the journal files a
+docsys/0.4 tree kept, frozen under `_archive/journal/` as they were written.
+Without history the journal is those files alone, and the rest reads
+"unknown".
+
+**R-101** `cmd` · SHOULD — An entry is **at most 5 lines** of body: what
 triggered it, what changed, which gate passed, which page holds the permanent
-content. An entry exceeding the budget **is reported** — the check matches the
-rule exactly, because a checker looser than its rule text is what R-012 forbids,
-and the 3,800-line journal in R-102's rationale was reachable one tolerated
-entry at a time. There is no lower bound: a one-line entry is a fine entry.
-Lines are counted in the source file, not as rendered.
+content. The commit gate reports a longer one — the 3,800-line journal in
+R-102's rationale was reachable one tolerated entry at a time. There is no
+lower bound: a subject alone is a fine entry. Trailers are not counted.
 
 The budget is 5 lines unless `.docmeta.yml` declares `journal_entry_max_lines`,
 which a tree MAY raise to state a discipline it actually keeps. Making it
@@ -1152,22 +1155,14 @@ requires reading the prose, so this is not a static check.
 > documentation. One constant appeared in eight places and none were ever
 > updated. Permanent knowledge kept in a chronology silently becomes a lie.
 
-**R-103** `cmd` · MUST — When the active journal exceeds 500 lines, the oldest
-whole days are moved to an archive slice named
-`work/journal/<first-date>--<last-date>.md` — `<first-date>` is the earlier
-calendar date, whatever order the entries appear in — which gets one router
-line. Slices
-are cut on day boundaries; a single day larger than the limit becomes its own
-slice. A slice is a list file (R-041) and carries no `status`: it is a
-chronology archive, not a unit of work that graduated anywhere.
+**R-103** WITHDRAWN — history needs no rotation; a docsys/0.4 tree's journal
+files move under `_archive/journal/` as they are (D-125).
 
-**R-105** `lint` · MUST — An active `journal.md` whose length exceeds the limit
-in R-103 **is reported**, naming the rotation that resolves it. This is the
-R-018 backstop for R-103: appending in an editor bypasses rotation, and the
-oversized file is the trace it leaves.
+**R-105** WITHDRAWN — with no journal file there is no length to exceed
+(D-125).
 
-**R-104** `lint` · MUST — Entries are ordered newest first. A retrospective entry
-is inserted at its own date, not appended.
+**R-104** `cmd` · MUST — Entries are rendered newest first, by the date each
+commit landed.
 
 ---
 
@@ -1520,8 +1515,10 @@ default) or `commit_policy: require`. Under `ask` the commit gate asks the
 code-without-docs question once per change set (D-040) and the end of a turn
 reminds. Under `require`, a commit whose change set touches code and no
 documentation **is refused** by the gate — the agent relay and the git hook
-alike, every time — until the work is recorded: a work file under
-`work/<category>/` or, at minimum, a journal entry linking the files and
+alike, every time; the hook is `commit-msg`, the one that reads the message —
+until the work is recorded: a work file under
+`work/<category>/` or, at minimum, a journal entry — a `Docs:` trailer in the
+commit message (§10) — linking the files and
 saying why; and the end of a turn in which code changed without its record
 **holds the session** once, so the knowledge is captured while the session
 that has it still exists — the commit may come later, from another session or
@@ -1750,9 +1747,8 @@ rule, indented so none parses as a rule declaration. Procedures name the
     EVIDENCE : the draft entry
     QUESTION : does it contain a measurement, table, API list, register map,
                algorithm, or rejected alternative? (R-102's list, complete)
-    OPTIONS  : yes → that content goes to its permanent page; the journal
-               keeps 2–5 lines + a wiki-link to it (R-070 — `doc:` is the
-               code-side form, R-072)
+    OPTIONS  : yes → that content goes to its permanent page; the commit
+               message keeps 2–5 lines + the page's path (§10)
                no  → write the entry
     DEFAULT  : move the content out
     ESCAPE   : no permanent home exists yet → it stays in the work file, and

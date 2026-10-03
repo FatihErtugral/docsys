@@ -60,6 +60,7 @@ Usage:
   docsys export manifest [--root <dir>] [--out <file>]   # what this namespace exports
   docsys fetch   [--root <dir>]              # materialize consumed namespaces into .federation/
   docsys gate    [--repo .] [--root docs] [--range <a>...<b>] [--skipped]   # commit-time question: lint + code-without-docs; --range: a pull request, in CI; under commit_policy: require it refuses, --skipped records a bypass as debt
+  docsys gate    --message <file> [--repo .] [--root docs]   # docsys/0.5, the commit-msg hook: under require, code with no docs needs `Docs: <why>`; a removed item needs its trailer (D-125)
   docsys doctor  [--repo .] [--root docs] [--dir .claude]   # is the pipeline itself alive?
   docsys seed    plan [--target <feature>] [--since <date>] [--memory <dir>] [--repo .] [--root docs]
                                              # brownfield: feature inventory, or one feature's history as evidence
@@ -70,7 +71,8 @@ Usage:
   docsys question add <question…> [--context <c>] [--date <d>] [--root docs]   # not known: one dated item, never a guess on a page (R-108)
   docsys question close <item> --answer <line> [--root docs]   # answered: the item leaves; the commit carries `Answered:` (D-124)
   docsys ledger  fix [--root <dir>]          # a ledger's em-dash field markers ( — deferred: ) to R-108's ASCII ( -- ); field text untouched
-  docsys journal add <text…> [--title <t>] [--date <d>] [--link <path>] [--root docs]
+  docsys journal [--since <date>] [--root docs]          # the journal, read from history: every commit that changed the docs or carries `Docs:`, newest first, then a 0.4 tree's frozen journal (D-125)
+  docsys journal add <text…> [--title <t>] [--link <path>] [--root docs]   # docsys/0.5: prints the commit message the entry is; docsys/0.4: an entry in work/journal.md
   docsys page    new <category|type> <id> [--title <t>] [--unverified] [--root docs]   # from _templates/, or a permanent skeleton; --unverified: a page written from evidence, for a maintainer to verify (R-208)
   docsys backlinks <path|id|code-file> [--repo .] [--root docs]   # pages (and code) pointing at a page; for a code file, the pages that pin it or rest on it
   docsys mentions [<path|id>] [--root docs]                 # prose naming a page without a link
@@ -115,6 +117,7 @@ struct Opts {
     since: Option<String>,
     memory: Option<PathBuf>,
     note: Option<String>,
+    message: Option<PathBuf>,
     deferred: Option<String>,
     repay_when: Option<String>,
     answer: Option<String>,
@@ -182,6 +185,7 @@ fn parse_opts(args: &[String]) -> Result<Opts, String> {
         since: None,
         memory: None,
         note: None,
+        message: None,
         deferred: None,
         repay_when: None,
         answer: None,
@@ -252,6 +256,9 @@ fn parse_opts(args: &[String]) -> Result<Opts, String> {
                 o.memory = Some(PathBuf::from(it.next().ok_or("--memory needs a value")?))
             }
             "--note" => o.note = Some(it.next().ok_or("--note needs a value")?.clone()),
+            "--message" => {
+                o.message = Some(PathBuf::from(it.next().ok_or("--message needs a file")?))
+            }
             "--deferred" => o.deferred = Some(it.next().ok_or("--deferred needs a value")?.clone()),
             "--repay-when" => {
                 o.repay_when = Some(it.next().ok_or("--repay-when needs a value")?.clone())
@@ -510,9 +517,11 @@ fn main() -> ExitCode {
     // Inside a git hook a gate chains several docsys calls — this version's
     // block and the one 0.15 wrote alike — and only `gate` says what concerns
     // the commit as a whole: the version notice and a pin that cannot run.
+    // The commit-msg half of a docsys/0.5 gate follows the pre-commit half,
+    // which has said it already (D-125).
     let quiet = std::env::var_os("GIT_EXEC_PATH").is_some()
         && std::env::var_os("GIT_INDEX_FILE").is_some()
-        && cmd != "gate";
+        && (cmd != "gate" || opts.message.is_some());
     let pinned_root = match cmd {
         "upgrade" => None,
         "hook" => Some(
@@ -908,6 +917,14 @@ fn main() -> ExitCode {
                 ExitCode::from(1)
             }
         },
+        ("journal", None) => {
+            let repo = docsys::repo_of(&opts.root);
+            print!(
+                "{}",
+                docsys::journal::render(repo.as_deref(), &opts.root, opts.since.as_deref())
+            );
+            ExitCode::SUCCESS
+        }
         ("journal", Some("add")) => {
             let text = opts.positional.join(" ");
             match docsys::capture::journal_add(
@@ -917,6 +934,13 @@ fn main() -> ExitCode {
                 opts.date.as_deref(),
                 opts.link.as_deref(),
             ) {
+                Ok(msg) if docsys::era::Era::at(&opts.root).journal_from_history() => {
+                    eprintln!(
+                        "journal: the entry is the commit — commit with this message (D-125)"
+                    );
+                    print!("{msg}");
+                    ExitCode::SUCCESS
+                }
                 Ok(msg) => {
                     println!("{msg}");
                     ExitCode::SUCCESS
@@ -1469,6 +1493,27 @@ next: review, `git add -A && git commit`, then open an agent session here."
                 }
             }
         }
+        ("gate", None) if opts.message.is_some() => {
+            // the `commit-msg` hook: the message that will carry the change
+            // set (D-125)
+            let (repo, root) = (repo_or_cwd.clone(), opts.root.clone());
+            let text = opts
+                .message
+                .as_ref()
+                .and_then(|m| std::fs::read_to_string(m).ok())
+                .unwrap_or_default();
+            let v = docsys::gate::message(&repo, &root, &text);
+            for r in &v.reports {
+                eprintln!("{r}");
+            }
+            match v.refusal {
+                Some(r) => {
+                    eprintln!("{r}");
+                    ExitCode::from(1)
+                }
+                None => ExitCode::SUCCESS,
+            }
+        }
         ("gate", None) => {
             let (repo, root) = (repo_or_cwd.clone(), opts.root.clone());
             let result = match &opts.range {
@@ -1496,7 +1541,15 @@ next: review, `git add -A && git commit`, then open an agent session here."
                     }
                     let require =
                         docsys::hook::commit_policy(&root) == docsys::hook::CommitPolicy::Require;
-                    let undocumented = !g.code.is_empty() && g.docs == 0;
+                    // docsys/0.5: the message is the record, and only the
+                    // commit-msg gate and a range can read it (D-125)
+                    let history_journal = docsys::era::Era::at(&root).journal_from_history();
+                    let by_message = history_journal
+                        && opts
+                            .range
+                            .as_deref()
+                            .is_some_and(|r| docsys::gate::range_has_docs(&repo, r));
+                    let undocumented = !g.code.is_empty() && g.docs == 0 && !by_message;
                     if undocumented && require && opts.skipped {
                         // the git hook, bypassed with DOCSYS_SKIP=1: the bypass leaves a debt item (D-093)
                         match docsys::hook::record_undocumented_commit(
@@ -1521,8 +1574,10 @@ next: review, `git add -A && git commit`, then open an agent session here."
                             g.scope,
                             head.join(", ")
                         );
-                        if require && !opts.skipped {
-                            println!("GATE commit_policy: require — name the work (feature | bug | improvement | research), record it (a work file or a journal entry linking these files), stage it, commit again. DOCSYS_SKIP=1 bypasses once and leaves a debt item.");
+                        if require && !opts.skipped && !history_journal {
+                            println!("{}", docsys::hook::era_text(&root, "GATE commit_policy: require — name the work (feature | bug | improvement | research), record it (a work file, or `Docs: <why>` in the commit message), stage it, commit again. DOCSYS_SKIP=1 bypasses once and leaves a debt item."));
+                        } else if require && !opts.skipped && opts.range.is_none() {
+                            println!("GATE commit_policy: require — the commit message says why with `Docs: <why>`, or the commit carries the page or work file; the commit-msg gate reads it");
                         }
                     }
                     println!(
@@ -1538,8 +1593,9 @@ next: review, `git add -A && git commit`, then open an agent session here."
                     }
                     // Over a range there is nobody to ask once: code without
                     // documentation fails the check, as CI must.
-                    let unanswered =
-                        (opts.range.is_some() || (require && !opts.skipped)) && undocumented;
+                    let unanswered = (opts.range.is_some()
+                        || (require && !opts.skipped && !history_journal))
+                        && undocumented;
                     if g.lint_errors > 0 || unanswered || !g.plan_files.is_empty() {
                         ExitCode::from(1)
                     } else {

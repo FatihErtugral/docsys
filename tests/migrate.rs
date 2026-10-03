@@ -45,7 +45,8 @@ fn apply_moves_rewrites_and_scaffolds() {
     );
 
     assert!(root.join(".docmeta.yml").exists());
-    assert!(root.join("work/journal.md").exists());
+    // a docsys/0.5 tree: its journal is history, no file is written (D-125)
+    assert!(!root.join("work/journal.md").exists());
     let router = fs::read_to_string(root.join("index.md")).unwrap_or_default();
     assert!(
         router.contains("- [[reference/a|Alpha]] -- Alpha intro."),

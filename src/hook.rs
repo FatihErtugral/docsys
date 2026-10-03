@@ -406,7 +406,55 @@ impl Reply {
     }
 }
 
-const ASK: &str = "code moves with no documentation change. If a contract moved, update the page (or add the journal line) and commit; if nothing user-visible moved, run the same commit again — this gate asks once.\nThis whole Bash call was blocked — a `git add` in it did not run either. Re-run the SAME command from the start, `add` included.\n";
+const ASK: &str = "code moves with no documentation change. If a contract moved, update the page (or say why in the commit message: `Docs: <why>`) and commit; if nothing user-visible moved, run the same commit again — this gate asks once.\nThis whole Bash call was blocked — a `git add` in it did not run either. Re-run the SAME command from the start, `add` included.\n";
+/// Each phrase of this module's agent text that names the journal, as a
+/// docsys/0.5 tree hears it and as a 0.4 tree heard it from 0.15.1 (D-118).
+const ERA_PHRASES: [(&str, &str); 8] = [
+    (
+        "update the page (or say why in the commit message: `Docs: <why>`) and commit",
+        "update the page (or add the journal line) and commit",
+    ),
+    (
+        "a work file under work/<category>/ or, at minimum, a `Docs: <why>` trailer in this commit's message",
+        "a work file under work/<category>/ or, at minimum, a journal entry linking these files and saying why",
+    ),
+    (
+        "a work file under work/<category>/, or a commit whose message says why with `Docs: <why>`",
+        "a work file under work/<category>/ or a journal entry linking the files and saying why",
+    ),
+    (
+        "wrong line = a commit that says why",
+        "wrong line = journal line",
+    ),
+    (
+        "idea → a question item or a roadmap line",
+        "idea → journal or roadmap line",
+    ),
+    (
+        "End of session: the commit message says what and why (≤5 lines, links not\ncontent); one that changes no page carries `Docs: <why>`.",
+        "End of session: journal line (≤5 lines, links not content).",
+    ),
+    (
+        "→ work file, or `Docs:` in the commit message)",
+        "→ work file or journal entry)",
+    ),
+    (
+        "record it (a work file, or `Docs: <why>` in the commit message)",
+        "record it (a work file or a journal entry linking these files)",
+    ),
+];
+
+/// The agent text here is written for docsys/0.5, whose journal is history;
+/// a docsys/0.4 tree hears its journal named as 0.15.1 named it (D-118).
+pub fn era_text(root: &Path, text: &str) -> String {
+    if crate::era::Era::at(root).journal_from_history() {
+        return text.to_string();
+    }
+    ERA_PHRASES
+        .iter()
+        .fold(text.to_string(), |t, (now, before)| t.replace(now, before))
+}
+
 const DROPPED_ADD: &str = "docsys gate: the blocked call ran `git add`; this retry does not, and the working tree still has unstaged changes — did your `git add` run? Re-run the original command from the start, or stage explicitly. (asked once)\n";
 
 /// PreToolUse on `Bash`: the commit-time question (D-040), asked once per
@@ -474,7 +522,7 @@ pub fn record_undocumented_commit(
     fs::write(&path, text).map_err(|e| e.to_string())
 }
 
-const REQUIRE: &str = "commit_policy: require — nothing lands without its documentation. Name the work (feature | bug | improvement | research), record it — a work file under work/<category>/ or, at minimum, a journal entry linking these files and saying why — stage it, and run the SAME commit again, `git add` included. DOCSYS_SKIP=1 bypasses once and leaves a debt item.\nThis whole Bash call was blocked — a `git add` in it did not run either.\n";
+const REQUIRE: &str = "commit_policy: require — nothing lands without its documentation. Name the work (feature | bug | improvement | research), record it — a work file under work/<category>/ or, at minimum, a `Docs: <why>` trailer in this commit's message — stage it, and run the SAME commit again, `git add` included. DOCSYS_SKIP=1 bypasses once and leaves a debt item.\nThis whole Bash call was blocked — a `git add` in it did not run either.\n";
 
 /// The edited file and the session's working directory a payload names —
 /// where a hook looks for its tree (D-098).
@@ -594,6 +642,13 @@ pub fn pre_tool_use(repo: &Path, root: &Path, payload: &str, skip: bool) -> Repl
     if g.code.is_empty() || g.docs > 0 {
         return Reply::ok();
     }
+    // on docsys/0.5 the commit message is the journal entry: a `Docs:` line in
+    // the command — `-m`, or a heredoc's body — answers the question (D-125)
+    if crate::era::Era::at(root).journal_from_history()
+        && cmd.contains(&format!("{}:", crate::journal::DOCS))
+    {
+        return Reply::ok();
+    }
     if policy == CommitPolicy::Require {
         // D-093: not a question — a refusal, every time, until the work is recorded
         let head_lines: Vec<&str> = g.code.iter().take(5).map(String::as_str).collect();
@@ -603,10 +658,13 @@ pub fn pre_tool_use(repo: &Path, root: &Path, payload: &str, skip: bool) -> Repl
         } else {
             String::new()
         };
-        return Reply::block(format!(
-            "GATE {} changes with no docs change: {}{tail}\n{REQUIRE}",
-            g.scope,
-            head_lines.join(", ")
+        return Reply::block(era_text(
+            root,
+            &format!(
+                "GATE {} changes with no docs change: {}{tail}\n{REQUIRE}",
+                g.scope,
+                head_lines.join(", ")
+            ),
         ));
     }
     // the question — asked once per (HEAD, change set)
@@ -638,10 +696,13 @@ pub fn pre_tool_use(repo: &Path, root: &Path, payload: &str, skip: bool) -> Repl
         } else {
             String::new()
         };
-        return Reply::block(format!(
-            "GATE {} changes with no docs change: {}{tail}\n{ASK}",
-            g.scope,
-            head_lines.join(", ")
+        return Reply::block(era_text(
+            root,
+            &format!(
+                "GATE {} changes with no docs change: {}{tail}\n{ASK}",
+                g.scope,
+                head_lines.join(", ")
+            ),
         ));
     }
     let asked_with_add = fs::read_to_string(&marker)
@@ -699,9 +760,9 @@ pub fn stop(repo: &Path, root: &Path, payload: &str) -> Reply {
         .unwrap_or(false);
     let hold = |text: String| -> Reply {
         if require && !already_held {
-            Reply::block(format!(
-                "{text}commit_policy: require — before this session ends, name the work (feature | bug | improvement | research) and record it: a work file under work/<category>/ or a journal entry linking the files and saying why. Then stop.\n"
-            ))
+            Reply::block(era_text(root, &format!(
+                "{text}commit_policy: require — before this session ends, name the work (feature | bug | improvement | research) and record it: a work file under work/<category>/, or a commit whose message says why with `Docs: <why>`. Then stop.\n"
+            )))
         } else {
             Reply {
                 code: 0,
@@ -725,6 +786,22 @@ pub fn stop(repo: &Path, root: &Path, payload: &str) -> Reply {
     } else {
         "this session (including commits not yet pushed)"
     };
+    // docsys/0.5: the journal is history — a commit that changes the docs is
+    // an entry, and one that carries `Docs:` records code that needed no page
+    // (D-125)
+    if crate::era::Era::at(root).journal_from_history() {
+        let recorded = docs > 0
+            || git_lines(repo, &["log", "--format=%B%x1e", "@{u}..HEAD"])
+                .join("\n")
+                .split('\u{1e}')
+                .any(|m| crate::journal::has_trailer(m.trim_start(), crate::journal::DOCS));
+        if recorded {
+            return Reply::ok();
+        }
+        return hold(format!(
+            "docs: {where_} changed code but no documentation — if a contract\nmoved, the page moves in the SAME session; at minimum the commit says why:\n`Docs: <why>`.\n"
+        ));
+    }
     if docs > 0 {
         // Documentation moved with the code — but the session's own record is
         // the journal line (R-101), and a touched draft or a renamed token in
@@ -987,11 +1064,11 @@ holds documentation, and the work you are about to do may already have a page
 or a work file.
 
 Routing: feature needing a design decision → work/features/ (status: draft);
-bug → root cause first: wrong line = journal line, wrong assumption = invariant
+bug → root cause first: wrong line = a commit that says why, wrong assumption = invariant
 in reference/ or a postmortem (test: can it recur?); improvement touching a
 public surface → reference/ updated, and always record WHY; research = a question
 with no decision yet → work/research/ (Question · Tried · Learned · Why no
-decision), no code; idea → journal or roadmap line, never the permanent layer
+decision), no code; idea → a question item or a roadmap line, never the permanent layer
 before it becomes a decision.
 Intent → command: knowledge only people have (an interview, a thread, a
 decision someone made) → /docsys-interview, the answers land verbatim under
@@ -1006,7 +1083,8 @@ session — `verified_by:` and `confirmed:` name someone in .docmeta.yml
 Inside docs a page is linked as [[dir/id]] (full path). A page about code pins
 its region (docsys pin); docsys backlinks <code-file> names the pages that
 describe a file. An id is unique across the whole tree, drafts included.
-End of session: journal line (≤5 lines, links not content). Gate: docsys lint.
+End of session: the commit message says what and why (≤5 lines, links not
+content); one that changes no page carries `Docs: <why>`. Gate: docsys lint.
 Judgment calls follow the procedures: docsys rules --procedures.
 </session-doc-routing>
 ";
@@ -1036,7 +1114,7 @@ pub fn user_prompt_submit(payload: &str, root: &Path) -> Reply {
             KB_ROUTING.to_string()
         }
     } else {
-        format!("{ROUTING}{}", tree_digest(root))
+        era_text(root, &format!("{ROUTING}{}", tree_digest(root)))
     };
     Reply {
         code: 0,
@@ -1109,7 +1187,7 @@ fn tree_digest(root: &Path) -> String {
         ));
     }
     if commit_policy(root) == CommitPolicy::Require {
-        out.push_str("commit_policy: require — no commit lands without its documentation, and the end of a turn holds until the work is recorded (feature | bug | improvement | research → work file or journal entry).\n");
+        out.push_str("commit_policy: require — no commit lands without its documentation, and the end of a turn holds until the work is recorded (feature | bug | improvement | research → work file, or `Docs:` in the commit message).\n");
     }
     out.push_str("</docs-in-hand>\n");
     out
@@ -1316,5 +1394,35 @@ mod tests_routing {
         // a knowledge base's contract is its owner's file: the routing is the
         // feedback line's one home there
         assert!(KB_ROUTING.contains("docsys feedback --draft"));
+    }
+
+    /// The texts here speak of a docsys/0.5 journal; a 0.4 tree hears each
+    /// phrase as 0.15.1 said it (D-118, D-125).
+    #[test]
+    fn a_0_4_tree_hears_its_journal_named_as_before() {
+        let root = std::env::temp_dir().join(format!("docsys-era-text-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        fs::create_dir_all(&root).unwrap();
+        fs::write(
+            root.join(".docmeta.yml"),
+            "spec: docsys/0.4\nprofile: project\n",
+        )
+        .unwrap();
+        let routing = era_text(&root, ROUTING);
+        assert!(
+            routing.contains("End of session: journal line (≤5 lines, links not content)."),
+            "{routing}"
+        );
+        assert!(routing.contains("wrong line = journal line"), "{routing}");
+        assert!(era_text(&root, ASK).contains("(or add the journal line)"));
+        assert!(era_text(&root, REQUIRE).contains("a journal entry linking these files"));
+        assert!(!routing.contains("Docs:"), "{routing}");
+        fs::write(
+            root.join(".docmeta.yml"),
+            "spec: docsys/0.5\nprofile: project\n",
+        )
+        .unwrap();
+        assert_eq!(era_text(&root, ROUTING), ROUTING);
+        let _ = fs::remove_dir_all(&root);
     }
 }

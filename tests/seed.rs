@@ -298,17 +298,12 @@ fn apply_lands_the_approved_rows_under_work_and_is_idempotent() {
         "{research}"
     );
     assert!(research.contains("## Learned\n\n> Offline reading is a requirement:\n> the device is used where there is no network.\n> — the builder, "), "{research}");
-    let journal = fs::read_to_string(docs.join("work/journal.md")).unwrap();
+    // the commit is history's own journal entry on docsys/0.5 (D-125)
+    assert!(!docs.join("work/journal.md").exists());
     assert!(
-        journal.contains(&format!(
-            "## 2026-08-02 - weather screen born\n- git: {sha}"
-        )),
-        "{journal}"
-    );
-    let heads: Vec<&str> = journal.lines().filter(|l| l.starts_with("## ")).collect();
-    assert!(
-        heads.len() >= 2 && heads[1].starts_with("## 2026-08-02"),
-        "newest first: {heads:?}"
+        done.iter()
+            .any(|d| d == &format!("journal: {sha} is history's own entry (D-125)")),
+        "{done:?}"
     );
     let pm = fs::read_to_string(docs.join("work/postmortems/caps-stale.md")).unwrap();
     assert!(
@@ -345,7 +340,6 @@ fn apply_lands_the_approved_rows_under_work_and_is_idempotent() {
     git(&repo, &["commit", "-q", "-m", "docs: seeded"]);
     let before: Vec<String> = [
         "work/research/weather.md",
-        "work/journal.md",
         "work/postmortems/caps-stale.md",
         "work/debt/geocoder-attribution-missing.md",
         "work/questions/is-the-7-day-strip-a-product-decision.md",
@@ -354,10 +348,14 @@ fn apply_lands_the_approved_rows_under_work_and_is_idempotent() {
     .map(|r| fs::read_to_string(docs.join(r)).unwrap())
     .collect();
     let again = docsys::seed::apply(&repo, &docs, &plan, false).unwrap();
-    assert!(again.iter().all(|d| d.contains("already")), "{again:?}");
+    assert!(
+        again
+            .iter()
+            .all(|d| d.contains("already") || d.contains("history's own")),
+        "{again:?}"
+    );
     let after: Vec<String> = [
         "work/research/weather.md",
-        "work/journal.md",
         "work/postmortems/caps-stale.md",
         "work/debt/geocoder-attribution-missing.md",
         "work/questions/is-the-7-day-strip-a-product-decision.md",

@@ -35,14 +35,16 @@ auto    pins               docs/reference/refresh.md  `src/auth.rs#refresh_token
 auto    ledger-separators  docs/work/debt.md  work/debt.md line 3
 auto    ledgers            docs/work/debt.md  1 open item(s) into work/debt/; the ledger goes (D-124)
 auto    ledgers            docs/work/questions.md  no open item; the ledger goes (D-124)
+auto    journal            docs/work/journal.md  → docs/_archive/journal/journal.md, as written; the journal is history from here on (D-125)
 manual  code-citations     src/auth.rs:8  `doc: expiry` sits mid-comment: from 0.5 it is prose (R-072) — move it to the start of its comment, or leave it as prose
 info    raw-records        docs/raw/  1 record(s): from 0.5 a record layer — their dangling references are reported, an edited record stops the commit (R-023)
 auto    spec-line          docs/.docmeta.yml  `spec: docsys/0.4` → `spec: docsys/0.5`
 auto    pin                docs/.docsys-version  no pin → `0.16.0`: every docsys call here runs it
--- 21 automatic, 5 for a person, 1 for information
-judged by docsys/0.5 as the tree is now: 4 new finding(s), 0 gone — the steps below clear their part
+-- 22 automatic, 5 for a person, 1 for information
+judged by docsys/0.5 as the tree is now: 5 new finding(s), 0 gone — the steps below clear their part
 + WARN R-050 reference/expiry.md [updated] `updated:` is not kept on docsys/0.5 — a page's date is its last content change in history; `docsys upgrade --apply` removes the line
 + WARN R-050 reference/refresh.md [updated] `updated:` is not kept on docsys/0.5 — a page's date is its last content change in history; `docsys upgrade --apply` removes the line
++ WARN R-100 work/journal.md [legacy] a docsys/0.4 journal file on a docsys/0.5 tree, whose journal is history — `docsys upgrade --apply` moves it under `_archive/journal/` (D-125)
 + WARN R-108 work/debt.md [legacy] a docsys/0.4 ledger on a docsys/0.5 tree — `docsys upgrade --apply` moves its items into work/debt/ (D-124)
 + WARN R-108 work/questions.md [legacy] a docsys/0.4 ledger on a docsys/0.5 tree — `docsys upgrade --apply` moves its items into work/questions/ (D-124)
 
@@ -70,7 +72,7 @@ judged by docsys/0.5 as the tree is now: 4 new finding(s), 0 gone — the steps 
 # .claude/commands/docsys-sync.md
 --- .claude/commands/docsys-sync.md
 +++ .claude/commands/docsys-sync.md
-@@ -1,17 +1,17 @@
+@@ -1,19 +1,20 @@
  ---
 -description: Scan code↔doc drift and un-graduated done work; propose debt items as a diff
 +description: Scan code↔doc drift and un-graduated done work; propose debt items
@@ -88,9 +90,25 @@ judged by docsys/0.5 as the tree is now: 4 new finding(s), 0 gone — the steps 
     include both outputs (one line each if green). Freshness errors are drift
 -   by definition: a stale pin names the region that moved, `updated:` behind
 -   history names a hand edit, an untouched draft names abandonment.
+-2. Drift suspects: `docsys seed plan --repo . --root docs --since <date of
+-   the newest journal entry>` — every feature history touched since, with
 +   by definition: a stale pin names the region that moved, an untouched draft
 +   names abandonment.
- 2. Drift suspects: `docsys seed plan --repo . --root docs --since <date of
-    the newest journal entry>` — every feature history touched since, with
++2. Drift suspects: `docsys seed plan --repo . --root docs --since <the date
++   of the last commit to docs/, `git log -1 --format=%cs -- docs/`>` — every
++   feature history touched since, with
     its coverage. For each covered feature with commits, `git show --stat
+    <sha> -- docs/`: did its page move with the code? Name the page that
+    should have changed. An uncovered feature with commits is a seeding
+@@ -21,7 +22,8 @@
+ 3. Graduation debt: `grep -rl '^status: done' docs/work/` — for each, what
+    still-true knowledge exists nowhere permanent? Say concretely which section
+    goes to which page (the R-049 table decides).
+-4. Propose debt items (`- [ ] <debt> -- deferred: <reason> -- repay when:
+-   <trigger>`) as an Edit diff; do not apply without approval.
++4. Propose debt items as the `docsys debt add <debt> --deferred <reason>
++   --repay-when <trigger>` lines that would write them; run none without
++   approval.
+ 
+ No findings → say so; never invent debt.
 

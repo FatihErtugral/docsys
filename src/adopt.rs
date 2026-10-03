@@ -43,6 +43,35 @@ fi
 # --- end of the docsys gate ---
 "#;
 
+/// The git commit-msg block on a docsys/0.5 tree: the message is the journal
+/// entry, and the one place a hook can read it (D-125). Under
+/// `commit_policy: require`, code with no documentation needs `Docs: <why>`.
+const MESSAGE_BLOCK: &str = r#"
+# --- docsys documentation gate ---------------------------------------------
+# docsys-template: @VERSION@
+@MODE@
+# The commit message is the journal entry: `docsys gate --message` reads it (D-125).
+if [ -z "${DOCSYS_SKIP:-}" ] && command -v docsys >/dev/null; then
+  docsys gate --repo . --root @ROOT@ --message "$1" || [ "@EXIT@" -eq 0 ] || exit 1
+fi
+# --- end of the docsys gate ---
+"#;
+
+fn message_block(root_rel: &str, hard: bool) -> String {
+    MESSAGE_BLOCK
+        .replace("@VERSION@", agents::TEMPLATE_VERSION)
+        .replace("@MODE@", if hard { HARD_MODE_LINE } else { WARN_MODE_LINE })
+        .replace("@EXIT@", if hard { "1" } else { "0" })
+        .replace("@ROOT@", root_rel)
+}
+
+/// Whether a docsys block is in warn mode.
+fn is_warn(block: &[&str]) -> bool {
+    block.iter().any(|l| {
+        l.contains(" || true") || l.trim() == "docsys_gate_exit=0" || l.contains("[ \"0\" -eq 0 ]")
+    })
+}
+
 fn gate_block(root_rel: &str, hard: bool) -> String {
     GATE_BLOCK
         .replace("@VERSION@", agents::TEMPLATE_VERSION)
@@ -237,7 +266,7 @@ fn ensure_docmeta(root: &Path, lang: &str) -> Result<&'static str, String> {
             ));
         }
         crate::migrate::init(root, lang)?;
-        return Ok("created via init (router, journal, debt)");
+        return Ok("created via init (router, templates)");
     }
     // Append only the missing required keys; the owner's lines stay verbatim.
     let mut prefix = String::new();
@@ -309,7 +338,14 @@ pub(crate) fn tracked_hooks_unset(repo: &Path) -> bool {
     !configured && repo.join(".githooks").is_dir()
 }
 
-pub(crate) fn ensure_git_gate(repo: &Path, root_rel: &str, clean: bool) -> &'static str {
+/// `message`: the tree reads its journal from history and its gate has a
+/// commit-msg half (D-125) — the tree's era, or the era an upgrade moves to.
+pub(crate) fn ensure_git_gate(
+    repo: &Path,
+    root_rel: &str,
+    clean: bool,
+    message: bool,
+) -> &'static str {
     // a base that is its own repository names itself `.`
     let root_rel = if root_rel.is_empty() { "." } else { root_rel };
     // A tracked .githooks/ is the project's own convention: when nothing
@@ -331,7 +367,37 @@ pub(crate) fn ensure_git_gate(repo: &Path, root_rel: &str, clean: bool) -> &'sta
     let Some(hooks_dir) = crate::git::hooks_dir(repo) else {
         return "failed";
     };
-    let hook = hooks_dir.join("pre-commit");
+    let pre = ensure_block(&hooks_dir, "pre-commit", clean, &|hard| {
+        gate_block(root_rel, hard)
+    });
+    if pre == "failed" || !message {
+        return pre;
+    }
+    // the commit-msg block takes the pre-commit block's mode
+    let pre_text = fs::read_to_string(hooks_dir.join("pre-commit")).unwrap_or_default();
+    let pre_lines: Vec<&str> = pre_text.lines().collect();
+    let hard = gate_span(&pre_lines)
+        .and_then(|(s, e)| pre_lines.get(s..=e))
+        .is_some_and(|b| !is_warn(b));
+    match ensure_block(&hooks_dir, "commit-msg", hard, &|h| {
+        message_block(root_rel, h)
+    }) {
+        "failed" => "failed",
+        "written" | "upgraded" | "hardened" if pre == "kept" => "upgraded",
+        _ => pre,
+    }
+}
+
+/// Write the docsys block into one git hook (idempotent): rewritten when it
+/// is not the binary's own, warn-mode hardened once `clean`, a hard block
+/// kept hard, a new block placed right below the shebang.
+fn ensure_block(
+    hooks_dir: &Path,
+    name: &str,
+    clean: bool,
+    render: &dyn Fn(bool) -> String,
+) -> &'static str {
+    let hook = hooks_dir.join(name);
     let existing = fs::read_to_string(&hook).unwrap_or_default();
     if existing.contains(GATE_MARKER) {
         // The block in place is rewritten when it is not the binary's own:
@@ -342,11 +408,9 @@ pub(crate) fn ensure_git_gate(repo: &Path, root_rel: &str, clean: bool) -> &'sta
             return "kept";
         };
         let old_block = lines.get(s0..=e0).unwrap_or(&[]);
-        let was_warn = old_block
-            .iter()
-            .any(|l| l.contains(" || true") || l.trim() == "docsys_gate_exit=0");
+        let was_warn = is_warn(old_block);
         let hard = clean || !was_warn;
-        let fresh = gate_block(root_rel, hard);
+        let fresh = render(hard);
         let fresh_lines: Vec<&str> = fresh.trim_matches('\n').lines().collect();
         if old_block == fresh_lines.as_slice() {
             return "kept";
@@ -362,7 +426,7 @@ pub(crate) fn ensure_git_gate(repo: &Path, root_rel: &str, clean: bool) -> &'sta
             (Ok(()), false) => "upgraded",
         };
     }
-    let block = gate_block(root_rel, clean);
+    let block = render(clean);
     // The block goes right below the shebang, never at the end: an existing
     // hook usually ends in `exec` or `exit`, and a block appended below either
     // is dead code that looks installed — found live, twice (doctor's check).
@@ -385,7 +449,7 @@ pub(crate) fn ensure_git_gate(repo: &Path, root_rel: &str, clean: bool) -> &'sta
         t.push('\n');
         t
     };
-    if fs::create_dir_all(&hooks_dir).is_err() {
+    if fs::create_dir_all(hooks_dir).is_err() {
         return "failed";
     }
     if fs::write(&hook, text).is_err() {
@@ -529,7 +593,8 @@ pub fn run_placed(
     // see it (inside the repository: pins and history included), warn-mode
     // while it carries debt (D-072)
     let clean = gate_clean(root, repo);
-    let gate = ensure_git_gate(repo, &root_rel, clean);
+    let message = crate::era::Era::at(root).journal_from_history();
+    let gate = ensure_git_gate(repo, &root_rel, clean, message);
     let mode = if clean {
         "hard"
     } else {
@@ -992,19 +1057,32 @@ fn gate_span(lines: &[&str]) -> Option<(usize, usize)> {
 /// binary writes, its mode kept — `None` when there is no block. For `docsys
 /// upgrade`'s plan, which rewrites a block behind the binary and never changes
 /// its mode.
-pub(crate) fn gate_current(repo: &Path, root_rel: &str) -> Option<bool> {
+pub(crate) fn gate_current(repo: &Path, root_rel: &str, message: bool) -> Option<bool> {
     let root_rel = if root_rel.is_empty() { "." } else { root_rel };
     let hook = gate_hooks_dir(repo)?.join("pre-commit");
     let existing = fs::read_to_string(hook).ok()?;
     let lines: Vec<&str> = existing.lines().collect();
     let (s0, e0) = gate_span(&lines)?;
     let old = lines.get(s0..=e0)?;
-    let was_warn = old
-        .iter()
-        .any(|l| l.contains(" || true") || l.trim() == "docsys_gate_exit=0");
+    let was_warn = is_warn(old);
     let fresh = gate_block(root_rel, !was_warn);
     let fresh_lines: Vec<&str> = fresh.trim_matches('\n').lines().collect();
-    Some(old == fresh_lines.as_slice())
+    if old != fresh_lines.as_slice() {
+        return Some(false);
+    }
+    // a docsys/0.5 tree's gate has its commit-msg half too (D-125)
+    if !message {
+        return Some(true);
+    }
+    let msg = fs::read_to_string(gate_hooks_dir(repo)?.join("commit-msg")).unwrap_or_default();
+    let mlines: Vec<&str> = msg.lines().collect();
+    let fresh = message_block(root_rel, !was_warn);
+    let fresh_lines: Vec<&str> = fresh.trim_matches('\n').lines().collect();
+    Some(
+        gate_span(&mlines)
+            .and_then(|(s, e)| mlines.get(s..=e))
+            .is_some_and(|b| b == fresh_lines.as_slice()),
+    )
 }
 
 #[cfg(test)]

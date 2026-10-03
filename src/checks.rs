@@ -1798,6 +1798,25 @@ fn check_router_and_orphans(tree: &DocTree, r: &mut Report) {
     }
 }
 
+/// R-100 on a docsys/0.5 tree (D-125): the journal is history, so a journal
+/// file under `work/` is one a branch from before the move still wrote; it is
+/// named with the command that moves it under `_archive/journal/`.
+fn check_legacy_journal(tree: &DocTree, r: &mut Report) {
+    for page in tree.pages.iter().filter(|p| {
+        p.kind == Kind::ListFile
+            && (p.rel == "work/journal.md" || p.rel.starts_with("work/journal/"))
+    }) {
+        r.findings.push(Finding::warn(
+            R100,
+            &page.rel,
+            "legacy",
+            "a docsys/0.4 journal file on a docsys/0.5 tree, whose journal is history — \
+             `docsys upgrade --apply` moves it under `_archive/journal/` (D-125)"
+                .to_string(),
+        ));
+    }
+}
+
 fn check_journal(tree: &DocTree, r: &mut Report) {
     let mut inspected = 0usize;
     for page in &tree.pages {
@@ -2465,7 +2484,11 @@ pub fn run_with(tree: &DocTree, ctx: &Context) -> Report {
     check_doc_refs(tree, &mut r);
     check_paths(tree, &mut r);
     check_router_and_orphans(tree, &mut r);
-    check_journal(tree, &mut r);
+    if crate::era::Era::of(tree).journal_from_history() {
+        check_legacy_journal(tree, &mut r);
+    } else {
+        check_journal(tree, &mut r);
+    }
     if crate::era::Era::of(tree).item_files() {
         check_item_files(tree, &mut r);
     } else {

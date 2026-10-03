@@ -86,6 +86,38 @@ fn build_repo(name: &str) -> PathBuf {
     repo
 }
 
+/// A docsys/0.4 tree as 0.15.1 kept it: its journal in `work/journal.md`.
+fn build_repo04(name: &str) -> PathBuf {
+    let repo = build_repo(name);
+    let dm = repo.join("docs/.docmeta.yml");
+    fs::write(
+        &dm,
+        fs::read_to_string(&dm)
+            .unwrap()
+            .replace("spec: docsys/0.5", "spec: docsys/0.4"),
+    )
+    .unwrap();
+    fs::create_dir_all(repo.join("docs/work")).unwrap();
+    fs::write(
+        repo.join("docs/work/journal.md"),
+        "# Journal\n\n## 2026-08-16 - initialized\n- documentation tree created\n",
+    )
+    .unwrap();
+    git(&repo, &["add", "-A"]);
+    git(&repo, &["commit", "-q", "-m", "a 0.4 tree"]);
+    repo
+}
+
+/// A documentation change: a page about the entry point.
+fn write_page(repo: &Path) {
+    fs::create_dir_all(repo.join("docs/reference")).unwrap();
+    fs::write(
+        repo.join("docs/reference/entry.md"),
+        "---\nid: entry\ntype: reference\n---\nThis page states what the entry point does; read it before changing it.\n",
+    )
+    .unwrap();
+}
+
 #[test]
 fn non_commit_commands_pass_untouched() {
     let repo = build_repo("noncommit");
@@ -137,12 +169,7 @@ fn code_without_docs_asks_once_then_proceeds() {
 fn staged_docs_answer_the_question_silently() {
     let repo = build_repo("answered");
     fs::write(repo.join("main.rs"), "fn main() {}\n").unwrap();
-    fs::write(
-        repo.join("docs/work/journal.md"),
-        "# Journal\n\n## 2026-08-16 - initialized\n- documentation tree created\n\n\
-         ## 2026-08-16 - main added\n- entry point landed\n",
-    )
-    .unwrap();
+    write_page(&repo);
     git(&repo, &["add", "-A"]);
     let (code, err) = run_hook(&repo, commit_payload(), &[]);
     assert_eq!(code, 0, "{err}");
@@ -213,12 +240,7 @@ fn stop_reminder_sees_code_committed_but_not_pushed() {
     assert!(err.contains("no documentation"), "{err}");
     assert!(err.contains("not yet pushed"), "{err}");
     // a docs commit in the same unpushed range answers it
-    fs::write(
-        repo.join("docs/work/journal.md"),
-        "# Journal\n\n## 2026-08-16 - initialized\n- documentation tree created\n\n\
-         ## 2026-08-16 - main added\n- entry point landed\n",
-    )
-    .unwrap();
+    write_page(&repo);
     git(&repo, &["add", "-A"]);
     git(&repo, &["commit", "-q", "-m", "docs"]);
     let (_, err) = run_stop(&repo);
@@ -227,7 +249,7 @@ fn stop_reminder_sees_code_committed_but_not_pushed() {
 
 #[test]
 fn stop_reminder_asks_for_the_journal_line_when_only_a_draft_moved() {
-    let repo = build_repo("stop-journal");
+    let repo = build_repo04("stop-journal");
     with_upstream(&repo);
     // code moved and a research draft moved with it — the old reminder read
     // "documentation changed" and stayed silent; the session's record, the
@@ -510,11 +532,7 @@ fn a_staged_seed_plan_blocks_the_commit_and_names_the_way_out() {
         "# head: abc1234\nresearch\tsync\t-\n",
     )
     .unwrap();
-    fs::write(
-        repo.join("docs/work/journal.md"),
-        "# Journal\n\n## 2026-08-16 - initialized\n- documentation tree created\n\n## 2026-09-03 - seeded\n- rows landed\n",
-    )
-    .unwrap();
+    write_page(&repo);
     git(&repo, &["add", "-A"]);
     let (code, err) = run_hook(&repo, commit_payload(), &[]);
     assert_eq!(code, 2, "{err}");
@@ -586,15 +604,10 @@ fn under_require_the_gate_refuses_every_time_and_a_bypass_leaves_debt() {
     // the same commit again: still refused — a refusal, not a question
     let (code, err) = run_hook(&repo, commit_payload(), &[]);
     assert_eq!(code, 2, "{err}");
-    // a journal entry answers it
-    fs::write(
-        repo.join("docs/work/journal.md"),
-        "# Journal\n\n## 2026-08-16 - initialized\n- documentation tree created\n\n\
-         ## 2026-09-03 - main added\n- feature: the entry point ([[work/journal]])\n",
-    )
-    .unwrap();
-    git(&repo, &["add", "-A"]);
-    let (code, err) = run_hook(&repo, commit_payload(), &[]);
+    // a `Docs:` line in the message answers it: the commit is the journal
+    // entry (D-125)
+    let documented = r#"{"tool_name":"Bash","tool_input":{"command":"git commit -m 'main added' -m 'Docs: the entry point; no page changes'"}}"#;
+    let (code, err) = run_hook(&repo, documented, &[]);
     assert_eq!(code, 0, "{err}");
     git(&repo, &["commit", "-q", "-m", "main with its journal line"]);
     // a bypass under require leaves a debt item
@@ -637,12 +650,7 @@ fn under_require_the_end_of_a_turn_holds_once_until_the_work_is_recorded() {
     assert_eq!(code, 0, "{err}");
     assert!(err.contains("changed code but no documentation"), "{err}");
     // the work recorded: no hold
-    fs::write(
-        repo.join("docs/work/journal.md"),
-        "# Journal\n\n## 2026-08-16 - initialized\n- documentation tree created\n\n\
-         ## 2026-09-03 - main added\n- improvement: the entry point\n",
-    )
-    .unwrap();
+    write_page(&repo);
     let (code, err) = run_stop_with(&repo, r#"{"session_id":"s1","stop_hook_active":false}"#);
     assert_eq!(code, 0, "{err}");
     // under the default policy the same state only reminds
@@ -700,4 +708,34 @@ fn the_first_turn_names_what_the_tree_holds() {
         text.contains("improvement (refactor, performance, cleanup)"),
         "{text}"
     );
+}
+
+/// D-125: on docsys/0.5 the commit message is the journal entry, so an
+/// unpushed code-only commit that says why with `Docs:` is recorded.
+#[test]
+fn stop_reminder_reads_a_docs_line_in_an_unpushed_commit() {
+    let repo = build_repo("stop-docs-line");
+    with_upstream(&repo);
+    fs::write(repo.join("main.rs"), "fn main() {}\n").unwrap();
+    git(&repo, &["add", "main.rs"]);
+    git(&repo, &["commit", "-q", "-m", "code only"]);
+    let (_, err) = run_stop(&repo);
+    assert!(err.contains("no documentation"), "{err}");
+    assert!(err.contains("`Docs: <why>`"), "{err}");
+    fs::write(repo.join("main.rs"), "fn main() { run() }\n").unwrap();
+    git(&repo, &["add", "main.rs"]);
+    git(
+        &repo,
+        &[
+            "commit",
+            "-q",
+            "-m",
+            "run on start",
+            "-m",
+            "Docs: the entry point only calls run",
+        ],
+    );
+    let (code, err) = run_stop(&repo);
+    assert_eq!(code, 0);
+    assert!(err.is_empty(), "{err}");
 }

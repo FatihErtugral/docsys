@@ -27,6 +27,7 @@ pub mod graph;
 pub mod hook;
 pub mod inbox;
 pub mod items;
+pub mod journal;
 pub mod locator;
 pub mod lookup;
 pub mod migrate;

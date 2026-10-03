@@ -12,6 +12,7 @@ verified-record	auto/manual	tracked	verified_blocks and verified_sources where t
 pins	auto/manual	tracked	a pin's hash to its acknowledgement where it holds and the declaration reads the same region; every other pin listed (D-106, D-119)
 ledger-separators	auto	tracked	em-dash field markers to ASCII (D-108)
 ledgers	auto	tracked	each open debt and question into its own file, its line verbatim; closed items and other text frozen under _archive/; a re-run absorbs what an older branch appended (D-124)
+journal	auto	tracked	work/journal.md and its slices moved byte for byte under _archive/journal/, links retargeted; the journal is history from here on (D-125)
 code-citations	manual	-	a doc: citation 0.15 read mid-comment that 0.5 reads as prose, listed (D-107)
 raw-records	info	-	what a project's raw/ becomes (D-112)
 spec-line	auto	tracked	spec: docsys/0.4 → docsys/0.5, last of the move (D-118)

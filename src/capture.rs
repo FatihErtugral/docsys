@@ -298,6 +298,32 @@ pub fn ledger_fix_with(root: &Path, write: bool) -> Result<String, String> {
     Ok(done.join("\n"))
 }
 
+/// An entry's title and body lines from the caller's text: the explicit title,
+/// or the first sentence. A single sentence with no title of its own IS the
+/// title: repeating it as the first line wrote every one-line entry twice.
+fn entry_parts(text: &str, title: Option<&str>) -> (String, Vec<String>) {
+    let explicit = title.map(str::trim).filter(|t| !t.is_empty());
+    let title = explicit.map(str::to_string).unwrap_or_else(|| {
+        let first = text.lines().next().unwrap_or("").trim();
+        first
+            .split_once(". ")
+            .map_or(first, |(a, _)| a)
+            .trim_end_matches('.')
+            .to_string()
+    });
+    let text_is_title =
+        explicit.is_none() && text.lines().count() == 1 && text.trim_end_matches('.') == title;
+    let lines = if text_is_title {
+        Vec::new()
+    } else {
+        text.lines()
+            .map(|l| l.trim().trim_start_matches("- ").to_string())
+            .filter(|l| !l.is_empty())
+            .collect()
+    };
+    (title, lines)
+}
+
 /// `journal add`: one entry at its date (today by default; a retrospective
 /// date lands where R-104 puts it), the caller's lines as the body, an
 /// optional wiki-link as the pointer R-101 asks for.
@@ -312,33 +338,25 @@ pub fn journal_add(
     if text.is_empty() {
         return Err("nothing to add".into());
     }
+    // on a docsys/0.5 tree the journal is history: the entry is the commit
+    // message, handed back for the commit to carry (D-125)
+    if crate::era::Era::at(root).journal_from_history() {
+        if date.is_some() {
+            return Err("on docsys/0.5 an entry's date is its commit's (R-100)".into());
+        }
+        let (title, lines) = entry_parts(text, title);
+        let lines: Vec<&str> = lines.iter().map(String::as_str).collect();
+        return Ok(crate::journal::message(&title, &lines, link));
+    }
     let date = match date {
         Some(d) if crate::model::is_iso_date(d) => d.to_string(),
         Some(d) => return Err(format!("`{d}` is not a YYYY-MM-DD date")),
         None => today(),
     };
-    let explicit = title.map(str::trim).filter(|t| !t.is_empty());
-    let title = explicit.map(str::to_string).unwrap_or_else(|| {
-        let first = text.lines().next().unwrap_or("").trim();
-        first
-            .split_once(". ")
-            .map_or(first, |(a, _)| a)
-            .trim_end_matches('.')
-            .to_string()
-    });
-    // A single sentence with no title of its own IS the title: repeating it
-    // as the first bullet wrote every one-line entry twice. R-101 blesses a
-    // one-line entry; the links, when given, are its body.
-    let text_is_title =
-        explicit.is_none() && text.lines().count() == 1 && text.trim_end_matches('.') == title;
+    let (title, lines) = entry_parts(text, title);
     let mut entry = format!("## {date} - {title}");
-    if !text_is_title {
-        for line in text.lines() {
-            let l = line.trim();
-            if !l.is_empty() {
-                entry.push_str(&format!("\n- {}", l.trim_start_matches("- ")));
-            }
-        }
+    for l in &lines {
+        entry.push_str(&format!("\n- {l}"));
     }
     if let Some(l) = link.map(str::trim).filter(|l| !l.is_empty()) {
         let target = l.trim_end_matches(".md");
@@ -475,13 +493,44 @@ mod tests {
         root
     }
 
-    /// A docsys/0.4 tree, kept as 0.15.1 kept it (D-118).
+    /// A docsys/0.4 tree, kept as 0.15.1 kept it (D-118): its journal and
+    /// its debt ledger in place.
     fn tree04(name: &str) -> std::path::PathBuf {
         let root = tree(name);
         let meta = root.join(".docmeta.yml");
         let text = fs::read_to_string(&meta).unwrap();
         fs::write(&meta, text.replace("spec: docsys/0.5", "spec: docsys/0.4")).unwrap();
+        fs::create_dir_all(root.join("work")).unwrap();
+        fs::write(
+            root.join("work/journal.md"),
+            format!(
+                "# Journal\n\n## {} - initialized\n- documentation tree created\n",
+                today()
+            ),
+        )
+        .unwrap();
+        fs::write(root.join("work/debt.md"), "# Debt\n").unwrap();
         root
+    }
+
+    #[test]
+    fn on_a_0_5_tree_the_entry_is_the_commit_message_and_nothing_is_written() {
+        let root = tree("journal05");
+        let out = journal_add(
+            &root,
+            "Wire format settled. Details on the page.",
+            None,
+            None,
+            Some("reference/wire.md"),
+        )
+        .unwrap();
+        assert_eq!(
+            out,
+            "Wire format settled\n\nWire format settled. Details on the page.\n\nDocs: reference/wire\n"
+        );
+        assert!(!root.join("work/journal.md").exists());
+        assert!(journal_add(&root, "x", None, Some("2026-01-01"), None).is_err());
+        let _ = fs::remove_dir_all(&root);
     }
 
     #[test]
@@ -576,7 +625,7 @@ mod tests {
 
     #[test]
     fn journal_add_lands_at_its_date_with_a_pointer() {
-        let root = tree("journal");
+        let root = tree04("journal");
         let out = journal_add(
             &root,
             "Wire format settled. Details on the page.",

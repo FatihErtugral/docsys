@@ -280,9 +280,8 @@ fn the_git_gate_in_a_worktree_resolves_pins_at_the_top() {
     // with GIT_DIR exported and passes
     fs::write(wt.join("apps/x/src/main.rs"), "fn main() { let _ = 1; }\n").unwrap();
     fs::write(
-        wt.join("docs/work/journal.md"),
-        fs::read_to_string(wt.join("docs/work/journal.md")).unwrap()
-            + "\n## 2026-10-02 -- main touched\n\nA line.\n",
+        wt.join("docs/reference/main.md"),
+        "---\nid: main\ntype: reference\n---\nThis page states what main does; read it before changing it.\n",
     )
     .unwrap();
     ok(&wt.join("apps/x"), &["add", "-A", "."]);

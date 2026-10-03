@@ -280,6 +280,24 @@ pub fn run(repo: &Path, root: &Path, claude_dir: &Path) -> Diagnosis {
         ),
     }
 
+    // the commit message is the journal on docsys/0.5, and commit-msg is the
+    // one hook that reads it (D-125)
+    if crate::era::Era::at(root).journal_from_history() && !unset_gate {
+        let msg = fs::read_to_string(hooks_dir.join("commit-msg")).unwrap_or_default();
+        if msg.contains("docsys gate") && !dead_above(&msg, "docsys") {
+            push(&mut d, true, format!("{shown}/commit-msg gate reachable"));
+        } else {
+            push(
+                &mut d,
+                false,
+                format!(
+                    "no docsys block in {shown}/commit-msg — the message `commit_policy: require` \
+                     reads is never checked; `docsys upgrade --apply` writes it"
+                ),
+            );
+        }
+    }
+
     // 4. Which channels actually reach the model — stated, so nobody has to
     // rediscover it. (Harness: Claude Code semantics.)
     d.lines.push(

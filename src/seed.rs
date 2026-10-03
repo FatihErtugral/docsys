@@ -1384,6 +1384,10 @@ pub fn apply(
     };
     for row in &plan.rows {
         match row {
+            // the commit is the entry on docsys/0.5: history already holds it
+            Row::Journal { sha, .. } if crate::era::Era::at(root).journal_from_history() => {
+                done.push(format!("journal: {sha} is history's own entry (D-125)"));
+            }
             Row::Journal { date, sha, title } => {
                 let path = root.join("work/journal.md");
                 let journal =

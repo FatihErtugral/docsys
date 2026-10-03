@@ -11,8 +11,9 @@ approval gates. Never re-implement what a command does; never skip a gate.
 ## Always
 
 - The work has a type — feature, bug, improvement, research — and a record:
-  a work file under `work/<category>/` or, at minimum, a journal entry that
-  links the files and says why. Under `commit_policy: require` (D-093) the
+  a work file under `work/<category>/` or, at minimum, a commit message that
+  says why — the journal is history, and a commit that changes no page
+  carries `Docs: <why>` (D-125). Under `commit_policy: require` (D-093) the
   gate refuses a commit without it and the end of a turn holds until it is
   written: the session may be gone when the commit lands, so the knowledge
   is captured while the session is here.

@@ -33,8 +33,8 @@ flowchart LR
     subgraph WORK["work/ — flowing layer (has status, ends)"]
         direction TB
         F["features/ · postmortems/ · research/"]
-        J["journal.md<br/>entries ≤ 5 lines"]
-        J -->|"over 500 lines"| S["journal/<br/>archive slices"]
+        J["debt/ · questions/<br/>one file per open item"]
+        H["the journal: commit history<br/>docsys journal"]
     end
 
     subgraph PERM["permanent layer (id: is the contract)"]
@@ -48,7 +48,7 @@ flowchart LR
     SKILL["executable skill"]
 
     F ==>|"graduate — byte-exact,<br/>never rewritten"| PERM
-    CODE -->|"doc: &lt;id&gt;<br/>never a path"| PERM
+    CODE -.->|"optional: doc: &lt;id&gt;<br/>never a path"| PERM
     PERM -.->|"verifies: SHA-256 pin (§11)<br/>lint fails when the region moves"| CODE
     HOW -->|"compile (complete steps only)<br/>skill pinned to the page's hash"| SKILL
 ```
@@ -134,7 +134,7 @@ flowchart LR
     SI --> WORK["agent works<br/>judgment via docsys rules --procedures"]
     WORK -- "edits docs page" --> PU["post-edit hook<br/>demotes a verified page it changed"]
     WORK -- "commit" --> PC["pre-commit hook<br/>docsys gate"]
-    WORK -- "turn ends" --> ST["stop hook<br/>code moved, docs or journal didn't?<br/>(tree + unpushed commits) → remind"]
+    WORK -- "turn ends" --> ST["stop hook<br/>code moved, no docs and no Docs: line?<br/>(tree + unpushed commits) → remind"]
     PC -- "lint errors" --> BLOCK[BLOCKED — fix first]
     PC -- "code moved, docs didn't" --> ASK["asks ONCE — the same<br/>commit again proceeds"]
     PC -- "docs moved too" --> DONE([commit])
@@ -151,8 +151,8 @@ hooks warn and never block: a wall gets hooks disabled, a question does not
 require` in `.docmeta.yml` (R-209, D-093). Then a commit that touches code with
 no documentation change is refused every time — by the relay in the session
 and by the git hook at the terminal — until the work is recorded (a work file
-under `work/<category>/`, or at minimum a journal entry that links the files
-and says why); and the end of a turn holds the session once when code changed
+under `work/<category>/`, or at minimum a `Docs: <why>` line in the commit
+message, which the `commit-msg` hook reads); and the end of a turn holds the session once when code changed
 without its record, because the conversation that holds the reasons may be
 closed by the time the commit lands. `DOCSYS_SKIP=1` still bypasses, but under
 `require` it leaves a dated debt item — an undocumented commit is visible debt,
@@ -425,7 +425,8 @@ flowchart LR
 | `docsys adopt [--repo .] [--root docs] [--lang <code>] [--obsidian] [--rules-file <path>] [--report-dir <dir> \| --no-report] [--ci-runner <labels>] [--ci-install cargo\|release] [--ci-sha256 <target>=<hex>,…] [--verify-on-approval pull-request\|direct\|off]` | One-command integration: docmeta (or the full init skeleton on a fresh project) with the tree's `namespace:`, agent assets, `settings.json` (written when absent, merged into when present — D-086), AGENTS.md managed block, the git pre-commit gate (hard when lint and `refs` are both clean, warn-mode while the tree or the code carries debt, hardened by a later run — D-088), `.github/workflows/docsys.yml` when `.github/` exists, and an `ADOPTION.md` report whose checklist carries every judgment call. Idempotent. |
 | `docsys seed plan [--target <feature>] [--since <date>] [--memory <dir>]` · `docsys seed apply --plan <file> [--force]` · `docsys seed gaps [--since <date>]` | Brownfield seeding: evidence from history and code, refused when a page covers the feature; the approved rows land under `work/` as tokens and verbatim quotations (D-053, D-058). |
 | `docsys debt add <debt> --deferred <reason> --repay-when <trigger>` · `docsys debt close <item> --note <how>` · `docsys question add <question> [--context <c>]` · `docsys question close <item> --answer <line>` | Debt and questions, one file per open item (R-108, D-124): two branches that each add one never touch the same file; closing removes the file and prints the `Resolved:` or `Answered:` line its commit carries. On a docsys/0.4 tree they write the one-file ledgers, as before. |
-| `docsys journal add <text> [--title <t>] [--date <d>] [--link <path>]` · `docsys page new <kind> <id> [--title <t>] [--unverified]` | Capture, mechanical: an entry at its date; a page from its template (D-063); `--unverified` writes `verification: unverified` and `sources: []` on a permanent page — a page from evidence, for a maintainer to verify (R-208, D-092). |
+| `docsys journal [--since <date>]` · `docsys journal add <text> [--title <t>] [--link <path>]` | The journal is the commit history (§10, D-125): every commit that changes the docs or carries `Docs:`, newest first, then a docsys/0.4 tree's journal frozen under `_archive/journal/`. `journal add` prints the commit message the entry is; it writes nothing. On a docsys/0.4 tree it writes `work/journal.md`, as before. |
+| `docsys page new <kind> <id> [--title <t>] [--unverified]` | Capture, mechanical: an entry at its date; a page from its template (D-063); `--unverified` writes `verification: unverified` and `sources: []` on a permanent page — a page from evidence, for a maintainer to verify (R-208, D-092). |
 | `docsys backlinks <path\|id> [--repo .]` · `docsys mentions [<path\|id>]` · `docsys graph [--format dot\|json\|jsoncanvas] [--repo .]` | Derived navigation, never written into a page: who points at a page (code included), and for a code file the pages that pin it or rest on it; who names it without linking; the whole map (D-064, D-121). |
 | `docsys adopt --obsidian` | The docs root as an Obsidian vault: absolute links, `_archive/` ignored, `_templates/` as templates, a `stale-work.base` view (D-065). Caveats: `aliases:` means retired ids here; keep Linter's `yaml-timestamp` off. |
 | `docsys lint [--root docs] [--repo <dir>] [--json]` | Full tree validation: frontmatter, ids, links, journal discipline, templates, list grammars — both profiles. Inside a git repository (`--repo`, or detected) also the freshness rules: `verifies:` pins recomputed (R-111), drafts untouched beyond `stale_active_days` (R-085). Errors exit 1, warnings don't. |
@@ -440,7 +441,7 @@ flowchart LR
 | `docsys status [--root .] [--repo <dir>] [--json]` | The digest an assistant reads first: inbox, pages by state, open questions and debt, consumed namespaces and their fetch day, compiled skills, and lint's findings folded by rule. Derived on every run, never stored (D-080). |
 | `docsys compile <howto> [--root docs] [--dir .claude] [--force]` | A howto whose steps are complete becomes an executable skill: the page body byte for byte under `.claude/skills/<id>/`, pinned to the page's content hash. Lint fails while the page has moved since the compile (R-094, R-095, D-073). |
 | `docsys pin <page> <path> [--symbol <s>]` · `docsys pin --refresh <page>` | Pin a permanent page to a code region — the whole file or one symbol's declaration — with its SHA-256, acknowledged beside the page under `.verifies/` (on the page in a docsys/0.4 tree; §11, D-119); refresh every pin after re-reading the page. Lint fails while a pinned region has moved. On a docsys/0.5 tree `--block <n>` binds the pin to the block it backs, as `verify --show` numbers them (R-212). |
-| `docsys init [--root docs] [--lang <code>] [--profile project\|knowledge-base]` | Greenfield skeleton. `project`: router, journal, debt. `knowledge-base`: the record layer (`raw/inbox/`) and the wiki root. |
+| `docsys init [--root docs] [--lang <code>] [--profile project\|knowledge-base]` | Greenfield skeleton. `project`: the router, its type directories routed, and `_templates/`. `knowledge-base`: the record layer (`raw/inbox/`) and the wiki root. |
 | `docsys migrate inventory [--root <dir>] [--repo <dir>]` · `docsys migrate apply --plan <file> [--root <dir>] [--lang <code>] [--repo <dir>]` | Brownfield adoption: evidence-rich plan → approved mapping → mechanical move with link rewriting on both sides of the docs boundary. |
 | `docsys refs --repo <dir> [--root <dir>] [--json]` | Validate every `doc: <id>` in the code base against the tree (typos stop being invisible). |
 | `docsys graduate plan <work-file> [--root <dir>]` · `docsys graduate apply --plan <file> [--root <dir>] [--force]` | Byte-exact block movement from work files to the permanent layer; `--force` overrides the dirty-tree refusal. |
@@ -482,8 +483,8 @@ on your PATH.
 `adopt` is idempotent — re-run it after an upgrade and only what changed is
 rewritten. It lands:
 
-- `docs/` — the skeleton when none exists (`.docmeta.yml`, router, journal,
-  debt, questions, `_templates/`); an existing tree is left as it is
+- `docs/` — the skeleton when none exists (`.docmeta.yml`, router,
+  `_templates/`); an existing tree is left as it is
 - `.claude/hooks/`, `.claude/commands/`, `.claude/skills/` — four relay hooks,
   `/docsys-sync`, `/docsys-seed`, `/docsys-interview`, `/docsys-upgrade`, the docsys and export
   skills
@@ -528,7 +529,7 @@ existing tree, a personal knowledge base — is a guided tour below.
 
 ```sh
 mkdir demo && cd demo && git init -q
-docsys init --root docs      # skeleton: .docmeta.yml, router, journal, debt, questions, _templates/
+docsys init --root docs      # skeleton: .docmeta.yml, router, _templates/
 docsys lint --root docs      # green
 ```
 
@@ -589,13 +590,13 @@ questions, one at a time, nothing written until confirmed — and what the
 builder adds is what history cannot say: why, what is still open, what comes
 next. `docsys seed apply --plan SEED.tsv` then lands the approved rows under
 `work/` as tokens and verbatim quotations (a reserved research page, the
-builder's answers, dated journal entries, a postmortem quoting its commit,
+builder's answers, a postmortem quoting its commit,
 debt and question items). `/docsys-interview` runs it feature by feature,
 resumable. A feature a page already covers is refused by name; from there the
 hooks keep it current.
 
 When nobody can answer — a repository whose people are gone — the rows that
-need no memory still land on your word (`research`, `journal`, `postmortem`,
+need no memory still land on your word (`research`, `postmortem`,
 `question`), and the session may author one page per feature:
 `explanation/<feature>-overview`, `unverified`, from the evidence, routed —
 readable on day one, verified by a maintainer later (D-092).
@@ -603,7 +604,7 @@ readable on day one, verified by a maintainer later (D-092).
 ### 4 · Capture and navigation
 
 ```sh
-docsys journal add "Wire format settled; details on the page" --link reference/wire
+docsys journal add "Wire format settled; details on the page" --link reference/wire | git commit -F -
 docsys debt close 3 --note "measured twice, held"     # the item's file leaves; its commit carries Resolved:
 docsys page new feature dark-mode                      # from _templates/feature.md
 docsys backlinks token-ttl --repo .                    # pages and code pointing at a page
