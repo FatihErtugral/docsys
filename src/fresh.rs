@@ -842,17 +842,14 @@ pub fn check_history(tree: &DocTree, repo: &Path, h: &History, r: &mut Report) {
     // every page that carries a verification answers to the same contract,
     // in either profile (§3.1 for the base, §3.2 for a project — D-092)
     let era = crate::era::Era::of(tree);
-    // a docsys/0.5 page's verification is history's, checked where it is read
-    // (D-126)
+    // a docsys/0.5 page's verification is history's, checked where it is read;
+    // a work file's `confirmed:` is still a maintainer's act (D-126)
     if era.verification_from_history() {
+        check_confirmed_authors(tree, repo, &prefix, r);
         return;
     }
-    check_verified_bodies(tree, repo, &prefix, era.anchored_verification(), r);
-    if era.record_window() {
-        check_record_authors(tree, repo, &prefix, r);
-    } else {
-        check_record_authors_04(tree, repo, &prefix, r);
-    }
+    check_verified_bodies(tree, repo, &prefix, r);
+    check_record_authors_04(tree, repo, &prefix, r);
 }
 
 /// The frontmatter fields that are bookkeeping, not content (§2.4): the
@@ -951,174 +948,66 @@ fn act_of(field: &str) -> Act {
     }
 }
 
-/// The verification record of a page text: the fields R-028 names, as values.
-fn record_of(text: &str) -> Vec<(String, crate::fm::Value)> {
-    crate::fm::parse(text)
-        .map(|fm| {
-            fm.fields
-                .into_iter()
-                .filter(|(k, _)| k == "verification" || k.starts_with("verified_"))
-                .collect()
-        })
-        .unwrap_or_default()
-}
-
-/// R-208's history half (D-092, D-102): when a maintainer entry carries an
-/// email, the maintainer's own act must be in the record's history.
-/// - `verified_by:` on a verified page: among the commits that changed the
-///   record since the body last changed, one is authored by that email or
-///   names it in a trailer. A bookkeeping commit that leaves the body as it
-///   was (a hash added, `sources:` rewritten) neither makes nor breaks it, and
-///   a squash merge keeps it through the host's `Co-authored-by:`.
-/// - `confirmed:` on a work file: the commit that introduced the line.
-///
-/// A record not yet in any commit is the gate's business, not history's.
-fn check_record_authors(tree: &DocTree, repo: &Path, prefix: &str, r: &mut Report) {
+/// R-208's history half for `confirmed:` (D-092): when a maintainer entry
+/// carries an email, the commit that recorded the line is that maintainer's
+/// act — authored by them, or naming them in a trailer (a host's squash keeps
+/// the squashed authors as `Co-authored-by:`). A page's verification is
+/// history's own on a docsys/0.5 tree (D-126); a line not yet committed is the
+/// gate's business.
+fn check_confirmed_authors(tree: &DocTree, repo: &Path, prefix: &str, r: &mut Report) {
     let maintainers = crate::checks::maintainer_handles(tree);
     if maintainers.iter().all(|m| m.email.is_none()) {
         return;
     }
-    let email_of = |value: &str| {
-        let who = crate::checks::record_handle(value);
-        maintainers
-            .iter()
-            .find(|m| m.handle == who)
-            .and_then(|m| m.email.clone())
-            .map(|e| (who, e))
-    };
     let mut inspected = 0usize;
-    let mut blobs = None;
-    for page in &tree.pages {
+    for page in tree.pages.iter().filter(|p| p.kind == Kind::Tracked) {
         let Some(fm) = &page.fm else { continue };
-        let repo_path = format!("{prefix}{}", page.rel);
-        match page.kind {
-            Kind::Tracked => {
-                let Some((who, email)) = fm
-                    .fields
-                    .get("confirmed")
-                    .and_then(Value::as_str)
-                    .and_then(email_of)
-                else {
-                    continue; // an unknown handle is checks.rs's finding; no email, nothing to compare
-                };
-                let Some(line) = page.text.lines().find(|l| l.starts_with("confirmed:")) else {
-                    continue;
-                };
-                inspected += 1;
-                let out = crate::git::cmd(repo)
-                    .args(["log", "--reverse", &format!("--format={ACT_FORMAT}"), "-S"])
-                    .arg(line)
-                    .arg("--")
-                    .arg(&repo_path)
-                    .output()
-                    .ok()
-                    .filter(|o| o.status.success());
-                let Some(first) = out.as_ref().and_then(|o| {
-                    String::from_utf8_lossy(&o.stdout)
-                        .lines()
-                        .next()
-                        .map(str::to_string)
-                }) else {
-                    continue; // not committed yet
-                };
-                let act = act_of(&first);
-                if !act.carries(&email) {
-                    r.findings.push(Finding::err(
-                        RuleId("R-208"),
-                        &page.rel,
-                        "confirmed",
-                        format!(
-                            "`confirmed:` names `{who}` but the commit that recorded it was authored by `{}`, not `{email}`, and names it in no trailer — the record must be the maintainer's own act (R-208)",
-                            act.author
-                        ),
-                    ));
-                }
-            }
-            Kind::Permanent => {
-                if fm.fields.get("verification").and_then(Value::as_str) != Some("verified") {
-                    continue;
-                }
-                let Some((who, email)) = fm
-                    .fields
-                    .get("verified_by")
-                    .and_then(Value::as_str)
-                    .and_then(email_of)
-                else {
-                    continue;
-                };
-                // newest first: each commit that touched the page, its act, and
-                // the page's blobs before and after it
-                let out = crate::git::cmd(repo)
-                    .args([
-                        "log",
-                        &format!("--format=@@{ACT_FORMAT}"),
-                        "--raw",
-                        "--no-abbrev",
-                        "--no-renames",
-                        "--",
-                        &repo_path,
-                    ])
-                    .output()
-                    .ok()
-                    .filter(|o| o.status.success());
-                let Some(out) = out else { continue };
-                let text = String::from_utf8_lossy(&out.stdout);
-                let mut commits: Vec<(Act, String, String)> = Vec::new();
-                let mut act = None;
-                for line in text.lines() {
-                    if let Some(a) = line.strip_prefix("@@") {
-                        act = Some(act_of(a));
-                    } else if let Some((meta, _)) =
-                        line.strip_prefix(':').and_then(|l| l.split_once('\t'))
-                    {
-                        let ids: Vec<&str> = meta.split(' ').collect();
-                        if let (Some(a), Some(old), Some(new)) =
-                            (act.take(), ids.get(2), ids.get(3))
-                        {
-                            commits.push((a, old.to_string(), new.to_string()));
-                        }
-                    }
-                }
-                let Some(b) = blobs.get_or_insert_with(|| crate::git::Blobs::open(repo)) else {
-                    continue;
-                };
-                // the record as committed must be the record on the page; one
-                // not yet committed is the gate's business
-                let head_text = commits.first().and_then(|(_, _, new)| b.read(new));
-                if head_text.as_deref().map(record_of) != Some(record_of(&page.text)) {
-                    continue;
-                }
-                inspected += 1;
-                let mut window: Vec<&Act> = Vec::new();
-                for (a, old, new) in &commits {
-                    let (o, n) = (b.read(old), b.read(new));
-                    let o_rec = o.as_deref().map(record_of).unwrap_or_default();
-                    let n_rec = n.as_deref().map(record_of).unwrap_or_default();
-                    if o_rec != n_rec {
-                        window.push(a);
-                    }
-                    let body =
-                        |t: &Option<String>| t.as_deref().map(|t| content_hash(&body_text(t)));
-                    if body(&o) != body(&n) {
-                        break; // the body changed here: the record's history starts no earlier
-                    }
-                }
-                // no record change since the body last changed: the verification
-                // predates the body, which is R-024's finding, not this one
-                if !window.is_empty() && !window.iter().any(|a| a.carries(&email)) {
-                    let authors: Vec<&str> = window.iter().map(|a| a.author.as_str()).collect();
-                    r.findings.push(Finding::err(
-                        RuleId("R-208"),
-                        &page.rel,
-                        "verified_by",
-                        format!(
-                            "`verified_by:` names `{who}`, but no commit that recorded the verification since the body last changed is theirs: authored by {} and naming `{email}` in no Co-authored-by:/Reviewed-by:/Approved-by: trailer — the vouching must be the maintainer's own act (R-208)",
-                            authors.join(", ")
-                        ),
-                    ));
-                }
-            }
-            _ => {}
+        let Some((who, email)) =
+            fm.fields
+                .get("confirmed")
+                .and_then(Value::as_str)
+                .and_then(|value| {
+                    let who = crate::checks::record_handle(value);
+                    maintainers
+                        .iter()
+                        .find(|m| m.handle == who)
+                        .and_then(|m| m.email.clone())
+                        .map(|e| (who, e))
+                })
+        else {
+            continue; // an unknown handle is checks.rs's finding; no email, nothing to compare
+        };
+        let Some(line) = page.text.lines().find(|l| l.starts_with("confirmed:")) else {
+            continue;
+        };
+        inspected += 1;
+        let out = crate::git::cmd(repo)
+            .args(["log", "--reverse", &format!("--format={ACT_FORMAT}"), "-S"])
+            .arg(line)
+            .arg("--")
+            .arg(format!("{prefix}{}", page.rel))
+            .output()
+            .ok()
+            .filter(|o| o.status.success());
+        let Some(first) = out.as_ref().and_then(|o| {
+            String::from_utf8_lossy(&o.stdout)
+                .lines()
+                .next()
+                .map(str::to_string)
+        }) else {
+            continue; // not committed yet
+        };
+        let act = act_of(&first);
+        if !act.carries(&email) {
+            r.findings.push(Finding::err(
+                RuleId("R-208"),
+                &page.rel,
+                "confirmed",
+                format!(
+                    "`confirmed:` names `{who}` but the commit that recorded it was authored by `{}`, not `{email}`, and names it in no trailer — the record must be the maintainer's own act (R-208)",
+                    act.author
+                ),
+            ));
         }
     }
     r.inspected.insert("record-authors", inspected);
@@ -1191,16 +1080,9 @@ fn check_record_authors_04(tree: &DocTree, repo: &Path, prefix: &str, r: &mut Re
 
 /// R-024 through history, for a record without blocks (written before 0.5):
 /// the body at `verified_rev` against the body now (D-077), and each consumed
-/// source's provenance then against now (D-082). A record with blocks carries
-/// its own evidence and is checked without history (`check_verified_records`,
-/// D-101).
-fn check_verified_bodies(
-    tree: &DocTree,
-    repo: &Path,
-    prefix: &str,
-    anchored: bool,
-    r: &mut Report,
-) {
+/// source's provenance then against now (D-082) — a docsys/0.4 tree's check;
+/// a 0.5 tree's verification is read from history (D-126).
+fn check_verified_bodies(tree: &DocTree, repo: &Path, prefix: &str, r: &mut Report) {
     let mut inspected = 0usize;
     for page in &tree.pages {
         if page.kind != Kind::Permanent {
@@ -1208,9 +1090,6 @@ fn check_verified_bodies(
         }
         let Some(fm) = &page.fm else { continue };
         if fm.fields.get("verification").and_then(Value::as_str) != Some("verified") {
-            continue;
-        }
-        if anchored && fm.fields.contains_key("verified_blocks") {
             continue;
         }
         let Some(rev) = fm.fields.get("verified_rev").and_then(Value::as_str) else {
@@ -1323,95 +1202,6 @@ pub(crate) fn source_hash(root: &Path, source: &str) -> Option<String> {
     let text =
         fs::read_to_string(root.join(format!(".federation/{ns}/{id}.provenance.yml"))).ok()?;
     sidecar_field(&text, "hash")
-}
-
-/// R-024 for a record that carries its own evidence (D-101), with or without
-/// history: the body's blocks against `verified_blocks`, each consumed source
-/// against the hash `verified_sources` recorded for it. With the record
-/// present the revision is a pointer, not the evidence — a squash or a rebase
-/// that left it unreachable undoes nothing.
-pub fn check_verified_records(tree: &DocTree, r: &mut Report) {
-    let mut inspected = 0usize;
-    for page in &tree.pages {
-        if page.kind != Kind::Permanent {
-            continue;
-        }
-        let Some(fm) = &page.fm else { continue };
-        if fm.fields.get("verification").and_then(Value::as_str) != Some("verified") {
-            continue;
-        }
-        let Some(recorded) = crate::blocks::record_of(fm) else {
-            continue;
-        };
-        inspected += 1;
-        let rev = fm
-            .fields
-            .get("verified_rev")
-            .and_then(Value::as_str)
-            .unwrap_or("?");
-        if let Some(bad) = recorded
-            .iter()
-            .find(|h| h.len() != 12 || !h.bytes().all(|b| b.is_ascii_hexdigit()))
-        {
-            r.findings.push(Finding::err(
-                RuleId("R-028"),
-                &page.rel,
-                "verified_blocks",
-                format!("`verified_blocks` holds `{bad}`, not 12 hex digits (R-113) — the record cannot be checked"),
-            ));
-        } else if crate::blocks::holds(fm, &page.text) == Some(false) {
-            r.findings.push(Finding::err(
-                RuleId("R-024"),
-                &page.rel,
-                "verification",
-                format!(
-                    "`verified` at {rev}, but the body changed since — `docsys verify --show {}` \
-                     lists what to re-read; `docsys verify --revoke {}` marks it unverified and \
-                     keeps the record, and a maintainer verifies it again (R-025)",
-                    page.rel, page.rel
-                ),
-            ));
-        }
-        let recorded_sources: Vec<(String, String)> = fm
-            .fields
-            .get("verified_sources")
-            .and_then(Value::as_maps)
-            .map(|maps| {
-                maps.iter()
-                    .filter_map(|m| Some((m.get("source")?.clone(), m.get("hash")?.clone())))
-                    .collect()
-            })
-            .unwrap_or_default();
-        for s in consumed_sources(fm) {
-            let Some(now) = source_hash(&tree.root, &s) else {
-                continue; // R-059 reports an unmaterialized source
-            };
-            match recorded_sources.iter().find(|(src, _)| *src == s) {
-                Some((_, then)) if *then != now => r.findings.push(Finding::err(
-                    RuleId("R-024"),
-                    &page.rel,
-                    &s,
-                    format!(
-                        "`verified` at {rev}, but `{s}` moved since — re-read the page against \
-                         the source as it now reads, then verify again, or `docsys verify \
-                         --revoke {}`",
-                        page.rel
-                    ),
-                )),
-                Some(_) => {}
-                None => r.findings.push(Finding::warn(
-                    RuleId("R-024"),
-                    &page.rel,
-                    &s,
-                    format!(
-                        "`{s}` is in `sources:` but was not part of the verification at {rev} — \
-                         the page was verified without it; verify again to include it"
-                    ),
-                )),
-            }
-        }
-    }
-    r.inspected.insert("verified-records", inspected);
 }
 
 /// One `key: value` line of a provenance sidecar.

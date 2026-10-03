@@ -2550,9 +2550,6 @@ pub fn run_with(tree: &DocTree, ctx: &Context) -> Report {
     check_templates(tree, &mut r);
     check_sources(tree, &mut r);
     if crate::era::Era::of(tree).anchored_verification() {
-        if !crate::era::Era::of(tree).verification_from_history() {
-            crate::fresh::check_verified_records(tree, &mut r);
-        }
         crate::fresh::check_block_bindings(tree, &mut r);
     }
     if crate::era::Era::of(tree).acknowledged_pins() {

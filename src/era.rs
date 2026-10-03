@@ -66,13 +66,6 @@ impl Era {
         self.v05()
     }
 
-    /// D-102: R-208's history half reads the record's own window — any commit
-    /// that changed the record since the body last changed, its author or
-    /// trailers. Before: the commit that introduced the exact line, its author.
-    pub fn record_window(self) -> bool {
-        self.v05()
-    }
-
     /// §2.4 for R-106 and R-085: a page's last change is its last CONTENT
     /// change. Before: any commit that touched the file.
     pub fn content_history(self) -> bool {

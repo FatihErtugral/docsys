@@ -300,3 +300,53 @@ fn verify_is_the_maintainers_own_commit_and_never_writes_the_page() {
     assert!(none.status.success() && none.stdout.is_empty(), "{none:?}");
     let _ = fs::remove_dir_all(&repo);
 }
+
+/// R-208 on docsys/0.5: a work file's `confirmed:` is still the maintainer's
+/// own act — authored by them, or named in a trailer of the commit that
+/// recorded it (D-126 moves pages, not work files).
+#[test]
+fn a_confirmed_line_is_the_maintainers_act() {
+    let (repo, root) = project("confirmed");
+    let file = root.join("work/features/cart.md");
+    fs::create_dir_all(file.parent().unwrap()).unwrap();
+    let r208 = |root: &Path| -> Vec<String> {
+        let (r, _) = docsys::lint_in(root, Some(&repo));
+        r.findings
+            .iter()
+            .filter(|f| f.rule.0 == "R-208")
+            .map(|f| format!("{} [{}]", f.file, f.subject))
+            .collect()
+    };
+    let text = "---\nid: cart\nstatus: done\nconfirmed: ayse\n---\n\n## Context\n\n## Decision\n\n## Contract surface\n\n## Rejected alternatives\n";
+    fs::write(&file, text).unwrap();
+    let commit_as = |email: &str, msg: &[&str]| {
+        let mut args = vec!["-c", "core.hooksPath=/dev/null", "commit", "-q"];
+        for m in msg {
+            args.push("-m");
+            args.push(m);
+        }
+        git(&repo, &["add", "-A"]);
+        let out = Command::new("git")
+            .args(&args)
+            .current_dir(&repo)
+            .env("GIT_AUTHOR_EMAIL", email)
+            .env("GIT_COMMITTER_EMAIL", email)
+            .output()
+            .unwrap();
+        assert!(out.status.success(), "{out:?}");
+    };
+    commit_as("junior@example.com", &["a junior types the name"]);
+    assert_eq!(r208(&root), ["work/features/cart.md [confirmed]"]);
+    // the line recorded again, in a commit that names the maintainer
+    fs::write(
+        &file,
+        text.replace("confirmed: ayse", "confirmed: ayse, 2026-10-03"),
+    )
+    .unwrap();
+    commit_as(
+        "junior@example.com",
+        &["squashed (#3)", "Co-authored-by: ayse <ayse@example.com>"],
+    );
+    assert!(r208(&root).is_empty(), "{:?}", r208(&root));
+    let _ = fs::remove_dir_all(&repo);
+}
