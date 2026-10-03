@@ -290,3 +290,34 @@ fn scan_exclude_spellings_reduce_to_a_prefix_and_globs_are_named() {
     assert!(under_prefix("spec", "spec"));
     assert!(!under_prefix("specification.md", "spec"));
 }
+
+/// `docsys refs` takes the repository from the tree, as its help and
+/// ADOPTION.md say: the bare command CI is told to run works as written.
+#[test]
+fn refs_without_repo_reads_the_trees_repository() {
+    let repo = tmp("refs-bare");
+    let git = |args: &[&str]| {
+        assert!(std::process::Command::new("git")
+            .args(args)
+            .current_dir(&repo)
+            .output()
+            .unwrap()
+            .status
+            .success());
+    };
+    git(&["init", "-q"]);
+    let run = |args: &[&str]| {
+        std::process::Command::new(env!("CARGO_BIN_EXE_docsys"))
+            .args(args)
+            .current_dir(&repo)
+            .env("DOCSYS_NO_AUTO_INSTALL", "1")
+            .output()
+            .unwrap()
+    };
+    assert!(run(&["adopt"]).status.success());
+    let adoption = fs::read_to_string(repo.join("ADOPTION.md")).unwrap();
+    assert!(adoption.contains("`docsys refs`"), "{adoption}");
+    let out = run(&["refs"]);
+    assert_eq!(out.status.code(), Some(0), "{out:?}");
+    let _ = fs::remove_dir_all(&repo);
+}

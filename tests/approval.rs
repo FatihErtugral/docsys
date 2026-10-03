@@ -438,3 +438,20 @@ fn an_approval_made_on_a_branch_holds_under_every_merge_mode() {
         );
     }
 }
+
+/// A range git cannot read fails, on every tree (D-105): an approval job
+/// that read nothing must not pass as one that recorded nothing.
+#[test]
+fn an_unreadable_range_is_an_error() {
+    let (repo, _) = project("bad-range");
+    let out = docsys(
+        &repo,
+        &["verify", "--range", "nope...main", "--by", "@ayse-gh"],
+    );
+    assert_eq!(out.status.code(), Some(2), "{out:?}");
+    assert!(
+        String::from_utf8_lossy(&out.stderr).contains("is not a range git can read"),
+        "{out:?}"
+    );
+    let _ = fs::remove_dir_all(&repo);
+}

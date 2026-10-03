@@ -452,3 +452,52 @@ fn every_closed_item_is_counted_whether_its_file_stays_or_goes() {
     assert!(!out.contains("item(s)"), "{out}");
     let _ = fs::remove_dir_all(&repo);
 }
+
+/// On a docsys/0.4 tree the journal is its own file (D-118): `docsys journal`
+/// shows `work/journal.md` as the tree keeps it, never commit subjects.
+#[test]
+fn on_a_0_4_tree_the_journal_is_its_own_file() {
+    let repo = tmp("v04-journal");
+    ok(&repo, &["init", "-q", "-b", "main"]);
+    ok(&repo, &["config", "user.email", "t@example.invalid"]);
+    ok(&repo, &["config", "user.name", "t"]);
+    ok(&repo, &["config", "commit.gpgsign", "false"]);
+    fs::create_dir_all(repo.join("docs/work")).unwrap();
+    fs::write(
+        repo.join("docs/.docmeta.yml"),
+        "spec: docsys/0.4\nprofile: project\ndefault_content_language: en\n",
+    )
+    .unwrap();
+    fs::write(
+        repo.join("docs/work/journal.md"),
+        "# Journal\n\n## 2026-10-02 - a note the tree keeps\n- written by hand\n\n## 2026-09-01 - initialized\n",
+    )
+    .unwrap();
+    ok(&repo, &["add", "-A"]);
+    ok(
+        &repo,
+        &[
+            "-c",
+            "core.hooksPath=/dev/null",
+            "commit",
+            "-qm",
+            "a commit subject",
+        ],
+    );
+    let out = docsys(&repo, &["journal"]);
+    assert!(out.status.success(), "{out:?}");
+    let text = String::from_utf8_lossy(&out.stdout);
+    assert!(
+        text.contains("## 2026-10-02 - a note the tree keeps"),
+        "{text}"
+    );
+    assert!(text.contains("## 2026-09-01 - initialized"), "{text}");
+    assert!(!text.contains("a commit subject"), "{text}");
+    let out = docsys(&repo, &["journal", "--since", "2026-10-01"]);
+    let text = String::from_utf8_lossy(&out.stdout);
+    assert!(
+        text.contains("a note the tree keeps") && !text.contains("initialized"),
+        "{text}"
+    );
+    let _ = fs::remove_dir_all(&repo);
+}

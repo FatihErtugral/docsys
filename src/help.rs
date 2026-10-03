@@ -85,10 +85,10 @@ pub const COMMANDS: &[Command] = &[
     },
     Command {
         name: "refs",
-        synopsis: "--repo <dir> [--root <dir>] [--json]",
+        synopsis: "[--repo <dir>] [--root <dir>] [--json]",
         purpose: "the code side is in question: every `doc:` citation in the code resolves to a page",
         flags: &[REPO, ROOT, JSON],
-        example: "docsys refs --repo .",
+        example: "docsys refs",
     },
     Command {
         name: "gate",

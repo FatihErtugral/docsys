@@ -166,6 +166,54 @@ pub fn render(repo: Option<&Path>, root: &Path, since: Option<&str>) -> String {
     out
 }
 
+/// A docsys/0.4 tree's journal as it keeps it: `work/journal.md`, then its
+/// slices under `work/journal/`, newest first; with `since`, the entries of
+/// that day on, each with its lines.
+pub fn render_files(root: &Path, since: Option<&str>) -> String {
+    let mut files = vec!["work/journal.md".to_string()];
+    let mut slices: Vec<String> = std::fs::read_dir(root.join("work/journal"))
+        .map(|d| {
+            d.flatten()
+                .filter_map(|e| e.file_name().to_str().map(str::to_string))
+                .filter(|n| n.ends_with(".md"))
+                .map(|n| format!("work/journal/{n}"))
+                .collect()
+        })
+        .unwrap_or_default();
+    slices.sort_by(|a, b| b.cmp(a));
+    files.extend(slices);
+    let mut out = String::new();
+    for rel in files {
+        let Ok(text) = std::fs::read_to_string(root.join(&rel)) else {
+            continue;
+        };
+        let Some(since) = since else {
+            if !out.is_empty() {
+                out.push_str(&format!("\n<!-- {rel} -->\n"));
+            }
+            out.push_str(&text);
+            if !text.ends_with('\n') {
+                out.push('\n');
+            }
+            continue;
+        };
+        let mut keep = false;
+        for line in text.lines() {
+            if let Some(head) = line.strip_prefix("## ") {
+                keep = head.get(..10).is_some_and(|d| d >= since);
+            }
+            if keep {
+                out.push_str(line);
+                out.push('\n');
+            }
+        }
+    }
+    if out.is_empty() {
+        out.push_str("# Journal\n");
+    }
+    out
+}
+
 /// The commit message `journal add` hands back on a docsys/0.5 tree: the
 /// title, the lines, and the `Docs:` trailer naming the page or the why.
 pub fn message(title: &str, lines: &[&str], link: Option<&str>) -> String {

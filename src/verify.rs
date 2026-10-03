@@ -266,6 +266,9 @@ pub fn verify_range(
         return Err(format!("`{}` has no .docmeta.yml", root.display()));
     }
     let repo = crate::repo_of(root).ok_or("the tree must be inside a git repository")?;
+    // a range git cannot read fails the job on every tree (D-105)
+    let changed = git(&repo, &["diff", "--name-only", range])
+        .ok_or_else(|| format!("`{range}` is not a range git can read"))?;
     // docsys/0.5: the approval is the merge commit's `Approved-by:` line, and
     // there is nothing to write (D-126)
     if crate::era::Era::of(&tree).verification_from_history() {
@@ -290,8 +293,6 @@ pub fn verify_range(
     }
     who(&tree, &repo, by)?;
     let root_rel = root_prefix(&repo, root);
-    let changed = git(&repo, &["diff", "--name-only", range])
-        .ok_or_else(|| format!("`{range}` is not a range git can read"))?;
     let mut done = Vec::new();
     let mut paths = Vec::new();
     for f in changed.lines() {

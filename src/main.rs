@@ -915,6 +915,14 @@ fn main() -> ExitCode {
                 ExitCode::from(1)
             }
         },
+        ("journal", None) if !docsys::era::Era::at(&opts.root).journal_from_history() => {
+            // a docsys/0.4 tree's journal is its own file (D-118)
+            print!(
+                "{}",
+                docsys::journal::render_files(&opts.root, opts.since.as_deref())
+            );
+            ExitCode::SUCCESS
+        }
         ("journal", None) => {
             let repo = docsys::repo_of(&opts.root);
             print!(
@@ -1887,10 +1895,16 @@ next: review, `git add -A && git commit`, then open an agent session here."
             }
         },
         ("refs", None) => {
-            let Some(repo) = &opts.repo else {
-                eprintln!("refs needs --repo <dir>");
+            // the repository is the tree's own (D-098), a given --repo first
+            let Some(repo) = opts
+                .repo
+                .clone()
+                .or_else(|| here.as_ref().and_then(|p| p.repo.clone()))
+            else {
+                eprintln!("refs: the tree is not inside a repository — --repo <dir> names one");
                 return ExitCode::from(2);
             };
+            let repo = &repo;
             // The root was found from the repo (D-098, anchored as D-027 asks): a
             // bare `docs` next to a walk that yields `./docs/...` fails the
             // inside-the-tree prefix test and the docs tree gets scanned as code.
