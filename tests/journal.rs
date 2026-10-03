@@ -573,3 +573,28 @@ fn the_messages_name_the_files_and_commands_of_a_0_5_tree() {
     );
     let _ = fs::remove_dir_all(&repo);
 }
+
+/// One commit points at each disputed rule once, though two of its gate's
+/// calls report it — a page's citation and the code's (D-116).
+#[test]
+fn a_commit_points_at_each_rule_once() {
+    let repo = adopted("pointers", "ask");
+    fs::create_dir_all(repo.join("docs/reference")).unwrap();
+    fs::write(
+        repo.join("docs/reference/run.md"),
+        "---\nid: run\ntype: reference\n---\nThis page states what run does; read it first.\n\nSee `doc: no-such-id`.\n",
+    )
+    .unwrap();
+    fs::write(repo.join("main.rs"), "// doc: no-such-page\nfn main() {}\n").unwrap();
+    ok(&repo, &["add", "-A"]);
+    let out = git(&repo, &["commit", "-qm", "two dangling citations"]);
+    let said =
+        String::from_utf8_lossy(&out.stdout).into_owned() + &String::from_utf8_lossy(&out.stderr);
+    assert_eq!(
+        said.matches("Finding wrong? `docsys feedback --rule R-076`")
+            .count(),
+        1,
+        "{said}"
+    );
+    let _ = fs::remove_dir_all(&repo);
+}

@@ -319,7 +319,9 @@ fn run_lint(o: &Opts) -> ExitCode {
         let units: usize = report.inspected.values().sum();
         println!("-- {errors} error(s), {warns} warning(s); {units} unit(s) inspected");
         if docsys::era::Era::at(&o.root).finding_pointers() {
-            for p in docsys::feedback::pointers(report.findings.iter().map(|f| f.rule.0)) {
+            for p in
+                docsys::feedback::pointers_once(&o.root, report.findings.iter().map(|f| f.rule.0))
+            {
                 println!("{p}");
             }
         }
@@ -1615,9 +1617,10 @@ next: review, `git add -A && git commit`, then open an agent session here."
                         g.lint_errors, g.lint_warnings
                     );
                     if docsys::era::Era::at(&root).finding_pointers() {
-                        for p in
-                            docsys::feedback::pointers(report.findings.iter().map(|f| f.rule.0))
-                        {
+                        for p in docsys::feedback::pointers_once(
+                            &root,
+                            report.findings.iter().map(|f| f.rule.0),
+                        ) {
                             println!("{p}");
                         }
                     }
@@ -1955,7 +1958,10 @@ next: review, `git add -A && git commit`, then open an agent session here."
                     report.findings.len() - errors
                 );
                 if docsys::era::Era::at(&root).finding_pointers() {
-                    for p in docsys::feedback::pointers(report.findings.iter().map(|f| f.rule.0)) {
+                    for p in docsys::feedback::pointers_once(
+                        &root,
+                        report.findings.iter().map(|f| f.rule.0),
+                    ) {
                         println!("{p}");
                     }
                 }

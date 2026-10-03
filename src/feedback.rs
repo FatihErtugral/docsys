@@ -91,6 +91,55 @@ pub fn pointers<'a>(rules: impl Iterator<Item = &'a str>) -> Vec<String> {
         .collect()
 }
 
+/// The pointers one commit has not printed yet. Inside a git hook its calls
+/// — `gate`, `refs` — each run on their own; the rules they pointed at are
+/// kept beside the index, keyed by the staged tree, so a commit points at
+/// each rule once. Outside a hook, every pointer.
+pub fn pointers_once<'a>(root: &Path, rules: impl Iterator<Item = &'a str>) -> Vec<String> {
+    let all = pointers(rules);
+    if std::env::var_os("GIT_INDEX_FILE").is_none() || all.is_empty() {
+        return all;
+    }
+    let Some(repo) = crate::repo_of(root) else {
+        return all;
+    };
+    let git = |args: &[&str]| {
+        crate::git::cmd(&repo)
+            .args(args)
+            .output()
+            .ok()
+            .filter(|o| o.status.success())
+            .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+    };
+    let (Some(tree), Some(dir)) = (
+        git(&["write-tree"]),
+        git(&["rev-parse", "--absolute-git-dir"]),
+    ) else {
+        return all;
+    };
+    let record = Path::new(&dir).join("docsys-pointed");
+    let kept = std::fs::read_to_string(&record).unwrap_or_default();
+    let said: Vec<&str> = match kept.split_once('\n') {
+        Some((key, lines)) if key == tree => lines.lines().collect(),
+        _ => Vec::new(),
+    };
+    let fresh: Vec<String> = all
+        .into_iter()
+        .filter(|p| !said.contains(&p.as_str()))
+        .collect();
+    let mut text = format!("{tree}\n");
+    for p in said
+        .iter()
+        .map(|s| (*s).to_string())
+        .chain(fresh.iter().cloned())
+    {
+        text.push_str(&p);
+        text.push('\n');
+    }
+    let _ = std::fs::write(&record, text);
+    fresh
+}
+
 pub fn guide() -> String {
     let mut out = String::from(
         "docsys feedback — when docsys is wrong or in your way\n\n\
