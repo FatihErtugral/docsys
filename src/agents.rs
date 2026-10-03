@@ -96,8 +96,8 @@ allowed-tools: Bash(git log:*), Bash(git diff:*), Bash(git show:*), Bash(docsys 
 Manual, never automatic. Report; propose debt items (`docsys debt add`) and
 wait for approval. Commit nothing.
 
-1. Mechanical pass: `docsys lint --root docs --repo .` and `docsys refs --repo .` —
-   include both outputs (one line each if green). Freshness errors are drift
+1. Mechanical pass: the rules block's two checks — include both outputs (one
+   line each if green). Freshness errors are drift
    by definition: a stale pin names the region that moved, an untouched draft
    names abandonment.
 2. Drift suspects: `docsys seed plan --repo . --root docs --since <the date
@@ -107,9 +107,8 @@ wait for approval. Commit nothing.
    <sha> -- docs/`: did its page move with the code? Name the page that
    should have changed. An uncovered feature with commits is a seeding
    candidate, not drift.
-3. Graduation debt: `grep -rl '^status: done' docs/work/` — for each, what
-   still-true knowledge exists nowhere permanent? Say concretely which section
-   goes to which page (the R-049 table decides).
+3. Graduation debt: `grep -rl '^status: done' docs/work/` — for each, say
+   concretely which section goes to which page.
 4. Propose debt items as the `docsys debt add <debt> --deferred <reason>
    --repay-when <trigger>` lines that would write them; run none without
    approval.
@@ -127,13 +126,6 @@ description: Documentation system operations — set up, migrate, audit, and cur
 This skill adds judgment and approval gates to the commands; never skip a
 gate.
 
-## Always
-
-- Under `commit_policy: require` (D-093) the gate refuses code with no record
-  of why, and the end of a turn holds until it is written: the session may be
-  gone when the commit lands, so the knowledge is captured while the session
-  is here.
-
 ## Set up (new tree)
 
 `docsys init --root docs` then generate the agent block:
@@ -141,13 +133,11 @@ gate.
 
 ## Migrate (existing docs anywhere in the repo)
 
-1. `docsys migrate inventory --root <dir> --repo .` → plan skeleton with
-   evidence lines and inbound-reference report.
+1. `docsys migrate inventory --root <dir> --repo .`
 2. Fill each TODO target — this is YOUR judgment call, per page, using the
    evidence and the P/R-031 procedure. **STOP: show the plan, get approval.**
-3. `docsys migrate apply --plan <plan> --root <dir> --repo .` — the tool
-   moves, rewrites links (in-tree and inbound), scaffolds. Review RISK lines:
-   each is a judgment item, resolve or record as debt.
+3. `docsys migrate apply --plan <plan> --root <dir> --repo .`, then review its
+   RISK lines: each is a judgment item, resolve or record as debt.
 
 ## Audit (report only)
 
@@ -156,13 +146,10 @@ tables in hand. Change nothing; the user decides.
 
 ## Graduate (curation)
 
-For each `status: done` work file: ask the R-093 question (does any still-true
-information here exist nowhere else?). Route sections by the R-049 table.
-Destination pages are prepared first (R-099); you select the mapping, you
-never retype the text (R-090): `docsys graduate plan <work-file>`, then
-`docsys graduate apply`. The file graduates only on the human's explicit word
-(P/R-081), and every `doc:` citation of its id moves to a destination in the
-same commit (D-127).
+For each `status: done` work file, route its sections by the R-049 table;
+destination pages are prepared first (R-099): `docsys graduate plan
+<work-file>`, then `docsys graduate apply`. Every `doc:` citation of the
+file's id moves to a destination in the same commit (D-127).
 
 ## Verification (who vouches)
 
@@ -171,15 +158,14 @@ permanent page you author from evidence, or change in substance, names what it
 rests on in `sources:`. It is verified once a maintainer approves it after its
 last change (D-126); nothing about it is written into the page, and `docsys
 help verify` says how an approval is recorded. When `.docmeta.yml` declares
-`maintainers:`, an approval and `confirmed:` must name one of them (R-208):
+`maintainers:`, an approval and a confirmation must name one of them (R-208):
 the people who review the code are the people who vouch for the page. A
 reader — a person or an agent — sees the state and reads accordingly.
 
 ## Compile (a howto into a skill)
 
-A `howto/` page whose steps are complete — every step written, nothing you
-would fill from memory (P/R-096) — compiles (`docsys compile`). A gap found
-while running the skill is reported on the page, never patched in the skill.
+A gap found while running a compiled skill is reported on its page, never
+patched in the skill (P/R-096).
 "#;
 
 /// `/docsys-upgrade`: the person and the agent finish what `docsys upgrade`
@@ -200,13 +186,11 @@ Nothing is committed or recorded that the person did not say yes to.
 2. A CI workflow its owner edited (`ci-workflow`, with a diff): propose one
    edit from the diff that keeps their `runs-on` and their install step.
    Apply it on their word.
-3. A pin listed for a re-read (`pins`): read the page's sentences against
-   the region as it is now. If they hold, run the item's `command`; if not,
-   propose the page edit. Never refresh a pin you did not read (R-111).
+3. A pin listed for a re-read (`pins`): re-read it as the rules block says.
+   If the page holds, run the item's `command`; if not, propose the page edit.
 4. A verified page listed for a maintainer (`verified-record`): give the
-   person `docsys verify --show <page>`, the blocks to read again. Read them
-   with the person if they ask; the verification is theirs to record with the
-   item's `command`. You never set `verified` (R-025).
+   person its `docsys verify --show` line. Read the blocks with the person if
+   they ask; the verification is theirs to record with the item's `command`.
 5. A relay, skill, command or contract its owner edited (a diff): propose
    one text that keeps the owner's lines and takes the new ones. Apply it on
    their word.
@@ -259,16 +243,15 @@ listing wrong-audience pages means §3, never `--force`-style workarounds.
 For each missing page: distil from the EXISTING pages — invent nothing; if a
 fact exists nowhere in the tree, ask, do not guess. The voice matches the
 reader: an end-user page never names source files, classes, or tests. Give it
-the tree's usual frontmatter plus `audience: <a>`, make it reachable from the
-index (R-034), and gate with `docsys lint --root docs` until clean. **Show the first page and get
+the tree's usual frontmatter plus `audience: <a>`, and gate with `docsys lint --root docs` until clean. **Show the first page and get
 approval before authoring the rest.**
 
 ## 4. Language
 
 `--lang <code>` states the document's language; WARNs name the pages declared
-otherwise. Translating a page is editing that page: structure stays, and code
-identifiers, product names, protocol names, and quotations keep their original
-form (R-122/R-123 — when unsure whether something is a proper name, keep it).
+otherwise. Translating a page is editing that page: its structure stays, and
+P/R-123 decides each term — when unsure whether something is a proper name,
+keep it.
 Re-run the export afterwards: the per-page stamps changed only where content
 did, so only those sections needed the work.
 "#;
@@ -1030,14 +1013,13 @@ not an `answer` row yet — it becomes a `question` row that names the
 evidence, and only the builder's next word settles it. An answer the
 builder cannot give becomes a `question` row, dated today.
 
-## 3b · Your own notes are questions, never text
+## 3b · Agent memory
 
 If this machine holds agent memory for the repository (Claude Code keeps
 `memory/*.md` under `~/.claude/projects/<repo-slug>/`), run the plan with
 `--memory <that dir>`: each note's name and description becomes one line
 of evidence and ONE question — "my notes say X; is it still true, and where
-should it live?" The builder's answer is the source; the note is not. Never
-paste a note into the tree.
+should it live?"
 
 ## 4 · Approve, then land (tool)
 
@@ -1060,18 +1042,15 @@ graduation, when the builder confirms.
 ## 4b · The overview draft (the one page you may author)
 
 After the rows land, one permanent page per seeded feature may be yours:
-`docsys page new explanation <feature>-overview --unverified`, reachable from
-`index.md` (R-034), body written from the evidence only — what the feature is, how
+`docsys page new explanation <feature>-overview --unverified`, body written from the evidence only — what the feature is, how
 it is built, when it was born and moved, what broke and why, what the
 manifests and the code's own comments say — in the tree's language, with
 `sources:` naming the same `git:` locators and files the research page
-cites. It is unverified until a maintainer approves it, and you never verify
-it: a maintainer does, in another session (R-025, R-208). When the builder's
+cites. It is unverified until a maintainer approves it (R-025, R-208). When the builder's
 answers arrive, graduation moves them in byte-exact; the draft is where a
 reader starts on day one, not the truth.
 
-Never write prose of your own into the tree beyond that one page. Never
-mark anything done or verified.
+Never write prose of your own into the tree beyond that one page.
 "#;
 
 /// The docsys skill's text, as `agents` installs it.
@@ -1099,12 +1078,6 @@ feature by commit count first, unless the builder names one. Stop when
 the builder says stop; the next session resumes from `docsys seed gaps` —
 what landed is reserved (`work/research/<feature>.md`, active) and will not
 be asked again.
-
-Rules that never bend: derive what history and code can say; ask only what
-they cannot; a question is plain and single-meaning; a conflicting answer
-is talked through, not recorded; nothing is written before approval; the
-builder's words land verbatim, attributed and dated; the permanent layer is
-never written here.
 
 When the survey stops, name the next step: what the builder confirmed
 graduates into permanent pages (`docsys graduate plan <work-file>`), and each

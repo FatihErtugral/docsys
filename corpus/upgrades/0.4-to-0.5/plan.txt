@@ -85,7 +85,7 @@ judged by docsys/0.5 as the tree is now: 7 new finding(s), 1 gone — the steps 
 # .claude/commands/docsys-sync.md
 --- .claude/commands/docsys-sync.md
 +++ .claude/commands/docsys-sync.md
-@@ -1,19 +1,20 @@
+@@ -1,27 +1,28 @@
  ---
 -description: Scan code↔doc drift and un-graduated done work; propose debt items as a diff
 +description: Scan code↔doc drift and un-graduated done work; propose debt items
@@ -99,12 +99,14 @@ judged by docsys/0.5 as the tree is now: 7 new finding(s), 1 gone — the steps 
 +Manual, never automatic. Report; propose debt items (`docsys debt add`) and
 +wait for approval. Commit nothing.
  
- 1. Mechanical pass: `docsys lint --root docs --repo .` and `docsys refs --repo .` —
-    include both outputs (one line each if green). Freshness errors are drift
+-1. Mechanical pass: `docsys lint --root docs --repo .` and `docsys refs --repo .` —
+-   include both outputs (one line each if green). Freshness errors are drift
 -   by definition: a stale pin names the region that moved, `updated:` behind
 -   history names a hand edit, an untouched draft names abandonment.
 -2. Drift suspects: `docsys seed plan --repo . --root docs --since <date of
 -   the newest journal entry>` — every feature history touched since, with
++1. Mechanical pass: the rules block's two checks — include both outputs (one
++   line each if green). Freshness errors are drift
 +   by definition: a stale pin names the region that moved, an untouched draft
 +   names abandonment.
 +2. Drift suspects: `docsys seed plan --repo . --root docs --since <the date
@@ -113,12 +115,14 @@ judged by docsys/0.5 as the tree is now: 7 new finding(s), 1 gone — the steps 
     its coverage. For each covered feature with commits, `git show --stat
     <sha> -- docs/`: did its page move with the code? Name the page that
     should have changed. An uncovered feature with commits is a seeding
-@@ -21,7 +22,8 @@
- 3. Graduation debt: `grep -rl '^status: done' docs/work/` — for each, what
-    still-true knowledge exists nowhere permanent? Say concretely which section
-    goes to which page (the R-049 table decides).
+    candidate, not drift.
+-3. Graduation debt: `grep -rl '^status: done' docs/work/` — for each, what
+-   still-true knowledge exists nowhere permanent? Say concretely which section
+-   goes to which page (the R-049 table decides).
 -4. Propose debt items (`- [ ] <debt> -- deferred: <reason> -- repay when:
 -   <trigger>`) as an Edit diff; do not apply without approval.
++3. Graduation debt: `grep -rl '^status: done' docs/work/` — for each, say
++   concretely which section goes to which page.
 +4. Propose debt items as the `docsys debt add <debt> --deferred <reason>
 +   --repay-when <trigger>` lines that would write them; run none without
 +   approval.

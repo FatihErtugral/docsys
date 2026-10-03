@@ -266,6 +266,11 @@ pub struct Outcome {
     pub message: Option<String>,
 }
 
+fn page_path(dest: &str) -> String {
+    let dest = dest.trim();
+    dest.strip_suffix(".md").unwrap_or(dest).to_string()
+}
+
 fn dest_id(root: &Path, dest: &str) -> Result<String, String> {
     let path = root.join(format!("{dest}.md"));
     let text = fs::read_to_string(&path)
@@ -462,8 +467,9 @@ fn run(
         }
         let action = match act.trim() {
             "keep" => Action::Keep,
-            a if a.starts_with("link:") => Action::Link(a[5..].trim().to_string()),
-            a if a.starts_with("move:") => Action::Move(a[5..].trim().to_string()),
+            // a destination is a page path, with its `.md` or without
+            a if a.starts_with("link:") => Action::Link(page_path(&a[5..])),
+            a if a.starts_with("move:") => Action::Move(page_path(&a[5..])),
             other => return Err(format!("plan line {}: unknown action `{other}`", ln + 1)),
         };
         actions.push((idx, action));

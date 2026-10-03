@@ -718,6 +718,10 @@ fn show_says_why_an_approval_no_longer_holds() {
         head(&s).contains("names no source in `sources:` and no pin"),
         "{s}"
     );
+    assert!(
+        !s.contains("blocks as verified"),
+        "an approval that no longer applies: {s}"
+    );
     assert!(!head(&s).contains("taken back"), "{s}");
     let _ = fs::remove_dir_all(&repo);
     // a concurrent edit a rebase put under the approval
@@ -737,4 +741,57 @@ fn show_says_why_an_approval_no_longer_holds() {
     let s = show(&root);
     assert!(head(&s).contains("made its commit again"), "{s}");
     let _ = fs::remove_dir_all(root.parent().unwrap());
+}
+
+/// When the git gate refuses an approval commit, `verify` names the check
+/// that refused — `refs` for a dangling citation in code, which `lint` does
+/// not see (D-126).
+#[test]
+fn a_refused_approval_names_the_check_that_refused() {
+    let repo = tmp("refused");
+    git(&repo, &["init", "-q", "-b", "main"]);
+    git(&repo, &["config", "user.email", "t@example.invalid"]);
+    git(&repo, &["config", "user.name", "t"]);
+    git(&repo, &["config", "commit.gpgsign", "false"]);
+    fs::write(repo.join("README.md"), "The readme.\n").unwrap();
+    let path = format!(
+        "{}:{}",
+        Path::new(env!("CARGO_BIN_EXE_docsys"))
+            .parent()
+            .unwrap()
+            .display(),
+        std::env::var("PATH").unwrap_or_default()
+    );
+    let run = |args: &[&str]| {
+        Command::new(env!("CARGO_BIN_EXE_docsys"))
+            .args(args)
+            .current_dir(&repo)
+            .env("PATH", &path)
+            .env_remove("DOCSYS_DISPATCHED")
+            .env("DOCSYS_NO_AUTO_INSTALL", "1")
+            .output()
+            .unwrap()
+    };
+    assert!(run(&["adopt"]).status.success());
+    fs::create_dir_all(repo.join("docs/reference")).unwrap();
+    fs::write(
+        repo.join("docs/reference/r.md"),
+        "---\nid: r\ntype: reference\nsources: [README.md]\n---\n# R\n\nThis page states what the readme holds; read it first.\n",
+    )
+    .unwrap();
+    let index = fs::read_to_string(repo.join("docs/index.md")).unwrap();
+    fs::write(
+        repo.join("docs/index.md"),
+        format!("{index}- [[reference/r|R]] -- What the readme holds.\n"),
+    )
+    .unwrap();
+    fs::write(repo.join("a.rs"), "// doc: nope\n").unwrap();
+    git(&repo, &["add", "-A"]);
+    git(&repo, &["commit", "-qm", "a page, a dangling citation"]);
+    let out = run(&["verify", "reference/r"]);
+    let err = String::from_utf8_lossy(&out.stderr);
+    assert_eq!(out.status.code(), Some(2), "{out:?}");
+    assert!(err.contains("`docsys refs`"), "{err}");
+    assert!(!err.contains("`docsys lint`"), "{err}");
+    let _ = fs::remove_dir_all(&repo);
 }

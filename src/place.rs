@@ -107,6 +107,32 @@ fn spelled(found: &Path, given: &Path) -> PathBuf {
     }
 }
 
+/// A path as output names it: from the top of the repository the command runs
+/// in, so the same command prints the same from any directory of it; a
+/// relative path, or one outside the repository, as it is.
+pub fn shown(path: &Path) -> PathBuf {
+    if path.is_relative() {
+        return path.to_path_buf();
+    }
+    let Some(top) = std::env::current_dir()
+        .ok()
+        .and_then(|c| git::toplevel(&c))
+        .and_then(|t| t.canonicalize().ok())
+    else {
+        return path.to_path_buf();
+    };
+    let canon = path.canonicalize().ok();
+    match path
+        .strip_prefix(&top)
+        .ok()
+        .or_else(|| canon.as_deref().and_then(|c| c.strip_prefix(&top).ok()))
+    {
+        Some(rel) if rel.as_os_str().is_empty() => PathBuf::from("."),
+        Some(rel) => rel.to_path_buf(),
+        None => path.to_path_buf(),
+    }
+}
+
 /// A given `--repo` as the top level of its repository (D-098), spelled as
 /// given when it is that already; the path itself outside a repository.
 pub fn repo_top(given: &Path) -> PathBuf {

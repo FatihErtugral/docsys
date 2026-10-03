@@ -64,6 +64,24 @@ fn apply_moves_bytes_links_source_and_records_graduation() {
     let _ = fs::remove_dir_all(&root);
 }
 
+/// A plan's destination is a page path, written with its `.md` or without:
+/// both name the same page.
+#[test]
+fn a_destination_names_its_page_with_or_without_md() {
+    let root = tmp("dest-md");
+    setup(&root);
+    let plan = graduate::plan(&root, "work/features/x.md").unwrap();
+    let filled = plan.replace("1\tkeep", "1\tmove:reference/keys.md");
+    let done = graduate::apply(&root, &filled, true).unwrap();
+    assert_eq!(done.moved, 1);
+    let src = fs::read_to_string(root.join("work/features/x.md")).unwrap();
+    assert!(
+        src.contains("## Contract surface\nMoved to [[reference/keys|keys]]."),
+        "{src}"
+    );
+    let _ = fs::remove_dir_all(&root);
+}
+
 #[test]
 fn apply_refuses_drift_and_missing_destination() {
     let root = tmp("drift");

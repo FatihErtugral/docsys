@@ -44,14 +44,13 @@ not an `answer` row yet — it becomes a `question` row that names the
 evidence, and only the builder's next word settles it. An answer the
 builder cannot give becomes a `question` row, dated today.
 
-## 3b · Your own notes are questions, never text
+## 3b · Agent memory
 
 If this machine holds agent memory for the repository (Claude Code keeps
 `memory/*.md` under `~/.claude/projects/<repo-slug>/`), run the plan with
 `--memory <that dir>`: each note's name and description becomes one line
 of evidence and ONE question — "my notes say X; is it still true, and where
-should it live?" The builder's answer is the source; the note is not. Never
-paste a note into the tree.
+should it live?"
 
 ## 4 · Approve, then land (tool)
 
@@ -74,15 +73,12 @@ graduation, when the builder confirms.
 ## 4b · The overview draft (the one page you may author)
 
 After the rows land, one permanent page per seeded feature may be yours:
-`docsys page new explanation <feature>-overview --unverified`, reachable from
-`index.md` (R-034), body written from the evidence only — what the feature is, how
+`docsys page new explanation <feature>-overview --unverified`, body written from the evidence only — what the feature is, how
 it is built, when it was born and moved, what broke and why, what the
 manifests and the code's own comments say — in the tree's language, with
 `sources:` naming the same `git:` locators and files the research page
-cites. It is unverified until a maintainer approves it, and you never verify
-it: a maintainer does, in another session (R-025, R-208). When the builder's
+cites. It is unverified until a maintainer approves it (R-025, R-208). When the builder's
 answers arrive, graduation moves them in byte-exact; the draft is where a
 reader starts on day one, not the truth.
 
-Never write prose of your own into the tree beyond that one page. Never
-mark anything done or verified.
+Never write prose of your own into the tree beyond that one page.

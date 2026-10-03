@@ -331,7 +331,7 @@ pub fn render(s: &Status, root: &Path) -> String {
     let name = s
         .namespace
         .clone()
-        .unwrap_or_else(|| root.display().to_string());
+        .unwrap_or_else(|| crate::place::shown(root).display().to_string());
     out.push_str(&format!("{name} ({})\n", s.profile));
     if s.profile == "knowledge-base" {
         match (s.inbox, &s.inbox_oldest) {

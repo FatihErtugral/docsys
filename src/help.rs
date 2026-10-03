@@ -54,7 +54,7 @@ pub const COMMANDS: &[Command] = &[
     Command {
         name: "init",
         synopsis: "[--root <dir>] [--lang <code>] [--profile project|knowledge-base]",
-        purpose: "only an empty tree is wanted, without the agent layer or the gate — `adopt` does both",
+        purpose: "only an empty tree is wanted",
         flags: &[
             ("--root <dir>", "where the tree is made"),
             ("--lang <code>", "the language the pages are written in"),
@@ -65,7 +65,7 @@ pub const COMMANDS: &[Command] = &[
     Command {
         name: "upgrade",
         synopsis: "[--apply] [--commit] [--force] [--json] [--root docs] [--dir .claude]",
-        purpose: "this docsys is newer than the spec the tree declares: the plan first, then the move, one commit per spec, then the pin",
+        purpose: "this docsys is newer than the spec the tree declares: it moves the tree, one spec at a time, then the pin",
         flags: &[
             ("--apply", "make the move; without it only the plan is printed"),
             ("--commit", "commit the move as one commit"),
@@ -79,7 +79,7 @@ pub const COMMANDS: &[Command] = &[
     Command {
         name: "lint",
         synopsis: "[--root <dir>] [--repo <dir>] [--json]",
-        purpose: "you want to know whether the tree is right: every rule, with pins and history inside a repository; exit 1 on an error",
+        purpose: "you want to know whether the tree is right: every rule, with pins and history inside a repository",
         flags: &[ROOT, REPO, JSON],
         example: "docsys lint",
     },
@@ -93,13 +93,13 @@ pub const COMMANDS: &[Command] = &[
     Command {
         name: "gate",
         synopsis: "[--repo .] [--root docs] [--range <a>...<b>] [--skipped] | --message <file>",
-        purpose: "what the git hooks and CI run: lint, and code changed without documentation; under `commit_policy: require` it refuses",
+        purpose: "what the git hooks and CI run: lint, and code changed without documentation",
         flags: &[
             REPO,
             ROOT,
             ("--range <a>...<b>", "a pull request's commits, in CI"),
             ("--skipped", "record a bypassed gate as a debt item"),
-            ("--message <file>", "the commit-msg half on docsys/0.5: under `require`, code with no documentation needs `Docs: <why>`"),
+            ("--message <file>", "the commit-msg half on docsys/0.5: the message the commit will carry"),
         ],
         example: "docsys gate --range origin/main...HEAD",
     },
@@ -140,12 +140,12 @@ pub const COMMANDS: &[Command] = &[
     Command {
         name: "pin",
         synopsis: "<page> <path> [--symbol <s>] [--block <n>] | --refresh <page> | --gc  [--repo .] [--root docs]",
-        purpose: "a page describes code: bind it to the region, so lint says when the code moves away from the page",
+        purpose: "bind a page to the code region it describes: lint says when the code moves away from it",
         flags: &[
             ("<page> <path>", "the page, and the code file it describes"),
             ("--symbol <s>", "the declaration in that file, instead of the whole file"),
             ("--block <n>", "the page block the pin backs, as `verify --show` numbers it"),
-            ("--refresh <page>", "after re-reading the page against the code: record the region as it reads now"),
+            ("--refresh <page>", "record the region as it reads now"),
             ("--gc", "remove acknowledgements no current pin needs"),
             REPO,
             ROOT,
@@ -194,7 +194,7 @@ pub const COMMANDS: &[Command] = &[
         purpose: "the person approved the plan: the blocks move byte for byte",
         flags: &[
             ("--plan <file>", "the filled plan"),
-            ("--confirmed <who>", "the person's word that the file graduates: the last blocks move and the file is removed"),
+            ("--confirmed <who>", "who confirmed it: the last blocks move and the file is removed"),
             ROOT,
             ("--force", "run on a working tree with uncommitted changes"),
         ],
@@ -203,7 +203,7 @@ pub const COMMANDS: &[Command] = &[
     Command {
         name: "debt add",
         synopsis: "<debt…> --deferred <reason> --repay-when <trigger> [--topic <id>] [--date <d>] [--root docs]",
-        purpose: "work is deferred on purpose: one dated item in its topic's file",
+        purpose: "one dated debt item, in its topic's file",
         flags: &[
             ("<debt…>", "what is deferred"),
             ("--deferred <reason>", "why it waits"),
@@ -217,7 +217,7 @@ pub const COMMANDS: &[Command] = &[
     Command {
         name: "debt close",
         synopsis: "<n|words> --note <how> [--root docs]",
-        purpose: "a debt is repaid: its line goes, and `Resolved:` in the commit records how",
+        purpose: "takes a debt's line out; `Resolved:` in the commit records how",
         flags: &[
             ("<n|words>", "the item's number in the list, or words only it holds"),
             ("--note <how>", "how it was repaid"),
@@ -228,7 +228,7 @@ pub const COMMANDS: &[Command] = &[
     Command {
         name: "question add",
         synopsis: "<question…> [--topic <id>] [--context <c>] [--date <d>] [--root docs]",
-        purpose: "something is not known: one dated question item",
+        purpose: "one dated question item",
         flags: &[
             ("<question…>", "the question"),
             ("--topic <id>", "the page or feature it concerns"),
@@ -279,7 +279,7 @@ pub const COMMANDS: &[Command] = &[
     Command {
         name: "seed plan",
         synopsis: "[--target <feature>] [--since <date>] [--memory <dir>] [--repo .] [--root docs]",
-        purpose: "an existing project has code but no pages: the feature inventory, or one feature's history as evidence",
+        purpose: "an existing project has code but no pages: the feature inventory, as evidence",
         flags: &[
             ("--target <feature>", "one feature's evidence instead of the inventory"),
             ("--since <date>", "only history from that day on"),
@@ -402,7 +402,7 @@ pub const COMMANDS: &[Command] = &[
         purpose: "a connector brings a record into a knowledge base: it lands in raw/inbox/ once, with its provenance",
         flags: &[
             ("--source <name>", "where it comes from"),
-            ("--id <item>", "its identifier there; the same item lands once"),
+            ("--id <item>", "its identifier there"),
             ("--title <t>", "its title"),
             ("--url <u>", "its address"),
             ("--date <d>", "its date"),
@@ -478,10 +478,10 @@ pub const COMMANDS: &[Command] = &[
     Command {
         name: "rules",
         synopsis: "--agents-md | --procedures [--max-lines <n>] [--write <file>]",
-        purpose: "the agent rules are wanted on their own: the rules block, or the procedures an agent follows",
+        purpose: "the agent rules are wanted on their own",
         flags: &[
-            ("--agents-md", "the rules block"),
-            ("--procedures", "the procedures"),
+            ("--agents-md", "the rules block AGENTS.md carries"),
+            ("--procedures", "the procedures an agent follows"),
             ("--max-lines <n>", "a line budget for the text"),
             ("--write <file>", "write it there instead of printing it"),
         ],

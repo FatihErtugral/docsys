@@ -138,13 +138,14 @@ fn agents_install_writes_assets_and_respects_existing() {
         seed.contains("from what its code and history say"),
         "{seed}"
     );
-    // the procedure an agent follows to finish an upgrade with the person (D-104)
+    // the procedure an agent follows to finish an upgrade with the person
+    // (D-104); the rules it rests on are the block's, said there once (D-129)
     let upgrade = fs::read_to_string(dir.join("commands/docsys-upgrade.md")).unwrap();
     for must in [
         "docsys upgrade --json",
-        "docsys verify --show <page>",
-        "You never set `verified` (R-025)",
-        "Never refresh a pin you did not read (R-111)",
+        "`docsys verify --show` line",
+        "re-read it as the rules block says",
+        "the verification is theirs to record",
         "A sha256 value is never invented",
         "git log -1 --format=%B",
     ] {
@@ -161,7 +162,7 @@ fn agents_install_writes_assets_and_respects_existing() {
     assert!(!skill.contains("docsys rules --procedures"));
     let export = fs::read_to_string(dir.join("skills/docsys-export/SKILL.md")).unwrap();
     assert!(export.contains("--audience"));
-    assert!(export.contains("R-122/R-123"));
+    assert!(export.contains("P/R-123"));
     let _ = fs::remove_dir_all(dir.parent().unwrap_or(&dir));
 }
 

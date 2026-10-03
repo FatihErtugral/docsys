@@ -146,7 +146,7 @@ pub fn pointers_once<'a>(root: &Path, rules: impl Iterator<Item = &'a str>) -> V
 
 pub fn guide() -> String {
     let mut out = String::from(
-        "docsys feedback — when docsys is wrong or in your way\n\n\
+        "docsys feedback — an issue about docsys itself\n\n\
          An issue explains the problem with a concrete example, states the need or the\n\
          problem in one sentence, names the rule, and proposes a fix where one can be\n\
          given. Draft it here; nothing is filed by this command:\n\n\
@@ -155,8 +155,7 @@ pub fn guide() -> String {
          The draft fills what the tool knows — version, OS, the tree's profile and spec,\n\
          the rule's text, the command's exit code and output, a redacted .docmeta.yml and\n\
          the files the rule's findings name — and leaves TODO where only you can write.\n\
-         Read it for private content before it leaves your machine. An agent drafts the\n\
-         issue and asks the person before filing: filing publishes.\n\n\
+         Read it for private content before it leaves your machine.\n\n\
          The format:\n\n",
     );
     out.push_str(FORMAT);

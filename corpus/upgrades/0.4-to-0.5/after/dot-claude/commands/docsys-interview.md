@@ -17,12 +17,6 @@ the builder says stop; the next session resumes from `docsys seed gaps` —
 what landed is reserved (`work/research/<feature>.md`, active) and will not
 be asked again.
 
-Rules that never bend: derive what history and code can say; ask only what
-they cannot; a question is plain and single-meaning; a conflicting answer
-is talked through, not recorded; nothing is written before approval; the
-builder's words land verbatim, attributed and dated; the permanent layer is
-never written here.
-
 When the survey stops, name the next step: what the builder confirmed
 graduates into permanent pages (`docsys graduate plan <work-file>`), and each
 page about code is bound to its region as the rules block says.

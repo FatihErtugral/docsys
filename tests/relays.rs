@@ -97,10 +97,7 @@ fn adopt_wires_the_project_dir_form_and_bakes_the_trees_root() {
         );
     }
     let sync = fs::read_to_string(r.join(".claude/commands/docsys-sync.md")).unwrap();
-    assert!(
-        sync.contains("docsys lint --root documentation --repo ."),
-        "{sync}"
-    );
+    assert!(sync.contains("--root documentation"), "{sync}");
     assert!(sync.contains("<sha> -- documentation/`"), "{sync}");
     let settings = fs::read_to_string(r.join(".claude/settings.json")).unwrap();
     // a docsys/0.5 tree runs no post-edit relay (D-126)

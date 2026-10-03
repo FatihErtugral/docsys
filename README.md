@@ -159,8 +159,7 @@ closed by the time the commit lands. `DOCSYS_SKIP=1` still bypasses, but under
 `require` it leaves a dated debt item — an undocumented commit is visible debt,
 never a silent hole. The first turn carries `<docs-in-hand>`: the pages the
 tree already has, the unverified ones, the work in flight, the policy — so the
-agent routes the work (feature, bug, improvement, research) against what
-exists.
+agent routes the work against what exists.
 
 The same relays serve a knowledge base (`docsys agents --kb`); the binary
 reads the root's profile and changes what they guard: a `Write`/`Edit` on an

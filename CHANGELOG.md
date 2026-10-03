@@ -137,11 +137,17 @@ declares `spec: docsys/0.5`; a tree that declares `docsys/0.4` is served as
   around the rules block changed by a re-run that changes nothing (D-110).
 
 - docsys works from any directory of the repository, and a hook finds its
-  tree from its payload (D-098): a given `--repo` is the repository's top and
-  `--dir` the agent layer there for every command — `refs`, `backlinks`,
-  `graph` and `migrate` read the whole repository, `agents` and `compile`
-  write at the top, `rules --agents-md --plan` carries the tree's preamble —
-  and `debt close` or `question close` outside a tree says R-160.
+  tree from its payload (D-098): a given `--repo` is the repository's top, a
+  relative `--dir` or `--root` is read from there, and a path a command prints
+  is named from there — `refs`, `backlinks`, `graph` and `migrate` read the
+  whole repository (bare `backlinks` and `graph` the tree's own), `agents` and
+  `compile` write the one agent layer at the top, `rules --agents-md --write`
+  carries the tree's preamble — and `debt close` or `question close` outside a
+  tree says R-160.
+- An unknown command is named and exits 2, `help` of one too; a flag's value
+  is never another flag (D-129).
+- A refused approval names the check of the git gate that refused it, and a
+  graduation plan's destination may carry its `.md` (D-126, R-099).
 - The gate of a linked worktree resolves pins at the repository's top, and
   `adopt` writes the gate there (D-100).
 - The relays run from any directory and default to the tree's own root (D-099).

@@ -104,7 +104,7 @@ pub fn compile(root: &Path, claude_dir: &Path, page: &str, force: bool) -> Resul
         if !existing.contains(SOURCE_KEY) && !force {
             return Err(format!(
                 "{} exists and was not compiled by docsys — `--force` overwrites it",
-                file.display()
+                crate::place::shown(&file).display()
             ));
         }
     }
@@ -131,7 +131,11 @@ pub fn compile(root: &Path, claude_dir: &Path, page: &str, force: bool) -> Resul
     );
     fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
     fs::write(&file, text).map_err(|e| e.to_string())?;
-    Ok(format!("compiled {} → {} ({hash})", p.rel, file.display()))
+    Ok(format!(
+        "compiled {} → {} ({hash})",
+        p.rel,
+        crate::place::shown(&file).display()
+    ))
 }
 
 /// R-095 over every compiled skill under `<repo>/.claude/skills/`: the source

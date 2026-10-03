@@ -32,15 +32,14 @@ listing wrong-audience pages means §3, never `--force`-style workarounds.
 For each missing page: distil from the EXISTING pages — invent nothing; if a
 fact exists nowhere in the tree, ask, do not guess. The voice matches the
 reader: an end-user page never names source files, classes, or tests. Give it
-the tree's usual frontmatter plus `audience: <a>`, make it reachable from the
-index (R-034), and gate with `docsys lint --root docs` until clean. **Show the first page and get
+the tree's usual frontmatter plus `audience: <a>`, and gate with `docsys lint --root docs` until clean. **Show the first page and get
 approval before authoring the rest.**
 
 ## 4. Language
 
 `--lang <code>` states the document's language; WARNs name the pages declared
-otherwise. Translating a page is editing that page: structure stays, and code
-identifiers, product names, protocol names, and quotations keep their original
-form (R-122/R-123 — when unsure whether something is a proper name, keep it).
+otherwise. Translating a page is editing that page: its structure stays, and
+P/R-123 decides each term — when unsure whether something is a proper name,
+keep it.
 Re-run the export afterwards: the per-page stamps changed only where content
 did, so only those sections needed the work.

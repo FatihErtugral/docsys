@@ -961,12 +961,12 @@ Transitions follow this table, and a transition not listed **is reported**:
 
 **R-081** `agent` · MUST — `done` and the file-level transition to `graduated`
 are set only on explicit human confirmation, recorded as `confirmed:` in the
-file's frontmatter (§5.2). Passing tests or a green build means `active`. The
-lint half: a file at `done` or `graduated` without `confirmed:` **is reported**
-— the record is what lets a later audit distinguish a confirmed transition from
-an agent's guess, the same reason an approval names a maintainer (R-024). On a
-docsys/0.5 tree a file that graduates leaves the tree (R-091), and the record is
-the removing commit's `Confirmed-by:` line.
+file's frontmatter (§5.2) — on a docsys/0.5 tree, where a file that graduates
+leaves the tree (R-091), a graduation's record is the removing commit's
+`Confirmed-by:` line. Passing tests or a green build means `active`. The lint
+half: a file at `done` or `graduated` without `confirmed:` **is reported** — the
+record is what lets a later audit distinguish a confirmed transition from an
+agent's guess, the same reason an approval names a maintainer (R-024).
 
 **R-082** `lint` · MUST — `graduated` is terminal, and a graduated file receives
 no further **content change** (§2.4). Where version-control history is available,

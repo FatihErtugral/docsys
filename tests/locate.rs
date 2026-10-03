@@ -458,9 +458,12 @@ fn a_command_that_reads_the_repository_sees_it_all_from_below() {
     .unwrap();
     ok(&repo, &["add", "-A"]);
     ok(&repo, &["commit", "-qm", "a citation and a howto"]);
+    // bare, the repository is the tree's own, as help says
     for args in [
         &["backlinks", "token-ttl", "--repo", "."][..],
+        &["backlinks", "token-ttl"],
         &["graph", "--repo", "."],
+        &["graph"],
         &["mentions", "token-ttl"],
     ] {
         let top = docsys_all(&repo, args);
@@ -481,7 +484,7 @@ fn a_command_that_reads_the_repository_sees_it_all_from_below() {
     let target = agents_md.to_str().unwrap();
     let block = |dir: &Path| {
         let _ = fs::remove_file(&agents_md);
-        let (code, out) = docsys_all(dir, &["rules", "--agents-md", "--plan", target]);
+        let (code, out) = docsys_all(dir, &["rules", "--agents-md", "--write", target]);
         assert_eq!(code, 0, "{out}");
         fs::read_to_string(&agents_md).unwrap()
     };
@@ -520,9 +523,27 @@ fn a_migration_sees_the_repositorys_references_from_below() {
             .map(str::to_string)
             .collect()
     };
+    // `--root` names a directory from the repository's top, from anywhere
     let top = inbound(&repo, "pkg/legacy");
     assert!(top.iter().any(|l| l.contains("README.md")), "{top:?}");
-    assert_eq!(inbound(&repo.join("pkg"), "legacy"), top);
+    assert_eq!(inbound(&repo.join("pkg"), "pkg/legacy"), top);
+    let _ = fs::remove_dir_all(&repo);
+}
+
+/// `migrate inventory` of an existing tree from a subdirectory reads the tree
+/// it reads from the top (D-098).
+#[test]
+fn a_migration_inventory_finds_the_tree_from_below() {
+    let repo = project("migrate-tree-below");
+    let deep = repo.join("apps/x/src");
+    for args in [
+        &["migrate", "inventory"][..],
+        &["migrate", "inventory", "--repo", ".", "--root", "docs"],
+    ] {
+        let top = docsys_all(&repo, args);
+        assert_eq!(top.0, 0, "{args:?}: {}", top.1);
+        assert_eq!(docsys_all(&deep, args), top, "{args:?}");
+    }
     let _ = fs::remove_dir_all(&repo);
 }
 
@@ -560,5 +581,62 @@ fn agents_for_a_knowledge_base_from_below_writes_what_it_writes_at_the_top() {
     assert_eq!(code, 0, "{out}");
     assert!(!below.join(".claude").exists(), "{out}");
     assert_eq!(relays(&repo), top, "{out}");
+    // the README's form names the base with `--root .`: the tree from the top
+    let agents_md = fs::read_to_string(repo.join("AGENTS.md")).unwrap_or_default();
+    for args in [
+        &["agents", "--kb", "--root", ".", "--force"][..],
+        &[
+            "agents", "--kb", "--root", ".", "--force", "--dir", ".claude",
+        ],
+        &["status", "--root", "."],
+    ] {
+        let at_top = docsys_all(&repo, args);
+        assert_eq!(docsys_all(&below, args), at_top, "{args:?}");
+        assert_eq!(relays(&repo), top, "{args:?}");
+        assert!(!below.join(".claude").exists(), "{args:?}");
+        assert!(!below.join("AGENTS.md").exists(), "{args:?}");
+    }
+    assert_eq!(
+        fs::read_to_string(repo.join("AGENTS.md")).unwrap_or_default(),
+        agents_md
+    );
+    let _ = fs::remove_dir_all(&repo);
+}
+
+/// The agent layer is the repository's, at its top (D-098): `agents` in every
+/// form — a given relative `--dir` too — and `compile` write there from a
+/// subdirectory, read there for `--report`, never write a retired relay on a
+/// docsys/0.5 tree, and name what they wrote from the top, so the same
+/// command prints the same from anywhere.
+#[test]
+fn the_agent_layer_is_written_and_named_from_the_top() {
+    let repo = project("layer-from-below");
+    let deep = repo.join("apps/x/src");
+    fs::write(repo.join(".claude/commands/own.md"), "own\n").unwrap();
+    fs::create_dir_all(repo.join("docs/howto")).unwrap();
+    fs::write(
+        repo.join("docs/howto/release.md"),
+        "---\nid: release\ntype: howto\n---\n# Release\n\nThis page lists the release steps; read it before tagging.\n\n1. Tag the version.\n2. Push the tag.\n",
+    )
+    .unwrap();
+    for args in [
+        &["agents"][..],
+        &["agents", "--dir", ".claude"],
+        &["agents", "--force"],
+        &["agents", "--force", "--dir", ".claude"],
+        &["agents", "--report"],
+        &["agents", "--report", "--dir", ".claude"],
+        &["compile", "howto/release", "--force"],
+        &["compile", "howto/release", "--force", "--dir", ".claude"],
+    ] {
+        let top = docsys_all(&repo, args);
+        assert_eq!(top.0, 0, "{args:?}: {}", top.1);
+        assert_eq!(docsys_all(&deep, args), top, "{args:?}");
+        assert!(!deep.join(".claude").exists(), "{args:?}");
+        assert!(
+            !repo.join(".claude/hooks/post-edit-updated.sh").exists(),
+            "{args:?}"
+        );
+    }
     let _ = fs::remove_dir_all(&repo);
 }

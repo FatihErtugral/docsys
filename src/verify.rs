@@ -725,7 +725,7 @@ fn verify_by_commit(
         .status()
         .is_ok_and(|s| s.success());
     if !ok {
-        return Err("the approval commit did not land — the gate may have refused it; `docsys lint` says why".into());
+        return Err(refused(root, tree, repo));
     }
     out.by = if revoke { String::new() } else { by };
     out.rev = git(repo, &["rev-parse", "--short", "HEAD"]).unwrap_or_default();
@@ -736,6 +736,28 @@ fn verify_by_commit(
         "R-025: this is your reading of the page against its sources — the commit carries `Approved-by:`".into()
     });
     Ok(out)
+}
+
+/// Why an approval commit did not land, naming the check of the git gate that
+/// refused it: the gate runs `lint` and `refs`, and only the one with an error
+/// says why.
+fn refused(root: &Path, tree: &DocTree, repo: &Path) -> String {
+    let errors = |r: &crate::checks::Report| {
+        r.findings
+            .iter()
+            .any(|f| f.severity == crate::model::Severity::Error)
+    };
+    let lint = errors(&crate::lint_in(root, Some(repo)).0);
+    let refs = errors(&crate::refs::run(repo, tree));
+    let named = match (lint, refs) {
+        (true, true) => "`docsys lint` and `docsys refs` report errors",
+        (true, false) => "`docsys lint` reports errors",
+        (false, true) => "`docsys refs` reports errors",
+        (false, false) => {
+            return "the approval commit did not land — git's output above says why".into()
+        }
+    };
+    format!("the approval commit did not land: the git gate refused it, and {named}")
 }
 
 /// The line the approval job adds to a pull request's description when the
@@ -819,7 +841,9 @@ pub fn show(root: &Path, target: &str) -> Result<String, String> {
     } else {
         get("verification").unwrap_or("no verification field")
     };
+    // a page that takes no part has no approval to read against
     let (recorded, last, then_text) = match approved {
+        _ if !tracked => (None, None, None),
         Some(a) => (
             a.read
                 .as_deref()
@@ -892,6 +916,10 @@ pub fn show(root: &Path, target: &str) -> Result<String, String> {
         )),
         (_, _, Some((by, rev))) => out.push_str(&format!(
             "{rel} ({state}): no block record — the verification by {by} at {rev} did not record its blocks; every block is to be read\n"
+        )),
+        _ if !tracked => out.push_str(&format!(
+            "{rel} ({state}){}\n",
+            why.as_deref().unwrap_or_default()
         )),
         _ => out.push_str(&format!(
             "{rel} ({state}): never verified; every block is to be read\n"

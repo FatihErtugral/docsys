@@ -13,13 +13,11 @@ Nothing is committed or recorded that the person did not say yes to.
 2. A CI workflow its owner edited (`ci-workflow`, with a diff): propose one
    edit from the diff that keeps their `runs-on` and their install step.
    Apply it on their word.
-3. A pin listed for a re-read (`pins`): read the page's sentences against
-   the region as it is now. If they hold, run the item's `command`; if not,
-   propose the page edit. Never refresh a pin you did not read (R-111).
+3. A pin listed for a re-read (`pins`): re-read it as the rules block says.
+   If the page holds, run the item's `command`; if not, propose the page edit.
 4. A verified page listed for a maintainer (`verified-record`): give the
-   person `docsys verify --show <page>`, the blocks to read again. Read them
-   with the person if they ask; the verification is theirs to record with the
-   item's `command`. You never set `verified` (R-025).
+   person its `docsys verify --show` line. Read the blocks with the person if
+   they ask; the verification is theirs to record with the item's `command`.
 5. A relay, skill, command or contract its owner edited (a diff): propose
    one text that keeps the owner's lines and takes the new ones. Apply it on
    their word.

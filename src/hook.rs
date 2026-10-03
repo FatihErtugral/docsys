@@ -423,8 +423,8 @@ const ERA_PHRASES: [(&str, &str); 11] = [
         "a work file under work/<category>/ or a journal entry linking the files and saying why",
     ),
     (
-        "wrong line = a commit that says why",
-        "wrong line = journal line",
+        "wrong line = the fix, wrong assumption = invariant\nin reference/ or a postmortem (test: can it recur?); research",
+        "wrong line = journal line, wrong assumption = invariant\nin reference/ or a postmortem (test: can it recur?); improvement touching a\npublic surface → reference/ updated, and always record WHY; research",
     ),
     (
         "idea → a question item or a roadmap line",
@@ -435,8 +435,8 @@ const ERA_PHRASES: [(&str, &str); 11] = [
         "An id is unique across the whole tree, drafts included.\nEnd of session: journal line (≤5 lines, links not content). Gate: docsys lint.\nJudgment calls follow the procedures: docsys rules --procedures.\n</session-doc-routing>",
     ),
     (
-        "→ work file, or `Docs:` in the commit message)",
-        "→ work file or journal entry)",
+        "is recorded (a work file, or `Docs:` in the commit message)",
+        "is recorded (feature | bug | improvement | research → work file or journal entry)",
     ),
     (
         "record it (a work file, or `Docs: <why>` in the commit message)",
@@ -1028,16 +1028,14 @@ holds documentation, and the work you are about to do may already have a page
 or a work file.
 
 Routing: feature needing a design decision → work/features/ (status: draft);
-bug → root cause first: wrong line = a commit that says why, wrong assumption = invariant
-in reference/ or a postmortem (test: can it recur?); improvement touching a
-public surface → reference/ updated, and always record WHY; research = a question
+bug → root cause first: wrong line = the fix, wrong assumption = invariant
+in reference/ or a postmortem (test: can it recur?); research = a question
 with no decision yet → work/research/ (Question · Tried · Learned · Why no
 decision), no code; idea → a question item or a roadmap line, never the permanent layer
 before it becomes a decision.
 Intent → command: knowledge only people have (an interview, a thread, a
-decision someone made) → /docsys-interview, the answers land verbatim under
-work/; existing code with no pages → /docsys-seed <feature>; pages that drifted
-from the code → /docsys-sync.
+decision someone made) → /docsys-interview; existing code with no pages →
+/docsys-seed <feature>; pages that drifted from the code → /docsys-sync.
 
 Contract-surface changes update their documentation in the SAME session.
 An id is unique across the whole tree, drafts included.
@@ -1156,7 +1154,7 @@ fn tree_digest(root: &Path) -> String {
         ));
     }
     if commit_policy(root) == CommitPolicy::Require {
-        out.push_str("commit_policy: require — no commit lands without its documentation, and the end of a turn holds until the work is recorded (feature | bug | improvement | research → work file, or `Docs:` in the commit message).\n");
+        out.push_str("commit_policy: require — no commit lands without its documentation, and the end of a turn holds until the work is recorded (a work file, or `Docs:` in the commit message).\n");
     }
     out.push_str("</docs-in-hand>\n");
     out

@@ -284,9 +284,10 @@ fn help_says_each_thing_once_and_none_the_block_says() {
     assert!(shared.is_empty(), "help and the block both say: {shared:?}");
 }
 
-/// The texts an agent and a person read — the rules block, the skill, the
-/// first-turn routing with the tree's digest, and help — with their line
-/// breaks folded.
+/// The texts an agent and a person read — the rules block, the skills, the
+/// commands `adopt` writes, the first-turn routing with the tree's digest
+/// under `commit_policy: require`, help and the feedback guide — with their
+/// line breaks folded.
 fn homes() -> Vec<(&'static str, String)> {
     let dir = std::env::temp_dir().join(format!("docsys-help-homes-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
@@ -314,6 +315,20 @@ fn homes() -> Vec<(&'static str, String)> {
         String::from_utf8_lossy(&child.wait_with_output().unwrap().stdout).into_owned()
     };
     docsys(&["adopt"], "");
+    let meta = dir.join("docs/.docmeta.yml");
+    let text = std::fs::read_to_string(&meta).unwrap();
+    std::fs::write(
+        &meta,
+        text.replace("commit_policy: ask", "commit_policy: require"),
+    )
+    .unwrap();
+    let read = |rel: &str| std::fs::read_to_string(dir.join(rel)).unwrap();
+    let export = read(".claude/skills/docsys-export/SKILL.md");
+    let commands: String = ["interview", "seed", "sync", "upgrade"]
+        .iter()
+        .map(|c| read(&format!(".claude/commands/docsys-{c}.md")))
+        .collect();
+    let feedback = docsys(&["feedback"], "");
     let routing = docsys(
         &["hook", "user-prompt-submit", "--root", "docs"],
         &format!(
@@ -337,6 +352,9 @@ fn homes() -> Vec<(&'static str, String)> {
         ("skill", fold(docsys::agents::skill_text())),
         ("routing", fold(&routing)),
         ("help", fold(&help)),
+        ("export", fold(&export)),
+        ("commands", fold(&commands)),
+        ("feedback", fold(&feedback)),
     ]
 }
 
@@ -348,7 +366,12 @@ fn each_fact_is_said_in_one_place() {
     let facts: &[(&str, &[&str])] = &[
         (
             "a commit message says why",
-            &["what and why", "message that says why"],
+            &[
+                "what and why",
+                "message that says why",
+                "record WHY",
+                "commit that says why",
+            ],
         ),
         ("the procedures are a command", &["rules --procedures"]),
         ("lookup comes first", &["docsys lookup <words>"]),
@@ -360,10 +383,9 @@ fn each_fact_is_said_in_one_place() {
         ("the two checks", &["refs --repo ."]),
         (
             "index.md routes the pages",
-            &["index.md` routes", "index.md routes"],
+            &["index.md` routes", "index.md routes", "reachable from"],
         ),
         ("verify records an approval", &["docsys verify <page>"]),
-        ("no guess on a page", &["never a guess"]),
         (
             "a pinned tree runs its version",
             &["installed on first use", "runs its own version"],
@@ -388,7 +410,86 @@ fn each_fact_is_said_in_one_place() {
                 "removes the work file",
             ],
         ),
-        ("a command's flags", &["flags and an example"]),
+        (
+            "a command's flags",
+            &["flags and an example", "gives each one's flags"],
+        ),
+        ("require holds the turn", &["end of a turn holds"]),
+        (
+            "require wants the why",
+            &["lands without its documentation", "needs `Docs: <why>`"],
+        ),
+        ("an interview's answers land verbatim", &["land verbatim"]),
+        (
+            "graduation on the person's word",
+            &[
+                "explicit human confirmation",
+                "human's explicit word",
+                "word that the file graduates",
+            ],
+        ),
+        (
+            "R-093's question",
+            &[
+                "exist anywhere else",
+                "exist nowhere else",
+                "exists nowhere permanent",
+            ],
+        ),
+        ("a howto's complete steps", &["steps are complete"]),
+        ("the plan skeleton", &["plan skeleton"]),
+        ("blocks move as written", &["never retype", "byte for byte"]),
+        ("no guess", &["never a guess", "confident guess"]),
+        (
+            "what the code cannot say",
+            &["facts the code cannot state", "what the code cannot say"],
+        ),
+        (
+            "contract changes update their pages",
+            &["Contract-surface changes", "touching a public surface"],
+        ),
+        ("the work types", &["feature, bug", "feature | bug"]),
+        (
+            "a stale pin is read first",
+            &["refreshed blind", "re-reading the page", "did not read"],
+        ),
+        (
+            "the session that wrote it never verifies",
+            &["another session"],
+        ),
+        (
+            "memory is no source",
+            &["never a source", "the note is not"],
+        ),
+        ("names keep their form", &["original form"]),
+        ("docsys in your way", &["wrong or in your way"]),
+        ("filing publishes", &["filing publishes"]),
+        (
+            "warnings never block",
+            &["warnings accumulate", "never block"],
+        ),
+        ("deferred work", &["deferred on purpose"]),
+        ("a repaid debt", &["once repaid", "is repaid"]),
+        ("the unknown", &["not known"]),
+        ("the pin is the binding", &["whole binding"]),
+        (
+            "what points at a file",
+            &["what points at it", "names the pages that describe"],
+        ),
+        ("lint's exit", &["exit 1 on an error", "blocking findings"]),
+        ("adopt does it all", &["sets it up", "`adopt` does both"]),
+        (
+            "one feature's evidence",
+            &["one feature's evidence", "one feature's history"],
+        ),
+        (
+            "a record lands once",
+            &["raw/inbox/ once", "the same item lands once"],
+        ),
+        (
+            "the plan before the move",
+            &["plan first", "only the plan is printed"],
+        ),
     ];
     let homes = homes();
     let mut twice = Vec::new();
@@ -406,4 +507,49 @@ fn each_fact_is_said_in_one_place() {
         }
     }
     assert!(twice.is_empty(), "{twice:#?}");
+}
+
+/// What docsys does not know is named, and is a bad invocation (exit 2): an
+/// unknown command, `help` of one, an unknown sub-command; and a flag's value
+/// is never another flag (D-129).
+#[test]
+fn an_unknown_command_is_named_and_a_flag_is_never_a_value() {
+    let dir = std::env::temp_dir().join(format!("docsys-help-unknown-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let run_in = |args: &[&str]| {
+        let out = Command::new(bin())
+            .args(args)
+            .env("DOCSYS_NO_AUTO_INSTALL", "1")
+            .current_dir(&dir)
+            .output()
+            .unwrap();
+        (
+            out.status.code(),
+            String::from_utf8_lossy(&out.stdout).into_owned()
+                + &String::from_utf8_lossy(&out.stderr),
+        )
+    };
+    for (args, named) in [
+        (&["nope"][..], "`nope`"),
+        (&["help", "nope"], "`nope`"),
+        (&["help", "debt", "nope"], "`debt nope`"),
+        (&["consume", "nope"], "`consume nope`"),
+        (&["--nope", "lint"], "`--nope`"),
+    ] {
+        let (code, text) = run_in(args);
+        assert_eq!(code, Some(2), "{args:?}: {text}");
+        assert!(text.contains(named), "{args:?}: {text}");
+    }
+    // a value that looks like a flag is refused, never taken as a file name
+    let (code, text) = run_in(&["rules", "--agents-md", "--write", "--root", "."]);
+    assert_eq!(code, Some(2), "{text}");
+    assert!(text.contains("`--root`"), "{text}");
+    assert!(!dir.join("--root").exists(), "{text}");
+    // `--plan` is no flag of rules: `--write` is
+    let (code, text) = run_in(&["rules", "--agents-md", "--plan", "x.md"]);
+    assert_eq!(code, Some(2), "{text}");
+    assert!(text.contains("docsys rules "), "{text}");
+    assert!(!dir.join("x.md").exists(), "{text}");
+    let _ = std::fs::remove_dir_all(&dir);
 }
