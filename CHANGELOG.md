@@ -259,10 +259,14 @@ release on every tree.
   `agents --kb --root .` on a project is refused, and an assistant's base
   inside a project's repository leaves the project's git gate as 0.15.1 left
   it (D-098, D-118).
-- A skipped commit (`DOCSYS_SKIP=1`) says something only when the debt item
-  `commit_policy: require` asks for cannot be written, and then says why; a
-  lint error the person skipped no longer prints a pointer to a reason nobody
-  sees (R-209).
+- A skipped commit (`DOCSYS_SKIP=1`) under `commit_policy: require` leaves a
+  debt item for each check it carried past the gate — code with no
+  documentation, a lint error — and says something only when an item cannot
+  be written, and then says why; a lint error the person skipped no longer
+  prints a pointer to a reason nobody sees (R-209, D-093).
+- `upgrade --apply` in a clone with no git gate writes the one `adopt`
+  writes, hard while the tree lints clean: the step every clone takes after
+  pulling a move leaves the leftover check clean (D-117).
 - A `git add` in the call the commit relay sees takes untracked files too: a
   new code file staged and committed in one call is asked about (D-040).
 - On docsys/0.5 the relays name the bypass as the person's —

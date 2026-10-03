@@ -788,6 +788,32 @@ fn the_move_retires_the_knowledge_base_audit_organ() {
     }
 }
 
+/// A fresh clone of a repository that keeps its gate in `.git/hooks` has no
+/// gate: `docsys upgrade --apply`, the step every clone takes after pulling
+/// a move, writes the one adopt writes — hard while the tree lints clean —
+/// and the leftover check then ends clean (D-117).
+#[test]
+fn the_per_clone_step_writes_a_missing_gate() {
+    let (repo, _) = build("no-gate");
+    fs::remove_file(repo.join(".git/hooks/pre-commit")).unwrap();
+    let out = docsys(&repo, &["upgrade", "--apply", "--commit"]);
+    assert!(out.status.success(), "{out:?}");
+    let said = String::from_utf8_lossy(&out.stdout);
+    assert!(
+        said.contains("auto    git-gate           .git/hooks/pre-commit  the docsys gate written in this clone"),
+        "{said}"
+    );
+    let pre = fs::read_to_string(repo.join(".git/hooks/pre-commit")).unwrap();
+    assert!(pre.contains("docsys documentation gate"), "{pre}");
+    let msg = fs::read_to_string(repo.join(".git/hooks/commit-msg")).unwrap();
+    assert!(msg.contains("docsys gate --message"), "{msg}");
+    let idle = docsys(&repo, &["upgrade"]);
+    let idle = String::from_utf8_lossy(&idle.stdout);
+    assert!(!idle.contains("git-gate"), "{idle}");
+    assert_eq!(git(&repo, &["status", "--porcelain"]), "");
+    let _ = fs::remove_dir_all(&repo);
+}
+
 /// A repository that tracks its hooks in `.githooks/`: a fresh clone has no
 /// `core.hooksPath` yet. The gate the upgrade rewrites is the tracked one,
 /// and it goes into the upgrade commit, so a second run finds nothing to do.

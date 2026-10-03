@@ -1085,6 +1085,37 @@ fn the_parser_and_the_table_agree_on_every_flag() {
     }
 }
 
+/// A synopsis that spells out the choices a flag takes spells them as the
+/// flag's line in the table does, so the two cannot disagree (D-129); a
+/// synopsis may show a flag's default instead (`[--dir .claude]`).
+#[test]
+fn a_synopsis_names_a_flags_choices_as_its_table_line_does() {
+    let mut differ = Vec::new();
+    for c in docsys::help::COMMANDS {
+        for (key, _) in c.flags {
+            let (word, arg) = key.split_once(' ').unwrap_or((key, ""));
+            let opening = format!("[{word}");
+            let mut rest = c.synopsis;
+            while let Some(at) = rest.find(&opening) {
+                rest = &rest[at + opening.len()..];
+                if !(rest.starts_with(' ') || rest.starts_with(']')) {
+                    continue;
+                }
+                let end = [rest.find(']'), rest.find(" |"), rest.find(" [")]
+                    .into_iter()
+                    .flatten()
+                    .min()
+                    .unwrap_or(rest.len());
+                let said = rest[..end].trim();
+                if said.contains('|') && said != arg {
+                    differ.push(format!("{}: `{word} {said}` against `{key}`", c.name));
+                }
+            }
+        }
+    }
+    assert!(differ.is_empty(), "{differ:#?}");
+}
+
 /// `docsys help adopt` says what adopt writes: the tree, the agent rules,
 /// the hooks, the skills, the slash commands, the git gate and the report.
 #[test]

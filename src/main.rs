@@ -1846,18 +1846,16 @@ next: review, `git add -A && git commit`, then open an agent session here."
                     let undocumented = !g.code.is_empty() && g.docs == 0 && !by_message;
                     if opts.skipped {
                         // the git hook, bypassed with DOCSYS_SKIP=1: the skip is the
-                        // person's word, and its one job is the debt item an
-                        // undocumented commit leaves under require (D-093)
-                        if !(undocumented && require) {
+                        // person's word, and its one job is the debt item each
+                        // check it bypassed leaves under require (R-209, D-093)
+                        if !require || !(undocumented || g.lint_errors > 0) {
                             return ExitCode::SUCCESS;
                         }
-                        return match docsys::hook::record_undocumented_commit(
-                            &root,
-                            &g.code,
-                            &migrate::today(),
-                        ) {
-                            Ok(file) => {
-                                println!("{}", docsys::say::gate_bypassed(&file));
+                        return match docsys::hook::record_skipped(&repo, &root, &g, &report) {
+                            Ok(files) => {
+                                for file in files {
+                                    println!("{}", docsys::say::gate_bypassed(&file));
+                                }
                                 ExitCode::SUCCESS
                             }
                             Err(e) => {

@@ -115,7 +115,7 @@ const JSON: (&str, &str) = (
 pub const COMMANDS: &[Command] = &[
     Command {
         name: "adopt",
-        synopsis: "[--repo .] [--root docs] [--lang <code>] [--rules-file <path>] [--report-dir <dir> | --no-report] [--ci-runner <label>,…] [--ci-install cargo|release] [--ci-sha256 <target>=<hex>,…] [--verify-on-approval description|pull-request|direct|off] [--obsidian]",
+        synopsis: "[--repo .] [--root docs] [--lang <code>] [--rules-file <path>] [--report-dir <dir> | --no-report] [--ci-runner <label>,…] [--ci-install cargo|release] [--ci-sha256 <target>=<hex>,…] [--verify-on-approval <mode>] [--obsidian]",
         purpose: "a repository starts using docsys: the tree, the agent rules, the agent's hooks, skills and slash commands, and the git gate, with ADOPTION.md listing what is left; a re-run brings them up to date",
         flags: &[
             ("--lang <code>", "the language the pages are written in"),

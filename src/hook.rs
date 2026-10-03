@@ -450,33 +450,99 @@ pub fn record_undocumented_commit(
     files: &[String],
     today: &str,
 ) -> Result<String, String> {
-    let shown: Vec<&str> = files.iter().take(5).map(String::as_str).collect();
-    let more = files.len().saturating_sub(shown.len());
-    let tail = if more > 0 {
-        format!(" (+{more} more)")
+    record_bypass(
+        root,
+        &format!(
+            "- [ ] {today} committed without documentation (DOCSYS_SKIP): {} -- deferred: the session bypassed the gate -- repay when: the next session in this tree names the work and records it",
+            shown(files)
+        ),
+    )
+}
+
+/// R-209: under `require` a skip that carried lint errors past the gate is
+/// a debt item too, naming the files that hold them (`files` from the
+/// repository's top).
+pub fn record_lint_bypass(
+    root: &Path,
+    errors: usize,
+    files: &[String],
+    today: &str,
+) -> Result<String, String> {
+    record_bypass(
+        root,
+        &format!(
+            "- [ ] {today} committed past {errors} lint error(s) (DOCSYS_SKIP): {} -- deferred: the gate was bypassed -- repay when: `docsys lint` reports no error",
+            shown(files)
+        ),
+    )
+}
+
+/// The first five files, and how many more.
+fn shown(files: &[String]) -> String {
+    let first: Vec<&str> = files.iter().take(5).map(String::as_str).collect();
+    let more = files.len().saturating_sub(first.len());
+    if more > 0 {
+        format!("{} (+{more} more)", first.join(", "))
     } else {
-        String::new()
-    };
-    let line = format!(
-        "- [ ] {today} committed without documentation (DOCSYS_SKIP): {}{tail} -- deferred: the session bypassed the gate -- repay when: the next session in this tree names the work and records it",
-        shown.join(", ")
-    );
-    // a line of its topic's file on a docsys/0.5 tree (D-124)
+        first.join(", ")
+    }
+}
+
+/// One debt line for a bypass: its topic's file on a docsys/0.5 tree
+/// (D-124), the ledger before. The file it wrote, relative to the root.
+fn record_bypass(root: &Path, line: &str) -> Result<String, String> {
     if crate::era::Era::at(root).item_files() {
-        return crate::items::add(root, crate::items::List::Debt, false, &line);
+        return crate::items::add(root, crate::items::List::Debt, false, line);
     }
     let path = root.join("work/debt.md");
     let mut text = fs::read_to_string(&path).unwrap_or_else(|_| "# Debt\n".to_string());
     if !text.ends_with('\n') {
         text.push('\n');
     }
-    text.push_str(&line);
+    text.push_str(line);
     text.push('\n');
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent).map_err(|e| e.to_string())?;
     }
     fs::write(&path, text).map_err(|e| e.to_string())?;
     Ok("work/debt.md".to_string())
+}
+
+/// Every check a skipped commit carried past the gate under `require`, each
+/// its debt item (R-209): code with no documentation, and lint errors. The
+/// files written, relative to the root; the first record that cannot be
+/// written ends it.
+pub fn record_skipped(
+    repo: &Path,
+    root: &Path,
+    g: &gate::GateOutcome,
+    report: &crate::checks::Report,
+) -> Result<Vec<String>, String> {
+    let today = crate::migrate::today();
+    let mut written = Vec::new();
+    if !g.code.is_empty() && g.docs == 0 {
+        written.push(record_undocumented_commit(root, &g.code, &today)?);
+    }
+    if g.lint_errors > 0 {
+        let top = crate::fresh::root_rel(repo, root);
+        let mut files: Vec<String> = Vec::new();
+        for f in report
+            .findings
+            .iter()
+            .filter(|f| f.severity == crate::model::Severity::Error)
+        {
+            let file = if top.is_empty() || f.file == "-" {
+                f.file.clone()
+            } else {
+                format!("{top}/{}", f.file)
+            };
+            if !files.contains(&file) {
+                files.push(file);
+            }
+        }
+        written.push(record_lint_bypass(root, g.lint_errors, &files, &today)?);
+    }
+    Ok(written)
 }
 
 /// The edited file and the session's working directory a payload names —
@@ -548,12 +614,10 @@ pub fn pre_tool_use(repo: &Path, root: &Path, payload: &str, skip: bool) -> Repl
         gate::run
     };
     if skip {
-        // D-093: under `require`, the bypass is recorded as debt, never silent
+        // D-093: under `require`, each bypass is recorded as debt, never silent
         if policy == CommitPolicy::Require {
-            if let Ok((g, _)) = question(repo, root) {
-                if !g.code.is_empty() && g.docs == 0 {
-                    let _ = record_undocumented_commit(root, &g.code, &crate::migrate::today());
-                }
+            if let Ok((g, report)) = question(repo, root) {
+                let _ = record_skipped(repo, root, &g, &report);
             }
         }
         return Reply::ok();

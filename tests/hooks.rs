@@ -945,9 +945,10 @@ fn commit_through_gate(repo: &Path, args: &[&str], env: &[(&str, &str)]) -> (i32
     )
 }
 
-/// A skipped commit is the person's word (R-209): the gate's only job is the
-/// record `require` asks for, and it says something only when that record
-/// could not be written — never a pointer to a reason nobody sees.
+/// A skipped commit is the person's word (R-209): under `require` each check
+/// it bypassed leaves a debt item — code with no documentation, a lint error
+/// — and the gate says something only when that record could not be
+/// written, never a pointer to a reason nobody sees.
 #[test]
 fn a_skipped_commit_says_only_what_its_record_needs() {
     let repo = adopted("skip-lint");
@@ -957,8 +958,8 @@ fn a_skipped_commit_says_only_what_its_record_needs() {
         &["-q", "-m", "policy", "-m", "Docs: the policy"],
         &[],
     );
-    // code and a documentation change with a lint error: documented, so no
-    // record is due, and nothing is said
+    // code and a documentation change with a lint error: documented, but the
+    // lint error went past the gate, and the record says so
     fs::create_dir_all(repo.join("src")).unwrap();
     fs::write(repo.join("src/x.rs"), "fn x() {}\n").unwrap();
     let index = repo.join("docs/index.md");
@@ -970,7 +971,25 @@ fn a_skipped_commit_says_only_what_its_record_needs() {
     let (code, err) = commit_through_gate(&repo, &["-q", "-m", "both"], &[("DOCSYS_SKIP", "1")]);
     assert_eq!(code, 0, "{err}");
     assert!(!err.contains("not recorded"), "{err}");
-    assert!(!repo.join("docs/work/debt").exists());
+    let debt = fs::read_to_string(repo.join("docs/work/debt/general.md")).unwrap();
+    assert!(
+        debt.contains("committed past 1 lint error(s) (DOCSYS_SKIP): docs/index.md"),
+        "{debt}"
+    );
+    assert!(!debt.contains("without documentation"), "{debt}");
+    // the record is committed on its own, as the person does
+    git(&repo, &["add", "docs/work/debt"]);
+    git(
+        &repo,
+        &[
+            "-c",
+            "core.hooksPath=/dev/null",
+            "commit",
+            "-q",
+            "-m",
+            "the record",
+        ],
+    );
     // code alone while that lint error stands: the record is written, and
     // nothing claims it was not
     fs::write(repo.join("src/y.rs"), "fn y() {}\n").unwrap();
@@ -979,6 +998,11 @@ fn a_skipped_commit_says_only_what_its_record_needs() {
     assert!(!err.contains("not recorded"), "{err}");
     let debt = fs::read_to_string(repo.join("docs/work/debt/general.md")).unwrap();
     assert!(debt.contains("(DOCSYS_SKIP): src/y.rs"), "{debt}");
+    assert_eq!(
+        debt.matches("lint error(s) (DOCSYS_SKIP)").count(),
+        2,
+        "{debt}"
+    );
     // a record that cannot be written says why, above the line that points at it
     // the record lands beside the commit, untracked: an empty read-only
     // directory is no change to commit, and takes no file

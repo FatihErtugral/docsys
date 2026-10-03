@@ -1483,7 +1483,8 @@ that has it still exists — the commit may come later, from another session or
 from a person at a terminal. `DOCSYS_SKIP=1` in the hook's own environment —
 the person's, never a word in the agent's command — still bypasses once; under
 `require` the bypass leaves a dated debt item under `work/debt/` (derived, not
-authored — R-156), so an undocumented commit is visible, never silent
+authored — R-156), so an undocumented commit, or one carried past a lint
+error, is visible, never silent
 (R-151's second criterion: silently wrong). The first turn of a session names
 the tree's own state — permanent pages, work in flight, the policy — before the
 work type is chosen.

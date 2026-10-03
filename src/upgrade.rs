@@ -848,14 +848,41 @@ fn common(ctx: &Ctx, u: &mut Upgrade, apply: bool) -> Result<(), String> {
     // git-gate: the block in this clone's pre-commit hook, its mode kept
     let message = Era(u.to).journal_from_history();
     match crate::adopt::gate_current(repo, root_rel, message) {
+        // a clone with no gate gets the one adopt writes: `docsys upgrade
+        // --apply` is the step every clone takes after pulling a move
         None => {
+            let hard = crate::adopt::gate_clean(root, repo);
+            let hooks =
+                crate::adopt::gate_hooks_dir(repo).unwrap_or_else(|| repo.join(".git/hooks"));
+            let file = rel(repo, &hooks.join("pre-commit"));
+            let mode = if hard {
+                "hard, the tree linting clean"
+            } else {
+                "in warn mode while lint or refs report an error (D-072)"
+            };
+            let half = if message {
+                ", with its commit-msg half"
+            } else {
+                ""
+            };
             u.item(
-                "info",
+                "auto",
                 "git-gate",
-                "pre-commit",
-                "no docsys gate in this clone".to_string(),
+                &file,
+                format!("the docsys gate written in this clone{half}, {mode}"),
             );
-            u.completed_by("docsys adopt".to_string());
+            // a gate in a hooks directory the repository tracks goes into the commit
+            let tracked = git_out(repo, &["ls-files", "--", &rel(repo, &hooks)])
+                .is_some_and(|l| !l.trim().is_empty());
+            if tracked {
+                u.written.push(file);
+                if message {
+                    u.written.push(rel(repo, &hooks.join("commit-msg")));
+                }
+            }
+            if apply && crate::adopt::ensure_git_gate(repo, root_rel, hard, message) == "failed" {
+                return Err("the git gate could not be written in this clone".to_string());
+            }
         }
         // the repository's gate is current, but this clone's git does not run it
         Some(true) if crate::adopt::tracked_hooks_unset(repo) => {

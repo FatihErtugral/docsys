@@ -158,8 +158,8 @@ under `work/<category>/`, or at minimum a `Docs: <why>` line in the commit
 message, which the `commit-msg` hook reads); and the end of a turn holds the session once when code changed
 without its record, because the conversation that holds the reasons may be
 closed by the time the commit lands. `DOCSYS_SKIP=1` still bypasses, but under
-`require` it leaves a dated debt item — an undocumented commit is visible debt,
-never a silent hole. The first turn carries `<docs-in-hand>`: the pages the
+`require` it leaves a dated debt item — an undocumented commit, or a lint error
+carried past the gate, is visible debt, never a silent hole. The first turn carries `<docs-in-hand>`: the pages the
 tree already has, the work in flight, the policy — so the
 agent routes the work against what exists.
 
