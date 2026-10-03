@@ -455,3 +455,102 @@ fn an_unreadable_range_is_an_error() {
     );
     let _ = fs::remove_dir_all(&repo);
 }
+
+/// `verify --show`'s next step is the one that changes the page's state:
+/// after a revoke the page reads unverified and a maintainer verifies it
+/// again; a stale bound pin is refreshed, not verified; a page that carries no
+/// `sources:` names them first (D-103, D-126).
+#[test]
+fn show_names_the_step_the_state_asks_for() {
+    let (repo, root) = project("show-next");
+    let show = || {
+        let out = docsys(&repo, &["verify", "--show", "reference/retry.md"]);
+        assert!(out.status.success(), "{out:?}");
+        String::from_utf8_lossy(&out.stdout).into_owned()
+    };
+    let head = |s: &str| s.lines().next().unwrap_or("").to_string();
+    let then = |s: &str| {
+        s.lines()
+            .find(|l| l.starts_with("then:"))
+            .unwrap_or("")
+            .to_string()
+    };
+    // bound to the code, then approved
+    let out = docsys(
+        &repo,
+        &["pin", "reference/retry", "src/retry.rs", "--block", "1"],
+    );
+    assert!(out.status.success(), "{out:?}");
+    git(&repo, &["add", "-A"]);
+    git(&repo, &["commit", "-qm", "retry: pinned"]);
+    git(
+        &repo,
+        &[
+            "commit",
+            "-q",
+            "--allow-empty",
+            "-m",
+            "docs: verify retry",
+            "-m",
+            APPROVE,
+        ],
+    );
+    let s = show();
+    assert!(
+        head(&s).contains("(verified)") && then(&s).contains("nothing"),
+        "{s}"
+    );
+    // taken back: unverified, and the next step is a new approval
+    git(
+        &repo,
+        &[
+            "commit",
+            "-q",
+            "--allow-empty",
+            "-m",
+            "docs: revoke retry",
+            "-m",
+            "Revokes: reference/retry.md",
+        ],
+    );
+    let s = show();
+    assert!(head(&s).contains("(unverified)"), "{s}");
+    assert!(!head(&s).contains("nothing to re-read"), "{s}");
+    assert!(then(&s).contains("docsys verify reference/retry.md"), "{s}");
+    // approved again, then the pinned code moves: the pin is refreshed
+    git(
+        &repo,
+        &[
+            "commit",
+            "-q",
+            "--allow-empty",
+            "-m",
+            "docs: verify retry",
+            "-m",
+            APPROVE,
+        ],
+    );
+    fs::write(repo.join("src/retry.rs"), "pub fn retry() { loop {} }\n").unwrap();
+    git(&repo, &["commit", "-qam", "retry: loops"]);
+    let s = show();
+    assert!(
+        then(&s).contains("docsys pin --refresh reference/retry.md"),
+        "{s}"
+    );
+    assert!(!then(&s).contains("docsys verify"), "{s}");
+    // a page that takes no part names its sources first
+    fs::write(
+        root.join("reference/plain.md"),
+        "---\nid: plain\ntype: reference\n---\nThis page states a plain fact; read it when you need it.\n",
+    )
+    .unwrap();
+    git(&repo, &["add", "-A"]);
+    git(&repo, &["commit", "-qm", "a plain page"]);
+    let out = docsys(&repo, &["verify", "--show", "reference/plain.md"]);
+    let s = String::from_utf8_lossy(&out.stdout).into_owned();
+    assert!(
+        then(&s).contains("`sources:`") && !then(&s).contains("docsys verify"),
+        "{s}"
+    );
+    let _ = fs::remove_dir_all(&repo);
+}

@@ -158,6 +158,11 @@ impl Approvals {
         self.sources_moved.len()
     }
 
+    /// Whether a source the page consumes moved since its approval.
+    pub fn source_moved(&self, rel: &str) -> bool {
+        self.sources_moved.contains(rel)
+    }
+
     /// Whether a page takes part in verification and is not verified.
     pub fn is_unverified(&self, tree: &DocTree, page: &Page) -> bool {
         tracked(tree, page) && self.state(&page.rel) == State::Unverified

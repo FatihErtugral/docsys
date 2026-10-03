@@ -803,8 +803,9 @@ pub fn show(root: &Path, target: &str) -> Result<String, String> {
     let approved = from_history
         .then(|| crate::approval::last_approval(&tree, page))
         .flatten();
-    let state = if from_history {
-        match crate::approval::Approvals::of(&tree).state(rel) {
+    let approvals = from_history.then(|| crate::approval::Approvals::of(&tree));
+    let state = if let Some(a) = &approvals {
+        match a.state(rel) {
             crate::approval::State::Verified { .. } => "verified",
             crate::approval::State::Unverified => "unverified",
             crate::approval::State::Unknown => "verification unknown",
@@ -837,12 +838,22 @@ pub fn show(root: &Path, target: &str) -> Result<String, String> {
     let reading = recorded
         .as_deref()
         .map(|r| crate::blocks::reading_of(r, &page.text, &stale));
+    // on docsys/0.5 the step follows the state: a stale pin is refreshed, an
+    // approval no longer holding is made again (D-126)
+    let unverified = state == "unverified";
+    let moved_source = approvals.as_ref().is_some_and(|a| a.source_moved(rel));
     match (&recorded, reading, last) {
         (Some(_), Some(reading), Some((by, rev))) => {
-            next = if reading.partial() {
+            next = if reading.moved {
                 format!("then: read what is marked against what it rests on, and `docsys verify {rel}`\n")
+            } else if reading.partial() && from_history {
+                format!("then: re-read the marked block against its pinned region, and `docsys pin --refresh {rel}`\n")
+            } else if reading.partial() {
+                format!("then: read what is marked against what it rests on, and `docsys verify {rel}`\n")
+            } else if unverified {
+                format!("then: a maintainer reads it again against what it rests on, and `docsys verify {rel}`\n")
             } else {
-                "then: nothing — the record holds the body as it is\n".to_string()
+                "then: nothing — the approval holds the body as it is\n".to_string()
             };
             out.push_str(&format!(
                 "{rel} ({state}): {}/{} blocks as verified by {by} at {rev}{}\n",
@@ -852,6 +863,10 @@ pub fn show(root: &Path, target: &str) -> Result<String, String> {
                     " — the body moved since"
                 } else if reading.partial() {
                     " — a pin a block rests on is stale"
+                } else if unverified && moved_source {
+                    " — a source it consumes moved since"
+                } else if unverified {
+                    " — the approval no longer holds (taken back, or its approver is no maintainer)"
                 } else {
                     " — nothing to re-read"
                 }
@@ -961,6 +976,10 @@ pub fn show(root: &Path, target: &str) -> Result<String, String> {
     } else {
         format!("read against: {}\n", against.join(" · "))
     });
+    // a page that takes no part is given its `sources:` first (N7.1, D-126)
+    if from_history && !crate::approval::tracked(&tree, page) {
+        next = "then: name what it rests on in `sources:` first; a page without them takes no part in verification\n".to_string();
+    }
     out.push_str(&next);
     Ok(out)
 }
