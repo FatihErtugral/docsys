@@ -237,7 +237,7 @@ fn under_require_the_message_gate_wants_why_and_a_closed_item_wants_its_trailer(
         String::from_utf8_lossy(&out.stderr).contains("carries no `Resolved:` line"),
         "{out:?}"
     );
-    // a long message is said too: an entry keeps five lines
+    // a team's long body is its own convention; a long `Docs:` entry is said
     fs::write(repo.join("main.rs"), "fn main() { run(); }\n").unwrap();
     ok(&repo, &["add", "main.rs"]);
     let out = git(
@@ -245,7 +245,7 @@ fn under_require_the_message_gate_wants_why_and_a_closed_item_wants_its_trailer(
         &[
             "commit",
             "-qm",
-            "long",
+            "long body",
             "-m",
             "1\n2\n3\n4\n5\n6",
             "-m",
@@ -254,7 +254,24 @@ fn under_require_the_message_gate_wants_why_and_a_closed_item_wants_its_trailer(
     );
     assert!(out.status.success(), "{out:?}");
     assert!(
-        String::from_utf8_lossy(&out.stderr).contains("a journal entry keeps 5"),
+        !String::from_utf8_lossy(&out.stderr).contains("GATE"),
+        "{out:?}"
+    );
+    fs::write(repo.join("main.rs"), "fn main() { run(); run(); }\n").unwrap();
+    ok(&repo, &["add", "main.rs"]);
+    let out = git(
+        &repo,
+        &[
+            "commit",
+            "-qm",
+            "long entry",
+            "-m",
+            "Docs: one\n two\n three\n four\n five\n six",
+        ],
+    );
+    assert!(out.status.success(), "{out:?}");
+    assert!(
+        String::from_utf8_lossy(&out.stderr).contains("the `Docs:` entry is 6 lines"),
         "{out:?}"
     );
     let _ = fs::remove_dir_all(&repo);
@@ -283,5 +300,47 @@ fn a_range_is_answered_by_a_docs_line_in_any_of_its_commits() {
     );
     let out = docsys(&repo, &["gate", "--range", &range]);
     assert_eq!(out.status.code(), Some(0), "{out:?}");
+    let _ = fs::remove_dir_all(&repo);
+}
+
+/// Under `commit_policy: ask` the commit-msg block says nothing: no refusal,
+/// no report — the message is the team's own.
+#[test]
+fn under_ask_the_message_gate_is_silent() {
+    let repo = adopted("ask-silent", "ask");
+    let added = docsys(
+        &repo,
+        &[
+            "debt",
+            "add",
+            "run has no timeout",
+            "--deferred",
+            "no load",
+            "--repay-when",
+            "first slow start",
+        ],
+    );
+    assert!(added.status.success(), "{added:?}");
+    ok(&repo, &["add", "-A"]);
+    ok(&repo, &["commit", "-qm", "a debt"]);
+    let closed = docsys(&repo, &["debt", "close", "1", "--note", "bounded"]);
+    assert!(closed.status.success(), "{closed:?}");
+    fs::write(repo.join("main.rs"), "fn main() { run() }\n").unwrap();
+    ok(&repo, &["add", "-A"]);
+    let out = git(
+        &repo,
+        &[
+            "commit",
+            "-qm",
+            "repaid",
+            "-m",
+            "Docs: one\n two\n three\n four\n five\n six",
+        ],
+    );
+    assert!(out.status.success(), "{out:?}");
+    assert!(
+        !String::from_utf8_lossy(&out.stderr).contains("GATE"),
+        "{out:?}"
+    );
     let _ = fs::remove_dir_all(&repo);
 }

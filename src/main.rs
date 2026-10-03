@@ -1561,7 +1561,11 @@ next: review, `git add -A && git commit`, then open an agent session here."
                             Err(e) => eprintln!("gate: could not record the bypass: {e}"),
                         }
                     }
-                    if undocumented {
+                    // under require on docsys/0.5 the commit-msg gate, which
+                    // reads the message, is the one that speaks (D-125)
+                    let deferred =
+                        history_journal && require && !opts.skipped && opts.range.is_none();
+                    if undocumented && !deferred {
                         let head: Vec<&str> = g.code.iter().take(5).map(String::as_str).collect();
                         let more = g.code.len().saturating_sub(head.len());
                         let tail = if more > 0 {
@@ -1576,8 +1580,6 @@ next: review, `git add -A && git commit`, then open an agent session here."
                         );
                         if require && !opts.skipped && !history_journal {
                             println!("{}", docsys::hook::era_text(&root, "GATE commit_policy: require — name the work (feature | bug | improvement | research), record it (a work file, or `Docs: <why>` in the commit message), stage it, commit again. DOCSYS_SKIP=1 bypasses once and leaves a debt item."));
-                        } else if require && !opts.skipped && opts.range.is_none() {
-                            println!("GATE commit_policy: require — the commit message says why with `Docs: <why>`, or the commit carries the page or work file; the commit-msg gate reads it");
                         }
                     }
                     println!(

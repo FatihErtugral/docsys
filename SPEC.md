@@ -1133,11 +1133,12 @@ docsys/0.4 tree kept, frozen under `_archive/journal/` as they were written.
 Without history the journal is those files alone, and the rest reads
 "unknown".
 
-**R-101** `cmd` · SHOULD — An entry is **at most 5 lines** of body: what
-triggered it, what changed, which gate passed, which page holds the permanent
-content. The commit gate reports a longer one — the 3,800-line journal in
-R-102's rationale was reachable one tolerated entry at a time. There is no
-lower bound: a subject alone is a fine entry. Trailers are not counted.
+**R-101** `cmd` · SHOULD — A `Docs:` entry is **at most 5 lines**: what
+triggered it, what changed, which page holds the permanent content. Under
+`commit_policy: require` the commit gate reports a longer one — the
+3,800-line journal in R-102's rationale was reachable one tolerated entry at a
+time. The rest of a commit message is the team's own convention and is not
+measured. There is no lower bound: a subject alone is a fine entry.
 
 The budget is 5 lines unless `.docmeta.yml` declares `journal_entry_max_lines`,
 which a tree MAY raise to state a discipline it actually keeps. Making it

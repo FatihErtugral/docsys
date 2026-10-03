@@ -62,8 +62,8 @@ declares `spec: docsys/0.5`; a tree that declares `docsys/0.4` is served as
   that changes the docs or carries a `Docs:` line, newest first, and
   `journal add` prints the message it is; nothing is written beside history.
   A new `commit-msg` gate reads that message: under `require`, code with no
-  documentation needs `Docs: <why>`; a removed item needs its trailer; a long
-  entry is said. `upgrade` moves `work/journal.md` and its slices under
+  documentation needs `Docs: <why>`, a removed item needs its trailer, and a
+  `Docs:` entry over five lines is said; under `ask` it says nothing. `upgrade` moves `work/journal.md` and its slices under
   `_archive/journal/` byte for byte (§10, R-100, R-101, R-104, D-125; R-103
   and R-105 withdrawn).
 - Debt and questions are one file per open item, written by `docsys debt add`

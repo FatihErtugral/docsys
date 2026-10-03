@@ -148,9 +148,13 @@ fn is_trailer(line: &str) -> bool {
 
 /// The `commit-msg` gate on a docsys/0.5 tree: the staged change set read
 /// with the message that will carry it.
+/// It acts under `commit_policy: require` only: a team's message is its own
+/// convention everywhere else.
 pub fn message(repo: &Path, root: &Path, text: &str) -> MessageVerdict {
     let mut v = MessageVerdict::default();
-    if !crate::era::Era::at(root).journal_from_history() {
+    if !crate::era::Era::at(root).journal_from_history()
+        || crate::hook::commit_policy(root) != crate::hook::CommitPolicy::Require
+    {
         return v;
     }
     let prefix = crate::fresh::root_rel(repo, root);
@@ -178,8 +182,7 @@ pub fn message(repo: &Path, root: &Path, text: &str) -> MessageVerdict {
         .collect::<Vec<_>>()
         .join("\n");
     let documented = crate::journal::has_trailer(&message, crate::journal::DOCS);
-    let require = crate::hook::commit_policy(root) == crate::hook::CommitPolicy::Require;
-    if require && !code.is_empty() && docs == 0 && !documented {
+    if !code.is_empty() && docs == 0 && !documented {
         let shown: Vec<&str> = code.iter().take(5).map(|s| s.as_str()).collect();
         v.refusal = Some(format!(
             "GATE commit_policy: require — this commit changes {} and no documentation, and its message says nothing of why: add a `Docs: <why>` line, or the page or work file the change needs (R-209)",
@@ -210,8 +213,10 @@ pub fn message(repo: &Path, root: &Path, text: &str) -> MessageVerdict {
             ));
         }
     }
-    // an entry's body, trailers aside, keeps its budget (R-101)
-    if docs > 0 || documented {
+    // the `Docs:` entry keeps its budget (R-101); the rest of a body is the
+    // team's own convention
+    let entry = docs_entry_lines(&message);
+    if entry > 0 {
         let max: usize = crate::tree::DocTree::load(root)
             .ok()
             .and_then(|t| {
@@ -219,18 +224,29 @@ pub fn message(repo: &Path, root: &Path, text: &str) -> MessageVerdict {
                     .and_then(|s| s.trim().parse().ok())
             })
             .unwrap_or(5);
-        let body = message
-            .lines()
-            .skip(1)
-            .filter(|l| !l.trim().is_empty() && !is_trailer(l))
-            .count();
-        if body > max {
+        if entry > max {
             v.reports.push(format!(
-                "GATE the message body is {body} lines; a journal entry keeps {max} — link the page, do not narrate (R-101)"
+                "GATE the `Docs:` entry is {entry} lines; a journal entry keeps {max} — link the page, do not narrate (R-101)"
             ));
         }
     }
     v
+}
+
+/// The lines of a message's `Docs:` entry: its line and the ones that
+/// continue it, up to a blank line or the next trailer; 0 without one.
+fn docs_entry_lines(message: &str) -> usize {
+    let prefix = format!("{}:", crate::journal::DOCS);
+    let mut lines = message
+        .lines()
+        .skip(1)
+        .skip_while(|l| !l.trim_start().starts_with(&prefix));
+    if lines.next().is_none() {
+        return 0;
+    }
+    1 + lines
+        .take_while(|l| !l.trim().is_empty() && !is_trailer(l))
+        .count()
 }
 
 #[cfg(test)]
