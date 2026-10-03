@@ -372,6 +372,30 @@ fn code_file(arg: &str, repo: &std::path::Path) -> Option<String> {
         .map(|p| p.to_string_lossy().replace('\\', "/"))
 }
 
+/// The tree `agents` writes its relays for, relative to the repository: the
+/// root given when it is a tree, else the repository's one tree (D-098, D-099).
+fn agents_root(opts: &Opts) -> PathBuf {
+    let repo = opts
+        .dir
+        .parent()
+        .filter(|p| !p.as_os_str().is_empty())
+        .unwrap_or(std::path::Path::new("."));
+    if opts.root.is_absolute() || repo.join(&opts.root).join(".docmeta.yml").is_file() {
+        return opts.root.clone();
+    }
+    docsys::git::toplevel(repo)
+        .and_then(|top| {
+            let tree = docsys::place::only_tree(&top)?;
+            let rel = tree.strip_prefix(&top).ok()?.to_path_buf();
+            Some(if rel.as_os_str().is_empty() {
+                PathBuf::from(".")
+            } else {
+                rel
+            })
+        })
+        .unwrap_or_else(|| opts.root.clone())
+}
+
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let (cmd, sub, rest): (&str, Option<&str>, &[String]) = match args.split_first() {
@@ -499,6 +523,19 @@ fn main() -> ExitCode {
         } else if tree > ours {
             eprintln!("docsys: this tree declares docsys/0.{tree}; this docsys implements docsys/0.{ours} — install a newer docsys");
         }
+    }
+    // a command that writes into a tree refuses where there is none: it never
+    // makes a second, half tree (R-160, D-098)
+    if matches!(
+        (cmd, sub),
+        ("debt" | "question", Some("add")) | ("page", Some("new")) | ("journal", Some("add"))
+    ) && !opts.root.join(".docmeta.yml").is_file()
+    {
+        eprintln!(
+            "ERROR R-160 - [root] `{}` is no documentation tree (no .docmeta.yml) — `docsys adopt` or `docsys init` makes one, `--root` names another",
+            opts.root.display()
+        );
+        return ExitCode::from(2);
     }
     let repo_or_cwd = here
         .as_ref()
@@ -1801,7 +1838,7 @@ next: review, `git add -A && git commit`, then open an agent session here."
             &opts.dir,
             opts.force,
             "",
-            &opts.root.to_string_lossy(),
+            &agents_root(&opts).to_string_lossy(),
         ) {
             Ok(done) => {
                 for f in &done.written {
@@ -1820,7 +1857,8 @@ next: review, `git add -A && git commit`, then open an agent session here."
                     .filter(|p| !p.as_os_str().is_empty())
                     .unwrap_or(std::path::Path::new("."));
                 // a docsys/0.5 tree has no post-edit relay (D-126)
-                let post_edit = !docsys::era::Era::at(&opts.root).verification_from_history();
+                let post_edit = !docsys::era::Era::at(&repo.join(agents_root(&opts)))
+                    .verification_from_history();
                 let wired =
                     docsys::agents::settings_wired(&opts.dir.join("settings.json"), post_edit);
                 let holder = docsys::adopt::rules_block_holder(repo);

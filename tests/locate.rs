@@ -339,3 +339,80 @@ fn a_tree_above_the_repository_is_never_adopted() {
     assert!(out.contains("R-160"), "{out}");
     let _ = fs::remove_dir_all(&outer);
 }
+
+fn docsys_all(dir: &Path, args: &[&str]) -> (i32, String) {
+    let out = Command::new(bin())
+        .args(args)
+        .current_dir(dir)
+        .env("DOCSYS_TODAY", "2026-10-02")
+        .env("DOCSYS_NO_AUTO_INSTALL", "1")
+        .env_remove("CLAUDE_PROJECT_DIR")
+        .output()
+        .unwrap();
+    (
+        out.status.code().unwrap_or(-1),
+        String::from_utf8_lossy(&out.stdout).into_owned() + &String::from_utf8_lossy(&out.stderr),
+    )
+}
+
+/// A repository whose one tree is not `docs/`: from its top, a command with
+/// no `--root` works on that tree, and `docsys agents` writes relays for it.
+/// Where no tree exists, or several and none above, nothing is guessed.
+#[test]
+fn a_repository_with_one_tree_is_that_trees_from_its_top() {
+    let repo = tmp("one-tree");
+    ok(&repo, &["init", "-q"]);
+    ok(&repo, &["config", "user.email", "t@example.invalid"]);
+    ok(&repo, &["config", "user.name", "t"]);
+    let (code, out) = docsys_all(&repo, &["adopt", "--root", "documentation"]);
+    assert_eq!(code, 0, "{out}");
+    let (code, out) = docsys_all(&repo, &["lint"]);
+    assert_eq!(code, 0, "{out}");
+    assert!(!out.contains("R-160"), "{out}");
+    let (code, out) = docsys_all(
+        &repo,
+        &["question", "add", "who owns it?", "--topic", "cart"],
+    );
+    assert_eq!(code, 0, "{out}");
+    assert!(
+        repo.join("documentation/work/questions/cart.md").is_file(),
+        "{out}"
+    );
+    assert!(!repo.join("docs").exists(), "no second tree: {out}");
+    // the relays `agents` writes name that tree
+    fs::remove_dir_all(repo.join(".claude/hooks")).unwrap();
+    let (code, out) = docsys_all(&repo, &["agents"]);
+    assert_eq!(code, 0, "{out}");
+    let relay = fs::read_to_string(repo.join(".claude/hooks/pre-commit-docs.sh")).unwrap();
+    assert!(relay.contains("DOCS_ROOT:-documentation}"), "{relay}");
+    assert!(!relay.contains("DOCS_ROOT:-docs}"), "{relay}");
+    let _ = fs::remove_dir_all(&repo);
+}
+
+/// A command that writes into a tree refuses where there is none (R-160):
+/// it never makes a second, half tree.
+#[test]
+fn a_write_command_outside_a_tree_refuses_with_r160() {
+    let repo = tmp("no-tree");
+    ok(&repo, &["init", "-q"]);
+    for args in [
+        &["question", "add", "who?"][..],
+        &["debt", "add", "x", "--deferred", "y", "--repay-when", "z"],
+        &["page", "new", "reference", "cart"],
+        &["journal", "add", "a line"],
+    ] {
+        let (code, out) = docsys_all(&repo, args);
+        assert_eq!(code, 2, "{args:?}: {out}");
+        assert!(out.contains("R-160"), "{args:?}: {out}");
+    }
+    assert!(!repo.join("docs").exists(), "nothing written");
+    // two trees and none above: no guess
+    for t in ["a/docs", "b/docs"] {
+        let (code, out) = docsys_all(&repo, &["init", "--root", t]);
+        assert_eq!(code, 0, "{out}");
+    }
+    let (code, out) = docsys_all(&repo, &["lint"]);
+    assert_eq!(code, 2, "{out}");
+    assert!(out.contains("R-160"), "{out}");
+    let _ = fs::remove_dir_all(&repo);
+}

@@ -50,6 +50,30 @@ pub fn find_tree(anchor: &Path, root: &Path) -> Option<PathBuf> {
     }
 }
 
+/// The repository's one tree: the directory of the only `.docmeta.yml` git
+/// sees under `top`, tracked or not ignored. `None` for none, or for several —
+/// which of them a command means is not guessed.
+pub fn only_tree(top: &Path) -> Option<PathBuf> {
+    let out = git::cmd(top)
+        .args([
+            "ls-files",
+            "--cached",
+            "--others",
+            "--exclude-standard",
+            "--",
+            ":(glob)**/.docmeta.yml",
+        ])
+        .output()
+        .ok()
+        .filter(|o| o.status.success())?;
+    let text = String::from_utf8_lossy(&out.stdout);
+    let found: std::collections::BTreeSet<&str> = text.lines().collect();
+    match found.into_iter().collect::<Vec<_>>().as_slice() {
+        [one] => Some(top.join(one).parent()?.to_path_buf()),
+        _ => None,
+    }
+}
+
 /// `path` as the working directory sees it: relative when it lies under the
 /// working directory (so a command run from the top level prints what it
 /// always printed), absolute otherwise.
@@ -99,9 +123,16 @@ pub fn locate(anchors: &[PathBuf], root: &Path, repo: Option<&Path>) -> Place {
         tried.push(r);
     }
     tried.extend(anchors.iter().map(PathBuf::as_path));
+    // nothing above: a repository with one tree is that tree's (D-098)
     let found = tried
         .iter()
         .find_map(|a| find_tree(a, root))
+        .or_else(|| {
+            tried
+                .iter()
+                .find_map(|a| git::toplevel(a))
+                .and_then(|top| only_tree(&top))
+        })
         .map(|f| spelled(&f, &literal))
         .unwrap_or(literal);
     let top = match repo {
