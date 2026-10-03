@@ -397,3 +397,58 @@ fn entries_of_one_second_keep_the_order_history_gives_them() {
     assert_eq!(titles, ["second page", "code between", "first page"]);
     let _ = fs::remove_dir_all(&repo);
 }
+
+/// The record of a closed item is its commit's trailer, whether its file
+/// keeps other items or goes with it, counted in items; a line that moves
+/// from one topic file to another closes nothing (R-108, D-124).
+#[test]
+fn every_closed_item_is_counted_whether_its_file_stays_or_goes() {
+    let repo = adopted("closed-items", "require");
+    for w in ["one", "two", "three"] {
+        let added = docsys(
+            &repo,
+            &["debt", "add", w, "--deferred", "x", "--repay-when", "y"],
+        );
+        assert!(added.status.success(), "{added:?}");
+    }
+    ok(&repo, &["add", "-A"]);
+    ok(
+        &repo,
+        &["commit", "-qm", "items", "-m", "Docs: three debts"],
+    );
+    let said = |out: Output| String::from_utf8_lossy(&out.stderr).into_owned();
+    // one closed, two stay in the file
+    let closed = docsys(&repo, &["debt", "close", "one", "--note", "done"]);
+    assert!(closed.status.success(), "{closed:?}");
+    ok(&repo, &["add", "-A"]);
+    let out = said(git(&repo, &["commit", "-qm", "close one"]));
+    assert!(out.contains("removes 1 item(s) from work/debt"), "{out}");
+    // the file goes with both of its items
+    ok(&repo, &["rm", "-q", "docs/work/debt/general.md"]);
+    let out = said(git(&repo, &["commit", "-qm", "drop the rest"]));
+    assert!(out.contains("removes 2 item(s) from work/debt"), "{out}");
+    // a line that moves to another topic closes nothing
+    let added = docsys(
+        &repo,
+        &[
+            "debt",
+            "add",
+            "four",
+            "--deferred",
+            "x",
+            "--repay-when",
+            "y",
+        ],
+    );
+    assert!(added.status.success(), "{added:?}");
+    ok(&repo, &["add", "-A"]);
+    ok(&repo, &["commit", "-qm", "four", "-m", "Docs: a debt"]);
+    let line = fs::read_to_string(repo.join("docs/work/debt/general.md")).unwrap();
+    let tagged = line.replacen("] four", "] [cache] four", 1);
+    fs::remove_file(repo.join("docs/work/debt/general.md")).unwrap();
+    fs::write(repo.join("docs/work/debt/cache.md"), tagged).unwrap();
+    ok(&repo, &["add", "-A"]);
+    let out = said(git(&repo, &["commit", "-qm", "four is about the cache"]));
+    assert!(!out.contains("item(s)"), "{out}");
+    let _ = fs::remove_dir_all(&repo);
+}

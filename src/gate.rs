@@ -147,6 +147,44 @@ fn is_trailer(line: &str) -> bool {
 }
 
 /// The `commit-msg` gate on a docsys/0.5 tree: the staged change set read
+/// The open items the staged change takes out of a list's topic files, one
+/// by one; a line that moves to another topic file is not taken out.
+fn items_removed(repo: &Path, dir: &str) -> usize {
+    let Some(diff) = crate::git::cmd(repo)
+        .args([
+            "diff",
+            "--cached",
+            "-U0",
+            "--no-renames",
+            "--no-color",
+            "--",
+            dir,
+        ])
+        .output()
+        .ok()
+        .filter(|o| o.status.success())
+        .map(|o| String::from_utf8_lossy(&o.stdout).into_owned())
+    else {
+        return 0;
+    };
+    let mut added: Vec<&str> = diff
+        .lines()
+        .filter_map(|l| l.strip_prefix('+'))
+        .filter(|l| l.starts_with("- [ ] "))
+        .collect();
+    diff.lines()
+        .filter_map(|l| l.strip_prefix('-'))
+        .filter(|l| l.starts_with("- [ ] "))
+        .filter(|gone| match added.iter().position(|a| a == gone) {
+            Some(i) => {
+                added.swap_remove(i);
+                false
+            }
+            None => true,
+        })
+        .count()
+}
+
 /// with the message that will carry it.
 /// It acts under `commit_policy: require` only: a team's message is its own
 /// convention everywhere else.
@@ -201,10 +239,7 @@ pub fn message(repo: &Path, root: &Path, text: &str) -> MessageVerdict {
         (crate::items::List::Questions, true),
     ] {
         let dir = format!("{base}{}/", list.dir(kb));
-        let removed = staged("--diff-filter=D")
-            .iter()
-            .filter(|f| f.starts_with(&dir) && f.ends_with(".md"))
-            .count();
+        let removed = items_removed(repo, &dir);
         if removed > 0 && !crate::journal::has_trailer(&message, list.trailer()) {
             v.reports.push(format!(
                 "GATE this commit removes {removed} item(s) from {} and carries no `{}:` line — that line is the record of what closed them (R-108)",

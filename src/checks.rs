@@ -2001,9 +2001,15 @@ fn check_item_files(tree: &DocTree, r: &mut Report) {
                 .trim_end_matches(".md");
             let mut item: Option<usize> = None;
             let mut in_prose = false;
+            // text before the first item: a file of it alone holds something
+            // no check reads; a file of blank lines and comments holds nothing
+            let mut text_before = false;
             for (i, line) in page.text.lines().enumerate() {
                 let at = format!("line-{}", i + 1);
                 let blank = line.trim().is_empty() || line.trim_start().starts_with("<!--");
+                if item.is_none() && !blank && !line.starts_with("- ") && !line.starts_with("* ") {
+                    text_before = true;
+                }
                 if line.starts_with("- [x] ") {
                     r.findings.push(Finding::err(
                         R108,
@@ -2068,12 +2074,20 @@ fn check_item_files(tree: &DocTree, r: &mut Report) {
                     ));
                 }
             }
-            if item.is_none() {
+            if item.is_none() && text_before {
                 r.findings.push(Finding::err(
                     R108,
                     &page.rel,
                     "item",
                     "a topic file holds open items, `- [ ] YYYY-MM-DD …` (R-108)".to_string(),
+                ));
+            } else if item.is_none() {
+                r.findings.push(Finding::warn(
+                    R108,
+                    &page.rel,
+                    "empty",
+                    "holds no item — delete the file; history keeps what it held (D-124)"
+                        .to_string(),
                 ));
             }
         }
