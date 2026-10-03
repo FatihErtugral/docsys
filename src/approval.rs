@@ -88,10 +88,52 @@ pub fn maintainer_of(maintainers: &[crate::checks::Maintainer], value: &str) -> 
 
 /// A commit that speaks of verification: its trailers.
 struct Act {
+    /// the first-parent commit it counts at
     sha: String,
     approved_by: Vec<String>,
     verifies: Vec<String>,
     revokes: Vec<String>,
+    made: Made,
+}
+
+/// Where an act was made, when that is not the first-parent commit it counts
+/// at: a commit a merge brought in, or one a squash message quotes.
+enum Made {
+    Here,
+    /// the commit the approver read, and the paths it changed
+    On {
+        commit: String,
+        touched: BTreeSet<String>,
+    },
+    /// quoted by a squash message, its commit no longer in the repository
+    Unknown,
+}
+
+/// The acts a commit message carries: its own trailers, and those of each
+/// commit a squash message quotes (`commit <sha>`, then the indented message).
+fn acts_in(message: &str) -> Vec<(Option<String>, String)> {
+    // each text starts with its subject, which `trailer_values` passes over
+    let mut own = String::new();
+    let mut quoted: Vec<(String, String)> = Vec::new();
+    for line in message.lines() {
+        let indented = line.starts_with(' ') || line.starts_with('\t');
+        if let Some(sha) = line
+            .strip_prefix("commit ")
+            .map(str::trim)
+            .filter(|s| s.len() == 40 && s.bytes().all(|b| b.is_ascii_hexdigit()))
+        {
+            quoted.push((sha.to_string(), String::new()));
+        } else if let (true, Some((_, text))) = (indented, quoted.last_mut()) {
+            text.push_str(line);
+            text.push('\n');
+        } else if !indented {
+            own.push_str(line);
+            own.push('\n');
+        }
+    }
+    let mut out = vec![(None, own)];
+    out.extend(quoted.into_iter().map(|(sha, text)| (Some(sha), text)));
+    out
 }
 
 /// Every tracked page's state, from one walk of history.
@@ -240,16 +282,10 @@ impl Approvals {
                     .iter()
                     .filter(|(at, _)| *at <= opens)
                     .find_map(|(at, act)| {
-                        let touched = history
-                            .touched
-                            .get(at)
-                            .is_some_and(|paths| paths.contains(&path));
                         if act.revokes.iter().any(|v| names.contains(v.trim())) {
                             return Some(State::Unverified);
                         }
-                        let about =
-                            touched || act.verifies.iter().any(|v| names.contains(v.trim()));
-                        if !about {
+                        if !approves(&history, *at, act, &path, &names, &mut blobs) {
                             return None;
                         }
                         act.approved_by
@@ -268,33 +304,24 @@ impl Approvals {
                     legacy(&tree.root, &maintainers, page, fm)
                 }
             });
-            let approved_before = history.acts.iter().any(|(at, act)| {
-                let touched = history
-                    .touched
-                    .get(at)
-                    .is_some_and(|paths| paths.contains(&path));
-                (touched || act.verifies.iter().any(|v| names.contains(v.trim())))
-                    && act
-                        .approved_by
-                        .iter()
-                        .any(|v| maintainer_of(&maintainers, v).is_some())
+            // the newest approval anywhere: who, and the commit whose body it read
+            let newest = history.acts.iter().find_map(|(at, act)| {
+                let by = act
+                    .approved_by
+                    .iter()
+                    .find_map(|v| maintainer_of(&maintainers, v))?;
+                approves(&history, *at, act, &path, &names, &mut blobs).then(|| {
+                    let read = match &act.made {
+                        Made::On { commit, .. } => commit.clone(),
+                        Made::Here | Made::Unknown => act.sha.clone(),
+                    };
+                    (by, read)
+                })
             });
-            if by_source && state == State::Unverified && approved_before {
+            if by_source && state == State::Unverified && newest.is_some() {
                 sources_moved.insert(page.rel.clone());
             }
-            if let Some(found) = history.acts.iter().find_map(|(at, act)| {
-                let touched = history
-                    .touched
-                    .get(at)
-                    .is_some_and(|paths| paths.contains(&path));
-                if !touched && !act.verifies.iter().any(|v| names.contains(v.trim())) {
-                    return None;
-                }
-                act.approved_by
-                    .iter()
-                    .find_map(|v| maintainer_of(&maintainers, v))
-                    .map(|by| (by, act.sha.clone()))
-            }) {
+            if let Some(found) = newest {
                 last.insert(page.rel.clone(), found);
             }
             states.insert(page.rel.clone(), state);
@@ -305,6 +332,40 @@ impl Approvals {
             sources_moved,
             repo: Some(repo),
             prefix,
+        }
+    }
+}
+
+/// Whether `act`, counted at first-parent position `at`, is about the page at
+/// `path`. An act made where it counts is when that commit changed the page or
+/// names it; one made on another commit only when, besides, the body its
+/// approver read is the body that landed — a branch's later edit, or a
+/// concurrent one, outruns it.
+fn approves(
+    history: &History,
+    at: usize,
+    act: &Act,
+    path: &str,
+    names: &BTreeSet<String>,
+    blobs: &mut Option<crate::git::Blobs>,
+) -> bool {
+    let named = act.verifies.iter().any(|v| names.contains(v.trim()));
+    let landed_here = history
+        .touched
+        .get(&at)
+        .is_some_and(|paths| paths.contains(path));
+    match &act.made {
+        Made::Here => landed_here || named,
+        Made::Unknown => named && !landed_here,
+        Made::On { commit, touched } => {
+            let mut body = |rev: &str| {
+                blobs
+                    .as_mut()
+                    .and_then(|b| b.read(&format!("{rev}:{path}")))
+                    .map(|t| crate::blocks::hashes(&crate::fresh::body_text(&t)))
+            };
+            (touched.contains(path) || named)
+                && matches!((body(commit), body(&act.sha)), (Some(read), Some(landed)) if read == landed)
         }
     }
 }
@@ -463,6 +524,54 @@ fn git_out(repo: &Path, args: &[&str]) -> Option<String> {
         .map(|o| String::from_utf8_lossy(&o.stdout).into_owned())
 }
 
+/// The first-parent commit that brought `sha` in: the oldest on the line
+/// that has it as an ancestor (`line` is newest first).
+fn landing(repo: &Path, sha: &str, line: &[&str]) -> Option<usize> {
+    let has = |i: usize| {
+        line.get(i).is_some_and(|tip| {
+            crate::git::cmd(repo)
+                .args(["merge-base", "--is-ancestor", sha, tip])
+                .status()
+                .is_ok_and(|s| s.success())
+        })
+    };
+    if !has(0) {
+        return None;
+    }
+    let (mut lo, mut hi) = (0usize, line.len());
+    // has(lo) holds; has(hi) does not (or hi is past the line)
+    while hi - lo > 1 {
+        let mid = lo + (hi - lo) / 2;
+        if has(mid) {
+            lo = mid;
+        } else {
+            hi = mid;
+        }
+    }
+    Some(lo)
+}
+
+/// An act made on `commit`: the paths that commit changed.
+fn made_on(repo: &Path, commit: &str) -> Made {
+    let touched = git_out(
+        repo,
+        &[
+            "diff-tree",
+            "--no-commit-id",
+            "-r",
+            "--name-only",
+            "--no-renames",
+            commit,
+        ],
+    )
+    .map(|out| out.lines().map(str::to_string).collect())
+    .unwrap_or_default();
+    Made::On {
+        commit: commit.to_string(),
+        touched,
+    }
+}
+
 fn walk(repo: &Path, prefix: &str) -> History {
     let mut h = History::default();
     let Some(order) = git_out(repo, &["rev-list", "--first-parent", "HEAD"]) else {
@@ -511,35 +620,56 @@ fn walk(repo: &Path, prefix: &str) -> History {
             }
         }
     }
-    let grep_a = format!("--grep=^{APPROVED_BY}:");
-    let grep_r = format!("--grep=^{REVOKES}:");
-    if let Some(log) = git_out(
-        repo,
-        &[
-            "log",
-            "--first-parent",
-            "--format=%H%x1f%B%x1e",
-            &grep_a,
-            &grep_r,
-        ],
-    ) {
+    // every commit HEAD reaches, not only the first-parent line: an approval
+    // made on a branch a merge brought in, or quoted (indented) by a squash
+    // message, counts where it landed
+    let grep_a = format!("--grep=^[[:space:]]*{APPROVED_BY}:");
+    let grep_r = format!("--grep=^[[:space:]]*{REVOKES}:");
+    if let Some(log) = git_out(repo, &["log", "--format=%H%x1f%B%x1e", &grep_a, &grep_r]) {
+        let first_parent: Vec<&str> = order.lines().map(str::trim).collect();
         for rec in log.split('\u{1e}') {
             let Some((sha, msg)) = rec.trim_start_matches('\n').split_once('\u{1f}') else {
                 continue;
             };
-            let Some(at) = position.get(sha.trim()).copied() else {
+            let sha = sha.trim();
+            let (at, here) = match position.get(sha) {
+                Some(at) => (*at, true),
+                None => match landing(repo, sha, &first_parent) {
+                    Some(at) => (at, false),
+                    None => continue,
+                },
+            };
+            let Some(landed) = first_parent.get(at) else {
                 continue;
             };
-            h.acts.push((
-                at,
-                Act {
-                    sha: sha.trim().to_string(),
-                    approved_by: trailer_values(msg, APPROVED_BY),
-                    verifies: trailer_values(msg, VERIFIES),
-                    revokes: trailer_values(msg, REVOKES),
-                },
-            ));
+            for (quoted, text) in acts_in(msg) {
+                let made = match (quoted.as_deref(), here) {
+                    (None, true) => Made::Here,
+                    (None, false) => made_on(repo, sha),
+                    (Some(inner), _) => {
+                        if git_out(repo, &["cat-file", "-e", &format!("{inner}^{{commit}}")])
+                            .is_some()
+                        {
+                            made_on(repo, inner)
+                        } else {
+                            Made::Unknown
+                        }
+                    }
+                };
+                let act = Act {
+                    sha: (*landed).to_string(),
+                    approved_by: trailer_values(&text, APPROVED_BY),
+                    verifies: trailer_values(&text, VERIFIES),
+                    revokes: trailer_values(&text, REVOKES),
+                    made,
+                };
+                if !act.approved_by.is_empty() || !act.revokes.is_empty() {
+                    h.acts.push((at, act));
+                }
+            }
         }
+        // newest first, as the first-parent line orders them
+        h.acts.sort_by_key(|(at, _)| *at);
     }
     if let Some(tree) = git_out(repo, &["ls-tree", "-r", "HEAD", "--", &scope]) {
         for line in tree.lines() {

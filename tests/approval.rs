@@ -350,3 +350,91 @@ fn a_confirmed_line_is_the_maintainers_act() {
     assert!(r208(&root).is_empty(), "{:?}", r208(&root));
     let _ = fs::remove_dir_all(&repo);
 }
+
+/// How a branch reaches main.
+#[derive(Clone, Copy, Debug)]
+enum Mode {
+    FastForward,
+    NoFf,
+    Squash,
+    Rebase,
+}
+
+const APPROVE: &str = "Verifies: reference/retry.md\nApproved-by: ayse <ayse@example.com>";
+
+/// A branch `b` from main does `steps`; main moves on (but for a
+/// fast-forward); the branch reaches main in `mode`.
+fn merged(name: &str, mode: Mode, steps: &[&str]) -> PathBuf {
+    let (repo, root) = project(name);
+    git(&repo, &["checkout", "-qb", "b"]);
+    for step in steps {
+        match *step {
+            "approve" => git(
+                &repo,
+                &[
+                    "commit",
+                    "-q",
+                    "--allow-empty",
+                    "-m",
+                    "docs: verify retry",
+                    "-m",
+                    APPROVE,
+                ],
+            ),
+            "edit" => {
+                let page = root.join("reference/retry.md");
+                let text = fs::read_to_string(&page).unwrap();
+                fs::write(&page, text.replace("Three attempts.", "Four attempts.")).unwrap();
+                git(&repo, &["commit", "-qam", "retry: four attempts"]);
+            }
+            other => panic!("{other}"),
+        }
+    }
+    git(&repo, &["checkout", "-q", "main"]);
+    if !matches!(mode, Mode::FastForward) {
+        fs::write(repo.join("src/other.rs"), "pub fn other() {}\n").unwrap();
+        git(&repo, &["add", "-A"]);
+        git(&repo, &["commit", "-qm", "main moves on"]);
+    }
+    match mode {
+        Mode::FastForward => git(&repo, &["merge", "-q", "--ff-only", "b"]),
+        Mode::NoFf => git(&repo, &["merge", "-q", "--no-ff", "--no-edit", "b"]),
+        Mode::Squash => {
+            git(&repo, &["merge", "-q", "--squash", "b"]);
+            // git's own squash message: every commit's message, indented
+            git(&repo, &["commit", "-q", "--allow-empty", "--no-edit"]);
+        }
+        Mode::Rebase => {
+            git(&repo, &["checkout", "-q", "b"]);
+            git(&repo, &["rebase", "-q", "main"]);
+            git(&repo, &["checkout", "-q", "main"]);
+            git(&repo, &["merge", "-q", "--ff-only", "b"]);
+        }
+    }
+    root
+}
+
+/// N7 holds whatever way a branch reaches main: an approval made on the
+/// branch after its last change of the page verifies it on main, and one
+/// the branch's later edit outran does not.
+#[test]
+fn an_approval_made_on_a_branch_holds_under_every_merge_mode() {
+    for mode in [Mode::FastForward, Mode::NoFf, Mode::Squash, Mode::Rebase] {
+        let label = format!("{mode:?}").to_lowercase();
+        let root = merged(&format!("{label}-approve"), mode, &["approve"]);
+        assert!(
+            verified(&root),
+            "{mode:?}: approved on the branch, body unchanged"
+        );
+        let root = merged(&format!("{label}-edit-approve"), mode, &["edit", "approve"]);
+        assert!(
+            verified(&root),
+            "{mode:?}: edited, then approved on the branch"
+        );
+        let root = merged(&format!("{label}-approve-edit"), mode, &["approve", "edit"]);
+        assert!(
+            !verified(&root),
+            "{mode:?}: the branch edited the page after its approval"
+        );
+    }
+}

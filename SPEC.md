@@ -242,7 +242,10 @@ page or names it in a `Verifies:` trailer; a later commit naming it in a
 commit no approval followed, is `unverified`; outside history the state is
 "unknown". The claim is checked, not trusted, and nothing is left to merge: a
 squash keeps the approval when the merge commit carries the pull request's
-description and its `Approved-by:` line. A record written before — `verified`
+description and its `Approved-by:` line. An approval made on a branch counts at
+the commit that brought it into the line `HEAD` follows — a merge, a squash
+that quotes it, a rebase — when the body it read is the body that landed; a
+later edit on the branch, or a concurrent one, outruns it. A record written before — `verified`
 with `verified_blocks` — stays valid evidence while its blocks are the body's;
 a record that no longer holds, or a `verification:` field without one, **is
 reported** until `docsys upgrade --apply` takes it out.
