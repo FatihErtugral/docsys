@@ -553,3 +553,41 @@ fn an_unknown_command_is_named_and_a_flag_is_never_a_value() {
     assert!(!dir.join("x.md").exists(), "{text}");
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// A reader that closed its end — `| head` — ends the command: docsys stops
+/// writing and exits with a closed pipe's status (128 + SIGPIPE), quietly,
+/// whatever the command.
+#[test]
+fn a_closed_stdout_ends_the_command_quietly() {
+    let dir = std::env::temp_dir().join(format!("docsys-help-pipe-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    assert!(Command::new(bin())
+        .args(["init"])
+        .current_dir(&dir)
+        .output()
+        .unwrap()
+        .status
+        .success());
+    for args in [
+        &["--help"][..],
+        &["help", "export"],
+        &["rules", "--procedures"],
+        &["lint"],
+        &["version"],
+    ] {
+        let (reader, writer) = std::io::pipe().unwrap();
+        drop(reader);
+        let out = Command::new(bin())
+            .args(args)
+            .current_dir(&dir)
+            .env("DOCSYS_NO_AUTO_INSTALL", "1")
+            .stdout(writer)
+            .output()
+            .unwrap();
+        let err = String::from_utf8_lossy(&out.stderr);
+        assert!(err.is_empty(), "{args:?}: {err}");
+        assert_eq!(out.status.code(), Some(141), "{args:?}: {err}");
+    }
+    let _ = std::fs::remove_dir_all(&dir);
+}

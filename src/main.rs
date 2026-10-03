@@ -2,6 +2,31 @@ use docsys::{migrate, to_json, Outcome};
 use std::path::PathBuf;
 use std::process::ExitCode;
 
+/// Standard output, written as `print!` writes it — but a reader that closed
+/// its end (`| head`) ends the command, as a closed pipe ends any program:
+/// docsys stops writing and exits with that status, 128 + SIGPIPE, quietly.
+fn write_stdout(args: std::fmt::Arguments) {
+    use std::io::Write;
+    match std::io::stdout().write_fmt(args) {
+        Ok(()) => {}
+        Err(e) if e.kind() == std::io::ErrorKind::BrokenPipe => std::process::exit(141),
+        Err(e) => {
+            eprintln!("docsys: standard output: {e}");
+            std::process::exit(2)
+        }
+    }
+}
+
+// every `print!` and `println!` below goes through `write_stdout`
+macro_rules! print {
+    ($($arg:tt)*) => { write_stdout(format_args!($($arg)*)) };
+}
+
+macro_rules! println {
+    () => { write_stdout(format_args!("\n")) };
+    ($($arg:tt)*) => { write_stdout(format_args!("{}\n", format_args!($($arg)*))) };
+}
+
 struct Opts {
     root: PathBuf,
     json: bool,
