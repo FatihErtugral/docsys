@@ -447,7 +447,8 @@ English, the prose beneath it follows the content language (R-121).
 
 **R-049** `advisory` · MUST — Every required section has a **declared
 disposition**: it graduates to a destination, or it is explicitly retained and
-archived with the file. A section is never silently dropped. Graduation reads
+archived with the file — on a docsys/0.5 tree, kept by the history of the
+removed file (R-091). A section is never silently dropped. Graduation reads
 this table instead of inferring:
 
 | Section | Disposition |
@@ -701,7 +702,10 @@ some cached reference still trusts.
 only by tooling. Each entry records the identifier, the withdrawal date, and
 optionally `superseded_by`. (Federation adds an internality marking to ledger
 entries — that is R-135's business, §13, not the core ledger's.) A tombstoned
-identifier resolves to an explanatory error, never to "not found".
+identifier resolves to an explanatory error, never to "not found". A work file
+that graduation removes on a docsys/0.5 tree (R-091) leaves no entry: the commit
+that removed it is its record, and every live citation of its identifier moves
+to a destination in the same change — one left behind is R-076's error (D-127).
 
 The ledger exists because a deleted page cannot supply its own tombstone, and
 because the guarantee that a retired identifier is never reused (R-065) must hold
@@ -709,7 +713,8 @@ in a single repository with no federation at all — which is the most common
 deployment.
 
 **R-107** `lint` · MUST — Where version-control history is available, a deleted
-page whose `id` has no ledger entry **is reported**. This is the R-018 backstop
+page whose `id` has no ledger entry, and that is no work file graduation removed
+(R-066), **is reported**. This is the R-018 backstop
 for R-066: `git rm` bypasses tombstone creation, and the ledgerless
 disappearance is its trace. Actual reuse of the freed identifier is the
 collision R-061 blocks.
@@ -950,7 +955,9 @@ are set only on explicit human confirmation, recorded as `confirmed:` in the
 file's frontmatter (§5.2). Passing tests or a green build means `active`. The
 lint half: a file at `done` or `graduated` without `confirmed:` **is reported**
 — the record is what lets a later audit distinguish a confirmed transition from
-an agent's guess, the same reason an approval names a maintainer (R-024).
+an agent's guess, the same reason an approval names a maintainer (R-024). On a
+docsys/0.5 tree a file that graduates leaves the tree (R-091), and the record is
+the removing commit's `Confirmed-by:` line.
 
 **R-082** `lint` · MUST — `graduated` is terminal, and a graduated file receives
 no further **content change** (§2.4). Where version-control history is available,
@@ -1035,7 +1042,11 @@ the destination and MUST record `graduated_to`. `graduated_to` may be present on
 a file whose `status` is still `active`: graduating one block does not end the
 work. The file-level transition to `status: graduated` happens only when nothing
 of permanent value remains, and like `done` it requires explicit human
-confirmation (R-081).
+confirmation (R-081). On a docsys/0.5 tree that transition removes the file:
+`graduate apply --confirmed <who>` moves the last blocks and removes the source
+in the same change, and the commit it asks for names the destinations and
+carries `Confirmed-by:`; history keeps the file. A file already `graduated`
+keeps its place (R-082) (D-127).
 
 In the `knowledge-base` profile the source is content-immutable (R-023), so the
 link runs the other way: the destination page records the source in `sources:`
@@ -1062,7 +1073,10 @@ distilled fact; the raw note is the record of where it came from.
 
 **R-093** `agent` · MUST — Before archiving anything, the question is asked: does
 this information exist anywhere else? If not, and it is still true, it graduates
-first.
+first. On a docsys/0.5 tree graduation's end removes the work file instead of
+leaving it to be archived (R-091), and the question comes first there too: the
+removal is refused while a block outside the sections R-049 retains is neither
+moved nor linked.
 
 | Source | Usual destination |
 |---|---|

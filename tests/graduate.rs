@@ -193,3 +193,180 @@ fn a_graduated_file_is_frozen_at_the_gate() {
     );
     let _ = fs::remove_dir_all(&repo);
 }
+
+// ── D-127: on a docsys/0.5 tree graduation ends by removing the work file ───
+
+const FEATURE: &str = "---\nid: cart-key\nstatus: active\n---\n# Cart key\n\n## Context\n\nWhy the key changed: carts collided across days.\n\n## Decision\n\nThe key is the SHA of cart-id + day.\n\n## Contract surface\n\nSorted fields, joined by `|`.\n\n## Rejected alternatives\n";
+
+/// A committed docsys/0.5 tree with a feature file and its two prepared
+/// destinations.
+fn tree_0_5(name: &str, spec: &str, maintainers: &str) -> (PathBuf, PathBuf) {
+    let repo = tmp(name);
+    git_in(&repo, &["init", "-q"]);
+    git_in(&repo, &["config", "user.email", "t@example.invalid"]);
+    git_in(&repo, &["config", "user.name", "t"]);
+    git_in(&repo, &["config", "commit.gpgsign", "false"]);
+    let root = repo.join("docs");
+    let w = |rel: &str, text: &str| {
+        let p = root.join(rel);
+        fs::create_dir_all(p.parent().unwrap()).unwrap();
+        fs::write(p, text).unwrap();
+    };
+    w(
+        ".docmeta.yml",
+        &format!("spec: {spec}\nprofile: project\ndefault_content_language: en\nmaintainers: {maintainers}\n"),
+    );
+    w(
+        "index.md",
+        "# docs\n\n- [[reference/|Reference]] -- contracts.\n- [[explanation/|Explanation]] -- decisions.\n",
+    );
+    w(
+        "reference/keys.md",
+        "---\nid: keys\ntype: reference\n---\n# Keys\n\nThis page states the cart key contract; read it before hashing a key.\n",
+    );
+    w(
+        "explanation/cart-key-choice.md",
+        "---\nid: cart-key-choice\ntype: explanation\n---\n# Why the cart key\n\nThis page explains why the cart key is built as it is.\n",
+    );
+    w("work/features/cart-key.md", FEATURE);
+    git_in(&repo, &["add", "-A"]);
+    git_in(&repo, &["commit", "-q", "-m", "a feature and its pages"]);
+    (repo, root)
+}
+
+/// The block's bytes as the source holds them (R-090).
+fn block_bytes(source: &str, heading: &str) -> String {
+    let lines: Vec<&str> = source.lines().collect();
+    let b = graduate::blocks(source)
+        .into_iter()
+        .find(|b| b.snippet == heading)
+        .unwrap();
+    lines[b.body_start..b.end].join("\n")
+}
+
+fn filled(root: &std::path::Path, contract: &str) -> String {
+    graduate::plan(root, "work/features/cart-key.md")
+        .unwrap()
+        .replace("2\tkeep", "2\tmove:explanation/cart-key-choice")
+        .replace("3\tkeep", &format!("3\t{contract}"))
+}
+
+#[test]
+fn on_a_0_5_tree_graduation_ends_by_removing_the_work_file() {
+    let (repo, root) = tree_0_5("removes", "docsys/0.5", "[]");
+    let plan = filled(&root, "move:reference/keys");
+    let done = graduate::apply_confirmed(&root, &plan, false, "owner").unwrap();
+    assert_eq!(done.moved, 2);
+    assert_eq!(done.removed.as_deref(), Some("work/features/cart-key.md"));
+    let left: Vec<_> = fs::read_dir(root.join("work/features"))
+        .map(|d| d.flatten().map(|e| e.path()).collect())
+        .unwrap_or_default();
+    assert!(left.is_empty(), "no feature file left in work/: {left:?}");
+    // the blocks arrive byte for byte
+    let choice = fs::read_to_string(root.join("explanation/cart-key-choice.md")).unwrap();
+    assert!(
+        choice.contains(&block_bytes(FEATURE, "## Decision")),
+        "{choice}"
+    );
+    let keys = fs::read_to_string(root.join("reference/keys.md")).unwrap();
+    assert!(
+        keys.contains(&block_bytes(FEATURE, "## Contract surface")),
+        "{keys}"
+    );
+    // the commit names the destinations and carries the person's word
+    let message = done.message.unwrap();
+    let subject = message.lines().next().unwrap();
+    assert_eq!(
+        subject, "docs: graduate cart-key into cart-key-choice, keys",
+        "{message}"
+    );
+    assert!(message.ends_with("\nConfirmed-by: owner\n"), "{message}");
+    git_in(&repo, &["add", "-A"]);
+    git_in(&repo, &["commit", "-q", "-m", &message]);
+    assert!(
+        errors_in(&root, &repo).is_empty(),
+        "{:?}",
+        errors_in(&root, &repo)
+    );
+    // history keeps the file
+    git_in(
+        &repo,
+        &["cat-file", "-e", "HEAD~1:docs/work/features/cart-key.md"],
+    );
+    let _ = fs::remove_dir_all(&repo);
+}
+
+#[test]
+fn the_removal_waits_for_every_block_of_value_and_for_the_persons_word() {
+    // a block outside the retained sections that stays: refused, by name,
+    // and nothing is written
+    let (repo, root) = tree_0_5(
+        "refuses",
+        "docsys/0.5",
+        "[\"owner <owner@example.invalid>\"]",
+    );
+    let plan = filled(&root, "keep");
+    let err = graduate::apply_confirmed(&root, &plan, false, "owner")
+        .err()
+        .unwrap();
+    assert!(
+        err.contains("block 3") && err.contains("## Contract surface"),
+        "{err}"
+    );
+    assert_eq!(
+        fs::read_to_string(root.join("work/features/cart-key.md")).unwrap(),
+        FEATURE
+    );
+    assert!(
+        !fs::read_to_string(root.join("explanation/cart-key-choice.md"))
+            .unwrap()
+            .contains("SHA of cart-id")
+    );
+    // a word from someone who is no maintainer: refused (R-208)
+    let plan = filled(&root, "move:reference/keys");
+    let err = graduate::apply_confirmed(&root, &plan, false, "visitor")
+        .err()
+        .unwrap();
+    assert!(err.contains("R-208"), "{err}");
+    // a plan that sends nothing anywhere is no graduation
+    let nothing = graduate::plan(&root, "work/features/cart-key.md").unwrap();
+    let err = graduate::apply_confirmed(&root, &nothing, false, "owner")
+        .err()
+        .unwrap();
+    assert!(err.contains("block 2"), "{err}");
+    let only_context = FEATURE
+        .replace("\nThe key is the SHA of cart-id + day.\n", "")
+        .replace("\nSorted fields, joined by `|`.\n", "");
+    fs::write(root.join("work/features/cart-key.md"), &only_context).unwrap();
+    let nothing = graduate::plan(&root, "work/features/cart-key.md").unwrap();
+    let err = graduate::apply_confirmed(&root, &nothing, true, "owner")
+        .err()
+        .unwrap();
+    assert!(err.contains("needs a destination"), "{err}");
+    // a file already graduated keeps its place (R-082)
+    fs::write(
+        root.join("work/features/cart-key.md"),
+        FEATURE.replace("status: active", "status: graduated"),
+    )
+    .unwrap();
+    let err = graduate::apply_confirmed(&root, &plan, true, "owner")
+        .err()
+        .unwrap();
+    assert!(err.contains("keeps its place"), "{err}");
+    fs::write(root.join("work/features/cart-key.md"), FEATURE).unwrap();
+    // without the word the file stays, as before (R-091)
+    let done = graduate::apply(&root, &plan, false).unwrap();
+    assert_eq!(done.removed, None);
+    assert!(root.join("work/features/cart-key.md").exists());
+    let _ = fs::remove_dir_all(&repo);
+
+    // a docsys/0.4 tree keeps its files
+    let (repo, root) = tree_0_5("era", "docsys/0.4", "[]");
+    let plan = filled(&root, "move:reference/keys");
+    let err = graduate::apply_confirmed(&root, &plan, false, "owner")
+        .err()
+        .unwrap();
+    assert!(err.contains("docsys/0.5"), "{err}");
+    assert!(root.join("work/features/cart-key.md").exists());
+    let _ = fs::remove_dir_all(&repo);
+}

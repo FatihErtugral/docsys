@@ -164,8 +164,13 @@ R-086 tables in hand. Change nothing; the user decides.
 For each `status: done` work file: ask the R-093 question (does any still-true
 information here exist nowhere else?). Route sections by the R-049 table.
 Destination pages are prepared first (R-099), blocks move byte-exactly — you
-select the mapping, you never retype the text (R-090). `confirmed:` requires
-the human's explicit word (P/R-081).
+select the mapping, you never retype the text (R-090): `docsys graduate plan
+<work-file>`, then `docsys graduate apply --plan <file>`. The file graduates
+only on the human's explicit word (P/R-081): on docsys/0.5 that word is
+`--confirmed <who>`, which moves the last blocks and removes the work file —
+commit with the message it prints, and move every `doc:` citation of the
+file's id to a destination in the same commit (D-127); on docsys/0.4 the file
+stays, and the word is its `confirmed:`.
 
 ## Verification (who vouches)
 

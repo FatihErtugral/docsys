@@ -71,22 +71,58 @@ fn heading_level(line: &str) -> Option<usize> {
     }
 }
 
+/// `.docmeta.yml` `headings:` — each template section's canonical name and the
+/// name the tree shows (R-120).
+fn heading_map(root: &Path) -> Vec<(String, String)> {
+    let Ok(text) = fs::read_to_string(root.join(".docmeta.yml")) else {
+        return Vec::new();
+    };
+    let framed = format!("---\n{text}---\n");
+    fm::parse(&framed)
+        .and_then(|f| {
+            f.fields
+                .get("headings")
+                .and_then(fm::Value::as_list)
+                .map(<[String]>::to_vec)
+        })
+        .unwrap_or_default()
+        .iter()
+        .filter_map(|e| e.split_once('='))
+        .map(|(k, v)| (k.trim().to_string(), v.trim().to_string()))
+        .collect()
+}
+
 fn load_heading_map(root: &Path) -> Vec<String> {
     // Displayed forms of the template headings: canonical + any mapped names.
     let mut shown: Vec<String> = TEMPLATE_HEADINGS.iter().map(|s| (*s).to_string()).collect();
-    if let Ok(text) = fs::read_to_string(root.join(".docmeta.yml")) {
-        let framed = format!("---\n{text}---\n");
-        if let Some(f) = fm::parse(&framed) {
-            if let Some(list) = f.fields.get("headings").and_then(fm::Value::as_list) {
-                for e in list {
-                    if let Some((_, v)) = e.split_once('=') {
-                        shown.push(format!("## {}", v.trim()));
-                    }
-                }
-            }
-        }
-    }
+    shown.extend(
+        heading_map(root)
+            .into_iter()
+            .map(|(_, v)| format!("## {v}")),
+    );
     shown
+}
+
+/// The sections R-049 retains with the file: what history keeps when
+/// graduation removes it (D-127).
+const RETAINED: [&str; 4] = ["Context", "What happened", "Question", "Why no decision"];
+
+fn retained_headings(root: &Path) -> Vec<String> {
+    let mut shown: Vec<String> = RETAINED.iter().map(|s| format!("## {s}")).collect();
+    shown.extend(
+        heading_map(root)
+            .into_iter()
+            .filter(|(k, _)| RETAINED.contains(&k.as_str()))
+            .map(|(_, v)| format!("## {v}")),
+    );
+    shown
+}
+
+/// A line `apply` wrote where a block left (R-091).
+fn is_graduation_link(line: &str) -> bool {
+    let line = line.trim();
+    (line.starts_with("Moved to [[") || line.starts_with("Already documented: [["))
+        && line.ends_with("]].")
 }
 
 pub fn blocks_with(text: &str, template_headings: &[String]) -> Vec<Block> {
@@ -224,6 +260,10 @@ pub struct Outcome {
     pub moved: usize,
     pub linked: usize,
     pub dest_files: Vec<String>,
+    /// the work file graduation removed (D-127)
+    pub removed: Option<String>,
+    /// the message the change is committed with when the file was removed
+    pub message: Option<String>,
 }
 
 fn dest_id(root: &Path, dest: &str) -> Result<String, String> {
@@ -292,8 +332,87 @@ fn add_graduated_to(text: &str, ids: &[String]) -> String {
     out
 }
 
+/// R-093's question, asked mechanically before graduation removes the file
+/// (D-127): every line of value outside the sections R-049 retains leaves
+/// with a moved or linked block, or left before as a link. The innermost
+/// block holding the first line that would stay.
+fn staying_block(
+    lines: &[&str],
+    bs: &[Block],
+    leaving: &[(usize, usize)],
+    retained: &[String],
+) -> Option<usize> {
+    let from = bs.iter().map(|b| b.start).min()?;
+    let retained_ranges: Vec<(usize, usize)> = bs
+        .iter()
+        .filter(|b| {
+            lines
+                .get(b.start)
+                .is_some_and(|h| retained.iter().any(|r| r == h.trim_end()))
+        })
+        .map(|b| (b.start, b.end))
+        .collect();
+    let within = |ranges: &[(usize, usize)], i: usize| ranges.iter().any(|&(a, b)| a <= i && i < b);
+    let stays = lines.iter().enumerate().skip(from).find(|(i, line)| {
+        !(line.trim().is_empty()
+            || heading_level(line).is_some()
+            || is_graduation_link(line)
+            || within(leaving, *i)
+            || within(&retained_ranges, *i))
+    });
+    let (i, _) = stays?;
+    bs.iter()
+        .filter(|b| b.start <= i && i < b.end)
+        .max_by_key(|b| b.start)
+        .map(|b| b.index)
+}
+
+/// Graduation as before: the blocks move, the source keeps its links and
+/// `graduated_to` (R-091).
 pub fn apply(root: &Path, plan_text: &str, force: bool) -> Result<Outcome, String> {
+    run(root, plan_text, force, None)
+}
+
+/// Graduation's end on a docsys/0.5 tree (D-127): the blocks move and the
+/// work file is removed on `who`'s word (R-081), once nothing of value would
+/// leave with it (R-093).
+pub fn apply_confirmed(
+    root: &Path,
+    plan_text: &str,
+    force: bool,
+    who: &str,
+) -> Result<Outcome, String> {
+    run(root, plan_text, force, Some(who.trim()))
+}
+
+fn run(
+    root: &Path,
+    plan_text: &str,
+    force: bool,
+    confirmed: Option<&str>,
+) -> Result<Outcome, String> {
     refuse_knowledge_base(root)?;
+    let tree = match confirmed {
+        Some(who) => {
+            if !crate::era::Era::at(root).graduation_removes() {
+                return Err(
+                    "this tree declares docsys/0.4, where a graduated file stays: graduate without \
+                     --confirmed and record `confirmed:` on the file (R-081); removing it is docsys/0.5's \
+                     end of graduation (D-127)"
+                        .to_string(),
+                );
+            }
+            let tree = crate::tree::DocTree::load(root).map_err(|e| e.to_string())?;
+            let maintainers = crate::checks::maintainer_handles(&tree);
+            if crate::approval::maintainer_of(&maintainers, who).is_none() {
+                return Err(format!(
+                    "`{who}` names no maintainer in .docmeta.yml — the word that graduates a file is a maintainer's (R-208)"
+                ));
+            }
+            Some(tree)
+        }
+        None => None,
+    };
     // R-097: refuse a dirty tree unless forced (only when git is present).
     if !force {
         let dirty = crate::git::cmd(root)
@@ -400,6 +519,8 @@ pub fn apply(root: &Path, plan_text: &str, force: bool) -> Result<Outcome, Strin
         moved: 0,
         linked: 0,
         dest_files: Vec::new(),
+        removed: None,
+        message: None,
     };
 
     for (idx, action) in &actions {
@@ -441,6 +562,67 @@ pub fn apply(root: &Path, plan_text: &str, force: bool) -> Result<Outcome, Strin
     }
     new_source = add_graduated_to(&new_source, &new_ids);
 
+    if let (Some(who), Some(tree)) = (confirmed, &tree) {
+        let source = tree
+            .pages
+            .iter()
+            .find(|p| p.rel == source_rel && p.kind == crate::tree::Kind::Tracked)
+            .ok_or_else(|| {
+                format!("`{source_rel}` is no work file — graduation removes work files only")
+            })?;
+        let field = |k: &str| source.fm.as_ref().and_then(|f| f.fields.get(k)).cloned();
+        if field("status").as_ref().and_then(fm::Value::as_str) == Some("graduated") {
+            return Err(format!(
+                "`{source_rel}` is already `graduated` and keeps its place (R-082)"
+            ));
+        }
+        let leaving: Vec<(usize, usize)> = replacements.iter().map(|(a, b, _)| (*a, *b)).collect();
+        if let Some(b) =
+            staying_block(&lines, &bs, &leaving, &retained_headings(root)).and_then(|i| bs.get(i))
+        {
+            return Err(format!(
+                "block {} · L{}-L{} · \"{}\" would leave with the file — move or link it, or graduate \
+                 without --confirmed and keep the file (R-093)",
+                b.index,
+                b.start + 1,
+                b.end,
+                b.snippet
+            ));
+        }
+        let mut dests: Vec<String> = field("graduated_to")
+            .as_ref()
+            .and_then(fm::Value::as_list)
+            .map(<[String]>::to_vec)
+            .unwrap_or_default();
+        for id in &new_ids {
+            if !dests.contains(id) {
+                dests.push(id.clone());
+            }
+        }
+        if dests.is_empty() {
+            return Err(
+                "no block of this file moves or links anywhere — graduation needs a destination; \
+                 work that ends without one is `abandoned` (R-055)"
+                    .to_string(),
+            );
+        }
+        let id = field("id")
+            .as_ref()
+            .and_then(fm::Value::as_str)
+            .map(str::to_string)
+            .or_else(|| {
+                Path::new(&source_rel)
+                    .file_stem()
+                    .map(|s| s.to_string_lossy().into_owned())
+            })
+            .unwrap_or_default();
+        out.removed = Some(source_rel.clone());
+        out.message = Some(format!(
+            "docs: graduate {id} into {}\n\nConfirmed-by: {who}\n",
+            dests.join(", ")
+        ));
+    }
+
     // Destinations first (R-092's ordering), then the source shrink.
     for (dest, body) in &dest_appends {
         let path = root.join(format!("{dest}.md"));
@@ -461,7 +643,11 @@ pub fn apply(root: &Path, plan_text: &str, force: bool) -> Result<Outcome, Strin
             out.dest_files.push(dest.clone());
         }
     }
-    fs::write(&source_path, new_source).map_err(|e| e.to_string())?;
+    if out.removed.is_some() {
+        fs::remove_file(&source_path).map_err(|e| e.to_string())?;
+    } else {
+        fs::write(&source_path, new_source).map_err(|e| e.to_string())?;
+    }
     Ok(out)
 }
 #[cfg(test)]

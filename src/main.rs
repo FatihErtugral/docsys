@@ -53,7 +53,7 @@ Usage:
   docsys agents  [--dir .claude] [--force]   # install hooks + skills + /docsys-sync, /docsys-seed, /docsys-interview, /docsys-upgrade
   docsys agents  --kb [--root <base>] [--dir .claude] [--force]  # knowledge-base layer
   docsys graduate plan <work-file>  [--root <dir>]
-  docsys graduate apply --plan <file> [--root <dir>] [--force]
+  docsys graduate apply --plan <file> [--confirmed <who>] [--root <dir>] [--force]   # --confirmed: on a docsys/0.5 tree the work file leaves with its last blocks (D-127)
   docsys export plan    [--root <dir>] [--audience <a>]   # draft product map to stdout
   docsys export product <map> [--root <dir>] [--out <file>] [--lang <code>] [--audience <a>]
   docsys export feature <id> [<id>...] [--follow] [--title <t>] [--root <dir>] [--out <file>] [--lang <code>] [--audience <a>]
@@ -109,6 +109,7 @@ struct Opts {
     stdin: bool,
     skipped: bool,
     by: Option<String>,
+    confirmed: Option<String>,
     commit: bool,
     revoke: bool,
     show: bool,
@@ -179,6 +180,7 @@ fn parse_opts(args: &[String]) -> Result<Opts, String> {
         stdin: false,
         skipped: false,
         by: None,
+        confirmed: None,
         commit: false,
         revoke: false,
         show: false,
@@ -249,6 +251,9 @@ fn parse_opts(args: &[String]) -> Result<Opts, String> {
             "--unverified" => o.unverified = true,
             "--stdin" => o.stdin = true,
             "--by" => o.by = Some(it.next().ok_or("--by needs a value")?.clone()),
+            "--confirmed" => {
+                o.confirmed = Some(it.next().ok_or("--confirmed needs a value")?.clone());
+            }
             "--commit" => o.commit = true,
             "--revoke" => o.revoke = true,
             "--show" => o.show = true,
@@ -1777,7 +1782,11 @@ next: review, `git add -A && git commit`, then open an agent session here."
                     return ExitCode::from(2);
                 }
             };
-            match docsys::graduate::apply(&opts.root, &plan, opts.force) {
+            let done = match &opts.confirmed {
+                Some(who) => docsys::graduate::apply_confirmed(&opts.root, &plan, opts.force, who),
+                None => docsys::graduate::apply(&opts.root, &plan, opts.force),
+            };
+            match done {
                 Ok(done) => {
                     println!(
                         "moved {} block(s) · linked {} · destinations touched: {}",
@@ -1785,6 +1794,10 @@ next: review, `git add -A && git commit`, then open an agent session here."
                         done.linked,
                         done.dest_files.join(", ")
                     );
+                    if let (Some(removed), Some(message)) = (&done.removed, &done.message) {
+                        println!("removed {removed} — history keeps it");
+                        println!("commit the change with this message (D-127):\n{message}");
+                    }
                     println!("-- running lint --");
                     run_lint(&Opts {
                         json: false,

@@ -118,7 +118,7 @@
       "strategy": "auto",
       "step": "dates",
       "file": "docs",
-      "what": "`updated:` removed from 5 page(s) and template(s): a page's date is its last content change in history (D-122)",
+      "what": "`updated:` removed from 6 page(s) and template(s): a page's date is its last content change in history (D-122)",
       "command": null
     },
     {
@@ -221,11 +221,12 @@
     }
   ],
   "preview": [
-    "judged by docsys/0.5 as the tree is now: 7 new finding(s), 1 gone — the steps below clear their part",
+    "judged by docsys/0.5 as the tree is now: 8 new finding(s), 1 gone — the steps below clear their part",
     "+ WARN R-024 reference/expiry.md [record] a verification field in the page — on docsys/0.5 the state is read from history (an `Approved-by:` after the last body change, D-126), and this no longer holds; `docsys upgrade --apply` takes it out",
     "+ WARN R-024 reference/refresh.md [record] a verification field in the page — on docsys/0.5 the state is read from history (an `Approved-by:` after the last body change, D-126), and this no longer holds; `docsys upgrade --apply` takes it out",
     "+ WARN R-050 reference/expiry.md [updated] `updated:` is not kept on docsys/0.5 — a page's date is its last content change in history; `docsys upgrade --apply` removes the line",
     "+ WARN R-050 reference/refresh.md [updated] `updated:` is not kept on docsys/0.5 — a page's date is its last content change in history; `docsys upgrade --apply` removes the line",
+    "+ WARN R-054 work/features/token-rotation.md [updated] `updated:` is not kept on docsys/0.5 — a page's date is its last content change in history; `docsys upgrade --apply` removes the line",
     "+ WARN R-100 work/journal.md [legacy] a docsys/0.4 journal file on a docsys/0.5 tree, whose journal is history — `docsys upgrade --apply` moves it under `_archive/journal/` (D-125)",
     "+ WARN R-108 work/debt.md [legacy] a docsys/0.4 ledger on a docsys/0.5 tree — `docsys upgrade --apply` moves its items into work/debt/ (D-124)",
     "+ WARN R-108 work/questions.md [legacy] a docsys/0.4 ledger on a docsys/0.5 tree — `docsys upgrade --apply` moves its items into work/questions/ (D-124)",

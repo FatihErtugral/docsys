@@ -161,6 +161,13 @@ impl Era {
         self.v05()
     }
 
+    /// D-127: `graduate apply --confirmed` moves the last blocks and removes
+    /// the work file; the commit names the destinations. Before: the file
+    /// stays as `graduated`, its `confirmed:` written on it.
+    pub fn graduation_removes(self) -> bool {
+        self.v05()
+    }
+
     /// D-116: `lint`, `refs` and `gate` end with a pointer to `docsys feedback`
     /// under a finding of a rule that reads free text. Before: the findings alone.
     pub fn finding_pointers(self) -> bool {

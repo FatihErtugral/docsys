@@ -76,6 +76,14 @@ declares `spec: docsys/0.5`; a tree that declares `docsys/0.4` is served as
   open items by tag and moves the rest, as written, under `_archive/` (R-108,
   D-124). D-109's vanished-item check is retired
   with the ledgers.
+- Graduation ends by removing the work file: `docsys graduate apply --plan
+  <file> --confirmed <who>` moves the last blocks byte for byte, removes the
+  source, and prints the commit message, which names the destinations and
+  carries `Confirmed-by:`; history keeps the file. It is refused while a block
+  outside the sections R-049 retains would leave with the file, and for a
+  person who is no maintainer. Without `--confirmed` the file stays as before;
+  `upgrade` removes no graduated or archived work file (R-049, R-066, R-081,
+  R-091, R-093, D-127).
 - A router line may route a directory, and every page under it is reachable;
   `adopt` routes the four type directories, so a new page adds no line to
   `index.md`, and `upgrade` appends the routes and keeps every line (R-034,

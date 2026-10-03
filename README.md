@@ -176,6 +176,7 @@ flowchart LR
     APPROVE --> APPLY["graduate apply"]
     APPLY --> D1["destination written first<br/>bytes arrive exact"]
     APPLY --> D2["source keeps template headings,<br/>gains link + graduated_to"]
+    APPLY --> D4["--confirmed (docsys/0.5):<br/>the work file is removed,<br/>the commit names the destinations"]
     APPLY --> D3["refuses: dirty tree ·<br/>drifted source · missing destination"]
 ```
 
@@ -432,7 +433,7 @@ flowchart LR
 | `docsys init [--root docs] [--lang <code>] [--profile project\|knowledge-base]` | Greenfield skeleton. `project`: the router, its type directories routed, and `_templates/`. `knowledge-base`: the record layer (`raw/inbox/`) and the wiki root. |
 | `docsys migrate inventory [--root <dir>] [--repo <dir>]` · `docsys migrate apply --plan <file> [--root <dir>] [--lang <code>] [--repo <dir>]` | Brownfield adoption: evidence-rich plan → approved mapping → mechanical move with link rewriting on both sides of the docs boundary. |
 | `docsys refs --repo <dir> [--root <dir>] [--json]` | Validate every `doc: <id>` in the code base against the tree (typos stop being invisible). |
-| `docsys graduate plan <work-file> [--root <dir>]` · `docsys graduate apply --plan <file> [--root <dir>] [--force]` | Byte-exact block movement from work files to the permanent layer; `--force` overrides the dirty-tree refusal. |
+| `docsys graduate plan <work-file> [--root <dir>]` · `docsys graduate apply --plan <file> [--confirmed <who>] [--root <dir>] [--force]` | Byte-exact block movement from work files to the permanent layer; `--confirmed` ends graduation on a docsys/0.5 tree by removing the work file (D-127); `--force` overrides the dirty-tree refusal. |
 | `docsys export plan [--audience <a>]` · `docsys export product <map> [--out <file>] [--lang <code>] [--audience <a>]` · `docsys export feature <id>… [--follow] [--title <t>] [--out <file>] [--lang <code>] [--audience <a>]` | Compose a document from permanent pages: a draft map from the tree's own evidence, a whole product from an authored map, or one feature by identifier (`--follow` widens a hop). Bodies verbatim, source-stamped, `--audience` and `--lang` aware. |
 | `docsys export manifest [--root <dir>] [--out <file>]` | Publish what this namespace exports — id, type, title, summary, content hash, no bodies. A few KB where a clone is megabytes. |
 | `docsys fetch [--root <dir>]` | Materialize consumed namespaces into `.federation/`: manifest first, unchanged pages skipped, provenance recorded. |
