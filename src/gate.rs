@@ -146,9 +146,9 @@ fn is_trailer(line: &str) -> bool {
     })
 }
 
-/// The `commit-msg` gate on a docsys/0.5 tree: the staged change set read
 /// The open items the staged change takes out of a list's topic files, one
-/// by one; a line that moves to another topic file is not taken out.
+/// by one; a line that moves to another topic file, its tag changed with it,
+/// is not taken out.
 fn items_removed(repo: &Path, dir: &str) -> usize {
     let Some(diff) = crate::git::cmd(repo)
         .args([
@@ -167,14 +167,16 @@ fn items_removed(repo: &Path, dir: &str) -> usize {
     else {
         return 0;
     };
-    let mut added: Vec<&str> = diff
+    let mut added: Vec<String> = diff
         .lines()
         .filter_map(|l| l.strip_prefix('+'))
         .filter(|l| l.starts_with("- [ ] "))
+        .map(crate::items::untagged)
         .collect();
     diff.lines()
         .filter_map(|l| l.strip_prefix('-'))
         .filter(|l| l.starts_with("- [ ] "))
+        .map(crate::items::untagged)
         .filter(|gone| match added.iter().position(|a| a == gone) {
             Some(i) => {
                 added.swap_remove(i);
@@ -185,6 +187,7 @@ fn items_removed(repo: &Path, dir: &str) -> usize {
         .count()
 }
 
+/// The `commit-msg` gate on a docsys/0.5 tree: the staged change set read
 /// with the message that will carry it.
 /// It acts under `commit_policy: require` only: a team's message is its own
 /// convention everywhere else.
@@ -274,7 +277,6 @@ fn docs_entry_lines(message: &str) -> usize {
     let prefix = format!("{}:", crate::journal::DOCS);
     let mut lines = message
         .lines()
-        .skip(1)
         .skip_while(|l| !l.trim_start().starts_with(&prefix));
     if lines.next().is_none() {
         return 0;

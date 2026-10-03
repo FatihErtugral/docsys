@@ -277,6 +277,38 @@ fn under_require_the_message_gate_wants_why_and_a_closed_item_wants_its_trailer(
     let _ = fs::remove_dir_all(&repo);
 }
 
+/// What `journal add` prints is a message as it stands (D-125): a message
+/// that is only its `Docs:` line says why — to the commit-msg gate, to a range
+/// in CI, and to the journal history makes.
+#[test]
+fn the_line_journal_add_prints_is_a_message_the_gate_takes() {
+    let repo = adopted("docs-only", "require");
+    let base = ok(&repo, &["rev-parse", "HEAD"]).trim().to_string();
+    let msg = tmp("docs-only-msg").join("msg");
+    for (i, why) in ["the entry point only calls run", "line 1\nline 2"]
+        .iter()
+        .enumerate()
+    {
+        fs::write(repo.join("main.rs"), format!("fn main() {{ run({i}) }}\n")).unwrap();
+        ok(&repo, &["add", "main.rs"]);
+        let printed = docsys(&repo, &["journal", "add", why]);
+        assert!(printed.status.success(), "{printed:?}");
+        fs::write(&msg, &printed.stdout).unwrap();
+        let out = git(&repo, &["commit", "-q", "-F", msg.to_str().unwrap()]);
+        assert!(out.status.success(), "{why}: {out:?}");
+    }
+    let range = format!("{base}..HEAD");
+    let out = docsys(&repo, &["gate", "--range", &range]);
+    assert_eq!(out.status.code(), Some(0), "{out:?}");
+    let out = docsys(&repo, &["journal"]);
+    let text = String::from_utf8_lossy(&out.stdout);
+    assert!(
+        text.contains("Docs: the entry point only calls run"),
+        "{text}"
+    );
+    let _ = fs::remove_dir_all(&repo);
+}
+
 #[test]
 fn a_range_is_answered_by_a_docs_line_in_any_of_its_commits() {
     let repo = adopted("range", "ask");
@@ -443,12 +475,23 @@ fn every_closed_item_is_counted_whether_its_file_stays_or_goes() {
     assert!(added.status.success(), "{added:?}");
     ok(&repo, &["add", "-A"]);
     ok(&repo, &["commit", "-qm", "four", "-m", "Docs: a debt"]);
+    // its topic is its tag: the move adds one, and a later move changes it
     let line = fs::read_to_string(repo.join("docs/work/debt/general.md")).unwrap();
-    let tagged = line.replacen("] four", "] [cache] four", 1);
+    let tagged = line.replacen(" four --", " [cache] four --", 1);
+    assert_ne!(tagged, line);
     fs::remove_file(repo.join("docs/work/debt/general.md")).unwrap();
-    fs::write(repo.join("docs/work/debt/cache.md"), tagged).unwrap();
+    fs::write(repo.join("docs/work/debt/cache.md"), &tagged).unwrap();
     ok(&repo, &["add", "-A"]);
     let out = said(git(&repo, &["commit", "-qm", "four is about the cache"]));
+    assert!(!out.contains("item(s)"), "{out}");
+    fs::remove_file(repo.join("docs/work/debt/cache.md")).unwrap();
+    fs::write(
+        repo.join("docs/work/debt/api.md"),
+        tagged.replacen("[cache]", "[api]", 1),
+    )
+    .unwrap();
+    ok(&repo, &["add", "-A"]);
+    let out = said(git(&repo, &["commit", "-qm", "four is about the api"]));
     assert!(!out.contains("item(s)"), "{out}");
     let _ = fs::remove_dir_all(&repo);
 }
@@ -575,7 +618,8 @@ fn the_messages_name_the_files_and_commands_of_a_0_5_tree() {
 }
 
 /// One commit points at each disputed rule once, though two of its gate's
-/// calls report it — a page's citation and the code's (D-116).
+/// calls report it — a page's citation and the code's (D-116); a commit
+/// tried again, nothing restaged, points at it again.
 #[test]
 fn a_commit_points_at_each_rule_once() {
     let repo = adopted("pointers", "ask");
@@ -587,15 +631,18 @@ fn a_commit_points_at_each_rule_once() {
     .unwrap();
     fs::write(repo.join("main.rs"), "// doc: no-such-page\nfn main() {}\n").unwrap();
     ok(&repo, &["add", "-A"]);
-    let out = git(&repo, &["commit", "-qm", "two dangling citations"]);
-    let said =
-        String::from_utf8_lossy(&out.stdout).into_owned() + &String::from_utf8_lossy(&out.stderr);
-    assert_eq!(
-        said.matches("Finding wrong? `docsys feedback --rule R-076`")
-            .count(),
-        1,
-        "{said}"
-    );
+    for attempt in 1..=3 {
+        let out = git(&repo, &["commit", "-qm", "two dangling citations"]);
+        assert!(!out.status.success(), "{out:?}");
+        let said = String::from_utf8_lossy(&out.stdout).into_owned()
+            + &String::from_utf8_lossy(&out.stderr);
+        assert_eq!(
+            said.matches("Finding wrong? `docsys feedback --rule R-076`")
+                .count(),
+            1,
+            "attempt {attempt}: {said}"
+        );
+    }
     let _ = fs::remove_dir_all(&repo);
 }
 

@@ -400,6 +400,8 @@ fn a_write_command_outside_a_tree_refuses_with_r160() {
         &["debt", "add", "x", "--deferred", "y", "--repay-when", "z"],
         &["page", "new", "reference", "cart"],
         &["journal", "add", "a line"],
+        &["debt", "close", "1", "--note", "n"],
+        &["question", "close", "1", "--answer", "x"],
     ] {
         let (code, out) = docsys_all(&repo, args);
         assert_eq!(code, 2, "{args:?}: {out}");
@@ -414,5 +416,22 @@ fn a_write_command_outside_a_tree_refuses_with_r160() {
     let (code, out) = docsys_all(&repo, &["lint"]);
     assert_eq!(code, 2, "{out}");
     assert!(out.contains("R-160"), "{out}");
+    let _ = fs::remove_dir_all(&repo);
+}
+
+/// `agents` from a subdirectory installs into the agent layer `adopt` wrote at
+/// the repository's top — never a second one where it stands — and only the
+/// relays the tree's era runs (D-098, D-126).
+#[test]
+fn agents_from_a_subdirectory_writes_the_repositorys_own_layer() {
+    let repo = project("agents-sub");
+    let deep = repo.join("apps/x/src");
+    for args in [&["agents"][..], &["agents", "--force"]] {
+        let (code, out) = docsys(&deep, args);
+        assert_eq!(code, 0, "{args:?}: {out}");
+        assert!(!deep.join(".claude").exists(), "{args:?}: {out}");
+        assert!(!out.contains("post-edit"), "{args:?}: {out}");
+    }
+    assert!(!repo.join(".claude/hooks/post-edit-updated.sh").exists());
     let _ = fs::remove_dir_all(&repo);
 }

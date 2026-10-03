@@ -449,6 +449,20 @@ fn main() -> ExitCode {
             return ExitCode::from(2);
         }
     };
+    // `agents` installs into the agent layer at the repository's top, wherever it
+    // runs; a given --dir stands as given (D-098)
+    if cmd == "agents" && !rest.iter().any(|a| a == "--dir") {
+        let cwd = std::env::current_dir().and_then(|d| d.canonicalize()).ok();
+        let top = cwd
+            .as_deref()
+            .and_then(docsys::git::toplevel)
+            .and_then(|t| t.canonicalize().ok());
+        if let (Some(cwd), Some(top)) = (cwd, top) {
+            if cwd != top {
+                opts.dir = top.join(".claude");
+            }
+        }
+    }
     // A command that works on an existing tree finds it from where it stands
     // and takes the repository from the tree (D-098); one that creates a tree,
     // or installs into one, takes its paths as given. A hook finds its own.
@@ -532,7 +546,9 @@ fn main() -> ExitCode {
     // makes a second, half tree (R-160, D-098)
     if matches!(
         (cmd, sub),
-        ("debt" | "question", Some("add")) | ("page", Some("new")) | ("journal", Some("add"))
+        ("debt" | "question", Some("add" | "close"))
+            | ("page", Some("new"))
+            | ("journal", Some("add"))
     ) && !opts.root.join(".docmeta.yml").is_file()
     {
         eprintln!(
@@ -1966,11 +1982,11 @@ next: review, `git add -A && git commit`, then open an agent session here."
             }
         },
         ("refs", None) => {
-            // the repository is the tree's own (D-098), a given --repo first
-            let Some(repo) = opts
-                .repo
-                .clone()
-                .or_else(|| here.as_ref().and_then(|p| p.repo.clone()))
+            // the repository is the tree's own, a given --repo its top level (D-098)
+            let Some(repo) = here
+                .as_ref()
+                .and_then(|p| p.repo.clone())
+                .or_else(|| opts.repo.clone())
             else {
                 eprintln!("refs: the tree is not inside a repository — --repo <dir> names one");
                 return ExitCode::from(2);

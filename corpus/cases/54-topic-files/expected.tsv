@@ -4,6 +4,6 @@ WARN	R-108	work/debt/cache.md	line-1
 WARN	R-108	work/debt/misfiled.md	line-1
 ERROR	R-108	work/questions/bullet.md	line-1
 ERROR	R-108	work/questions/closed.md	line-1
-ERROR	R-108	work/questions/empty.md	item
+WARN	R-108	work/questions/empty.md	empty
 ERROR	R-108	work/questions/prose.md	line-5
 WARN	R-108	work/debt/emptied.md	empty

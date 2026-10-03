@@ -17,15 +17,13 @@ pub struct Entry {
     pub lines: Vec<String>,
 }
 
-/// Whether a commit message carries `<key>: …` on a line of its own after
-/// the subject. Read leniently: a squash merge stacks the messages of every
+/// Whether a commit message carries `<key>: …` on a line of its own, the
+/// subject included: a message may be that line alone, as `journal add`
+/// prints it. Read leniently: a squash merge stacks the messages of every
 /// commit it carries, trailers included.
 pub fn has_trailer(message: &str, key: &str) -> bool {
     let prefix = format!("{key}:");
-    message
-        .lines()
-        .skip(1)
-        .any(|l| l.trim_start().starts_with(&prefix))
+    message.lines().any(|l| l.trim_start().starts_with(&prefix))
 }
 
 /// The commits `git log` lists with `args`: (committer time, date, hash,
@@ -306,7 +304,7 @@ mod tests {
             DOCS
         ));
         assert!(has_trailer("squash\n\n* one\n\nDocs: why\n\n* two\n", DOCS));
-        assert!(!has_trailer("Docs: in the subject only\n", DOCS));
+        assert!(has_trailer("Docs: the message is this line\n", DOCS));
         assert!(!has_trailer("subject\n\nDocsify: no\n", DOCS));
     }
 

@@ -59,13 +59,26 @@ pub struct Item {
 /// The topic a line names: the `[tag]` right after its date when the tag is
 /// a local id, else `general`.
 pub fn topic_of(line: &str) -> String {
+    tag_split(line).map_or_else(|| GENERAL.to_string(), |(tag, _)| tag.to_string())
+}
+
+/// A line's topic tag and the text after it, when it carries one.
+fn tag_split(line: &str) -> Option<(&str, &str)> {
     line.get(16..)
         .map(str::trim_start)
         .and_then(|rest| rest.strip_prefix('['))
         .and_then(|rest| rest.split_once(']'))
-        .map(|(tag, _)| tag.trim())
-        .filter(|tag| crate::model::is_local_id(tag))
-        .map_or_else(|| GENERAL.to_string(), str::to_string)
+        .map(|(tag, after)| (tag.trim(), after.trim_start()))
+        .filter(|(tag, _)| crate::model::is_local_id(tag))
+}
+
+/// A line without its topic tag: what stays the same when the item moves to
+/// another topic.
+pub fn untagged(line: &str) -> String {
+    match (line.get(..16), tag_split(line)) {
+        (Some(head), Some((_, after))) => format!("{head} {after}"),
+        _ => line.to_string(),
+    }
 }
 
 /// The open items of a list, topic by topic in name order, each topic's in

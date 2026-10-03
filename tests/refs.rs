@@ -321,3 +321,45 @@ fn refs_without_repo_reads_the_trees_repository() {
     assert_eq!(out.status.code(), Some(0), "{out:?}");
     let _ = fs::remove_dir_all(&repo);
 }
+
+/// D-098: a given `--repo` is its repository's top level, so `refs --repo .`
+/// from a subdirectory — the command the agent texts name — inspects what
+/// `refs` at the top inspects.
+#[test]
+fn refs_from_a_subdirectory_sees_what_refs_at_the_top_sees() {
+    let repo = tmp("refs-sub");
+    let git = |args: &[&str]| {
+        assert!(std::process::Command::new("git")
+            .args(args)
+            .current_dir(&repo)
+            .output()
+            .unwrap()
+            .status
+            .success());
+    };
+    git(&["init", "-q"]);
+    let run = |dir: &std::path::Path, args: &[&str]| {
+        let out = std::process::Command::new(env!("CARGO_BIN_EXE_docsys"))
+            .args(args)
+            .current_dir(dir)
+            .env("DOCSYS_NO_AUTO_INSTALL", "1")
+            .output()
+            .unwrap();
+        (
+            out.status.code(),
+            String::from_utf8_lossy(&out.stdout).into_owned(),
+        )
+    };
+    assert_eq!(run(&repo, &["adopt"]).0, Some(0));
+    fs::create_dir_all(repo.join("src")).unwrap();
+    fs::write(repo.join("src/f.rs"), "// doc: nonexistent-page\n").unwrap();
+    let sub = repo.join("pkg/sub");
+    fs::create_dir_all(&sub).unwrap();
+    let top = run(&repo, &["refs"]);
+    assert_eq!(top.0, Some(1), "{}", top.1);
+    assert!(top.1.contains("src/f.rs [nonexistent-page]"), "{}", top.1);
+    for args in [&["refs", "--repo", "."][..], &["refs"][..]] {
+        assert_eq!(run(&sub, args), top, "{args:?}");
+    }
+    let _ = fs::remove_dir_all(&repo);
+}

@@ -93,8 +93,9 @@ pub fn pointers<'a>(rules: impl Iterator<Item = &'a str>) -> Vec<String> {
 
 /// The pointers one commit has not printed yet. Inside a git hook its calls
 /// — `gate`, `refs` — each run on their own; the rules they pointed at are
-/// kept beside the index, keyed by the staged tree, so a commit points at
-/// each rule once. Outside a hook, every pointer.
+/// kept beside the index, keyed by the staged tree and the hook's own
+/// process, so a commit points at each rule once and a commit tried again
+/// points again. Outside a hook, every pointer.
 pub fn pointers_once<'a>(root: &Path, rules: impl Iterator<Item = &'a str>) -> Vec<String> {
     let all = pointers(rules);
     if std::env::var_os("GIT_INDEX_FILE").is_none() || all.is_empty() {
@@ -117,6 +118,9 @@ pub fn pointers_once<'a>(root: &Path, rules: impl Iterator<Item = &'a str>) -> V
     ) else {
         return all;
     };
+    // the hook's shell runs each call; a retry is a new shell
+    #[cfg(unix)]
+    let tree = format!("{tree} {}", std::os::unix::process::parent_id());
     let record = Path::new(&dir).join("docsys-pointed");
     let kept = std::fs::read_to_string(&record).unwrap_or_default();
     let said: Vec<&str> = match kept.split_once('\n') {
