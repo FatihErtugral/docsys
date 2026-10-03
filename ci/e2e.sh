@@ -23,10 +23,10 @@ say "1 · project: adopt on a fresh repository"
 mkdir app && cd app && git init -q
 docsys adopt >/dev/null
 git add -A && git commit -qm init
-docsys lint --root docs | grep -q -- '-- 0 error(s)' || fail "fresh adopt does not lint clean"
+docsys lint --root docs | grep -- '-- 0 error(s)' >/dev/null || fail "fresh adopt does not lint clean"
 
 say "2 · doctor: the pipeline proves itself alive"
-docsys doctor --repo . --root docs | tee /tmp/doctor.out | grep -q -- '-- pipeline alive' \
+docsys doctor --repo . --root docs | tee /tmp/doctor.out | grep -- '-- pipeline alive' >/dev/null \
   || fail "doctor on a fresh adopt: $(cat /tmp/doctor.out)"
 
 say "3 · doctor: a dead gate is named, not missed"
@@ -38,10 +38,10 @@ mv /tmp/gate.bak .git/hooks/pre-commit
 
 say "4 · gate: the code-without-docs question"
 echo 'fn main() {}' > main.rs && git add main.rs
-docsys gate --repo . --root docs | grep -q '^GATE ' || fail "gate misses staged code without docs"
+docsys gate --repo . --root docs | grep '^GATE ' >/dev/null || fail "gate misses staged code without docs"
 docsys debt add "wire CI" --deferred e2e --repay-when v1 --root docs >/dev/null
 git add docs
-docsys gate --repo . --root docs | grep -q '^GATE ' && fail "gate fires although docs are staged"
+docsys gate --repo . --root docs | grep '^GATE ' >/dev/null && fail "gate fires although docs are staged"
 git commit -qm "code with docs"
 cd "$WORK"
 
@@ -52,9 +52,9 @@ docsys agents --kb --root . >/dev/null
 test -f .claude/skills/kb-capture/SKILL.md || fail "kb skills missing"
 test -x .claude/hooks/pre-commit-docs.sh || fail "kb hooks missing"
 grep -q 'Bash|Write|Edit' .claude/settings.json || fail "kb settings do not guard writes"
-docsys lint --root . | grep -q -- '-- 0 error(s), 0 warning(s)' || fail "fresh kb tree not clean"
+docsys lint --root . | grep -- '-- 0 error(s), 0 warning(s)' >/dev/null || fail "fresh kb tree not clean"
 git add -A && git commit -qm base
-docsys doctor --repo . --root . | grep -q -- '-- pipeline alive' || fail "kb doctor: $(docsys doctor --repo . --root . | tail -3)"
+docsys doctor --repo . --root . | grep -- '-- pipeline alive' >/dev/null || fail "kb doctor: $(docsys doctor --repo . --root . | tail -3)"
 printf 'A note.\n' > raw/inbox/2026-08-16-note.md
 printf '{"tool_name":"Write","tool_input":{"file_path":"%s/raw/inbox/2026-08-16-note.md","content":"x"}}' "$PWD" \
   | docsys hook pre-tool-use --root . 2>/tmp/raw.err && fail "an existing record was not guarded"
@@ -64,7 +64,7 @@ printf '{"tool_name":"Write","tool_input":{"file_path":"%s/raw/inbox/2026-08-16-
 (printf '{"session_id":"e2e-kb-%s","prompt":"note this"}' "$$" | docsys hook user-prompt-submit --root . || true) > /tmp/routing.out
 grep -q 'capture' /tmp/routing.out || fail "kb routing missing"   # once per session id
 grep -q '<first-run>' /tmp/routing.out || fail "a fresh base did not run the character survey"
-(docsys hook stop --root . 2>&1 || true) | grep -q 'raw/inbox' || fail "stop does not name the inbox"
+(docsys hook stop --root . 2>&1 || true) | grep 'raw/inbox' >/dev/null || fail "stop does not name the inbox"
 cd "$WORK"
 
 say "6 · federation: two git providers, one estate, one document"
@@ -99,12 +99,12 @@ consume_base: "file://$WORK/{ns}#docs"
 consume: [auth, billing]
 EOF
 printf '# estate\n' > docs/index.md
-docsys fetch --root docs | grep -c 'page(s)' | grep -q 2 || fail "fetch did not cover both providers"
+docsys fetch --root docs | grep -c 'page(s)' | grep 2 >/dev/null || fail "fetch did not cover both providers"
 docsys export feature @auth/use-auth @billing/use-billing \
   --title "Estate guide" --root docs --out guide.md 2>/dev/null
 grep -q 'The auth service' guide.md && grep -q 'The billing service' guide.md \
   || fail "cross-repo composition incomplete"
-docsys fetch --root docs | grep -q 'unchanged, skipped' || fail "manifest skip did not engage"
+docsys fetch --root docs | grep 'unchanged, skipped' >/dev/null || fail "manifest skip did not engage"
 docsys export feature @auth/use-auth @billing/use-billing \
   --title "Estate guide" --root docs --out guide.md 2>/tmp/unch.err
 grep -q 'unchanged' /tmp/unch.err || fail "unchanged output was rewritten"
@@ -133,17 +133,17 @@ printf -- '- [[reference/entry|Entry]] -- what main prints.\n' >> docs/index.md
 docsys pin reference/entry main.rs >/dev/null || fail "pin did not land"
 [ -n "$(ls docs/.verifies/entry 2>/dev/null)" ] || fail "pin wrote no acknowledgement"   # a docsys/0.5 tree: beside the page, never in it (D-119)
 git add -A && git commit -qm "entry page, pinned"
-docsys lint --root docs | grep -q -- '-- 0 error(s)' || fail "a fresh pin is not clean"
+docsys lint --root docs | grep -- '-- 0 error(s)' >/dev/null || fail "a fresh pin is not clean"
 echo 'fn main() { println!("hi") }' > main.rs
-(docsys lint --root docs || true) | grep -q 'R-111' || fail "a moved region is not reported"   # lint exits 1 here BY DESIGN
+(docsys lint --root docs || true) | grep 'R-111' >/dev/null || fail "a moved region is not reported"   # lint exits 1 here BY DESIGN
 docsys pin --refresh reference/entry >/dev/null || fail "refresh failed"
-docsys lint --root docs | grep -q -- '-- 0 error(s)' || fail "refreshed pin is not clean"
+docsys lint --root docs | grep -- '-- 0 error(s)' >/dev/null || fail "refreshed pin is not clean"
 git add -A && git commit -qm "main moved, page re-read"
 base=$(git rev-parse HEAD)
 echo 'pub fn helper() {}' > lib.rs      # code the pin does not cover: lint stays clean, only the range question is open
 git add -A && git commit -qm "code only"
 docsys gate --repo . --root docs --range "$base..HEAD" >/dev/null && fail "range gate passed code without docs"
-(docsys gate --repo . --root docs --range "$base..HEAD" || true) | grep -q '^GATE ' || fail "range gate names nothing"
+(docsys gate --repo . --root docs --range "$base..HEAD" || true) | grep '^GATE ' >/dev/null || fail "range gate names nothing"
 
 say "9 · compile: a howto becomes a skill, and goes stale with its page"
 mkdir -p docs/howto
@@ -164,23 +164,23 @@ printf -- '- [[howto/ship|Ship]] -- the shipping steps.\n' >> docs/index.md
 docsys compile ship --root docs >/dev/null || fail "compile refused a howto"
 grep -q 'docsys_source_hash: sha256:' .claude/skills/ship/SKILL.md || fail "skill carries no source hash"
 grep -q '^2. Tag the commit.$' .claude/skills/ship/SKILL.md || fail "skill body is not the page"
-docsys lint --root docs | grep -q -- '-- 0 error(s)' || fail "a fresh compile is not clean"
+docsys lint --root docs | grep -- '-- 0 error(s)' >/dev/null || fail "a fresh compile is not clean"
 printf '3. Push the tag.\n' >> docs/howto/ship.md
-(docsys lint --root docs || true) | grep -q 'R-095' || fail "a moved howto did not stale its skill"   # lint exits 1 here BY DESIGN
+(docsys lint --root docs || true) | grep 'R-095' >/dev/null || fail "a moved howto did not stale its skill"   # lint exits 1 here BY DESIGN
 docsys compile ship --root docs >/dev/null
-docsys lint --root docs | grep -q -- '-- 0 error(s)' || fail "recompiled skill is not clean"
+docsys lint --root docs | grep -- '-- 0 error(s)' >/dev/null || fail "recompiled skill is not clean"
 docsys compile entry --root docs >/dev/null 2>&1 && fail "a reference page compiled"
 cd "$WORK"
 
 say "10 · lookup and consume: a question's first hop across what a tree consumes"
 mkdir hub && cd hub && git init -q && docsys init --root docs >/dev/null
-docsys consume add "$WORK/auth" --root docs | grep -q 'auth' || fail "consume add did not register the provider"
+docsys consume add "$WORK/auth" --root docs | grep 'auth' >/dev/null || fail "consume add did not register the provider"
 docsys consume add "$WORK/auth" --root docs >/dev/null 2>&1 && fail "a provider was consumed twice"
 docsys fetch --root docs >/dev/null || fail "fetch after consume add failed"
-docsys lookup auth service --root docs | grep -q '@auth/use-auth' || fail "lookup did not find the consumed page"
+docsys lookup auth service --root docs | grep '@auth/use-auth' >/dev/null || fail "lookup did not find the consumed page"
 docsys lookup nothing-like-this --root docs >/dev/null 2>&1 && fail "lookup found a page for nonsense"
-docsys consume discover "$WORK" --root docs | grep -q 'billing' || fail "discover did not list the other provider"
-docsys consume discover "$WORK" --root docs | grep -q 'already consumed' || fail "discover did not mark the consumed one"
+docsys consume discover "$WORK" --root docs | grep 'billing' >/dev/null || fail "discover did not list the other provider"
+docsys consume discover "$WORK" --root docs | grep 'already consumed' >/dev/null || fail "discover did not mark the consumed one"
 cd "$WORK"
 
 say "11 · an assistant's memory: a base learns from a project, the git connector lands records, status digests"
@@ -205,11 +205,11 @@ EOF
 awk '{ if ($0 == "domains: []") print "domains: [coding]"; else print }' .docmeta.yml > .docmeta.tmp && mv .docmeta.tmp .docmeta.yml   # portable: BSD sed has no -i without a suffix
 printf '# coding\n\n- [[coding/explanation/auth-in-one-page|Auth in one page]] -- learned from auth.\n' > wiki/coding/index.md
 printf '# Knowledge base\n\n- [[coding/index|Coding]] -- code.\n' > wiki/index.md
-docsys lint --root . | grep -q -- '-- 0 error(s)' || fail "a page citing @auth/use-auth does not lint: $(docsys lint --root . | head -3)"
-docsys inbox pull "$WORK/auth" --since 30.days --root . | grep -q '^captured: raw/inbox/' || fail "the git connector landed nothing"
-docsys inbox pull "$WORK/auth" --since 30.days --root . | grep -q 'already captured' || fail "the git connector is not idempotent"
+docsys lint --root . | grep -- '-- 0 error(s)' >/dev/null || fail "a page citing @auth/use-auth does not lint: $(docsys lint --root . | head -3)"
+docsys inbox pull "$WORK/auth" --since 30.days --root . | grep '^captured: raw/inbox/' >/dev/null || fail "the git connector landed nothing"
+docsys inbox pull "$WORK/auth" --since 30.days --root . | grep 'already captured' >/dev/null || fail "the git connector is not idempotent"
 docsys inbox add --source calendar --id evt-1 --title "Dentist" --root . >/dev/null || fail "inbox add failed"
-docsys inbox add --source calendar --id evt-1 --title "Dentist again" --root . | grep -q 'already captured' || fail "inbox add landed the same item twice"
+docsys inbox add --source calendar --id evt-1 --title "Dentist again" --root . | grep 'already captured' >/dev/null || fail "inbox add landed the same item twice"
 docsys status --root . > /tmp/status.out || fail "status failed: $(cat /tmp/status.out)"   # to a file first: grep -q would close the pipe early
 grep -q 'inbox: 3 note(s)' /tmp/status.out || fail "status miscounts the inbox: $(cat /tmp/status.out)"
 grep -q 'consumed: auth 1 page(s) fetched' /tmp/status.out || fail "status does not name the consumed namespace"
@@ -219,13 +219,13 @@ grep -q '"inbox":3' /tmp/status.json || fail "status --json disagrees"
 # staying current: verify the page against the source as fetched, then let the provider move
 git add -A && git commit -qm "learned from auth"
 docsys verify auth-in-one-page --root . >/dev/null || fail "the maintainer could not verify the page"
-git log -1 --format=%B | grep -q '^Approved-by: ' || fail "verify made no approval commit"
-docsys status --root . | grep -q '0 unverified\|wiki: 1 page(s)$' || true
-docsys lint --root . | grep -q -- '-- 0 error(s), 0 warning(s)' || fail "a page verified against the fetched source is not clean: $(docsys lint --root . | head -3)"
+git log -1 --format=%B | grep '^Approved-by: ' >/dev/null || fail "verify made no approval commit"
+docsys status --root . | grep '0 unverified\|wiki: 1 page(s)$' >/dev/null || true
+docsys lint --root . | grep -- '-- 0 error(s), 0 warning(s)' >/dev/null || fail "a page verified against the fetched source is not clean: $(docsys lint --root . | head -3)"
 (cd "$WORK/auth" && sed 's/in one page\./in one page, now with tokens./' docs/howto/use-auth.md > /tmp/use-auth.tmp \
   && mv /tmp/use-auth.tmp docs/howto/use-auth.md && git add -A && git commit -qm "auth: tokens")
 docsys fetch --root . >/dev/null
-docsys status --root . | grep -q '1 unverified — wiki/coding/explanation/auth-in-one-page.md' || fail "a moved source did not stale the page that rested on it: $(docsys status --root .)"
+docsys status --root . | grep '1 unverified — wiki/coding/explanation/auth-in-one-page.md' >/dev/null || fail "a moved source did not stale the page that rested on it: $(docsys status --root .)"
 docsys status --root . > /tmp/status2.out; grep -q 'sources: 1 verified page(s) whose consumed sources moved' /tmp/status2.out || fail "status does not count the moved source: $(cat /tmp/status2.out)"
 cd "$WORK"
 
@@ -238,7 +238,7 @@ grep -q 'records: auth — 1 new' /tmp/assistant.out || fail "the git connector 
 test -x memory/.claude/hooks/pre-commit-docs.sh || fail "assistant left no hook layer"
 docsys assistant --root memory --projects "$WORK" > /tmp/assistant2.out || fail "assistant is not idempotent: $(cat /tmp/assistant2.out)"
 grep -q 'base: kept' /tmp/assistant2.out && grep -q 'records: auth — 0 new' /tmp/assistant2.out || fail "assistant duplicated work: $(cat /tmp/assistant2.out)"
-(cd memory && docsys lint --root . | grep -q -- '-- 0 error(s)') || fail "the one-command base does not lint clean"
+(cd memory && docsys lint --root . | grep -- '-- 0 error(s)' >/dev/null) || fail "the one-command base does not lint clean"
 cd "$WORK"
 
 say "13 · forgetting: a page and a record leave every organ's sight, with a reason, without touching history"
@@ -251,10 +251,10 @@ grep -q 'learned it elsewhere' .forgotten.yml || fail "the ledger has no reason"
 rec=$(ls raw/inbox/*-calendar-dentist.md | head -1)
 docsys forget "$rec" --reason "not mine" --root . >/dev/null || fail "forget refused a record"
 test -f "raw/_forgotten/inbox/$(basename "$rec")" || fail "the record was not moved under raw/_forgotten/"
-docsys inbox add --source calendar --id evt-1 --title "Dentist" --root . | grep -q 'already captured: raw/_forgotten/' || fail "a forgotten item landed again"
-docsys lint --root . | grep -q -- '-- 0 error(s)' || fail "forgetting left errors: $(docsys lint --root . | head -3)"
-docsys status --root . | grep -q 'forgotten: 2' || fail "status does not count the forgettings"
-(docsys lookup auth --root . || true) | grep -q 'auth-in-one-page' && fail "a forgotten page is still found"   # the consumed @auth page is a legitimate hit
+docsys inbox add --source calendar --id evt-1 --title "Dentist" --root . | grep 'already captured: raw/_forgotten/' >/dev/null || fail "a forgotten item landed again"
+docsys lint --root . | grep -- '-- 0 error(s)' >/dev/null || fail "forgetting left errors: $(docsys lint --root . | head -3)"
+docsys status --root . | grep 'forgotten: 2' >/dev/null || fail "status does not count the forgettings"
+(docsys lookup auth --root . || true) | grep 'auth-in-one-page' >/dev/null && fail "a forgotten page is still found"   # the consumed @auth page is a legitimate hit
 cd "$WORK"
 
 say "14 · the mechanical harness: every distillation flow's exact expectations (ci/agent-lab/mech)"
