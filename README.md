@@ -120,7 +120,8 @@ two pre-existing violations the old tree already had.
 
 ## The session loop (agent layer)
 
-`docsys agents` installs four hooks, four commands (`/docsys-sync`,
+`docsys agents` installs the relay hooks — three on a docsys/0.5 tree, and on
+a docsys/0.4 tree a fourth that keeps `updated:` — four commands (`/docsys-sync`,
 `/docsys-seed`, `/docsys-interview`, `/docsys-upgrade`) and two skills. The hooks are two-line
 relays: every decision is made by `docsys hook <event>` in the binary — a real
 JSON parser for the payload, heredoc-aware command detection, git paths read
@@ -132,7 +133,7 @@ copy to drift (R-155).
 flowchart LR
     S([session starts]) --> SI["session-intent hook<br/>classify work type once"]
     SI --> WORK["agent works<br/>judgment via docsys rules --procedures"]
-    WORK -- "edits docs page" --> PU["post-edit hook<br/>demotes a verified page it changed"]
+    WORK -- "edits a verified page" --> PU["it reads unverified<br/>until a maintainer approves again"]
     WORK -- "commit" --> PC["pre-commit hook<br/>docsys gate"]
     WORK -- "turn ends" --> ST["stop hook<br/>code moved, no docs and no Docs: line?<br/>(tree + unpushed commits) → remind"]
     PC -- "lint errors" --> BLOCK[BLOCKED — fix first]
@@ -161,7 +162,7 @@ tree already has, the unverified ones, the work in flight, the policy — so the
 agent routes the work (feature, bug, improvement, research) against what
 exists.
 
-The same four relays serve a knowledge base (`docsys agents --kb`); the binary
+The same relays serve a knowledge base (`docsys agents --kb`); the binary
 reads the root's profile and changes what they guard: a `Write`/`Edit` on an
 existing `raw/` record is blocked (the one irreversible write), the first turn
 names the four organs instead of the work types, a verified wiki page an edit
@@ -448,7 +449,7 @@ rewritten. It lands:
 
 - `docs/` — the skeleton when none exists (`.docmeta.yml`, router,
   `_templates/`); an existing tree is left as it is
-- `.claude/hooks/`, `.claude/commands/`, `.claude/skills/` — four relay hooks,
+- `.claude/hooks/`, `.claude/commands/`, `.claude/skills/` — the relay hooks,
   `/docsys-sync`, `/docsys-seed`, `/docsys-interview`, `/docsys-upgrade`, the docsys and export
   skills
 - `.claude/settings.json` — the hook wiring, `"$CLAUDE_PROJECT_DIR"/.claude/hooks/<name>.sh`,
@@ -568,7 +569,7 @@ readable on day one, verified by a maintainer later (D-092).
 
 ```sh
 docsys journal add "Wire format settled; details on the page" --link reference/wire | git commit -F -
-docsys debt close 3 --note "measured twice, held"     # the item's file leaves; its commit carries Resolved:
+docsys debt close 3 --note "measured twice, held"     # the item's line leaves, its file with the last one; the commit carries Resolved:
 docsys page new feature dark-mode                      # from _templates/feature.md
 docsys backlinks token-ttl --repo .                    # pages and code pointing at a page
 docsys backlinks src/auth.rs                           # pages that describe a code file
@@ -644,7 +645,7 @@ docsys assistant --root ~/jarvis --projects ~/code --domains coding,ops
 ```
 
 It creates the base (a git repository, `raw/inbox/`, `wiki/`), installs the
-four organs and the four relays, consumes every docsys project one level
+four organs and the relays, consumes every docsys project one level
 under `~/code` (another knowledge base is skipped), materializes their pages,
 lands their recent commits as records through the git connector, and prints
 the digest. Run it again any time: new projects and new commits are picked
@@ -653,7 +654,7 @@ parts:
 
 ```sh
 docsys init --profile knowledge-base --root .   # raw/inbox/ + wiki/
-docsys agents --kb --root .                     # four organs, four relays, the gate
+docsys agents --kb --root .                     # four organs, the relays, the gate
 docsys consume discover ~/code --root .         # every docsys tree under ~/code
 docsys consume add ~/code/relay --root .        # the ones you want, one line each
 docsys fetch --root .                           # their pages, materialized
@@ -752,9 +753,8 @@ was confirmed, and refuses a feature a page already covers. Capture commands and
 derived navigation (0.9) make the right single-file write the cheap one and
 give the tree backlinks, unlinked mentions and a graph. Freshness (0.11) is
 mechanical: a page pins a code region (`verifies:`, §11) and lint recomputes
-the hash on every run; history dates every page, so an `updated:` behind the
-last commit and a draft nobody touched for `stale_active_days` are errors, not
-hopes. `adopt` writes the CI workflow and hardens the pre-commit gate once the
+the hash on every run; history dates every page, and a draft nobody touched
+for `stale_active_days` is an error, not a hope. `adopt` writes the CI workflow and hardens the pre-commit gate once the
 tree is clean. A mature howto compiles into an executable skill that carries
 its source hash, and goes stale with the page (0.12, R-094, R-095).
 

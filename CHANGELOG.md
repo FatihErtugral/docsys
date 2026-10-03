@@ -112,8 +112,12 @@ declares `spec: docsys/0.5`; a tree that declares `docsys/0.4` is served as
 - A project's `raw/` is a record layer (R-023, D-112).
 - The agent text carries the procedures an agent needs while it writes or
   verifies a page, and the first turn routes intents to commands (D-114).
-- The CI workflow `adopt` writes is pinned, least-privileged and regenerable,
-  and approvals land through a pull request (D-105, D-111).
+- The CI workflow `adopt` writes is pinned, least-privileged and regenerable.
+  Its approval job follows the tree: on docsys/0.5 it adds `Approved-by:` to
+  the pull request's description (`description`, the default there); on
+  docsys/0.4 it records the approval in a follow-up pull request
+  (`pull-request`, the default there) or a push (`direct`); a mode the tree
+  cannot read is refused (D-105, D-111, D-126).
 - `adopt` meets a repository as it is: the tree, the rules block and
   `ADOPTION.md` stay where they are, and `init` writes only absent files (D-110).
 

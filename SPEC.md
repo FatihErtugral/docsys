@@ -372,8 +372,8 @@ A `<path>` ending in `/` routes a directory: the type directories of the
 profile, or any directory of the tree. New entries are **appended at the
 end**; any richer ordering is human work. A
 line not matching the grammar **is reported**. The format is normative because
-three rules depend on it: reachability edges (R-034), the journal slice's
-router line (R-103), and deterministic router repair (R-156). A router routes —
+two rules depend on it: reachability edges (R-034) and deterministic router
+repair (R-156). A router routes —
 its entries are links and one-sentence hooks, never content.
 
 **R-210** `lint` · SHOULD — A permanent page states what is known. When
