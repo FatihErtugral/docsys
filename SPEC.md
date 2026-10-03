@@ -321,8 +321,8 @@ review's approval is a maintainer's word (D-095), and the word is read from
 git: the `Approved-by:` line a host's approval job adds to the pull request's
 description lands in the merge commit with it, and no follow-up pull request
 is needed (D-126). Without a host, `docsys verify <page>` makes the
-maintainer's own commit, an empty one carrying `Verifies: <page>` and
-`Approved-by:` — the handle from the git identity matched against
+maintainer's own commit, an empty one carrying `Verifies: <page>` with the
+hash of the body it read, and `Approved-by:` — the handle from the git identity matched against
 `maintainers:`, refused while the page carries an uncommitted change or a
 source does not resolve — and `--revoke` makes one carrying `Revokes:`
 (D-094).

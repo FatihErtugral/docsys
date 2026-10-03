@@ -272,8 +272,12 @@ fn verify_is_the_maintainers_own_commit_and_never_writes_the_page() {
     let out = docsys(&repo, &["verify", "retry"]);
     assert!(out.status.success(), "{out:?}");
     let h = head(&repo);
+    // the body it read, by its hash: what a rebase is held to
+    let read = docsys::approval::body_hash(&before);
     assert!(
-        h.contains("Verifies: reference/retry.md\nApproved-by: ayse <ayse@example.com>"),
+        h.contains(&format!(
+            "Verifies: reference/retry.md {read}\nApproved-by: ayse <ayse@example.com>"
+        )),
         "{h}"
     );
     assert_eq!(fs::read_to_string(&page).unwrap(), before);
@@ -362,10 +366,14 @@ enum Mode {
 
 const APPROVE: &str = "Verifies: reference/retry.md\nApproved-by: ayse <ayse@example.com>";
 
-/// A branch `b` from main does `steps`; main moves on (but for a
-/// fast-forward); the branch reaches main in `mode`.
+/// A branch `b` from main does `steps` — `verify` is `docsys verify`, which
+/// names the body it read; `approve` a trailer typed by hand, which names
+/// none; `concurrent` has main edit the page's other block meanwhile. Main
+/// moves on (but for a fast-forward); the branch reaches main in `mode`, a
+/// rebase making its commits again an hour later, as a host's does.
 fn merged(name: &str, mode: Mode, steps: &[&str]) -> PathBuf {
     let (repo, root) = project(name);
+    let page = root.join("reference/retry.md");
     git(&repo, &["checkout", "-qb", "b"]);
     for step in steps {
         match *step {
@@ -381,18 +389,32 @@ fn merged(name: &str, mode: Mode, steps: &[&str]) -> PathBuf {
                     APPROVE,
                 ],
             ),
+            "verify" => {
+                git(&repo, &["config", "user.email", "ayse@example.com"]);
+                let out = docsys(&repo, &["verify", "reference/retry.md"]);
+                assert!(out.status.success(), "{out:?}");
+                git(&repo, &["config", "user.email", "t@example.invalid"]);
+            }
             "edit" => {
-                let page = root.join("reference/retry.md");
                 let text = fs::read_to_string(&page).unwrap();
                 fs::write(&page, text.replace("Three attempts.", "Four attempts.")).unwrap();
                 git(&repo, &["commit", "-qam", "retry: four attempts"]);
             }
+            "concurrent" => {}
             other => panic!("{other}"),
         }
     }
     git(&repo, &["checkout", "-q", "main"]);
     if !matches!(mode, Mode::FastForward) {
         fs::write(repo.join("src/other.rs"), "pub fn other() {}\n").unwrap();
+        if steps.contains(&"concurrent") {
+            let text = fs::read_to_string(&page).unwrap();
+            fs::write(
+                &page,
+                text.replace("read it before", "read it in full before"),
+            )
+            .unwrap();
+        }
         git(&repo, &["add", "-A"]);
         git(&repo, &["commit", "-qm", "main moves on"]);
     }
@@ -406,7 +428,22 @@ fn merged(name: &str, mode: Mode, steps: &[&str]) -> PathBuf {
         }
         Mode::Rebase => {
             git(&repo, &["checkout", "-q", "b"]);
-            git(&repo, &["rebase", "-q", "main"]);
+            let later = Command::new("git")
+                .args(["log", "-1", "--format=%ct"])
+                .current_dir(&repo)
+                .output()
+                .unwrap();
+            let later: u64 = String::from_utf8_lossy(&later.stdout)
+                .trim()
+                .parse()
+                .unwrap();
+            let out = Command::new("git")
+                .args(["-c", "core.hooksPath=/dev/null", "rebase", "-q", "main"])
+                .env("GIT_COMMITTER_DATE", format!("{} +0000", later + 3600))
+                .current_dir(&repo)
+                .output()
+                .unwrap();
+            assert!(out.status.success(), "{out:?}");
             git(&repo, &["checkout", "-q", "main"]);
             git(&repo, &["merge", "-q", "--ff-only", "b"]);
         }
@@ -414,28 +451,31 @@ fn merged(name: &str, mode: Mode, steps: &[&str]) -> PathBuf {
     root
 }
 
-/// N7 holds whatever way a branch reaches main: an approval made on the
-/// branch after its last change of the page verifies it on main, and one
-/// the branch's later edit outran does not.
+/// N7 holds whatever way a branch reaches main: an approval counts where the
+/// body it read landed. `docsys verify` names that body, so its approval
+/// holds through a rebase; a later edit on the branch, or a concurrent one on
+/// main, outruns it in every mode. A trailer typed by hand names none: it
+/// counts on the commit its author made, and a rebase makes that commit again.
 #[test]
 fn an_approval_made_on_a_branch_holds_under_every_merge_mode() {
     for mode in [Mode::FastForward, Mode::NoFf, Mode::Squash, Mode::Rebase] {
         let label = format!("{mode:?}").to_lowercase();
-        let root = merged(&format!("{label}-approve"), mode, &["approve"]);
-        assert!(
-            verified(&root),
-            "{mode:?}: approved on the branch, body unchanged"
-        );
-        let root = merged(&format!("{label}-edit-approve"), mode, &["edit", "approve"]);
-        assert!(
-            verified(&root),
-            "{mode:?}: edited, then approved on the branch"
-        );
-        let root = merged(&format!("{label}-approve-edit"), mode, &["approve", "edit"]);
-        assert!(
-            !verified(&root),
-            "{mode:?}: the branch edited the page after its approval"
-        );
+        let rebase = matches!(mode, Mode::Rebase);
+        let concurrent = !matches!(mode, Mode::FastForward);
+        for (steps, holds) in [
+            (&["verify"][..], true),
+            (&["edit", "verify"][..], true),
+            (&["verify", "edit"][..], false),
+            (&["approve"][..], !rebase),
+            (&["edit", "approve"][..], !rebase),
+            (&["approve", "edit"][..], false),
+            (&["concurrent", "edit", "verify"][..], !concurrent),
+            (&["concurrent", "edit", "approve"][..], !concurrent),
+        ] {
+            let root = merged(&format!("{label}-{}", steps.join("-")), mode, steps);
+            assert_eq!(verified(&root), holds, "{mode:?}: {steps:?}");
+            let _ = fs::remove_dir_all(root.parent().unwrap());
+        }
     }
 }
 

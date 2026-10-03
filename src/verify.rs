@@ -613,8 +613,9 @@ fn approver_value(tree: &DocTree, handle: &str) -> String {
 
 /// `verify` on a docsys/0.5 tree (R-024, D-126): nothing is written into the
 /// page. The maintainer's word is their own commit — an empty one carrying
-/// `Verifies: <page>` and `Approved-by:`, or `Revokes:` — so a branch that
-/// verifies merges with every other branch.
+/// `Verifies: <page> <body hash>` and `Approved-by:`, or `Revokes:` — so a
+/// branch that verifies merges with every other branch, and the approval
+/// counts wherever the body it read lands.
 fn verify_by_commit(
     root: &Path,
     tree: &DocTree,
@@ -697,9 +698,10 @@ fn verify_by_commit(
         (
             format!("docs: {name} verified by {by}"),
             format!(
-                "{}: {}\n{}: {value}",
+                "{}: {} {}\n{}: {value}",
                 crate::approval::VERIFIES,
                 page.rel,
+                crate::approval::body_hash(&page.text),
                 crate::approval::APPROVED_BY
             ),
         )

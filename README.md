@@ -223,7 +223,8 @@ two acts apart (§3.2, D-092):
   Nothing else changes for the reviewer: they approve the change, as before.
 - Where no host does that — a rebase merge, an e-mailed patch — `docsys
   verify <page>` makes the maintainer's own empty commit carrying `Verifies:`
-  and `Approved-by:`; `--revoke` makes one carrying `Revokes:`. It takes the
+  with the hash of the body it read, and `Approved-by:`; it counts wherever
+  that body lands, a rebase included. `--revoke` makes one carrying `Revokes:`. It takes the
   handle from the git identity and refuses while the page is uncommitted, a
   source does not resolve, or something else is staged.
 

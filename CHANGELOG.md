@@ -68,7 +68,8 @@ declares `spec: docsys/0.5`; a tree that declares `docsys/0.4` is served as
   carrying `Approved-by:` from a maintainer follows its last body change.
   Nothing is written into the page and no follow-up pull request is opened;
   the approval rides the merge commit's message, and `docsys verify` makes the
-  maintainer's own empty commit where no host does. A record kept from before
+  maintainer's own empty commit where no host does, naming the body it read,
+  so a rebase keeps it only when that body lands. A record kept from before
   stays valid until the body moves; `upgrade` takes out the rest, and the
   post-edit relay with them (R-024, R-208, D-126; R-028 withdrawn).
 - A pin's evidence lives beside the page under `.verifies/`; a refresh never

@@ -144,7 +144,8 @@ fn show_prints_exactly_the_bullet_that_changed() {
     );
     // the word is the maintainer's commit; nothing is written into the page
     assert!(git(&repo, &["log", "-1", "--format=%B"])
-        .contains("Verifies: reference/token-ttl.md\nApproved-by: ayse <ayse@example.com>"),);
+        .contains("\nApproved-by: ayse <ayse@example.com>"),);
+    assert!(git(&repo, &["log", "-1", "--format=%B"]).contains("Verifies: reference/token-ttl.md "));
     let page = fs::read_to_string(root.join("reference/token-ttl.md")).unwrap();
     assert!(!page.contains("verifi"), "{page}");
 
