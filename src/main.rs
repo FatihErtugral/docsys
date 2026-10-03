@@ -943,9 +943,13 @@ fn main() -> ExitCode {
                 opts.link.as_deref(),
             ) {
                 Ok(msg) if docsys::era::Era::at(&opts.root).journal_from_history() => {
-                    eprintln!(
-                        "journal: the entry is the commit — commit with this message (D-125)"
-                    );
+                    if msg.starts_with("Docs:") {
+                        eprintln!("journal: the entry is the commit — end its message with this line (D-125)");
+                    } else {
+                        eprintln!(
+                            "journal: the entry is the commit — commit with this message (D-125)"
+                        );
+                    }
                     print!("{msg}");
                     ExitCode::SUCCESS
                 }
@@ -1581,7 +1585,7 @@ next: review, `git add -A && git commit`, then open an agent session here."
                             &g.code,
                             &migrate::today(),
                         ) {
-                            Ok(()) => println!("gate: bypassed under commit_policy: require — a debt item records it in work/debt.md"),
+                            Ok(file) => println!("gate: bypassed under commit_policy: require — a debt item records it in {file}"),
                             Err(e) => eprintln!("gate: could not record the bypass: {e}"),
                         }
                     }

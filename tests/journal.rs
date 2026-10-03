@@ -501,3 +501,75 @@ fn on_a_0_4_tree_the_journal_is_its_own_file() {
     );
     let _ = fs::remove_dir_all(&repo);
 }
+
+/// `journal add` says each thing once: the why is the `Docs:` line, a title
+/// the person gives is the subject, a page linked is the trailer's value
+/// (D-125).
+#[test]
+fn journal_add_says_the_why_once() {
+    let repo = adopted("add-once", "ask");
+    let said = |args: &[&str]| {
+        let out = docsys(&repo, args);
+        assert!(out.status.success(), "{out:?}");
+        String::from_utf8_lossy(&out.stdout).into_owned()
+    };
+    assert_eq!(
+        said(&["journal", "add", "the entry point only calls run"]),
+        "Docs: the entry point only calls run\n"
+    );
+    assert_eq!(
+        said(&[
+            "journal",
+            "add",
+            "the entry point only calls run",
+            "--title",
+            "Run on start"
+        ]),
+        "Run on start\n\nDocs: the entry point only calls run\n"
+    );
+    assert_eq!(
+        said(&["journal", "add", "Run settled", "--link", "reference/run"]),
+        "Run settled\n\nDocs: reference/run\n"
+    );
+    let _ = fs::remove_dir_all(&repo);
+}
+
+/// What a command says names what it wrote: a skipped commit's debt lands in
+/// its topic file and the gate names that file; a guess marker is answered
+/// with the command that records the question (D-124).
+#[test]
+fn the_messages_name_the_files_and_commands_of_a_0_5_tree() {
+    let repo = adopted("names", "require");
+    fs::write(repo.join("main.rs"), "fn main() { run() }\n").unwrap();
+    ok(&repo, &["add", "main.rs"]);
+    let out = docsys(
+        &repo,
+        &["gate", "--repo", ".", "--root", "docs", "--skipped"],
+    );
+    let said = String::from_utf8_lossy(&out.stdout);
+    assert!(
+        said.contains("records it in work/debt/general.md"),
+        "{said}"
+    );
+    // the tree declares its own uncertainty marker (R-210)
+    let meta = repo.join("docs/.docmeta.yml");
+    let text = fs::read_to_string(&meta).unwrap();
+    fs::write(&meta, format!("{text}uncertainty_markers: [\"(guess)\"]\n")).unwrap();
+    fs::create_dir_all(repo.join("docs/reference")).unwrap();
+    fs::write(
+        repo.join("docs/reference/run.md"),
+        "---\nid: run\ntype: reference\n---\nThis page states what run does; read it first.\n\nRun retries three times (guess).\n",
+    )
+    .unwrap();
+    let out = docsys(&repo, &["lint"]);
+    let said = String::from_utf8_lossy(&out.stdout);
+    let line = said
+        .lines()
+        .find(|l| l.contains("R-210"))
+        .unwrap_or_default();
+    assert!(
+        line.contains("docsys question add") && !line.contains("questions.md"),
+        "{said}"
+    );
+    let _ = fs::remove_dir_all(&repo);
+}

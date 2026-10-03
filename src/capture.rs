@@ -365,9 +365,13 @@ pub fn journal_add(
         if date.is_some() {
             return Err("on docsys/0.5 an entry's date is its commit's (R-100)".into());
         }
-        let (title, lines) = entry_parts(text, title);
-        let lines: Vec<&str> = lines.iter().map(String::as_str).collect();
-        return Ok(crate::journal::message(&title, &lines, link));
+        let title = title.map(str::trim).filter(|t| !t.is_empty());
+        let lines: Vec<&str> = text
+            .lines()
+            .map(str::trim)
+            .filter(|l| !l.is_empty())
+            .collect();
+        return Ok(crate::journal::message(title, &lines, link));
     }
     let date = match date {
         Some(d) if crate::model::is_iso_date(d) => d.to_string(),

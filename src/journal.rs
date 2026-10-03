@@ -253,23 +253,45 @@ pub fn render_files(root: &Path, since: Option<&str>) -> String {
     out
 }
 
-/// The commit message `journal add` hands back on a docsys/0.5 tree: the
-/// title, the lines, and the `Docs:` trailer naming the page or the why.
-pub fn message(title: &str, lines: &[&str], link: Option<&str>) -> String {
-    let mut out = format!("{title}\n");
-    if !lines.is_empty() {
-        out.push('\n');
-        for l in lines {
-            out.push_str(l);
-            out.push('\n');
+/// What `journal add` hands back on a docsys/0.5 tree, each thing once: the
+/// `Docs:` trailer is the why — the text — or, with a page linked, the page,
+/// and then the text is the subject; a title given is the subject. With
+/// neither, the trailer alone, for the commit's own message.
+pub fn message(title: Option<&str>, lines: &[&str], link: Option<&str>) -> String {
+    let link = link
+        .map(|l| l.trim().trim_end_matches(".md"))
+        .filter(|l| !l.is_empty());
+    // a trailer's further lines are indented, as git reads them
+    let trailer = |value: &[&str]| {
+        let mut t = format!("{DOCS}: {}\n", value.first().copied().unwrap_or(""));
+        for l in value.iter().skip(1) {
+            t.push_str(&format!(" {l}\n"));
         }
+        t
+    };
+    match (title, link) {
+        (_, Some(page)) => {
+            let (subject, body) = match title {
+                Some(t) => (t, lines),
+                None => (
+                    lines.first().copied().unwrap_or(""),
+                    lines.get(1..).unwrap_or(&[]),
+                ),
+            };
+            let mut out = format!("{subject}\n\n");
+            for l in body {
+                out.push_str(l);
+                out.push('\n');
+            }
+            if !body.is_empty() {
+                out.push('\n');
+            }
+            out.push_str(&trailer(&[page]));
+            out
+        }
+        (Some(subject), None) => format!("{subject}\n\n{}", trailer(lines)),
+        (None, None) => trailer(lines),
     }
-    let docs = link
-        .map(|l| l.trim().trim_end_matches(".md").to_string())
-        .filter(|l| !l.is_empty())
-        .unwrap_or_else(|| title.to_string());
-    out.push_str(&format!("\n{DOCS}: {docs}\n"));
-    out
 }
 
 #[cfg(test)]
@@ -289,18 +311,26 @@ mod tests {
     }
 
     #[test]
-    fn a_message_carries_its_title_lines_and_trailer() {
+    fn a_message_says_each_thing_once() {
         assert_eq!(
             message(
-                "Retry bounded",
+                Some("Retry bounded"),
                 &["three attempts"],
                 Some("reference/retry.md")
             ),
             "Retry bounded\n\nthree attempts\n\nDocs: reference/retry\n"
         );
         assert_eq!(
-            message("Retry bounded", &[], None),
-            "Retry bounded\n\nDocs: Retry bounded\n"
+            message(Some("Retry bounded"), &["three attempts"], None),
+            "Retry bounded\n\nDocs: three attempts\n"
+        );
+        assert_eq!(
+            message(None, &["three attempts"], None),
+            "Docs: three attempts\n"
+        );
+        assert_eq!(
+            message(None, &["three attempts", "then a dead letter"], None),
+            "Docs: three attempts\n then a dead letter\n"
         );
     }
 }

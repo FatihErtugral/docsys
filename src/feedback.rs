@@ -182,10 +182,32 @@ fn redact_emails(line: &str) -> String {
 /// The home directory written as `~`, so a draft does not carry the
 /// reporter's account name.
 fn redact_home(text: &str) -> String {
-    match std::env::var("HOME").ok().filter(|h| h.len() > 1) {
-        Some(home) => text.replace(&home, "~"),
-        None => text.to_string(),
+    match std::env::var("HOME") {
+        Ok(home) => redact(text, &home),
+        Err(_) => text.to_string(),
     }
+}
+
+fn redact(text: &str, home: &str) -> String {
+    let home = home.trim_end_matches('/');
+    if home.len() <= 1 {
+        return text.to_string();
+    }
+    // the home itself, or a path under it: never a longer name that starts alike
+    let mut out = String::new();
+    let mut rest = text;
+    while let Some(at) = rest.find(home) {
+        let after = rest.get(at + home.len()..).unwrap_or("");
+        let boundary = after
+            .chars()
+            .next()
+            .is_none_or(|c| c == '/' || !(c.is_alphanumeric() || c == '-' || c == '_' || c == '.'));
+        out.push_str(rest.get(..at).unwrap_or(""));
+        out.push_str(if boundary { "~" } else { home });
+        rest = after;
+    }
+    out.push_str(rest);
+    out
 }
 
 /// Run a docsys command for the draft — this binary, never a shell, and
@@ -295,6 +317,14 @@ pub fn draft(d: &Draft) -> Result<String, String> {
 #[cfg(test)]
 #[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 mod tests {
+    #[test]
+    fn the_home_is_masked_at_a_path_boundary_only() {
+        assert_eq!(redact("/x/L/a and /x/L", "/x/L"), "~/a and ~");
+        assert_eq!(redact("/x/LG/a", "/x/L"), "/x/LG/a", "another directory");
+        assert_eq!(redact("/x/L/a", "/x/L/"), "~/a", "a trailing slash");
+        assert_eq!(redact("`/x/L` ran", "/x/L"), "`~` ran");
+    }
+
     use super::*;
 
     #[test]

@@ -501,11 +501,12 @@ pub fn commit_policy(root: &Path) -> CommitPolicy {
 /// D-093: a commit that bypassed the `require` gate (`DOCSYS_SKIP=1`) is not
 /// silent — it becomes a dated debt item the next session sees. Mechanical:
 /// the item is derived (date, files), not authored (R-156).
+/// The file it wrote, relative to the root.
 pub fn record_undocumented_commit(
     root: &Path,
     files: &[String],
     today: &str,
-) -> Result<(), String> {
+) -> Result<String, String> {
     let shown: Vec<&str> = files.iter().take(5).map(String::as_str).collect();
     let more = files.len().saturating_sub(shown.len());
     let tail = if more > 0 {
@@ -519,7 +520,7 @@ pub fn record_undocumented_commit(
     );
     // a line of its topic's file on a docsys/0.5 tree (D-124)
     if crate::era::Era::at(root).item_files() {
-        return crate::items::add(root, crate::items::List::Debt, false, &line).map(|_| ());
+        return crate::items::add(root, crate::items::List::Debt, false, &line);
     }
     let path = root.join("work/debt.md");
     let mut text = fs::read_to_string(&path).unwrap_or_else(|_| "# Debt\n".to_string());
@@ -531,7 +532,8 @@ pub fn record_undocumented_commit(
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent).map_err(|e| e.to_string())?;
     }
-    fs::write(&path, text).map_err(|e| e.to_string())
+    fs::write(&path, text).map_err(|e| e.to_string())?;
+    Ok("work/debt.md".to_string())
 }
 
 const REQUIRE: &str = "commit_policy: require — nothing lands without its documentation. Name the work (feature | bug | improvement | research), record it — a work file under work/<category>/ or, at minimum, a `Docs: <why>` trailer in this commit's message — stage it, and run the SAME commit again, `git add` included. DOCSYS_SKIP=1 bypasses once and leaves a debt item.\nThis whole Bash call was blocked — a `git add` in it did not run either.\n";

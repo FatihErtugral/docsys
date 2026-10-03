@@ -2378,7 +2378,7 @@ fn check_declared_markers(tree: &DocTree, r: &mut Report) {
                     &format!("line-{}", i + 1),
                     format!(
                         "`{m}` marks a guess on a permanent page — what is not known is a dated \
-                         `questions.md` item (R-108); state what is known, or move the question"
+                         question item, `docsys question add` (R-108); state what is known, or move the question"
                     ),
                 ));
             }
