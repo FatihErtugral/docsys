@@ -7,7 +7,6 @@ debt-ledger	work/debt.md	`work/debt/<topic>.md`, written by `docsys debt add`; c
 questions-ledger	work/questions.md	`work/questions/<topic>.md`, written by `docsys question add`; closing removes the line and its commit carries `Answered:` (D-124)
 open-questions-ledger	wiki/open-questions.md	`wiki/open-questions/<topic>.md`, written by `docsys question add`; closing removes the line and its commit carries `Answered:` (D-124)
 updated-field	`updated:`	a page's date is its last content change in history; nothing writes `updated:` (D-122)
-updated-field	`updated`	a page's date is its last content change in history; nothing writes `updated:` (D-122)
 verification-field	verification: verified	a page is verified when a maintainer's `Approved-by:` follows its last body change; nothing is written into the page (D-126)
 verification-field	verification: unverified	a page written from evidence carries `sources:` and is unverified until a maintainer approves it; nothing is written into the page (D-126)
 verification-field	verified_by	a maintainer's `Approved-by:` on the commit, or `docsys verify <page>` (D-126)
