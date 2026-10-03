@@ -2030,7 +2030,7 @@ fn the_move_strips_every_verification_and_carries_none() {
     // a page outside the type directories carries its fields too
     fs::write(
         repo.join("docs/loose.md"),
-        "---\nid: loose\ntype: explanation\nverification: verified\nverified_by: maintainer\nverified_rev: abc1234\nverifies:\n  - path: src/auth.rs\n---\n# Loose\n\nThis page sits beside the index; read it as it is.\n",
+        "---\nid: loose\ntype: explanation\nupdated: 2026-09-01\nverification: verified\nverified_by: maintainer\nverified_rev: abc1234\nverifies:\n  - path: src/auth.rs\n---\n# Loose\n\nThis page sits beside the index; read it as it is.\n",
     )
     .unwrap();
     commit_quietly(&repo, "a maintainer");
@@ -2062,6 +2062,9 @@ fn the_move_strips_every_verification_and_carries_none() {
             assert!(!front.contains(field), "{rel}: {field}\n{text}");
         }
     }
+    // a retired field leaves a page wherever it sits (D-122)
+    let loose = fs::read_to_string(repo.join("docs/loose.md")).unwrap();
+    assert!(!loose.contains("\nupdated:"), "{loose}");
     let expiry = fs::read_to_string(repo.join("docs/reference/expiry.md")).unwrap();
     assert!(expiry.contains("\npins:\n"), "{expiry}");
     assert!(repo.join("docs/.pins").is_dir());

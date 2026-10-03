@@ -325,6 +325,80 @@ fn since_picks_exactly_the_pages_changed_since_the_revision() {
     let _ = fs::remove_dir_all(&repo);
 }
 
+/// `--since` also reads a page whose consumed source moved since the
+/// revision — its materialization under `.federation/` differs — and names
+/// that source; a page whose consumed source stayed is not read (D-131).
+#[test]
+fn since_reads_the_pages_whose_consumed_source_moved() {
+    let (repo, docs) = project("consumed");
+    write(
+        &docs,
+        ".federation/up/x.md",
+        "---\nid: x\n---\n# X\n\nFour attempts.\n",
+    );
+    write(
+        &docs,
+        ".federation/up/y.md",
+        "---\nid: y\n---\n# Y\n\nTwo regions.\n",
+    );
+    write(
+        &docs,
+        "explanation/learned.md",
+        &page("learned", "\"@up/x\"", "Four attempts, then a dead letter."),
+    );
+    write(
+        &docs,
+        "explanation/steady.md",
+        &page("steady", "\"@up/y\"", "Two regions."),
+    );
+    git(&repo, &["add", "-A"]);
+    git(&repo, &["commit", "-q", "-m", "learned from up"]);
+    // the provider moved; a fetch brought the new text, not yet committed
+    write(
+        &docs,
+        ".federation/up/x.md",
+        "---\nid: x\n---\n# X\n\nSix attempts.\n",
+    );
+    let (code, out, err) = docsys(&repo, &["crosscheck", "--since", "HEAD", "--json"]);
+    assert_eq!(code, Some(0), "{err}");
+    assert_eq!(pages_of(&out), vec!["docs/explanation/learned.md"], "{out}");
+    let j = parse_json(&out).unwrap();
+    let learned = items(field(&j, "pages")).first().unwrap();
+    let moved: Vec<&str> = items(field(learned, "moved_sources"))
+        .iter()
+        .map(text)
+        .collect();
+    assert_eq!(moved, vec!["@up/x"], "{out}");
+    let (code, out, err) = docsys(&repo, &["crosscheck", "--since", "HEAD"]);
+    assert_eq!(code, Some(0), "{err}");
+    assert!(
+        out.contains(
+            "docs/explanation/learned.md (id: learned)\n  source: @up/x — moved since `HEAD`\n"
+        ),
+        "{out}"
+    );
+    // committed with the fetch, the source moved since the commit before it
+    git(&repo, &["add", "-A"]);
+    git(&repo, &["commit", "-q", "-m", "fetched"]);
+    let (code, out, err) = docsys(&repo, &["crosscheck", "--since", "HEAD~1", "--json"]);
+    assert_eq!(code, Some(0), "{err}");
+    assert_eq!(pages_of(&out), vec!["docs/explanation/learned.md"], "{out}");
+    let (_, out, _) = docsys(&repo, &["crosscheck", "--since", "HEAD", "--json"]);
+    assert!(pages_of(&out).is_empty(), "{out}");
+    // a page named by hand lists no moved source without a revision
+    let (_, out, _) = docsys(&repo, &["crosscheck", "learned", "--json"]);
+    let j = parse_json(&out).unwrap();
+    assert!(
+        items(field(
+            items(field(&j, "pages")).first().unwrap(),
+            "moved_sources"
+        ))
+        .is_empty(),
+        "{out}"
+    );
+    let _ = fs::remove_dir_all(&repo);
+}
+
 /// A bad invocation exits 2, prints nothing on standard output and names
 /// what is wrong, its command once: no page and no revision, a page the tree
 /// does not hold, a revision git does not know, a tree before docsys/0.5.

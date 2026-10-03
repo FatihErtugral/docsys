@@ -91,6 +91,8 @@ expect_true $F wiki-counted "status counts the page and names no state" sh -c "d
 docsys fetch --root . >/dev/null 2>&1 || true
 docsys crosscheck relay-in-one-page --root . > "$O/crosscheck.out" 2>&1 || check $F crosscheck FAIL "$(cat "$O/crosscheck.out")"
 expect_in $F crosscheck-source "  source: @relay/retry-policy" "$O/crosscheck.out"
+docsys crosscheck --since HEAD --root . > "$O/crosscheck-since.out" 2>&1 || check $F crosscheck-since FAIL "$(cat "$O/crosscheck-since.out")"
+expect_in $F crosscheck-moved '  source: @relay/retry-policy — moved since `HEAD`' "$O/crosscheck-since.out"
 expect_in $F fetched-text "Six attempts" ".federation/relay/retry-policy.md"
 docsys inbox pull "$E/relay" --since 2026-01-01 --root . > "$O/pull6.out" 2>&1 || true
 expect_true $F new-commit-lands "the six-attempts commit lands" grep -q '^captured: raw/inbox/.*six-attempts' "$O/pull6.out"

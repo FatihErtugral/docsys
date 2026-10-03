@@ -209,7 +209,7 @@ a list of who may vouch (§3.2, D-130).
 
 ```sh
 docsys crosscheck reference/token-ttl     # one page, its sources and its pinned lines
-docsys crosscheck --since origin/main     # every page this branch changed
+docsys crosscheck --since origin/main     # every page this branch changed, or whose consumed source moved
 ```
 
 ## Freshness — drift is a hash, not a reviewer
@@ -373,8 +373,9 @@ flowchart LR
   `docsys assistant` (or `fetch` and `inbox pull` on a schedule) brings each
   project's new pages and commits; `docsys status` says what waits — inbox,
   stale skills — and the assistant's morning words are the model's, from
-  that (D-080). A cross-check reads the pages that cite a changed provider
-  page against it (D-131).
+  that (D-080). `docsys crosscheck --since <ref>` names the pages whose
+  consumed sources moved since then, and a cross-check reads them against
+  the new text (D-131).
 - **What it may never do** is mechanical too: edit a record (R-023), answer
   from memory when the base does not have it (the lookup skill), act outward
   on its own (R-206).
@@ -654,8 +655,8 @@ gate: `docsys inbox add --source <name> --id <item>` (§20, experimental).
 Staying current is a schedule, not a hope: run `docsys assistant` again (a
 nightly job is enough — the tree holds records, never timers, R-205), and
 `fetch` brings every project's changed pages while `inbox pull` lands its new
-commits; a cross-check reads the pages that cite them against the new text
-(D-131).
+commits; `docsys crosscheck --since <ref>` names the pages whose consumed
+sources moved, and a cross-check reads them against the new text (D-131).
 
 ## What keeps it honest
 

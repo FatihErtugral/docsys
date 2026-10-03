@@ -75,7 +75,8 @@ release on every tree.
   the upgrade lists for a person, with the person (D-104).
 - `docsys crosscheck [<page>…] [--since <ref>] [--json]` and `/docsys-crosscheck`:
   on docsys/0.5 a person has an agent read pages — the ones named, or every
-  permanent page changed since a revision, committed or not — against their
+  permanent page changed since a revision, committed or not, or whose
+  consumed `@namespace/id` source moved since then — against their
   `sources:` and the code their pins resolve to now. The command prints each
   page, its sources and each pin's lines (`path:L<first>-L<last>` for a
   symbol, by the resolver lint uses; the whole file; or the resolver's own

@@ -13,6 +13,8 @@ is what a page names in `sources:` and the code its pins resolve to now.
 2. Run `docsys crosscheck <page>…` or `docsys crosscheck --since <ref>`: each
    page, its `sources:`, and each pin's code lines now —
    `path:L<first>-L<last>`, a whole file, or why the pin does not resolve.
+   With `--since`, a consumed source that moved since then is marked so, and
+   its page is read even when the page itself did not change.
 3. Read each page whole, then every statement in it against those sources
    and lines. Follow a source to what it names; read beyond a pin's lines
    only where they leave a statement open.

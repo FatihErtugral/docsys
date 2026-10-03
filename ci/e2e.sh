@@ -227,6 +227,8 @@ docsys lint --root . | grep -- '-- 0 error(s), 0 warning(s)' >/dev/null || fail 
 docsys fetch --root . >/dev/null
 docsys crosscheck auth-in-one-page --root . > /tmp/crosscheck.out || fail "crosscheck failed: $(cat /tmp/crosscheck.out)"
 grep -q '^  source: @auth/use-auth$' /tmp/crosscheck.out || fail "crosscheck does not name the page's source: $(cat /tmp/crosscheck.out)"
+docsys crosscheck --since HEAD --root . > /tmp/crosscheck-since.out || fail "crosscheck --since failed: $(cat /tmp/crosscheck-since.out)"
+grep -qxF '  source: @auth/use-auth — moved since `HEAD`' /tmp/crosscheck-since.out || fail "crosscheck --since does not name the moved source: $(cat /tmp/crosscheck-since.out)"
 [ -z "$(git status --porcelain -- wiki)" ] || fail "crosscheck wrote into the wiki"
 cd "$WORK"
 

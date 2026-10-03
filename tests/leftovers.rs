@@ -488,6 +488,13 @@ fn date_lines_and_record_fields_in_pages_are_leftovers() {
         ),
     )
     .unwrap();
+    // a page beside the index carries the same fields
+    let loose = repo.join("docs/loose.md");
+    fs::write(
+        &loose,
+        "---\nid: loose\ntype: explanation\nupdated: 2026-09-03\nverification: unverified\n---\n# Loose\n\nThis page sits beside the index; read it as it is.\n",
+    )
+    .unwrap();
     assert!(repo.join("docs/.pins").is_dir());
     git(&repo, &["mv", "docs/.pins", "docs/.verifies"]);
     let meta = repo.join("docs/.docmeta.yml");
@@ -497,10 +504,14 @@ fn date_lines_and_record_fields_in_pages_are_leftovers() {
     commit_all(&repo, "a branch from before the move");
     let out = idle(&repo);
     assert!(
-        row(&out, "auto", "dates", "docs").is_some_and(|l| l.contains("from 1 page(s)")),
+        row(&out, "auto", "dates", "docs").is_some_and(|l| l.contains("from 2 page(s)")),
         "{out}"
     );
-    for page in ["docs/reference/expiry.md", "docs/reference/refresh.md"] {
+    for page in [
+        "docs/loose.md",
+        "docs/reference/expiry.md",
+        "docs/reference/refresh.md",
+    ] {
         assert!(
             row(&out, "auto", "records", page)
                 .is_some_and(|l| l.contains("D-130") && !l.contains("Approved-by")),
@@ -521,7 +532,7 @@ fn date_lines_and_record_fields_in_pages_are_leftovers() {
     );
     let done = docsys(&repo, &["upgrade", "--apply", "--commit"]);
     assert!(done.status.success(), "{done:?}");
-    for page in [&refresh, &expiry] {
+    for page in [&refresh, &expiry, &loose] {
         let text = fs::read_to_string(page).unwrap();
         for field in [
             "updated:",

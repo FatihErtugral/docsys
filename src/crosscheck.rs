@@ -1,7 +1,8 @@
 //! `docsys crosscheck` — what a cross-check reads, for the agent that runs it
 //! (`/docsys-crosscheck`): each page, its `sources:` and the code its pins
-//! resolve to now, by the resolver lint uses (D-106). It writes nothing; the
-//! reading, the corrections and the items are the agent's.
+//! resolve to now, by the resolver lint uses (D-106), and with `--since` the
+//! consumed sources that moved since the revision (D-131). It writes nothing;
+//! the reading, the corrections and the items are the agent's.
 
 use crate::fm::Value;
 use crate::hook::Json;
@@ -37,6 +38,9 @@ pub struct Entry {
     pub page: String,
     pub id: Option<String>,
     pub sources: Vec<String>,
+    /// the consumed sources (`@namespace/id`) whose materialization differs
+    /// between the `--since` revision and the working tree
+    pub moved_sources: Vec<String>,
     pub pins: Vec<PinNow>,
     /// a frontmatter list that never closes: what the page names is unread
     pub unreadable: Option<String>,
@@ -50,8 +54,9 @@ pub struct Crosscheck {
 }
 
 /// The pages named — by id, or by path from the tree or the repository's top
-/// — and, with `since`, every permanent page whose file differs between that
-/// revision and the working tree, each read once.
+/// — and, with `since`, every permanent page whose file, or the
+/// materialization of a source it consumes, differs between that revision
+/// and the working tree, each read once.
 pub fn run(
     root: &Path,
     repo: &Path,
@@ -84,24 +89,57 @@ pub fn run(
             .ok_or_else(|| format!("no permanent page at `{target}` and none with that id"))?;
         chosen.insert(page.rel.as_str());
     }
-    if let Some(rev) = since {
-        let changed = changed_since(root, rev)?;
+    let changed = since.map(|rev| changed_since(root, rev)).transpose()?;
+    let moved = |sources: &[String]| -> Vec<String> {
+        let Some(changed) = &changed else {
+            return Vec::new();
+        };
+        sources
+            .iter()
+            .filter(|s| materialization(s).is_some_and(|m| changed.contains(&m)))
+            .cloned()
+            .collect()
+    };
+    if let Some(changed) = &changed {
         chosen.extend(
             tree.pages
                 .iter()
-                .filter(|p| p.kind == Kind::Permanent && changed.contains(&p.rel))
+                .filter(|p| p.kind == Kind::Permanent)
+                .filter(|p| changed.contains(&p.rel) || !moved(&sources_of(p)).is_empty())
                 .map(|p| p.rel.as_str()),
         );
     }
     let pages = chosen
         .iter()
         .filter_map(|rel| tree.pages.iter().find(|p| p.rel == *rel))
-        .map(|p| entry(p, repo, &top))
+        .map(|p| {
+            let mut e = entry(p, repo, &top);
+            e.moved_sources = moved(&e.sources);
+            e
+        })
         .collect();
     Ok(Crosscheck {
         since: since.map(str::to_string),
         pages,
     })
+}
+
+/// Where a consumed source `@namespace/id` is materialized, from the tree's
+/// root (`docsys fetch`, D-078).
+fn materialization(source: &str) -> Option<String> {
+    let (ns, id) = source.trim().strip_prefix('@')?.split_once('/')?;
+    Some(format!(".federation/{ns}/{id}.md"))
+}
+
+/// A page's `sources:` entries; none while its frontmatter cannot be read.
+fn sources_of(page: &Page) -> Vec<String> {
+    page.fm
+        .as_ref()
+        .filter(|fm| fm.unclosed.is_none())
+        .and_then(|fm| fm.fields.get("sources"))
+        .and_then(Value::as_list)
+        .map(<[String]>::to_vec)
+        .unwrap_or_default()
 }
 
 fn id_of(page: &Page) -> Option<String> {
@@ -200,6 +238,7 @@ fn entry(page: &Page, repo: &Path, top: &str) -> Entry {
         },
         id: id_of(page),
         sources: Vec::new(),
+        moved_sources: Vec::new(),
         pins: Vec::new(),
         unreadable: None,
     };
@@ -208,12 +247,7 @@ fn entry(page: &Page, repo: &Path, top: &str) -> Entry {
         e.unreadable = Some(crate::fm::unclosed_refusal(key, *line));
         return e;
     }
-    e.sources = fm
-        .fields
-        .get("sources")
-        .and_then(Value::as_list)
-        .map(<[String]>::to_vec)
-        .unwrap_or_default();
+    e.sources = sources_of(page);
     e.pins = crate::fresh::pins_of(fm)
         .into_iter()
         .map(|p| PinNow {
@@ -275,7 +309,14 @@ impl Crosscheck {
                     out.push_str("  no `sources:`\n");
                 }
                 for s in &e.sources {
-                    let _ = writeln!(out, "  source: {s}");
+                    match &self.since {
+                        Some(rev) if e.moved_sources.contains(s) => {
+                            let _ = writeln!(out, "  source: {s} — moved since `{rev}`");
+                        }
+                        _ => {
+                            let _ = writeln!(out, "  source: {s}");
+                        }
+                    }
                 }
                 if e.pins.is_empty() {
                     out.push_str("  no pins\n");
@@ -309,6 +350,10 @@ impl Crosscheck {
                 fields.push((
                     "sources".to_string(),
                     Json::Arr(e.sources.iter().map(|v| s(v)).collect()),
+                ));
+                fields.push((
+                    "moved_sources".to_string(),
+                    Json::Arr(e.moved_sources.iter().map(|v| s(v)).collect()),
                 ));
                 let pins = e
                     .pins

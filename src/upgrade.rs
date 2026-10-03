@@ -1778,15 +1778,17 @@ fn routes(ctx: &Ctx, u: &mut Upgrade, apply: bool) -> Result<(), String> {
 }
 
 /// dates: a docsys/0.5 page's date is its last content change in history
-/// (D-122), so the `updated:` lines leave pages, tracked work and templates —
+/// (D-122), so the `updated:` lines leave every page and template —
 /// a structural change (R-172). A re-run absorbs a line a branch from before
 /// the move still wrote.
 fn dates(ctx: &Ctx, u: &mut Upgrade, apply: bool) -> Result<(), String> {
+    // every page wherever it sits, but the records, which are never edited
+    // (R-023)
     let mut files: Vec<String> = ctx
         .tree
         .pages
         .iter()
-        .filter(|p| matches!(p.kind, Kind::Permanent | Kind::Tracked))
+        .filter(|p| p.kind != Kind::Raw)
         .map(|p| p.rel.clone())
         .collect();
     if let Ok(entries) = fs::read_dir(ctx.root.join("_templates")) {

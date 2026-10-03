@@ -439,7 +439,7 @@ pub const COMMANDS: &[Command] = &[
         purpose: "pages are read against what they rest on, with an agent and `/docsys-crosscheck`: each page, its `sources:` and the code lines its pins resolve to now; writes nothing",
         flags: &[
             ("<page>…", "the pages, by id or path"),
-            ("--since <ref>", "every permanent page changed since that revision, committed or not"),
+            ("--since <ref>", "every permanent page changed since that revision, committed or not, and every page whose consumed source moved since then"),
             JSON,
         ],
         words: Words::Any,
