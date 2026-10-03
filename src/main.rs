@@ -2033,7 +2033,12 @@ next: review, `git add -A && git commit`, then open an agent session here."
             }
         }
         _ => {
-            eprint!("{}", docsys::help::overview());
+            // a group named alone, or with a sub-command it lacks: its own
+            // sub-commands, not every command (D-129)
+            match docsys::help::of(&[cmd]).filter(|_| !cmd.is_empty()) {
+                Some(text) => eprint!("{text}"),
+                None => eprint!("{}", docsys::help::overview()),
+            }
             ExitCode::from(2)
         }
     }

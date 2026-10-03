@@ -578,17 +578,18 @@ pub fn overview() -> String {
 /// `docsys <command> [<subcommand>] --help`: the entries the words name — one
 /// command, or every subcommand of a command named alone.
 pub fn of(words: &[&str]) -> Option<String> {
+    // the command itself, then its sub-commands
     let name = words.join(" ");
-    let exact: Vec<&Command> = COMMANDS.iter().filter(|c| c.name == name).collect();
-    let hits = if exact.is_empty() {
-        let prefix = format!("{name} ");
-        COMMANDS
-            .iter()
-            .filter(|c| !name.is_empty() && c.name.starts_with(&prefix))
-            .collect()
-    } else {
-        exact
-    };
+    let prefix = format!("{name} ");
+    let hits: Vec<&Command> = COMMANDS
+        .iter()
+        .filter(|c| c.name == name)
+        .chain(
+            COMMANDS
+                .iter()
+                .filter(|c| !name.is_empty() && c.name.starts_with(&prefix)),
+        )
+        .collect();
     if hits.is_empty() {
         return None;
     }

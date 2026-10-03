@@ -184,3 +184,32 @@ fn agents_report_and_the_procedures_each_have_their_own_command() {
         "{out:?}"
     );
 }
+
+/// A command group named alone lists its sub-commands, not every command;
+/// a command with sub-commands lists them with its own help (D-129).
+#[test]
+fn a_group_alone_lists_its_sub_commands() {
+    for group in [
+        "debt", "question", "ledger", "graduate", "seed", "page", "export", "migrate", "raw",
+    ] {
+        let out = Command::new(bin())
+            .arg(group)
+            .env("DOCSYS_NO_AUTO_INSTALL", "1")
+            .current_dir(std::env::temp_dir())
+            .output()
+            .unwrap();
+        let text = String::from_utf8_lossy(&out.stdout).into_owned()
+            + &String::from_utf8_lossy(&out.stderr);
+        assert_eq!(out.status.code(), Some(2), "{group}: {text}");
+        assert!(
+            text.contains(&format!("docsys {group} ")),
+            "{group}: {text}"
+        );
+        assert!(
+            !text.contains("Commands:"),
+            "{group}: the whole list: {text}"
+        );
+    }
+    let (ok, text) = run(&["help", "journal"]);
+    assert!(ok && text.contains("docsys journal add "), "{text}");
+}
