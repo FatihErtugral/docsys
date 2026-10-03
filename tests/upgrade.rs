@@ -1525,3 +1525,36 @@ fn a_late_branch_merged_without_its_upgrade_is_absorbed_once() {
     );
     let _ = fs::remove_dir_all(&repo);
 }
+
+/// A bare `--apply` says the note once and names the step that works next:
+/// the move is in the working tree, so the commit takes it with the message
+/// written beside the index (R-177).
+#[test]
+fn a_bare_apply_names_the_commit_that_works() {
+    let (repo, _) = build("bare-apply");
+    let out = docsys(&repo, &["upgrade", "--apply"]);
+    assert!(out.status.success(), "{out:?}");
+    let said = String::from_utf8_lossy(&out.stdout);
+    assert_eq!(said.matches("Upgrading to docsys").count(), 1, "{said}");
+    let line = said
+        .lines()
+        .find(|l| l.starts_with("now commit it"))
+        .unwrap_or_else(|| panic!("{said}"));
+    assert!(
+        !line.contains("--apply --commit") && line.contains("git commit -F"),
+        "{line}"
+    );
+    let file = line
+        .split('`')
+        .nth(1)
+        .and_then(|c| c.split_whitespace().last())
+        .unwrap();
+    git(&repo, &["add", "-A"]);
+    git(
+        &repo,
+        &["-c", "core.hooksPath=/dev/null", "commit", "-q", "-F", file],
+    );
+    let subject = git(&repo, &["log", "-1", "--format=%s"]);
+    assert!(subject.starts_with("docsys: upgrade the tree"), "{subject}");
+    let _ = fs::remove_dir_all(&repo);
+}

@@ -666,9 +666,23 @@ fn main() -> ExitCode {
                         continue;
                     }
                 } else if opts.apply && !u.written.is_empty() && !opts.json {
+                    // the move is in the working tree now: its commit, with the
+                    // message beside the index — the note is said once, above
+                    let path = docsys::git::cmd(&repo)
+                        .args(["rev-parse", "--git-path", "docsys-upgrade-message"])
+                        .output()
+                        .ok()
+                        .filter(|o| o.status.success())
+                        .map(|o| PathBuf::from(String::from_utf8_lossy(&o.stdout).trim()))
+                        .map(|p| if p.is_relative() { repo.join(p) } else { p })
+                        .unwrap_or_else(|| repo.join(".git/docsys-upgrade-message"));
+                    if let Err(e) = std::fs::write(&path, docsys::upgrade::message(&u)) {
+                        eprintln!("upgrade: {}: {e}", path.display());
+                        return ExitCode::from(1);
+                    }
                     println!(
-                        "now commit it as one commit (R-177) — `docsys upgrade --apply --commit` does, with this message:\n\n{}",
-                        docsys::upgrade::message(&u)
+                        "now commit it as one commit (R-177): stage what it wrote, then `git commit -F {}` — the message names the move and carries the note above",
+                        path.display()
                     );
                     if !u.last {
                         println!(
