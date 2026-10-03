@@ -43,6 +43,7 @@ struct Opts {
     obsidian: bool,
     agents_md: bool,
     procedures: bool,
+    report: bool,
     max_lines: usize,
     range: Option<String>,
     refresh: bool,
@@ -114,6 +115,7 @@ fn parse_opts(args: &[String]) -> Result<Opts, String> {
         obsidian: false,
         agents_md: false,
         procedures: false,
+        report: false,
         max_lines: 200,
         range: None,
         refresh: false,
@@ -202,7 +204,7 @@ fn parse_opts(args: &[String]) -> Result<Opts, String> {
             "--command" => o.command = Some(it.next().ok_or("--command needs a value")?.clone()),
             "--agents-md" => o.agents_md = true,
             "--write" => o.plan = Some(PathBuf::from(it.next().ok_or("--write needs a value")?)),
-            "--report" => o.procedures = true, // reuse: agents --report
+            "--report" => o.report = true,
             "--procedures" => o.procedures = true,
             "--max-lines" => {
                 o.max_lines = it
@@ -1802,6 +1804,10 @@ next: review, `git add -A && git commit`, then open an agent session here."
             }
         }
         ("agents", None) if opts.procedures => {
+            eprintln!("agents: the procedures are `docsys rules --procedures`; `docsys agents --report` lists the existing layer");
+            ExitCode::from(2)
+        }
+        ("agents", None) if opts.report => {
             // --report: mechanical inventory of the existing layer (D-026).
             println!("existing agent layer under {}:", opts.dir.display());
             for line in docsys::agents::adoption_report(&opts.dir) {

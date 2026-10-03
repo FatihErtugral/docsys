@@ -489,14 +489,13 @@ pub const COMMANDS: &[Command] = &[
     },
     Command {
         name: "agents",
-        synopsis: "[--dir .claude] [--force] | --kb [--root <base>] | --report | --procedures",
+        synopsis: "[--dir .claude] [--force] | --kb [--root <base>] | --report",
         purpose: "the agent layer needs installing or refreshing: hooks, skills and commands",
         flags: &[
             ("--dir <dir>", "the agent layer's directory, `.claude` by default"),
             ("--force", "overwrite what is there"),
             ("--kb", "the knowledge-base layer"),
             ("--report", "what agent layer exists and which shell commands it runs; writes nothing"),
-            ("--procedures", "print the procedures"),
             ROOT,
         ],
         example: "docsys agents --dir .claude",

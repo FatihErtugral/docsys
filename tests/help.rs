@@ -165,3 +165,22 @@ fn every_command_says_what_it_is_for_and_shows_its_flags_and_an_example() {
     let (ok, text) = run(&["help", "debt", "add"]);
     assert!(ok && text.starts_with("docsys debt add "), "{text}");
 }
+
+/// A flag does what its help says, or is refused: `agents --report` lists the
+/// existing layer; the procedures have one home, `rules --procedures`.
+#[test]
+fn agents_report_and_the_procedures_each_have_their_own_command() {
+    let (ok, text) = run(&["agents", "--report"]);
+    assert!(ok && text.contains("existing agent layer"), "{text}");
+    let out = Command::new(bin())
+        .args(["agents", "--procedures"])
+        .env("DOCSYS_NO_AUTO_INSTALL", "1")
+        .current_dir(std::env::temp_dir())
+        .output()
+        .unwrap();
+    assert_eq!(out.status.code(), Some(2), "{out:?}");
+    assert!(
+        String::from_utf8_lossy(&out.stderr).contains("docsys rules --procedures"),
+        "{out:?}"
+    );
+}
