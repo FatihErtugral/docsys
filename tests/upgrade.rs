@@ -1,6 +1,4 @@
 #![allow(clippy::panic, clippy::unwrap_used, clippy::expect_used)]
-// Unix-only: the git hooks are bash, and the tools are symlinks and stubs.
-#![cfg(unix)]
 //! `docsys upgrade` (D-117). The conformance case R-179 asks for: a tree as
 //! docsys 0.15 left it, moved to docsys/0.5, compared file by file against the
 //! expected tree; a second run changes nothing. Beside it, what the move
@@ -9,11 +7,13 @@
 //! `DOCSYS_BLESS=1 cargo test --test upgrade` writes the expected files from
 //! the current build — for a maintainer to read before they are committed.
 
+#[cfg(unix)]
 use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
+#[cfg(unix)]
 const CASE: &str = "corpus/upgrades/0.4-to-0.5";
 
 /// The knowledge-base contract as docsys 0.15 wrote it.
@@ -21,6 +21,7 @@ const KB_CONTRACT_0_15: &str = include_str!("golden/kb-contract-0.15.md");
 
 /// The release's upgrade note, read from the CHANGELOG as a person reads it:
 /// the lines under `### Upgrading` in the release's section.
+#[cfg(unix)]
 fn changelog_note(release: &str) -> String {
     let text =
         fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("CHANGELOG.md")).unwrap();
@@ -54,11 +55,14 @@ fn bin() -> PathBuf {
 
 /// PATH with this build first: the git gate a commit runs is this docsys.
 fn path() -> String {
-    format!(
-        "{}:{}",
-        bin().parent().unwrap().display(),
-        std::env::var("PATH").unwrap_or_default()
-    )
+    let mut dirs = vec![bin().parent().unwrap().to_path_buf()];
+    dirs.extend(std::env::split_paths(
+        &std::env::var_os("PATH").unwrap_or_default(),
+    ));
+    std::env::join_paths(dirs)
+        .unwrap()
+        .to_string_lossy()
+        .into_owned()
 }
 
 fn git_at(dir: &Path, day: Option<&str>, args: &[&str]) -> String {
@@ -97,6 +101,7 @@ fn docsys(dir: &Path, args: &[&str]) -> Output {
 /// A stored top-level `dot-claude` is the repository's `.claude`: the case
 /// keeps its agent layer under another name, so an agent working in this
 /// repository never loads the fixture's skills or hooks.
+#[cfg(unix)]
 fn real_name(rel: &str) -> String {
     match rel.strip_prefix("dot-") {
         Some(rest) => format!(".{rest}"),
@@ -104,6 +109,7 @@ fn real_name(rel: &str) -> String {
     }
 }
 
+#[cfg(unix)]
 fn stored_name(rel: &str) -> String {
     match rel.strip_prefix('.') {
         Some(rest) if !rel.starts_with(".git/") => format!("dot-{rest}"),
@@ -111,6 +117,7 @@ fn stored_name(rel: &str) -> String {
     }
 }
 
+#[cfg(unix)]
 fn walk(dir: &Path, base: &Path, out: &mut Vec<String>) {
     let Ok(entries) = fs::read_dir(dir) else {
         return;
@@ -135,6 +142,7 @@ fn walk(dir: &Path, base: &Path, out: &mut Vec<String>) {
 
 /// Every file under `dir` by its repository path, `rev` written back as the
 /// placeholder.
+#[cfg(unix)]
 fn snapshot(dir: &Path, rev: &str, stored: bool) -> BTreeMap<String, String> {
     let mut files = Vec::new();
     walk(dir, dir, &mut files);
@@ -148,6 +156,7 @@ fn snapshot(dir: &Path, rev: &str, stored: bool) -> BTreeMap<String, String> {
         .collect()
 }
 
+#[cfg(unix)]
 fn copy_in(from: &Path, to: &Path, rev: Option<&str>) {
     let mut files = Vec::new();
     walk(from, from, &mut files);
@@ -166,6 +175,7 @@ fn copy_in(from: &Path, to: &Path, rev: Option<&str>) {
 /// The case's history: the tree committed as 0.15 left it, its pages verified
 /// at that revision; then a second commit moves one page's body and the code
 /// under one pin; the 0.15 gate is this clone's pre-commit hook.
+#[cfg(unix)]
 fn build(name: &str) -> (PathBuf, String) {
     let case = Path::new(env!("CARGO_MANIFEST_DIR")).join(CASE);
     let repo = tmp(name);
@@ -203,10 +213,12 @@ fn build(name: &str) -> (PathBuf, String) {
     (repo, rev)
 }
 
+#[cfg(unix)]
 fn bless() -> bool {
     std::env::var_os("DOCSYS_BLESS").is_some()
 }
 
+#[cfg(unix)]
 fn expect_text(rel: &str, got: &str) {
     let path = Path::new(env!("CARGO_MANIFEST_DIR")).join(CASE).join(rel);
     if bless() {
@@ -221,6 +233,7 @@ fn expect_text(rel: &str, got: &str) {
     );
 }
 
+#[cfg(unix)]
 fn findings(root: &Path, repo: &Path) -> String {
     let (r, outcome) = docsys::lint_in(root, Some(repo));
     let mut lines: Vec<String> = r
@@ -248,6 +261,7 @@ fn findings(root: &Path, repo: &Path) -> String {
 
 /// R-179: the 0.4 tree, moved, is the expected 0.5 tree — file for file.
 #[test]
+#[cfg(unix)] // the case's bash gate and its tools
 fn a_0_4_tree_moves_to_the_expected_0_5_tree_and_a_second_run_changes_nothing() {
     let (repo, rev) = build("conformance");
     let before = snapshot(&repo, &rev, false);
@@ -357,6 +371,7 @@ fn a_0_4_tree_moves_to_the_expected_0_5_tree_and_a_second_run_changes_nothing() 
 /// R-097: the move is a commit of its own, so it does not start on top of
 /// someone's unfinished work.
 #[test]
+#[cfg(unix)] // the case's bash gate and its tools
 fn an_upgrade_refuses_a_dirty_working_tree() {
     let (repo, rev) = build("dirty");
     let p = repo.join("docs/index.md");
@@ -379,6 +394,7 @@ fn an_upgrade_refuses_a_dirty_working_tree() {
 /// A workflow its owner edited — a self-hosted runner, their own install —
 /// is never rewritten: the upgrade shows the diff and leaves the file alone.
 #[test]
+#[cfg(unix)] // the case's bash gate and its tools
 fn an_owners_workflow_is_shown_as_a_diff_and_never_rewritten() {
     let (repo, rev) = build("owned-ci");
     let wf = repo.join(".github/workflows/docsys.yml");
@@ -419,6 +435,7 @@ fn an_owners_workflow_is_shown_as_a_diff_and_never_rewritten() {
 /// R-171: a tree that has not moved hears it in one line, naming the command;
 /// a tree that has moved, and the upgrade itself, hear nothing.
 #[test]
+#[cfg(unix)] // the case's bash gate and its tools
 fn a_0_4_tree_is_told_once_how_it_moves() {
     let (repo, _) = build("notice");
     let notice = |args: &[&str]| -> Vec<String> {
@@ -447,6 +464,7 @@ fn a_0_4_tree_is_told_once_how_it_moves() {
 /// gate under .git/hooks did not. `doctor` names the one command, and that
 /// command rewrites the block and nothing else.
 #[test]
+#[cfg(unix)] // the case's bash gate and its tools
 fn a_clone_with_the_old_gate_is_told_to_run_the_upgrade_once() {
     let (repo, rev) = build("teammate");
     let doctor = |repo: &Path| -> Vec<String> {
@@ -495,6 +513,7 @@ fn a_clone_with_the_old_gate_is_told_to_run_the_upgrade_once() {
 /// the clone's gate is this version's block or still the one 0.15 wrote —
 /// an old block cannot be asked to cooperate (R-171).
 #[test]
+#[cfg(unix)] // the case's bash gate and its tools
 fn a_commit_says_each_thing_once_under_either_gate() {
     let commit = |repo: &Path| -> String {
         let out = Command::new("git")
@@ -531,6 +550,7 @@ fn a_commit_says_each_thing_once_under_either_gate() {
 /// commit says that its record was not written instead of losing it in
 /// silence (R-151).
 #[test]
+#[cfg(unix)] // the case's bash gate and its tools
 fn an_uninstalled_pin_is_named_once_and_a_lost_skip_record_is_said() {
     let (repo, _) = build("pin-once");
     let out = docsys(&repo, &["upgrade", "--apply", "--commit"]);
@@ -583,6 +603,7 @@ fn an_uninstalled_pin_is_named_once_and_a_lost_skip_record_is_said() {
 /// The separators move with the tree; afterwards they are `ledger fix`'s, the
 /// one command R-108's message names.
 #[test]
+#[cfg(unix)] // the case's bash gate and its tools
 fn after_the_move_the_separators_are_ledger_fixs() {
     let (repo, _) = build("separators");
     let out = docsys(&repo, &["upgrade", "--apply", "--commit"]);
@@ -613,6 +634,7 @@ fn after_the_move_the_separators_are_ledger_fixs() {
 /// each with its note, and the pin moves with the last. The second move is
 /// synthetic, so the chain is tested before a second spec exists.
 #[test]
+#[cfg(unix)] // the case's bash gate and its tools
 fn a_tree_two_specs_behind_moves_one_commit_per_spec() {
     use docsys::upgrade::{Ctx, Item, Migration, Upgrade};
     fn to_0_6(ctx: &Ctx, u: &mut Upgrade, apply: bool) -> Result<(), String> {
@@ -747,6 +769,7 @@ fn a_knowledge_base_contract_is_refreshed_only_while_untouched() {
 /// `core.hooksPath` yet. The gate the upgrade rewrites is the tracked one,
 /// and it goes into the upgrade commit, so a second run finds nothing to do.
 #[test]
+#[cfg(unix)] // the case's bash gate and its tools
 fn a_tracked_githooks_gate_is_part_of_the_upgrade_commit() {
     let (repo, _) = build("githooks");
     let case = Path::new(env!("CARGO_MANIFEST_DIR")).join(CASE);
@@ -778,6 +801,7 @@ fn a_tracked_githooks_gate_is_part_of_the_upgrade_commit() {
 /// A docsys asset nobody edited since an older release wrote it is that
 /// release's text, not its owner's: refreshed, not shown as a diff.
 #[test]
+#[cfg(unix)] // the case's bash gate and its tools
 fn an_asset_an_older_release_wrote_is_refreshed() {
     let (repo, _) = build("old-asset");
     let skill = repo.join(".claude/skills/docsys/SKILL.md");
@@ -796,6 +820,7 @@ fn an_asset_an_older_release_wrote_is_refreshed() {
 /// A relay its owner touched — a comment line is a touch — is the owner's:
 /// shown as a diff, never rewritten (D-117).
 #[test]
+#[cfg(unix)] // the case's bash gate and its tools
 fn a_relay_with_an_owners_comment_is_never_rewritten() {
     let (repo, _) = build("relay-comment");
     let relay = repo.join(".claude/hooks/post-edit-updated.sh");
@@ -819,6 +844,7 @@ fn a_relay_with_an_owners_comment_is_never_rewritten() {
 /// names the one command, and that command — the per-clone step the upgrade
 /// commit names — sets it.
 #[test]
+#[cfg(unix)] // the case's bash gate and its tools
 fn a_fresh_clone_of_a_githooks_repository_gets_its_gate_from_the_per_clone_step() {
     use std::os::unix::fs::PermissionsExt;
     let (repo, _) = build("githooks-clone");
@@ -916,6 +942,7 @@ fn a_refreshed_asset_names_the_trees_own_root() {
 /// docsys's own, tracked or not: an untracked one goes into the upgrade
 /// commit instead of staying behind as `??`.
 #[test]
+#[cfg(unix)] // the case's bash gate and its tools
 fn an_untracked_asset_holding_this_versions_text_goes_into_the_commit() {
     let (repo, _) = build("untracked-asset");
     // the command the 0.4 tree lacks, in this version's text, before the upgrade
@@ -942,6 +969,7 @@ fn an_untracked_asset_holding_this_versions_text_goes_into_the_commit() {
 /// The preview lists what the tree loses as well as what it gains, `refs`
 /// included: a false citation 0.4 read mid-comment is gone under 0.5 (D-117).
 #[test]
+#[cfg(unix)] // the case's bash gate and its tools
 fn the_preview_lists_the_findings_the_move_takes_away() {
     let (repo, _) = build("preview-gone");
     fs::write(
@@ -969,6 +997,7 @@ fn the_preview_lists_the_findings_the_move_takes_away() {
 /// merges, lint names the upgrade, and a re-run takes out exactly that line
 /// (D-122).
 #[test]
+#[cfg(unix)] // the case's bash gate and its tools
 fn a_late_branchs_date_line_is_absorbed_by_a_re_run() {
     let (repo, _) = build("late-date");
     let out = docsys(&repo, &["upgrade", "--apply", "--commit"]);
@@ -1005,6 +1034,7 @@ fn a_late_branchs_date_line_is_absorbed_by_a_re_run() {
 
 /// Merge `branch`, and where git stops, do what a person does with two
 /// lists: keep both sides, each line once.
+#[cfg(unix)]
 fn merge_keeping_both(repo: &Path, branch: &str) -> bool {
     let merged = Command::new("git")
         .args(["merge", "-q", "--no-edit", branch])
@@ -1049,6 +1079,7 @@ fn merge_keeping_both(repo: &Path, branch: &str) -> bool {
 /// person keeps both sides a re-run moves exactly that item into its topic's
 /// file. Every closed item and line of prose stays as written (D-124).
 #[test]
+#[cfg(unix)] // the case's bash gate and its tools
 fn a_late_branchs_ledger_lines_are_absorbed_and_the_frozen_slice_keeps_its_bytes() {
     let (repo, _) = build("late-ledger");
     let debt = repo.join("docs/work/debt.md");
@@ -1127,6 +1158,7 @@ fn a_late_branchs_ledger_lines_are_absorbed_and_the_frozen_slice_keeps_its_bytes
 /// branch's tagged item follows it there. Lint names the upgrade, and a
 /// re-run moves the line, verbatim, into the file its tag names (D-124).
 #[test]
+#[cfg(unix)] // the case's bash gate and its tools
 fn a_tagged_item_git_carried_into_another_topic_moves_to_its_own() {
     let (repo, _) = build("late-topic");
     let debt = repo.join("docs/work/debt.md");
@@ -1176,6 +1208,7 @@ fn a_tagged_item_git_carried_into_another_topic_moves_to_its_own() {
 /// D-125: the journal moves under `_archive/journal/` byte for byte, and a
 /// page that linked it links it where it is now (R-172).
 #[test]
+#[cfg(unix)] // the case's bash gate and its tools
 fn the_journal_moves_as_written_and_its_links_follow() {
     let (repo, _) = build("journal-links");
     let journal = repo.join("docs/work/journal.md");
@@ -1219,6 +1252,7 @@ fn the_journal_moves_as_written_and_its_links_follow() {
 /// retires is listed for a person, line by line, with what replaces it, and
 /// never edited; the rules block and docsys's own assets are docsys's.
 #[test]
+#[cfg(unix)] // the case's bash gate and its tools
 fn text_docsys_did_not_write_is_listed_where_it_names_a_retired_concept() {
     let (repo, _) = build("retired");
     let write = |rel: &str, text: &str| {
@@ -1300,6 +1334,7 @@ fn text_docsys_did_not_write_is_listed_where_it_names_a_retired_concept() {
 /// docsys from before pins, never its usage text; one attempt and its outcome
 /// for a version this machine lacks (D-120, R-151).
 #[test]
+#[cfg(unix)] // the case's bash gate and its tools
 fn every_gate_names_the_pin_once_and_a_merge_is_a_gate_too() {
     let (repo, _) = build("pin-gates");
     let out = docsys(&repo, &["upgrade", "--apply", "--commit"]);
@@ -1440,6 +1475,7 @@ fn every_gate_names_the_pin_once_and_a_merge_is_a_gate_too() {
 /// carries the entry into its commit's message, restores the frozen journal
 /// to its bytes, and freezes nothing twice (D-124, D-125).
 #[test]
+#[cfg(unix)] // the case's bash gate and its tools
 fn a_late_branch_merged_without_its_upgrade_is_absorbed_once() {
     let (repo, _) = build("late-unmoved");
     let debt = repo.join("docs/work/debt.md");
@@ -1533,6 +1569,7 @@ fn a_late_branch_merged_without_its_upgrade_is_absorbed_once() {
 /// the move is in the working tree, so the commit takes it with the message
 /// written beside the index (R-177).
 #[test]
+#[cfg(unix)] // the case's bash gate and its tools
 fn a_bare_apply_names_the_commit_that_works() {
     let (repo, _) = build("bare-apply");
     let out = docsys(&repo, &["upgrade", "--apply"]);
@@ -1567,6 +1604,7 @@ fn a_bare_apply_names_the_commit_that_works() {
 /// that closes the output early cannot stop it between the two; a commit git
 /// refuses says how to finish, and a re-run finishes it (R-177).
 #[test]
+#[cfg(unix)] // the case's bash gate and its tools
 fn an_upgrade_commits_from_anywhere_and_a_re_run_finishes_one_cut_short() {
     let subject = |repo: &Path| git(repo, &["log", "-1", "--format=%s"]);
     let clean = |repo: &Path| git(repo, &["status", "--porcelain", "--untracked-files=all"]);
@@ -1624,6 +1662,7 @@ fn an_upgrade_commits_from_anywhere_and_a_re_run_finishes_one_cut_short() {
 /// findings is the plan's, below the steps it speaks of, and the per-clone
 /// step is said once (D-129).
 #[test]
+#[cfg(unix)] // the case's bash gate and its tools
 fn an_applied_upgrade_says_what_it_did_once() {
     let (repo, _) = build("applied-once");
     let plan = String::from_utf8_lossy(&docsys(&repo, &["upgrade"]).stdout).into_owned();
@@ -1642,6 +1681,7 @@ fn an_applied_upgrade_says_what_it_did_once() {
 /// move's commit, and `--force` commits the move's files alone (R-097,
 /// R-177).
 #[test]
+#[cfg(unix)] // the case's bash gate and its tools
 fn an_upgrade_commit_holds_the_moves_files_and_no_other() {
     let (repo, _) = build("pending-scope");
     let out = docsys(&repo, &["upgrade", "--apply"]);
@@ -1684,6 +1724,7 @@ fn an_upgrade_commit_holds_the_moves_files_and_no_other() {
 /// A repository that ignores its agent layer: the upgrade commits what git
 /// tracks and leaves what it ignores (R-177).
 #[test]
+#[cfg(unix)] // the case's bash gate and its tools
 fn an_upgrade_commits_around_an_ignored_agent_layer() {
     let (repo, _) = build("ignored-layer");
     fs::write(repo.join(".gitignore"), ".claude/\n").unwrap();
@@ -1709,6 +1750,7 @@ fn an_upgrade_commits_around_an_ignored_agent_layer() {
 /// written on: once the person commits the move by hand, as `--apply` says,
 /// a later run never takes their next edits for the move (R-177).
 #[test]
+#[cfg(unix)] // the case's bash gate and its tools
 fn a_move_committed_by_hand_leaves_no_record_that_takes_later_edits() {
     let (repo, _) = build("hand-commit");
     let out = docsys(&repo, &["upgrade", "--apply"]);

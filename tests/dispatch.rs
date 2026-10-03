@@ -1,6 +1,4 @@
 #![allow(clippy::panic, clippy::unwrap_used, clippy::expect_used)]
-// Unix-only: the cached binaries and `cargo` here are shell-script stubs.
-#![cfg(unix)]
 //! A tree pins the docsys it runs (D-120): every command on a pinned tree
 //! runs the pinned binary from the version cache, installed once on first
 //! use, and nothing loops, hangs a hook or fails silently on the way. The
@@ -8,6 +6,7 @@
 //! stub that installs one, so nothing reaches the registry.
 
 use std::fs;
+#[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
@@ -24,6 +23,7 @@ fn bin() -> PathBuf {
     PathBuf::from(env!("CARGO_BIN_EXE_docsys"))
 }
 
+#[cfg(unix)]
 fn executable(path: &Path, text: &str) {
     fs::create_dir_all(path.parent().unwrap()).unwrap();
     fs::write(path, text).unwrap();
@@ -31,6 +31,7 @@ fn executable(path: &Path, text: &str) {
 }
 
 /// A cached version that says it ran, with its arguments and the guard.
+#[cfg(unix)]
 fn stub_version(home: &Path, v: &str) {
     executable(
         &home.join("versions").join(v).join("bin/docsys"),
@@ -40,6 +41,7 @@ fn stub_version(home: &Path, v: &str) {
 
 /// A `cargo` that installs a stub of the version it is asked for, and logs
 /// every install.
+#[cfg(unix)]
 fn stub_cargo(dir: &Path, log: &Path) {
     executable(
         &dir.join("cargo"),
@@ -51,6 +53,7 @@ fn stub_cargo(dir: &Path, log: &Path) {
 }
 
 /// A `cargo` that cannot reach the registry.
+#[cfg(unix)]
 fn offline_cargo(dir: &Path) {
     executable(
         &dir.join("cargo"),
@@ -59,6 +62,7 @@ fn offline_cargo(dir: &Path) {
 }
 
 /// PATH with `dir` first, then git and a shell — and no cargo of the machine's.
+#[cfg(unix)]
 fn path_with(dir: &Path) -> String {
     let tools = dir.join("tools");
     fs::create_dir_all(&tools).unwrap();
@@ -165,6 +169,7 @@ fn run(dir: &Path, path: &str, home: &Path, env: &[(&str, &str)], args: &[&str])
 /// One machine, two trees, two pins: each command, relay and gate runs the
 /// tree's own version.
 #[test]
+#[cfg(unix)] // shell-script stubs and symlinked tools
 fn two_trees_with_two_pins_each_run_their_own_docsys() {
     let home = tmp("two-home");
     stub_version(&home, "7.7.7");
@@ -243,6 +248,7 @@ fn two_trees_with_two_pins_each_run_their_own_docsys() {
 /// A teammate pulls a pin change: the next call installs the new version
 /// once, through cargo, into the cache, and runs it.
 #[test]
+#[cfg(unix)] // shell-script stubs and symlinked tools
 fn a_pulled_pin_change_installs_the_new_version_once() {
     let home = tmp("pull-home");
     let stubs = tmp("pull-stubs");
@@ -281,6 +287,7 @@ fn a_pulled_pin_change_installs_the_new_version_once() {
 /// No cargo, or a cargo that cannot reach the registry: the exact command,
 /// exit 1, nothing half-installed — and an unpinned tree does not notice.
 #[test]
+#[cfg(unix)] // shell-script stubs and symlinked tools
 fn without_cargo_or_offline_the_command_is_named_and_nothing_runs() {
     let home = tmp("off-home");
     let r = repo("off");
@@ -327,6 +334,7 @@ fn without_cargo_or_offline_the_command_is_named_and_nothing_runs() {
 /// The opt-out, and an agent hook: the command is named, cargo is never
 /// asked, and the hook exits 1 — the harness's non-blocking failure.
 #[test]
+#[cfg(unix)] // shell-script stubs and symlinked tools
 fn the_opt_out_and_a_hook_name_the_command_and_install_nothing() {
     let home = tmp("opt-home");
     let stubs = tmp("opt-stubs");
@@ -365,6 +373,7 @@ fn the_opt_out_and_a_hook_name_the_command_and_install_nothing() {
 /// The cache's binary for the pin is this dispatcher itself: it runs once,
 /// as itself, and returns.
 #[test]
+#[cfg(unix)] // shell-script stubs and symlinked tools
 fn a_pinned_binary_that_dispatches_too_does_not_loop() {
     let home = tmp("loop-home");
     let cached = home.join("versions/9.9.9/bin/docsys");
@@ -386,7 +395,8 @@ fn version_names_the_running_docsys_and_the_pin() {
     let home = tmp("ver-home");
     let r = repo("ver");
     pin(&r, "0.16.1");
-    let x = run(&r, &path_with(&tmp("ver-path")), &home, &[], &["--version"]);
+    let path = std::env::var("PATH").unwrap_or_default();
+    let x = run(&r, &path, &home, &[], &["--version"]);
     assert_eq!(
         x.out,
         format!(
@@ -404,6 +414,7 @@ fn version_names_the_running_docsys_and_the_pin() {
 /// more: the git gate a dispatched `verify --commit` starts resolves the pin
 /// itself, as a gate under a plain `git commit` does.
 #[test]
+#[cfg(unix)] // shell-script stubs and symlinked tools
 fn the_children_of_a_dispatched_command_resolve_the_pin_themselves() {
     let home = tmp("child-home");
     let log = home.join("ran.log");
@@ -466,7 +477,7 @@ fn the_children_of_a_dispatched_command_resolve_the_pin_themselves() {
 #[test]
 fn backlinks_of_a_code_file_names_the_pages_that_describe_it() {
     let home = tmp("describe-home");
-    let path = path_with(&tmp("describe-path"));
+    let path = std::env::var("PATH").unwrap_or_default();
     let r = repo("describe");
     fs::create_dir_all(r.join("src")).unwrap();
     fs::write(
