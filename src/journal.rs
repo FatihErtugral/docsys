@@ -65,12 +65,34 @@ pub fn entries(repo: &Path, root: &Path, since: Option<&str>) -> Option<Vec<Entr
     };
     let mut all = log(repo, &["--", &scope])?;
     let grep = format!("--grep=^{DOCS}:");
+    let before = all.len();
     for c in log(repo, &[&grep]).unwrap_or_default() {
         if has_trailer(&c.3, DOCS) && !all.iter().any(|a| a.2 == c.2) {
             all.push(c);
         }
     }
-    all.sort_by_key(|c| std::cmp::Reverse(c.0));
+    if all.len() > before {
+        // a second resolves no tie: history's own sequence orders the two lists
+        let order: std::collections::HashMap<String, usize> = crate::git::cmd(repo)
+            .args(["rev-list", "--no-merges", "HEAD"])
+            .output()
+            .ok()
+            .filter(|o| o.status.success())
+            .map(|o| {
+                String::from_utf8_lossy(&o.stdout)
+                    .lines()
+                    .enumerate()
+                    .map(|(i, h)| (h.to_string(), i))
+                    .collect()
+            })
+            .unwrap_or_default();
+        all.sort_by_key(|c| {
+            (
+                order.get(&c.2).copied().unwrap_or(usize::MAX),
+                std::cmp::Reverse(c.0),
+            )
+        });
+    }
     Some(
         all.into_iter()
             .filter(|c| since.is_none_or(|s| c.1.as_str() >= s))

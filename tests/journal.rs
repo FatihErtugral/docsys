@@ -344,3 +344,56 @@ fn under_ask_the_message_gate_is_silent() {
     );
     let _ = fs::remove_dir_all(&repo);
 }
+
+/// Commits of one second keep history's order: a code commit carrying
+/// `Docs:` sits between the docs commits around it, not after them.
+#[test]
+fn entries_of_one_second_keep_the_order_history_gives_them() {
+    let repo = adopted("one-second", "ask");
+    let at = |args: &[&str]| {
+        let out = Command::new("git")
+            .args(args)
+            .current_dir(&repo)
+            .env(
+                "PATH",
+                format!(
+                    "{}:{}",
+                    bin().parent().unwrap().display(),
+                    std::env::var("PATH").unwrap_or_default()
+                ),
+            )
+            .env("GIT_COMMITTER_DATE", "2030-01-01T12:00:00Z")
+            .env("GIT_AUTHOR_DATE", "2030-01-01T12:00:00Z")
+            .env("DOCSYS_NO_AUTO_INSTALL", "1")
+            .env_remove("DOCSYS_DISPATCHED")
+            .output()
+            .unwrap();
+        assert!(out.status.success(), "git {args:?}: {out:?}");
+    };
+    fs::create_dir_all(repo.join("docs/reference")).unwrap();
+    let page = |n: &str| {
+        fs::write(
+            repo.join(format!("docs/reference/{n}.md")),
+            format!("---\nid: {n}\ntype: reference\n---\nThis page states what {n} does; read it before changing it.\n"),
+        )
+        .unwrap();
+    };
+    page("first");
+    at(&["add", "-A"]);
+    at(&["commit", "-qm", "first page"]);
+    fs::write(repo.join("main.rs"), "fn main() { run() }\n").unwrap();
+    at(&[
+        "commit",
+        "-qam",
+        "code between",
+        "-m",
+        "Docs: no page needed",
+    ]);
+    page("second");
+    at(&["add", "-A"]);
+    at(&["commit", "-qm", "second page"]);
+    let entries = docsys::journal::entries(&repo, &repo.join("docs"), None).unwrap();
+    let titles: Vec<&str> = entries.iter().map(|e| e.title.as_str()).take(3).collect();
+    assert_eq!(titles, ["second page", "code between", "first page"]);
+    let _ = fs::remove_dir_all(&repo);
+}
