@@ -190,52 +190,39 @@ included — and not everyone who writes knows. The project profile keeps the
 two acts apart (§3.2, D-092):
 
 - A permanent page written from evidence, or changed in substance, carries
-  `verification: unverified` and `sources:` (`docsys page new <type> <id>
-  --unverified`). It is readable on day one and says what it is.
-- Only an independent session sets `verified`, recording `verified_by:` and
-  `verified_rev:` (R-025, R-028); a `verified` page whose body then changes is
-  an error until it is `unverified` again (R-024, D-077).
+  `sources:` (`docsys page new <type> <id> --unverified`) — what its claims
+  are checked against. It is readable on day one and says what it is.
+- Its verification is read from history, never written into it (R-024,
+  D-126): the page is verified when a maintainer's approval follows the
+  commit that last changed its body. A later body change, or a source it
+  consumes moving, makes it unverified again; outside history it reads
+  "unknown". Nothing is left to merge.
 - `.docmeta.yml` may declare `maintainers:` — `handle`, `handle <email>`, or
   `handle <email> @login` with the login a host's review approval carries.
-  Then `confirmed:` on a work file and `verified_by:` on a page must name one
-  of them, and where history exists the commit that recorded it must be that
-  maintainer's own (R-208). This is the code review's authority extended to
-  the page, not a new role: the people who may approve a change are the people
-  who may say a page is true. An empty list changes nothing.
+  Then an approval and `confirmed:` on a work file must name one of them
+  (R-208). This is the code review's authority extended to the page, not a
+  new role: the people who may approve a change are the people who may say a
+  page is true. An empty list means anyone.
 - `status` counts the unverified pages; `lookup` marks them; a reader — a
   person or an agent — sees the state and reads accordingly.
 - The maintainer in the session needs no second session (D-096): when the
   person driving it is a declared maintainer and says the page is right, the
   agent records that word with `docsys verify <page>`; anyone else's page
   waits for a maintainer.
-- Verifying is one command: `docsys verify <page>` (`--commit` to land it as
-  yourself, `--revoke` after the body moved). It takes your handle from your
-  git identity, the revision from `HEAD`, and refuses while the page is
-  uncommitted or a source does not resolve.
-- **A code review's approval is the word** (D-095), and docsys reads it from
-  git, not from a host: a `Reviewed-by:` / `Approved-by:` trailer on the
-  change whose e-mail is a declared maintainer's. In any CI, on any forge, or
-  by hand before a merge:
-  `docsys verify --range base...head --from-trailers --commit` verifies every
-  page the change touched, in a commit under the approver's identity. On a
-  host that keeps approvals in its own review table, an adapter passes the
-  login instead (`--by @login`, the login on the maintainer entry — `ayse
-  <ayse@example.com> @ayse-gh`); the GitHub workflow `adopt` writes when
-  `.github/` exists does exactly that once per approver when a pull request
-  merges. An approver who is not a maintainer is skipped
-  (`skipped: @login is not a declared maintainer`, exit 0); any other failure
-  fails the job. `adopt` lists the entries without `@login` on its checklist,
-  because a host approval can never match them.
+- **A code review's approval is the word** (D-095). The GitHub workflow
+  `adopt` writes when `.github/` exists adds `Approved-by: @login` to the pull
+  request's description when a declared maintainer approves it — an edit to
+  the description, not to the commit, so every check's verdict stays. With
+  the repository's squash and merge messages set to the pull request's title
+  and description (`adopt` puts the setting on its checklist), the line lands
+  in the merge commit, and that commit is the verification of every page it
+  changed. No record is committed and no follow-up pull request opens.
   Nothing else changes for the reviewer: they approve the change, as before.
-- **Where the records land** is `adopt --verify-on-approval <mode>` (D-105):
-  `pull-request`, the default, commits them on `docsys/verify-<number>` and
-  opens a follow-up pull request against the base — the repository must let
-  GitHub Actions create pull requests, and the job fails naming that setting
-  when it does not; `direct` pushes them to the base branch, which a protected
-  branch refuses; `off` writes no job. The lightest flow needs none of it: a
-  maintainer runs `docsys verify` on the branch before the pull request
-  merges, the body hash survives a squash, and the host's squash trailer
-  carries their act (D-101, D-102).
+- Where no host does that — a rebase merge, an e-mailed patch — `docsys
+  verify <page>` makes the maintainer's own empty commit carrying `Verifies:`
+  and `Approved-by:`; `--revoke` makes one carrying `Revokes:`. It takes the
+  handle from the git identity and refuses while the page is uncommitted, a
+  source does not resolve, or something else is staged.
 
 ```yaml
 # .docmeta.yml
@@ -252,8 +239,8 @@ flowchart LR
     CODE["code region"] -- "verifies: sha256 pin" --> PAGE["permanent page"]
     PAGE -- "compile" --> SKILL[".claude/skills/&lt;id&gt;<br/>docsys_source_hash"]
     HIST["git history"] -- "the page's date<br/>days since draft moved" --> PAGE
-    PROV["provider page<br/>(consumed, @ns/id)"] -- "fetch: provenance hash" --> WIKI["wiki page<br/>verified at rev"]
-    WIKI -- "body at verified_rev<br/>sources at verified_rev" --> LINT{lint}
+    PROV["provider page<br/>(consumed, @ns/id)"] -- "fetch: provenance hash" --> WIKI["wiki page"]
+    HIST -- "an Approved-by: after its last change" --> WIKI
     PAGE --> LINT
     SKILL --> LINT
     LINT -- "moved" --> ERR["ERROR, named:<br/>re-read, then pin --refresh / compile / audit"]
@@ -277,10 +264,11 @@ flowchart LR
   error (R-085, D-070, D-071).
 - **Compiled skills** — `docsys compile <howto>` carries the page's hash; the
   skill is an error once the page moved (R-095).
-- **Verification** — a `verified` wiki page is checked against the body it
-  held at `verified_rev` (D-077) **and** against the consumed sources it rested
-  on (D-082): when a provider's page moves and `fetch` brings the new hash, the
-  pages verified against the old one fail by name.
+- **Verification** — a page is verified while its last approval follows its
+  last body change **and** the consumed sources it rests on have not moved
+  since (D-126): when a provider's page moves and `fetch` brings the new hash,
+  the pages approved against the old one read unverified, and `status` counts
+  them.
 - **CI** — `adopt` writes `.github/workflows/docsys.yml` (lint, refs, and
   `gate --range` on a pull request), and the pre-commit gate is hard as soon
   as the tree lints clean (D-072). The workflow runs on pull requests and
@@ -387,8 +375,8 @@ flowchart LR
     RAW -- "ingest (session)" --> WIKI
     PROJ -- "fetch" --> FED
     FED -- "learn (session):<br/>sources: [@ns/id]" --> WIKI
-    WIKI -- "audit (another session)" --> VER["verified_by · verified_rev"]
-    FED -. "provider moved → fetch →<br/>lint: page stale, by name" .-> WIKI
+    WIKI -- "audit (another session)" --> VER["Approved-by: in history"]
+    FED -. "provider moved → fetch →<br/>status: page unverified, by name" .-> WIKI
     WIKI -- "compile (verified howto)" --> SKILL["skill"]
     BASE -- "status" --> BRIEF["morning briefing<br/>(the model's words)"]
 ```
@@ -435,8 +423,8 @@ flowchart LR
 | `docsys inbox add --source <name> --id <item> [--title <t>] [--url <u>] [--date <d>] [<file>\|-]` · `docsys inbox pull <repo> [--since <date>] [--limit <n>] [--as <ns>] [--all]` | The connector write gate (§20): one record into `raw/inbox/` with its provenance, the same item landing once; and the built-in git connector, one record per commit, bookkeeping commits skipped unless `--all` (D-079). |
 | `docsys assistant [--root .] [--projects <dir>]… [--domains a,b] [--since 30.days] [--limit 3]` | An assistant's memory in one command: the base, its agent layer, every docsys project under the given directories consumed and fetched, their recent commits as records, the digest. Idempotent (D-081). |
 | `docsys forget <page-id\|page-path\|record-path> --reason <text> [--root .]` | "Take this out of your memory", honestly: a page to `_archive/` with a tombstone (its id never reused), its router line and compiled skill gone; a record to `raw/_forgotten/`, still a record, never read or captured again; one ledger line with the reason. History is untouched (D-084). |
-| `docsys verify <page> [--by <handle>] [--commit] [--revoke] [--root docs]` | A maintainer's verification record in one step (D-094): who from the git identity matched against `maintainers:`, `verified_rev` from `HEAD` once the page carries no uncommitted change, refused while a `sources:` entry does not resolve; `--commit` lands it under your own identity (R-208 checks that), `--revoke` returns a page to `unverified`. |
-| `docsys verify --show <page>` | On a docsys/0.5 tree, what a re-verification reads (R-028, D-103): the body's blocks numbered with their lines, the changed and new ones with their text, the removed ones from `verified_rev`, stale or lost bound pins, the sources and pins to read against. Writes nothing. |
+| `docsys verify <page> [--by <handle>] [--revoke] [--root docs]` · `docsys verify --approval <@login>` | A maintainer's approval as their own commit (D-094, D-126): an empty commit carrying `Verifies: <page>` and `Approved-by:`, the handle from the git identity matched against `maintainers:`, refused while the page carries an uncommitted change, a `sources:` entry does not resolve, or something is staged; `--revoke` makes one carrying `Revokes:`. Nothing is written into the page. `--approval` prints the `Approved-by:` line a maintainer's login adds to a pull request's description, nothing for anyone else — what the approval job runs. On a docsys/0.4 tree it writes the record 0.15.1 wrote. |
+| `docsys verify --show <page>` | On a docsys/0.5 tree, what a re-verification reads (D-103, D-126): the body's blocks numbered with their lines, the changed and new ones with their text against the body the last approval read, the removed ones, stale or lost bound pins, the sources and pins to read against. Writes nothing. |
 | `docsys raw move <record> <domain> [--root .]` | A note from `raw/inbox/` to `raw/<domain>/`, through git, bytes untouched — and every citing page's `sources:` entry rewritten in the frontmatter (R-027, D-085). The domain must be declared; an existing destination is refused; the body is not touched, so a verified page stays verified. |
 | `docsys status [--root .] [--repo <dir>] [--json]` | The digest an assistant reads first: inbox, pages by state, open questions and debt, consumed namespaces and their fetch day, compiled skills, and lint's findings folded by rule. Derived on every run, never stored (D-080). |
 | `docsys compile <howto> [--root docs] [--dir .claude] [--force]` | A howto whose steps are complete becomes an executable skill: the page body byte for byte under `.claude/skills/<id>/`, pinned to the page's content hash. Lint fails while the page has moved since the compile (R-094, R-095, D-073). |
@@ -664,11 +652,10 @@ who verified what; *"what do my notes say about X"* answers with the page path
 What the binary guarantees underneath: `raw/` is content-immutable (an edited
 or deleted record is an error; the hook blocks the attempt; relocation is the
 expected flow, and `docsys raw move` does it while rewriting every citing page's
-`sources:`), every `sources:` entry must resolve, a `verified` page must
-record `verified_by:` and `verified_rev:`, and a verification is checked, not
-trusted — a `verified` page whose body, or whose consumed source, no longer
-hashes to what it held at `verified_rev` is an error until it is audited again
-(D-077, D-082).
+`sources:`), every `sources:` entry must resolve, and a verification is
+checked, not trusted — it is read from history, so a page whose body, or
+whose consumed source, moved after its last approval reads unverified until it
+is audited again (D-126).
 
 ### 7 · Your own assistant (a base that learns from your projects)
 

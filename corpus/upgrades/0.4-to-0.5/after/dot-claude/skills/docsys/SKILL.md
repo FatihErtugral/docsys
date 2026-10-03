@@ -52,15 +52,17 @@ the human's explicit word (P/R-081).
 
 Anyone writes — you included — and nothing you write is the truth yet. A
 permanent page you author from evidence, or change in substance, carries
-`verification: unverified` and `sources:` (what it rests on); `docsys page
-new <type> <id> --unverified` writes that frontmatter. `docsys verify <page>`
-writes the record for whoever runs it (a maintainer, from their git
-identity; refused otherwise); `docsys verify --show <page>` lists what a
-re-verification reads; `docsys verify <page> --revoke` takes a page back to
-`unverified` when its body moved. When `.docmeta.yml` declares `maintainers:`,
-`verified_by:` and `confirmed:` must name one of them (R-208): the people
-who review the code are the people who vouch for the page. A reader — a
-person or an agent — sees the state and reads accordingly.
+`sources:` (what it rests on); `docsys page new <type> <id> --unverified`
+writes it. The page is verified once a maintainer approves it after its last
+change (D-126): the `Approved-by:` line the approval job adds to a pull
+request's description lands in the merge commit, and where no host does that,
+`docsys verify <page>` makes the maintainer's own commit (their git identity;
+refused otherwise). Nothing about it is written into the page. `docsys verify
+--show <page>` lists what a re-verification reads; `docsys verify <page>
+--revoke` takes the approval back. When `.docmeta.yml` declares
+`maintainers:`, an approval and `confirmed:` must name one of them (R-208):
+the people who review the code are the people who vouch for the page. A
+reader — a person or an agent — sees the state and reads accordingly.
 
 ## Compile (a howto into a skill)
 

@@ -24,6 +24,9 @@ pub enum Install {
 pub enum Verify {
     PullRequest,
     Direct,
+    /// docsys/0.5: a maintainer's approval adds `Approved-by:` to the pull
+    /// request's description, and the merge commit carries it (D-126)
+    Description,
     Off,
 }
 
@@ -32,14 +35,20 @@ impl Verify {
         match self {
             Verify::PullRequest => "pull-request",
             Verify::Direct => "direct",
+            Verify::Description => "description",
             Verify::Off => "off",
         }
     }
 
     fn named(s: &str) -> Option<Verify> {
-        [Verify::PullRequest, Verify::Direct, Verify::Off]
-            .into_iter()
-            .find(|v| v.name() == s)
+        [
+            Verify::PullRequest,
+            Verify::Direct,
+            Verify::Description,
+            Verify::Off,
+        ]
+        .into_iter()
+        .find(|v| v.name() == s)
     }
 }
 
@@ -56,7 +65,7 @@ impl Default for Ci {
         Ci {
             runner: vec!["ubuntu-latest".to_string()],
             install: Install::Cargo,
-            verify: Verify::PullRequest,
+            verify: Verify::Description,
         }
     }
 }
@@ -100,7 +109,9 @@ impl Ci {
         }
         if let Some(v) = verify {
             ci.verify = Verify::named(v).ok_or_else(|| {
-                format!("--verify-on-approval takes pull-request, direct or off, not `{v}`")
+                format!(
+                    "--verify-on-approval takes description, pull-request, direct or off, not `{v}`"
+                )
             })?;
         }
         let known = || {
@@ -175,7 +186,7 @@ name: docsys
 on:
   pull_request:
     types: [opened, synchronize, reopened, closed]
-  push:
+@REVIEW@  push:
     branches: [@BRANCH@]
 
 permissions:
@@ -183,7 +194,7 @@ permissions:
 
 jobs:
   docs:
-    if: github.event.action != 'closed'
+    if: @DOCS_IF@
     runs-on: @RUNNER@
     concurrency:
       group: docsys-${{ github.event.pull_request.number || github.ref }}
@@ -255,6 +266,41 @@ const VERIFY_HEAD: &str = r#"
           ref: ${{ github.event.pull_request.base.ref }}
           fetch-depth: 0
 @INSTALL@"#;
+
+const VERIFY_DESCRIPTION: &str = r#"
+  # A maintainer's approval is their word (D-095, D-126). When a declared
+  # maintainer approves a pull request, this job adds `Approved-by: @login` to
+  # its description: the description changes, the commit does not, so every
+  # check's verdict stays. With the repository's squash and merge messages set
+  # to the pull request's title and description, the line lands in the merge
+  # commit, and docsys reads the verification from there — no record, no
+  # follow-up pull request. The maintainers are the base branch's.
+  approval:
+    if: github.event_name == 'pull_request_review' && github.event.review.state == 'approved'
+    runs-on: @RUNNER@
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.pull_request.base.ref }}
+@INSTALL@      - env:
+          GH_TOKEN: ${{ github.token }}
+          NUMBER: ${{ github.event.pull_request.number }}
+          LOGIN: ${{ github.event.review.user.login }}
+        run: |
+          line=$(docsys verify --approval "@$LOGIN" --root @ROOT@)
+          if [ -z "$line" ]; then
+            echo "docsys: @$LOGIN is not a declared maintainer — nothing to add"
+            exit 0
+          fi
+          body=$(gh pr view "$NUMBER" --json body --jq .body)
+          case "$body" in
+            *"$line"*) echo "docsys: the description says it already"; exit 0 ;;
+          esac
+          gh pr edit "$NUMBER" --body "$(printf '%s\n\n%s\n' "$body" "$line")"
+"#;
 
 const WHERE_PULL_REQUEST: &str = "The records go to a branch
   # docsys/verify-<number> and reach the base through a follow-up pull request,
@@ -402,11 +448,26 @@ pub fn render(w: &Workflow) -> String {
     let verify = match w.ci.verify {
         Verify::PullRequest => job(WHERE_PULL_REQUEST, "write", VERIFY_PULL_REQUEST),
         Verify::Direct => job(WHERE_DIRECT, "read", VERIFY_DIRECT),
+        Verify::Description => fill(
+            VERIFY_DESCRIPTION,
+            &[("RUNNER", &runner), ("INSTALL", &install), ("ROOT", root)],
+        ),
         Verify::Off => String::new(),
+    };
+    // a review triggers the approval job only, never the docs checks
+    let (review, docs_if) = if w.ci.verify == Verify::Description {
+        (
+            "  pull_request_review:\n    types: [submitted]\n",
+            "github.event_name != 'pull_request_review' && github.event.action != 'closed'",
+        )
+    } else {
+        ("", "github.event.action != 'closed'")
     };
     let body = fill(
         BODY,
         &[
+            ("REVIEW", review),
+            ("DOCS_IF", docs_if),
             ("BRANCH", &w.branch),
             ("RUNNER", &runner),
             ("INSTALL", &install),

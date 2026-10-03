@@ -656,7 +656,8 @@ fn common(ctx: &Ctx, u: &mut Upgrade, apply: bool) -> Result<(), String> {
     // ci-workflow: regenerated when untouched, a diff when it is the owner's
     match crate::workflow::classify(repo, root_rel) {
         None => {}
-        Some(crate::workflow::Existing::Untouched { from, params }) => {
+        Some(crate::workflow::Existing::Untouched { from, mut params }) => {
+            on_description(&mut params, u.to);
             let path = repo.join(crate::workflow::PATH);
             let fresh = crate::workflow::render(&params);
             let current = fs::read_to_string(&path).unwrap_or_default();
@@ -682,7 +683,8 @@ fn common(ctx: &Ctx, u: &mut Upgrade, apply: bool) -> Result<(), String> {
                 }
             }
         }
-        Some(crate::workflow::Existing::Legacy { from, params }) => {
+        Some(crate::workflow::Existing::Legacy { from, mut params }) => {
+            on_description(&mut params, u.to);
             u.item("auto", "ci-workflow", crate::workflow::PATH, format!("the {from} workflow, untouched: regenerated with its mode, pinned to this version"));
             if apply {
                 fs::write(
@@ -1207,6 +1209,18 @@ fn dates(ctx: &Ctx, u: &mut Upgrade, apply: bool) -> Result<(), String> {
         );
     }
     Ok(())
+}
+
+/// On docsys/0.5 a review's approval rides the pull request's description
+/// (D-126): a workflow that recorded it in a follow-up pull request or a push
+/// takes the approval job instead.
+fn on_description(params: &mut crate::workflow::Workflow, to: u32) {
+    use crate::workflow::Verify;
+    if Era(to).verification_from_history()
+        && matches!(params.ci.verify, Verify::PullRequest | Verify::Direct)
+    {
+        params.ci.verify = Verify::Description;
+    }
 }
 
 /// The steps of the move from docsys/0.4 to docsys/0.5 (`migrations/0.4-0.5.tsv`).

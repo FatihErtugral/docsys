@@ -79,8 +79,8 @@ After the rows land, one permanent page per seeded feature may be yours:
 it is built, when it was born and moved, what broke and why, what the
 manifests and the code's own comments say — in the tree's language, with
 `sources:` naming the same `git:` locators and files the research page
-cites. It carries `verification: unverified`, and you never verify it:
-a maintainer does, in another session (R-025, R-208). When the builder's
+cites. It is unverified until a maintainer approves it, and you never verify
+it: a maintainer does, in another session (R-025, R-208). When the builder's
 answers arrive, graduation moves them in byte-exact; the draft is where a
 reader starts on day one, not the truth.
 

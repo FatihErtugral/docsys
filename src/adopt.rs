@@ -166,7 +166,8 @@ fn ensure_ci_workflow(repo: &Path, root_rel: &str, ci: Option<&Ci>) -> CiOutcome
         };
         return CiOutcome {
             summary: format!("kept{note}"),
-            verify_job: existing.contains("\n  verify-on-approval:\n"),
+            verify_job: existing.contains("\n  verify-on-approval:\n")
+                || existing.contains("\n  approval:\n"),
             opens_pull_requests: existing.contains("gh pr create"),
         };
     }
@@ -708,6 +709,15 @@ pub fn run_placed(
              \x20     records. Turn on Settings > Actions > General > Workflow permissions >\n\
              \x20     \"Allow GitHub Actions to create and approve pull requests\", or delete the\n\
              \x20     workflow and run `docsys adopt --verify-on-approval direct` (or `off`).\n",
+        );
+    }
+    if ci.verify_job && !ci.opens_pull_requests {
+        md.push_str(
+            "- [ ] Set the repository's squash and merge commit messages to the pull\n\
+             \x20     request's title and description (Settings > General > Pull Requests),\n\
+             \x20     so the `Approved-by:` line the approval job adds lands in the merge\n\
+             \x20     commit (D-126). A rebase merge carries no description: there a\n\
+             \x20     maintainer runs `docsys verify <page>`.\n",
         );
     }
     if ci.verify_job {

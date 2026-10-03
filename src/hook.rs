@@ -409,7 +409,7 @@ impl Reply {
 const ASK: &str = "code moves with no documentation change. If a contract moved, update the page (or say why in the commit message: `Docs: <why>`) and commit; if nothing user-visible moved, run the same commit again — this gate asks once.\nThis whole Bash call was blocked — a `git add` in it did not run either. Re-run the SAME command from the start, `add` included.\n";
 /// Each phrase of this module's agent text that names the journal, as a
 /// docsys/0.5 tree hears it and as a 0.4 tree heard it from 0.15.1 (D-118).
-const ERA_PHRASES: [(&str, &str); 8] = [
+const ERA_PHRASES: [(&str, &str); 11] = [
     (
         "update the page (or say why in the commit message: `Docs: <why>`) and commit",
         "update the page (or add the journal line) and commit",
@@ -441,6 +441,18 @@ const ERA_PHRASES: [(&str, &str); 8] = [
     (
         "record it (a work file, or `Docs: <why>` in the commit message)",
         "record it (a work file or a journal entry linking these files)",
+    ),
+    (
+        "`sources:`; it is unverified until a maintainer approves it — an\n`Approved-by:` on its pull request, or `docsys verify <page>` in another\nsession; an approval and `confirmed:` name someone in .docmeta.yml",
+        "`verification: unverified` (+ sources); a maintainer verifies it in another\nsession — `verified_by:` and `confirmed:` name someone in .docmeta.yml",
+    ),
+    (
+        "ingest → one wiki page per note (id, type, domain,\nsources),",
+        "ingest → one wiki page per note (id, type, domain, verification: unverified,\nsources),",
+    ),
+    (
+        "page; an approval is the maintainer's commit (`docsys verify`).",
+        "page; `verified` records verified_by and verified_rev.",
     ),
 ];
 
@@ -1019,11 +1031,11 @@ ingest, audit or lookup; the skill of that name carries the discipline.
 
 capture → ONE new file in raw/inbox/, the note in the user's own words plus
 one line on why it is worth keeping; never classify, never touch wiki/.
-ingest → one wiki page per note (id, type, domain, verification: unverified,
+ingest → one wiki page per note (id, type, domain,
 sources), routed from the domain index; the note moves to raw/<domain>/ with
 `docsys raw move <record> <domain>` (bytes untouched, citing pages' sources
 rewritten by the tool). audit → only in a session that did not write the
-page; `verified` records verified_by and verified_rev. lookup → `docsys
+page; an approval is the maintainer's commit (`docsys verify`). lookup → `docsys
 lookup <words>` first, then the page; \"not in the base\" is a complete answer.
 
 raw/ is content-immutable: an existing record is never edited or deleted, and
@@ -1082,8 +1094,9 @@ from the code → /docsys-sync.
 
 Contract-surface changes update their documentation in the SAME session.
 A permanent page you write from evidence, or change in substance, carries
-`verification: unverified` (+ sources); a maintainer verifies it in another
-session — `verified_by:` and `confirmed:` name someone in .docmeta.yml
+`sources:`; it is unverified until a maintainer approves it — an
+`Approved-by:` on its pull request, or `docsys verify <page>` in another
+session; an approval and `confirmed:` name someone in .docmeta.yml
 `maintainers:` (R-208). Nothing you write is the truth yet; say so in the page.
 Inside docs a page is linked as [[dir/id]] (full path). A page about code pins
 its region (docsys pin); docsys backlinks <code-file> names the pages that
@@ -1114,9 +1127,9 @@ pub fn user_prompt_submit(payload: &str, root: &Path) -> Reply {
         let unset = fs::read_to_string(root.join("AGENTS.md"))
             .is_ok_and(|t| t.contains(crate::agents::CHARACTER_UNSET));
         if unset {
-            format!("{FIRST_RUN}{KB_ROUTING}")
+            era_text(root, &format!("{FIRST_RUN}{KB_ROUTING}"))
         } else {
-            KB_ROUTING.to_string()
+            era_text(root, KB_ROUTING)
         }
     } else {
         era_text(root, &format!("{ROUTING}{}", tree_digest(root)))
@@ -1430,12 +1443,19 @@ mod tests_routing {
         assert!(era_text(&root, ASK).contains("(or add the journal line)"));
         assert!(era_text(&root, REQUIRE).contains("a journal entry linking these files"));
         assert!(!routing.contains("Docs:"), "{routing}");
+        assert!(
+            routing.contains("`verification: unverified` (+ sources)"),
+            "{routing}"
+        );
+        assert!(era_text(&root, KB_ROUTING).contains("verified_by and verified_rev"));
         fs::write(
             root.join(".docmeta.yml"),
             "spec: docsys/0.5\nprofile: project\n",
         )
         .unwrap();
         assert_eq!(era_text(&root, ROUTING), ROUTING);
+        assert!(ROUTING.contains("`Approved-by:` on its pull request"));
+        assert!(!ROUTING.contains("verified_by"));
         let _ = fs::remove_dir_all(&root);
     }
 }

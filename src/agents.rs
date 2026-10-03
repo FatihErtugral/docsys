@@ -171,15 +171,17 @@ the human's explicit word (P/R-081).
 
 Anyone writes — you included — and nothing you write is the truth yet. A
 permanent page you author from evidence, or change in substance, carries
-`verification: unverified` and `sources:` (what it rests on); `docsys page
-new <type> <id> --unverified` writes that frontmatter. `docsys verify <page>`
-writes the record for whoever runs it (a maintainer, from their git
-identity; refused otherwise); `docsys verify --show <page>` lists what a
-re-verification reads; `docsys verify <page> --revoke` takes a page back to
-`unverified` when its body moved. When `.docmeta.yml` declares `maintainers:`,
-`verified_by:` and `confirmed:` must name one of them (R-208): the people
-who review the code are the people who vouch for the page. A reader — a
-person or an agent — sees the state and reads accordingly.
+`sources:` (what it rests on); `docsys page new <type> <id> --unverified`
+writes it. The page is verified once a maintainer approves it after its last
+change (D-126): the `Approved-by:` line the approval job adds to a pull
+request's description lands in the merge commit, and where no host does that,
+`docsys verify <page>` makes the maintainer's own commit (their git identity;
+refused otherwise). Nothing about it is written into the page. `docsys verify
+--show <page>` lists what a re-verification reads; `docsys verify <page>
+--revoke` takes the approval back. When `.docmeta.yml` declares
+`maintainers:`, an approval and `confirmed:` must name one of them (R-208):
+the people who review the code are the people who vouch for the page. A
+reader — a person or an agent — sees the state and reads accordingly.
 
 ## Compile (a howto into a skill)
 
@@ -330,12 +332,12 @@ For each file in `raw/inbox/`:
    page (R-031); if a page starts holding steps AND concepts, split it.
 3. **Author or update** `wiki/<domain>/<type>/<slug>.md` with frontmatter:
    `id` (stable, kebab-case, never renamed), `type`, `domain`,
-   `verification: unverified`, `updated`, `sources: [raw/…]`. A claim that
+   `sources: [raw/…]`. A claim that
    rests on a consumed project's own page cites it as `@namespace/id`
    (materialized under `.federation/`; AGENTS.md → Sources beyond the inbox);
    a claim that rests on a connector record cites the record's path like any
-   note. A page that changes drops back to `unverified` — a verification
-   describes content that no longer exists otherwise.
+   note. A page that changes is unverified until it is approved again — an
+   approval vouches for the content it read, not for what came after.
 4. Open with one or two sentences that stand alone (R-032): a reader arrives
    here from a search, not from the top of a chain.
 5. **Route it**: add the page to `wiki/<domain>/index.md`, and the domain to
@@ -367,15 +369,15 @@ verification needs another session, or the maintainer in this one: a declared
 maintainer who reads the page and says it is right verifies it with
 `docsys verify <page>` (their identity, their word — D-096).
 
-For each `verification: unverified` page (or the ones named):
+For each unverified page (`docsys status` lists them), or the ones named:
 
 1. Read the page and every file in its `sources:`.
 2. Judge faithfulness: is every claim supported? Any contradiction? A missing
    or empty source is a failure, not a pass.
-3. **Faithful** → `docsys verify <page> --by "<who or which session>"` sets
-   `verification: verified` and records the audit (R-028): `verified_by:` and
-   `verified_rev:` (the base's current revision; the page must be committed
-   as it is). Without that record the claim is unauditable.
+3. **Faithful** → `docsys verify <page> --by "<who or which session>"` makes
+   the audit's commit, carrying `Verifies:` and `Approved-by:` (the page must
+   be committed as it is; D-126). Without that commit the claim is
+   unauditable.
 4. **Not faithful** → leave/return it to `unverified` and add an open
    question (`docsys question add`) naming the specific discrepancy, in the
    base's language. Never edit the
@@ -1068,8 +1070,8 @@ After the rows land, one permanent page per seeded feature may be yours:
 it is built, when it was born and moved, what broke and why, what the
 manifests and the code's own comments say — in the tree's language, with
 `sources:` naming the same `git:` locators and files the research page
-cites. It carries `verification: unverified`, and you never verify it:
-a maintainer does, in another session (R-025, R-208). When the builder's
+cites. It is unverified until a maintainer approves it, and you never verify
+it: a maintainer does, in another session (R-025, R-208). When the builder's
 answers arrive, graduation moves them in byte-exact; the draft is where a
 reader starts on day one, not the truth.
 

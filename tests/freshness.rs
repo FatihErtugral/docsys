@@ -523,10 +523,9 @@ fn adopt_writes_the_ci_workflow_and_hardens_the_gate_once_clean() {
         wf.contains("--range \"origin/${{ github.base_ref }}...HEAD\""),
         "{wf}"
     );
-    // D-095: the merge job verifies under each declared approver
-    assert!(wf.contains("verify-on-approval:"), "{wf}");
-    assert!(wf.contains("docsys verify --range"), "{wf}");
-    assert!(wf.contains("--by \"@$login\" --commit"), "{wf}");
+    // D-095, D-126: a declared approver's approval rides the description
+    assert!(wf.contains("\n  approval:\n"), "{wf}");
+    assert!(wf.contains("docsys verify --approval \"@$LOGIN\""), "{wf}");
     let hook = fs::read_to_string(repo.join(".git/hooks/pre-commit")).unwrap();
     assert!(hook.contains("docsys_gate_exit=0"), "{hook}");
 

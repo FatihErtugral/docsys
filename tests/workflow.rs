@@ -117,6 +117,29 @@ fn the_cargo_install_on_one_runner_with_a_follow_up_pull_request() {
     );
 }
 
+/// docsys/0.5's approval job (D-126): a maintainer's approval adds its line to
+/// the pull request's description; a review triggers it, and only it.
+#[test]
+fn the_cargo_install_with_the_approval_in_the_description() {
+    let golden = include_str!("golden/workflow-cargo-description.yml");
+    assert!(golden.contains("  pull_request_review:\n    types: [submitted]\n"));
+    assert!(golden.contains(
+        "    if: github.event_name != 'pull_request_review' && github.event.action != 'closed'"
+    ));
+    assert!(golden.contains("docsys verify --approval \"@$LOGIN\""));
+    assert!(!golden.contains("gh pr create") && !golden.contains("git push"));
+    matches_golden(
+        &params(
+            "main",
+            &["ubuntu-latest"],
+            Install::Cargo,
+            Verify::Description,
+            "docs",
+        ),
+        golden,
+    );
+}
+
 #[test]
 fn the_release_install_on_three_runner_labels_pushing_directly() {
     matches_golden(
@@ -279,16 +302,20 @@ fn adopt_without_flags_writes_the_defaults_and_a_tree_at_the_top_is_root_dot() {
     let repo = repo_with_github("defaults");
     docsys::adopt::run(&repo, &repo.join("docs"), "en").unwrap();
     let text = fs::read_to_string(repo.join(FILE)).unwrap();
+    // a docsys/0.5 tree: the approval rides the description (D-126)
     assert!(
         text.lines().next().unwrap().ends_with(
-            " branch=main runner=ubuntu-latest install=cargo verify=pull-request root=docs"
+            " branch=main runner=ubuntu-latest install=cargo verify=description root=docs"
         ),
         "{text}"
     );
-    assert!(text.contains("gh pr create"), "{text}");
+    assert!(
+        text.contains("gh pr edit") && !text.contains("gh pr create"),
+        "{text}"
+    );
     let report = fs::read_to_string(repo.join("ADOPTION.md")).unwrap();
     assert!(
-        report.contains("Allow GitHub Actions to create and approve pull requests"),
+        report.contains("squash and merge commit messages to the pull"),
         "{report}"
     );
     // the tree is the repository: `--root .`, never an empty one
