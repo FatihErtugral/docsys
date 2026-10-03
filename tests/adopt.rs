@@ -967,12 +967,22 @@ fn adopt_on_a_0_4_tree_writes_what_0_15_1_writes() {
     assert!(out.status.success(), "{out:?}");
     for rel in &before {
         let changed = case.join("after").join(rel);
-        let want = fs::read(if changed.is_file() {
+        let mut want = fs::read(if changed.is_file() {
             changed
         } else {
             case.join("before").join(rel)
         })
         .unwrap();
+        // the second run's date is the day the test runs
+        if rel == "ADOPTION.md" {
+            want = String::from_utf8(want)
+                .unwrap()
+                .replace(
+                    "## Last run — 2026-10-03",
+                    &format!("## Last run — {}", docsys::migrate::today()),
+                )
+                .into_bytes();
+        }
         let got = fs::read(real_04(&repo, rel)).unwrap();
         assert!(
             got == want,

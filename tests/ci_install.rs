@@ -52,9 +52,18 @@ fn git(dir: &Path, args: &[&str]) -> String {
     .to_string()
 }
 
+/// Runs this build in `dir`, first on PATH: a git hook the move writes runs
+/// this build too.
 fn docsys(dir: &Path, args: &[&str]) -> Output {
-    run(Command::new(env!("CARGO_BIN_EXE_docsys"))
+    let bin = PathBuf::from(env!("CARGO_BIN_EXE_docsys"));
+    let path = format!(
+        "{}:{}",
+        bin.parent().unwrap().display(),
+        std::env::var("PATH").unwrap_or_default()
+    );
+    run(Command::new(&bin)
         .args(args)
+        .env("PATH", path)
         .current_dir(dir))
 }
 
