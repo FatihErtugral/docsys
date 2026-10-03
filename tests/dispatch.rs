@@ -1,4 +1,6 @@
 #![allow(clippy::panic, clippy::unwrap_used, clippy::expect_used)]
+// Unix-only: the cached binaries and `cargo` here are shell-script stubs.
+#![cfg(unix)]
 //! A tree pins the docsys it runs (D-120): every command on a pinned tree
 //! runs the pinned binary from the version cache, installed once on first
 //! use, and nothing loops, hangs a hook or fails silently on the way. The

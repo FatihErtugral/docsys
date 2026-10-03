@@ -1,4 +1,6 @@
 #![allow(clippy::panic, clippy::unwrap_used, clippy::expect_used)]
+// Unix-only: the git hooks are bash, and the tools are symlinks and stubs.
+#![cfg(unix)]
 //! `docsys upgrade` (D-117). The conformance case R-179 asks for: a tree as
 //! docsys 0.15 left it, moved to docsys/0.5, compared file by file against the
 //! expected tree; a second run changes nothing. Beside it, what the move
