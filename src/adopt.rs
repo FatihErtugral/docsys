@@ -503,6 +503,9 @@ pub fn run_placed(
     // 1 · configuration
     let dm = ensure_docmeta(root, lang)?;
     summary.push(format!(".docmeta.yml: {dm}"));
+    // a docsys/0.5 tree's report says only what is so; before, as 0.15.1 said it
+    let exact = crate::era::Era::at(root).journal_from_history();
+    let mut changed = !dm.starts_with("kept") && !dm.starts_with("present");
     // the tree as the repository names it, now that it exists — relative
     // always, so no relay or gate carries an absolute path (D-099)
     let root_rel = match crate::fresh::root_rel(repo, root) {
@@ -513,11 +516,14 @@ pub fn run_placed(
     // (R-048 templates, the questions ledger) — written only when absent.
     let scaffolded = crate::migrate::scaffold_list_files_and_templates(root)?;
     if !scaffolded.is_empty() {
+        changed = true;
         summary.push(format!("scaffold: {} written", scaffolded.join(", ")));
     }
     // 1c · the tree's own name for any consumer (D-075) — in its docmeta,
     // once; never anywhere outside the repository
-    summary.push(format!("namespace: {}", ensure_namespace(root, repo)));
+    let namespace = ensure_namespace(root, repo);
+    changed |= !namespace.ends_with("(kept)");
+    summary.push(format!("namespace: {namespace}"));
 
     // 2 · agent layer (never-colliding names; existing files skipped)
     let claude = repo.join(".claude");
@@ -527,6 +533,7 @@ pub fn run_placed(
         &crate::migrate::generated_preamble(root),
         &root_rel,
     )?;
+    changed |= !installed.written.is_empty();
     summary.push(format!(
         "agent assets: {} written, {} already present",
         installed.written.len(),
@@ -554,10 +561,12 @@ pub fn run_placed(
     let snippet = agents::settings_snippet(!crate::era::Era::at(root).verification_from_history());
     let settings_unparsable = match agents::wire_settings(&settings, &snippet)? {
         agents::Wired::Created => {
+            changed = true;
             summary.push("settings.json: created with docsys hook wires".to_string());
             false
         }
         agents::Wired::Merged(n) => {
+            changed = true;
             summary.push(format!(
                 "settings.json: merged {n} docsys hook wire(s) into the existing file (MCP/permissions kept)"
             ));
@@ -584,10 +593,11 @@ pub fn run_placed(
             if let Some(dir) = file.parent() {
                 fs::create_dir_all(dir).map_err(|e| e.to_string())?;
             }
-            rules::write_agents_block_with(&file, &preamble)?;
+            let status = rules::write_agents_block_with(&file, &preamble, exact)?;
+            changed |= status != "kept";
             let shown = file.strip_prefix(repo).unwrap_or(&file);
             summary.push(format!(
-                "{}: managed block written",
+                "{}: managed block {status}",
                 shown.to_string_lossy().replace('\\', "/")
             ));
             false
@@ -608,6 +618,7 @@ pub fn run_placed(
     let clean = gate_clean(root, repo);
     let message = crate::era::Era::at(root).journal_from_history();
     let gate = ensure_git_gate(repo, &root_rel, clean, message);
+    changed |= gate != "kept";
     let mode = if clean {
         "hard"
     } else {
@@ -617,6 +628,7 @@ pub fn run_placed(
 
     // 4b · CI: the same questions on the default branch and every pull request
     let ci = ensure_ci_workflow(repo, &root_rel, place.ci.as_ref());
+    changed |= ci.summary.starts_with("written");
     summary.push(format!(
         "ci workflow (.github/workflows/docsys.yml): {}",
         ci.summary
@@ -626,7 +638,7 @@ pub fn run_placed(
     let (lint_report, _) = lint(root);
     let tree = DocTree::load(root).map_err(|e| e.to_string())?;
     let refs_report = refs::run(repo, &tree);
-    let layer = agents::adoption_report(&claude);
+    let layer = agents::adoption_report(&claude, exact);
 
     let count = |r: &crate::checks::Report, sev: crate::model::Severity| {
         r.findings.iter().filter(|f| f.severity == sev).count()
@@ -648,6 +660,8 @@ pub fn run_placed(
         is the judgment work — burn it down in one agent session.\n\n",
     );
     match adoption_block {
+        // on docsys/0.5 a re-run that changed nothing adds no section
+        Some(block) if exact && !changed => md.push_str(&block),
         Some(block) => {
             md.push_str(&block);
             let _ = write!(md, "\n## Last run — {today}\n\n");
@@ -688,12 +702,20 @@ pub fn run_placed(
          \x20     carry project-specific conventions (roadmaps, catalogs, protocols)\n\
          \x20     split into `.claude/rules/doc-extensions.md` — the conventional,\n\
          \x20     language-neutral home for project doc contracts layered on docsys\n\
-         \x20     (the file's content stays in the project's language).\n\
-         - [ ] Triage the error findings: dangling references are usually decisions\n\
-         \x20     cited but never distilled — graduate them (`docsys graduate plan`).\n\
-         - [ ] When errors reach zero, run `docsys adopt` again: the pre-commit gate\n\
-         \x20     hardens by itself (lint errors then stop the commit).\n\
-         \n\
+         \x20     (the file's content stays in the project's language).\n",
+    );
+    // a clean adoption has no errors to triage and a gate already hard
+    let errors = count(&lint_report, Error) + count(&refs_report, Error);
+    if !exact || errors > 0 {
+        md.push_str(
+            "- [ ] Triage the error findings: dangling references are usually decisions\n\
+             \x20     cited but never distilled — graduate them (`docsys graduate plan`).\n\
+             - [ ] When errors reach zero, run `docsys adopt` again: the pre-commit gate\n\
+             \x20     hardens by itself (lint errors then stop the commit).\n",
+        );
+    }
+    md.push_str(
+        "\n\
          An existing project documents itself in this order:\n\n\
          1. [ ] Collect what exists: what code and history say, per feature, with\n\
          \x20      `/docsys-seed <feature>`; what only people know with `/docsys-interview`.\n\
@@ -773,9 +795,10 @@ pub fn run_placed(
     let text = crate::migrate::with_preamble(&text, &preamble);
     if place.no_report {
         printed.push(text);
+        // on docsys/0.5 the printed report carries the status: said once
         return Ok(AdoptOutcome {
             report_path: String::new(),
-            summary,
+            summary: if exact { Vec::new() } else { summary },
             printed,
         });
     }

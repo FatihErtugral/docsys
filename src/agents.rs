@@ -1129,7 +1129,19 @@ page about code is bound to its region as the rules block says.
 /// Adoption report: what agent layer already exists, and which shell commands
 /// it invokes. Detection is mechanical; deciding what to delegate to docsys is
 /// judgment and stays with an agent and a human (D-026).
-pub fn adoption_report(claude_dir: &Path) -> Vec<String> {
+/// `all_own`: a docsys/0.5 tree's inventory leaves out every asset docsys
+/// writes; before, the list 0.15.1 knew.
+pub fn adoption_report(claude_dir: &Path, all_own: bool) -> Vec<String> {
+    let own: Vec<String> = HOOK_FILES
+        .iter()
+        .map(|h| (*h).to_string())
+        .chain(
+            [false, true]
+                .into_iter()
+                .flat_map(owned_assets)
+                .map(|(a, _, _)| a.to_string()),
+        )
+        .collect();
     let mut out = Vec::new();
     let mut files: Vec<std::path::PathBuf> = Vec::new();
     for sub in ["hooks", "commands", "skills", "rules"] {
@@ -1142,6 +1154,9 @@ pub fn adoption_report(claude_dir: &Path) -> Vec<String> {
             .unwrap_or(&f)
             .to_string_lossy()
             .replace('\\', "/");
+        if all_own && own.contains(&rel) {
+            continue;
+        }
         if rel.starts_with("skills/docsys/")
             || rel.starts_with("skills/docsys-export/")
             || rel.starts_with("hooks/pre-commit-docs")

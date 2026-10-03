@@ -121,6 +121,9 @@ declares `spec: docsys/0.5`; a tree that declares `docsys/0.4` is served as
 
 - The CI workflow names the repository's own base branch when no remote says
   which: a local `main` or `master` before the branch checked out.
+- On a docsys/0.5 tree `adopt` reports only what is so: no docsys asset in the
+  inventory, no error items on a clean tree, no `## Last run` and no byte
+  around the rules block changed by a re-run that changes nothing (D-110).
 
 - docsys works from any directory of the repository, and a hook finds its
   tree from its payload (D-098).

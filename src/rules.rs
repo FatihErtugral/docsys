@@ -259,15 +259,19 @@ pub fn agents_block_with(preamble: &str) -> String {
 /// Write/update the generated block inside a managed marker region of `path`.
 /// Owner prose outside the markers is never touched; re-runs are idempotent.
 pub fn write_agents_block(path: &std::path::Path) -> Result<&'static str, String> {
-    write_agents_block_with(path, "")
+    write_agents_block_with(path, "", false)
 }
 
 /// `write_agents_block`, with the owner's generated-file preamble (D-056) as
 /// the first line INSIDE the block — a gate that reads the staged diff must
 /// find it in every regeneration, not only at the top of the file.
+/// `exact`: a docsys/0.5 tree's block is updated in place, every byte
+/// outside it kept, and an unchanged block is not written — "kept"; before,
+/// as 0.15.1 wrote it.
 pub fn write_agents_block_with(
     path: &std::path::Path,
     preamble: &str,
+    exact: bool,
 ) -> Result<&'static str, String> {
     let block = agents_block_with(preamble);
     let existing = std::fs::read_to_string(path).ok();
@@ -276,11 +280,17 @@ pub fn write_agents_block_with(
         Some(text) => match (text.find(BLOCK_BEGIN), text.find(BLOCK_END)) {
             (Some(a), Some(b)) if b > a => {
                 let after = text.get(b + BLOCK_END.len()..).unwrap_or("");
-                format!(
-                    "{}{block}{}",
-                    text.get(..a).unwrap_or(""),
+                // the block ends its own line; what followed the marker stays
+                let after = if exact {
+                    after.strip_prefix('\n').unwrap_or(after)
+                } else {
                     after.trim_start_matches('\n')
-                )
+                };
+                let new = format!("{}{block}{after}", text.get(..a).unwrap_or(""));
+                if exact && new == text {
+                    return Ok("kept");
+                }
+                new
             }
             _ => {
                 let sep = if text.ends_with('\n') { "\n" } else { "\n\n" };

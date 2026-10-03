@@ -533,6 +533,12 @@ fn a_re_run_keeps_the_adoption_record_and_reports_itself_as_the_last_run() {
         "{first}"
     );
     assert!(!first.contains("## Last run"), "{first}");
+    // a re-run that changes nothing leaves the report as it was (docsys/0.5)
+    docsys::adopt::run(&repo, &docs, "en").unwrap();
+    assert_eq!(fs::read_to_string(repo.join("ADOPTION.md")).unwrap(), first);
+    // a re-run that writes something reports itself
+    let asset = repo.join(".claude/commands/docsys-sync.md");
+    fs::remove_file(&asset).unwrap();
     docsys::adopt::run(&repo, &docs, "en").unwrap();
     let second = fs::read_to_string(repo.join("ADOPTION.md")).unwrap();
     assert!(
@@ -544,6 +550,7 @@ fn a_re_run_keeps_the_adoption_record_and_reports_itself_as_the_last_run() {
     assert_eq!(second.matches("## Done — adoption").count(), 1, "{second}");
     assert_eq!(second.matches("## Last run").count(), 1, "{second}");
     // a third run replaces the last-run block, not the adoption one
+    fs::remove_file(&asset).unwrap();
     docsys::adopt::run(&repo, &docs, "en").unwrap();
     let third = fs::read_to_string(repo.join("ADOPTION.md")).unwrap();
     assert_eq!(third.matches("## Last run").count(), 1, "{third}");
@@ -556,6 +563,7 @@ fn a_re_run_keeps_the_adoption_record_and_reports_itself_as_the_last_run() {
     let end = start + third[start..].find(')').unwrap() + 1;
     let legacy = format!("{}## Done{}", &third[..start], &third[end..]);
     fs::write(repo.join("ADOPTION.md"), legacy).unwrap();
+    fs::remove_file(&asset).unwrap();
     docsys::adopt::run(&repo, &docs, "en").unwrap();
     let fourth = fs::read_to_string(repo.join("ADOPTION.md")).unwrap();
     assert_eq!(fourth.matches("## Done — adoption").count(), 1, "{fourth}");
@@ -766,11 +774,14 @@ fn an_ignored_report_is_updated_where_it_is() {
     let docs = repo.join("docs");
     docsys::adopt::run(&repo, &docs, "en").unwrap();
     let at_root = repo.join("ADOPTION.md");
+    let asset = repo.join(".claude/commands/docsys-sync.md");
+    fs::remove_file(&asset).unwrap();
     docsys::adopt::run(&repo, &docs, "en").unwrap();
     let text = fs::read_to_string(&at_root).unwrap();
     assert!(text.contains("## Last run — "), "{text}");
     fs::create_dir_all(repo.join(".notes")).unwrap();
     fs::rename(&at_root, repo.join(".notes/ADOPTION.md")).unwrap();
+    fs::remove_file(&asset).unwrap();
     let out = docsys::adopt::run(&repo, &docs, "en").unwrap();
     assert!(!at_root.exists(), "the report was written back to the root");
     let moved = fs::read_to_string(repo.join(".notes/ADOPTION.md")).unwrap();
@@ -812,5 +823,83 @@ fn a_new_page_under_a_routed_directory_needs_no_index_line() {
     let orphans: Vec<_> = r.findings.iter().filter(|f| f.rule.0 == "R-034").collect();
     assert!(orphans.is_empty(), "{orphans:?}");
     assert_eq!(fs::read_to_string(docs.join("index.md")).unwrap(), index);
+    let _ = fs::remove_dir_all(&repo);
+}
+
+fn adopt_run(repo: &Path, args: &[&str]) -> (i32, String) {
+    let out = Command::new(env!("CARGO_BIN_EXE_docsys"))
+        .args(args)
+        .current_dir(repo)
+        .env("DOCSYS_NO_AUTO_INSTALL", "1")
+        .output()
+        .unwrap();
+    (
+        out.status.code().unwrap_or(-1),
+        String::from_utf8_lossy(&out.stdout).into_owned() + &String::from_utf8_lossy(&out.stderr),
+    )
+}
+
+/// On a docsys/0.5 tree adopt says only what is so: the inventory lists the
+/// team's own agent files, never docsys's; a clean adoption carries no
+/// checklist item about errors it does not have; a re-adopt that changes
+/// nothing says "kept", leaves ADOPTION.md and every byte outside the rules
+/// block as they were; `--no-report` prints the status once, and a
+/// `--report-dir` it would ignore is refused.
+#[test]
+fn adoption_on_a_0_5_tree_says_only_what_is_so() {
+    let repo = tmp("adopt-says");
+    git_init(&repo);
+    fs::create_dir_all(repo.join(".claude/commands")).unwrap();
+    fs::write(
+        repo.join(".claude/commands/team-docs.md"),
+        "---\nallowed-tools: Bash(mkdocs build)\n---\nBuild the docs site.\n",
+    )
+    .unwrap();
+    let (code, out) = adopt_run(&repo, &["adopt"]);
+    assert_eq!(code, 0, "{out}");
+    let report = fs::read_to_string(repo.join("ADOPTION.md")).unwrap();
+    let inventory = report
+        .split("## Existing agent layer")
+        .nth(1)
+        .and_then(|s| s.split("\n## ").next())
+        .unwrap_or_default();
+    assert!(inventory.contains("team-docs.md"), "{inventory}");
+    assert!(
+        !inventory.contains("docsys-") && !inventory.contains("session-intent"),
+        "{inventory}"
+    );
+    assert!(
+        !report.contains("Triage the error findings"),
+        "a clean adoption: {report}"
+    );
+    assert!(!report.contains("When errors reach zero"), "{report}");
+    // the owner's text right after the block, a blank line between
+    let holder = ["AGENTS.md", "CLAUDE.md"]
+        .iter()
+        .map(|f| repo.join(f))
+        .find(|p| fs::read_to_string(p).is_ok_and(|t| t.contains("docsys:rules:end")))
+        .unwrap();
+    let text = fs::read_to_string(&holder).unwrap();
+    fs::write(&holder, format!("{text}\nOwner text after.\n")).unwrap();
+    let held = fs::read_to_string(&holder).unwrap();
+    let report = fs::read_to_string(repo.join("ADOPTION.md")).unwrap();
+    let (code, out) = adopt_run(&repo, &["adopt"]);
+    assert_eq!(code, 0, "{out}");
+    assert!(out.contains("managed block kept"), "{out}");
+    assert_eq!(
+        fs::read_to_string(&holder).unwrap(),
+        held,
+        "outside the block"
+    );
+    assert_eq!(
+        fs::read_to_string(repo.join("ADOPTION.md")).unwrap(),
+        report,
+        "a re-run that changed nothing"
+    );
+    let (code, out) = adopt_run(&repo, &["adopt", "--no-report"]);
+    assert_eq!(code, 0, "{out}");
+    assert_eq!(out.matches("agent assets:").count(), 1, "{out}");
+    let (code, out) = adopt_run(&repo, &["adopt", "--no-report", "--report-dir", "x"]);
+    assert_eq!(code, 2, "{out}");
     let _ = fs::remove_dir_all(&repo);
 }

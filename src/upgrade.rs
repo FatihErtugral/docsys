@@ -926,7 +926,11 @@ fn common(ctx: &Ctx, u: &mut Upgrade, apply: bool) -> Result<(), String> {
                             "the generated block refreshed in place".to_string(),
                         );
                         if apply {
-                            crate::rules::write_agents_block_with(&target, preamble)?;
+                            crate::rules::write_agents_block_with(
+                                &target,
+                                preamble,
+                                Era(u.to).journal_from_history(),
+                            )?;
                             u.written.push(file);
                         }
                     }

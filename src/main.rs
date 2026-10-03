@@ -790,6 +790,12 @@ fn main() -> ExitCode {
                     docsys::rules::spec_version()
                 )))
             };
+            // a report directory for a report that is not written is a
+            // contradiction, refused on a docsys/0.5 tree before anything runs
+            if opts.no_report && opts.report_dir.is_some() && era.journal_from_history() {
+                eprintln!("adopt: --report-dir names where ADOPTION.md goes, and --no-report writes none — give one");
+                return ExitCode::from(2);
+            }
             let ci = match docsys::workflow::Ci::from_flags(
                 opts.ci_runner.as_deref(),
                 opts.ci_install.as_deref(),
@@ -857,6 +863,7 @@ fn main() -> ExitCode {
                             match docsys::rules::write_agents_block_with(
                                 target,
                                 &docsys::migrate::generated_preamble(&opts.root),
+                                docsys::era::Era::at(&opts.root).journal_from_history(),
                             ) {
                                 Ok(_) => {
                                     println!(
@@ -1862,7 +1869,13 @@ next: review, `git add -A && git commit`, then open an agent session here."
         ("agents", None) if opts.report => {
             // --report: mechanical inventory of the existing layer (D-026).
             println!("existing agent layer under {}:", opts.dir.display());
-            for line in docsys::agents::adoption_report(&opts.dir) {
+            let repo = opts
+                .dir
+                .parent()
+                .filter(|p| !p.as_os_str().is_empty())
+                .unwrap_or(std::path::Path::new("."));
+            let exact = docsys::era::Era::at(&repo.join(agents_root(&opts))).journal_from_history();
+            for line in docsys::agents::adoption_report(&opts.dir, exact) {
                 println!("  {line}");
             }
             println!("\ndelegation is judgment: keep the owner's prose, repoint the");
