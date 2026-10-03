@@ -1113,8 +1113,10 @@ fn records(ctx: &Ctx, u: &mut Upgrade, apply: bool) -> Result<(), String> {
         if !apply {
             continue;
         }
-        let Some(mut text) = crate::fm::without_fields(&page.text, &RECORD_FIELDS) else {
-            continue;
+        let mut text = match crate::fm::without_fields(&page.text, &RECORD_FIELDS) {
+            Some(Ok(t)) => t,
+            Some(Err(e)) => return Err(format!("{file}: {e}")),
+            None => continue,
         };
         if !fm.fields.contains_key("sources") {
             if let Some(at) = text.find("\n---\n") {

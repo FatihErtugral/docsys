@@ -219,3 +219,38 @@ fn an_empty_domains_list_with_a_comment_is_empty() {
     let tree = docsys::tree::DocTree::load(&base).unwrap();
     assert_eq!(tree.docmeta_list("domains"), ["ops"]);
 }
+
+/// A list that never closes with `]` is malformed input, and a writer that
+/// replaces a field by the lines the reader joined to it would lose the
+/// fields the open list swallowed: each writer refuses, naming the field and
+/// its line, and writes nothing.
+#[test]
+fn an_unclosed_list_is_refused_and_nothing_is_written() {
+    // `consume add`
+    let repo = adopted("unclosed-consume", |t| {
+        format!("{t}consume: [billing,\nmanifest_url: https://example.invalid/m\n")
+    });
+    let meta = repo.join("docs/.docmeta.yml");
+    let before = fs::read(&meta).unwrap();
+    let provider = tmp("unclosed-provider");
+    docsys::migrate::init_profile(&provider.join("docs"), "en", "project").unwrap();
+    let done = docsys::consume::add(
+        &repo.join("docs"),
+        &provider.to_string_lossy(),
+        Some("auth"),
+    );
+    let err = done.expect_err("an unclosed list is refused");
+    assert!(err.contains("`consume`") && err.contains("line"), "{err}");
+    assert_eq!(fs::read(&meta).unwrap(), before);
+    // the assistant's domains
+    let base = tmp("unclosed-domains").join("base");
+    docsys::migrate::init_profile(&base, "en", "knowledge-base").unwrap();
+    let bmeta = base.join(".docmeta.yml");
+    let text = fs::read_to_string(&bmeta).unwrap();
+    let text = text.replace("domains: []", "domains: [ops,");
+    fs::write(&bmeta, &text).unwrap();
+    let done = docsys::assistant::run(&base, &[], &["ops".into()], "30.days", None);
+    let err = done.expect_err("an unclosed list is refused");
+    assert!(err.contains("`domains`") && err.contains("line"), "{err}");
+    assert_eq!(fs::read_to_string(&bmeta).unwrap(), text);
+}

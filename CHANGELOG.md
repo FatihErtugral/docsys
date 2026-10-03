@@ -198,8 +198,11 @@ declares `spec: docsys/0.5`; a tree that declares `docsys/0.4` is served as
   own directory, `migrate apply` from below lints the tree it migrated, and
   `doctor` names a missing agent layer and its relays from the top (D-098).
 - An upgrade commit holds the move's files and no other: a change staged
-  beside a pending move is refused by name, and a path git ignores stays out
-  (R-177).
+  beside a pending move is refused by name, `--force` commits the whole
+  recorded move without it, and a path git ignores stays out (R-177).
+- A list that never closes with `]` is named by its field and line, never
+  takes the next field's line as an item, and every writer that would
+  replace a field refuses on it and writes nothing (D-002).
 - `debt add` never writes over a topic file it cannot read, and `debt close`
   closes an item in a file with CRLF line endings.
 - A shell pin's region keeps `$#`, `${#a[@]}` and `v1#x` as code: only a `#`

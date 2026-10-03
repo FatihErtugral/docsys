@@ -1656,8 +1656,22 @@ fn an_upgrade_commit_holds_the_moves_files_and_no_other() {
     assert_eq!(git(&repo, &["rev-parse", "HEAD"]), head);
     let out = docsys(&repo, &["upgrade", "--apply", "--commit", "--force"]);
     assert!(out.status.success(), "{out:?}");
+    assert_ne!(
+        git(&repo, &["rev-parse", "HEAD"]),
+        head,
+        "the move is committed"
+    );
     let moved = git(&repo, &["show", "--name-only", "--format=", "HEAD"]);
+    assert!(
+        moved.contains("docs/.docmeta.yml"),
+        "the whole move: {moved}"
+    );
     assert!(!moved.contains("other.rs"), "{moved}");
+    assert_eq!(
+        git(&repo, &["status", "--porcelain", "--untracked-files=no"]),
+        "A  other.rs",
+        "nothing of the move is left behind"
+    );
     assert!(
         git(&repo, &["diff", "--cached", "--name-only"]).contains("other.rs"),
         "the person's file stays staged"

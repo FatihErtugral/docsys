@@ -279,13 +279,14 @@ fn dest_id(root: &Path, dest: &str) -> Result<String, String> {
 
 /// Update the source frontmatter: add `graduated_to` entries (R-091). The
 /// field may sit on an `active` file — partial graduation is legal.
-fn add_graduated_to(text: &str, ids: &[String]) -> String {
+fn add_graduated_to(text: &str, ids: &[String]) -> Result<String, String> {
     if ids.is_empty() {
-        return text.to_string();
+        return Ok(text.to_string());
     }
     let Some(parsed) = fm::parse(text).filter(|f| f.body_start > 0) else {
-        return text.to_string();
+        return Ok(text.to_string());
     };
+    fm::refuse_unclosed(&parsed)?;
     let mut items: Vec<String> = parsed
         .fields
         .get("graduated_to")
@@ -317,7 +318,7 @@ fn add_graduated_to(text: &str, ids: &[String]) -> String {
     if text.ends_with('\n') {
         out.push('\n');
     }
-    out
+    Ok(out)
 }
 
 /// R-093's question, asked mechanically before graduation removes the file
@@ -549,7 +550,7 @@ fn run(
     if text.ends_with('\n') && !new_source.ends_with('\n') {
         new_source.push('\n');
     }
-    new_source = add_graduated_to(&new_source, &new_ids);
+    new_source = add_graduated_to(&new_source, &new_ids)?;
 
     if let (Some(who), Some(tree)) = (confirmed, &tree) {
         let source = tree
@@ -669,14 +670,14 @@ mod tests {
     fn graduated_to_is_added_or_merged_inside_the_frontmatter() {
         let ids = vec!["ref-a".to_string(), "ref-b".to_string()];
         assert_eq!(
-            add_graduated_to("no frontmatter\n", &ids),
+            add_graduated_to("no frontmatter\n", &ids).unwrap(),
             "no frontmatter\n"
         );
         assert_eq!(
-            add_graduated_to("---\nid: x\n---\nbody\n", &[]),
+            add_graduated_to("---\nid: x\n---\nbody\n", &[]).unwrap(),
             "---\nid: x\n---\nbody\n"
         );
-        let added = add_graduated_to("---\nid: x\n---\nbody\n", &ids);
+        let added = add_graduated_to("---\nid: x\n---\nbody\n", &ids).unwrap();
         let close = added.lines().skip(1).position(|l| l == "---").unwrap() + 1;
         let fm: Vec<&str> = added.lines().take(close).collect();
         let line = fm
@@ -685,7 +686,7 @@ mod tests {
             .expect("added inside the block");
         assert!(line.contains("ref-a") && line.contains("ref-b"), "{line}");
         assert!(added.ends_with("body\n"));
-        let merged = add_graduated_to(&added, &["ref-c".to_string()]);
+        let merged = add_graduated_to(&added, &["ref-c".to_string()]).unwrap();
         let line = merged
             .lines()
             .find(|l| l.starts_with("graduated_to:"))
@@ -695,9 +696,16 @@ mod tests {
     }
 
     #[test]
+    fn graduated_to_refuses_an_unclosed_list_and_writes_nothing() {
+        let open = "---\nid: x\ngraduated_to: [ref-a,\nstatus: done\n---\nbody\n";
+        let err = add_graduated_to(open, &["ref-b".to_string()]).unwrap_err();
+        assert!(err.contains("`graduated_to` on line 3"), "{err}");
+    }
+
+    #[test]
     fn graduated_to_merges_the_value_the_parser_reads() {
         let block = "---\nid: x\ngraduated_to:\n  - ref-a   # the first\nstatus: done\n---\nbody\n";
-        let merged = add_graduated_to(block, &["ref-b".to_string()]);
+        let merged = add_graduated_to(block, &["ref-b".to_string()]).unwrap();
         assert_eq!(
             merged,
             "---\nid: x\ngraduated_to: [ref-a, ref-b]\nstatus: done\n---\nbody\n"
@@ -705,7 +713,8 @@ mod tests {
         let commented = add_graduated_to(
             "---\nid: x\ngraduated_to: [ref-a]  # so far\n---\n",
             &["ref-a".to_string()],
-        );
+        )
+        .unwrap();
         assert_eq!(commented, "---\nid: x\ngraduated_to: [ref-a]\n---\n");
     }
 }

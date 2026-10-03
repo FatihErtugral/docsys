@@ -686,13 +686,15 @@ fn main() -> ExitCode {
                         .any(|r| f == r || f.starts_with(&format!("{}/", r.trim_end_matches('/'))))
                 })
                 .collect();
-            let pending =
-                dirty && message_path.is_file() && files_path.is_file() && outside.is_empty();
+            // a recorded move stays the move's, `--force` or not: what lies
+            // outside it decides only the refusal, and the commit takes the
+            // move's paths alone
+            let pending = dirty && message_path.is_file() && files_path.is_file();
             if !dirty {
                 let _ = std::fs::remove_file(&message_path);
                 let _ = std::fs::remove_file(&files_path);
             }
-            if opts.apply && !opts.force && dirty && !pending {
+            if opts.apply && !opts.force && dirty && !(pending && outside.is_empty()) {
                 let named = if recorded.is_empty() || outside.is_empty() {
                     "uncommitted changes".to_string()
                 } else {

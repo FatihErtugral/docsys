@@ -58,6 +58,21 @@ pub struct Frontmatter {
     /// joined to it — a block list's items, a reflowed list — as 0-based line
     /// indexes of the parsed text.
     pub spans: BTreeMap<String, std::ops::Range<usize>>,
+    /// an inline list that never closes with `]`: its field and its 1-based
+    /// line — every line after it was read into it
+    pub unclosed: Option<(String, usize)>,
+}
+
+/// A writer that replaces a field by the lines the reader joined to it would
+/// lose what an unclosed list swallowed: it refuses, naming the list, and
+/// writes nothing.
+pub fn refuse_unclosed(fm: &Frontmatter) -> Result<(), String> {
+    match &fm.unclosed {
+        Some((key, line)) => Err(format!(
+            "`{key}` on line {line} opens a list that never closes with `]` — nothing is written; close the list first"
+        )),
+        None => Ok(()),
+    }
 }
 
 /// The text with the frontmatter's one-line `key:` removed; `None` when the
@@ -79,19 +94,21 @@ pub fn without_scalar(text: &str, key: &str) -> Option<String> {
 
 /// The text with the frontmatter's `keys` removed, each with the lines the
 /// parser joins to it; `None` when none is there. The body is never touched.
-pub fn without_fields(text: &str, keys: &[&str]) -> Option<String> {
+pub fn without_fields(text: &str, keys: &[&str]) -> Option<Result<String, String>> {
     let fm = parse(text)?;
+    if let Err(e) = refuse_unclosed(&fm) {
+        return Some(Err(e));
+    }
     let gone: Vec<&std::ops::Range<usize>> = keys.iter().filter_map(|k| fm.spans.get(*k)).collect();
     if gone.is_empty() {
         return None;
     }
-    Some(
-        text.split_inclusive('\n')
-            .enumerate()
-            .filter(|(i, _)| !gone.iter().any(|r| r.contains(i)))
-            .map(|(_, l)| l)
-            .collect(),
-    )
+    Some(Ok(text
+        .split_inclusive('\n')
+        .enumerate()
+        .filter(|(i, _)| !gone.iter().any(|r| r.contains(i)))
+        .map(|(_, l)| l)
+        .collect()))
 }
 
 /// The fields of a file in the registered subset that has no fences —
@@ -109,6 +126,9 @@ pub fn parse_fields(text: &str) -> Frontmatter {
     let mut fm = parse(&framed).unwrap_or_default();
     for r in fm.spans.values_mut() {
         *r = r.start.saturating_sub(1)..r.end.saturating_sub(1);
+    }
+    if let Some((_, line)) = fm.unclosed.as_mut() {
+        *line = line.saturating_sub(1);
     }
     fm
 }
@@ -184,7 +204,7 @@ pub fn parse(text: &str) -> Option<Frontmatter> {
     // A formatter (prettier and friends) reflows a long `key: [a, b, c]` across
     // several lines; the value is the same value, so the parser follows it to
     // the closing bracket instead of reading indented continuations as nesting.
-    let mut open_list: Option<(String, String)> = None;
+    let mut open_list: Option<(String, String, usize)> = None;
     let join = |fm: &mut Frontmatter, key: &str, idx: usize| {
         if let Some(r) = fm.spans.get_mut(key) {
             r.end = idx + 1;
@@ -194,6 +214,7 @@ pub fn parse(text: &str) -> Option<Frontmatter> {
     for (idx, line) in lines {
         if line == "---" {
             fm.body_start = idx + 1;
+            note_unclosed(&mut fm, open_list.as_ref());
             return Some(fm);
         }
         if line.trim().is_empty() {
@@ -205,21 +226,32 @@ pub fn parse(text: &str) -> Option<Frontmatter> {
         if line.trim_start().starts_with('#') {
             continue;
         }
-        if let Some((key, mut acc)) = open_list.take() {
-            join(&mut fm, &key, idx);
-            acc.push(' ');
-            acc.push_str(line.trim());
-            if acc.contains(']') {
-                if let Some(items) = parse_inline_list(uncommented(acc.trim())) {
-                    fm.fields.insert(key, Value::List(items));
-                } else {
-                    fm.problems
-                        .push(format!("line {}: unreadable inline list", idx + 1));
-                }
+        if let Some((key, mut acc, at)) = open_list.take() {
+            // a field's own `key: value` line at the margin is never an item:
+            // the list above it never closed, and the line is read as itself
+            let next_field = !line.starts_with(' ')
+                && !line.starts_with('\t')
+                && line
+                    .split_once(':')
+                    .is_some_and(|(k, v)| is_key(k.trim()) && (v.is_empty() || v.starts_with(' ')));
+            if next_field {
+                note_unclosed(&mut fm, Some(&(key, acc, at)));
             } else {
-                open_list = Some((key, acc));
+                join(&mut fm, &key, idx);
+                acc.push(' ');
+                acc.push_str(line.trim());
+                if acc.contains(']') {
+                    if let Some(items) = parse_inline_list(uncommented(acc.trim())) {
+                        fm.fields.insert(key, Value::List(items));
+                    } else {
+                        fm.problems
+                            .push(format!("line {}: unreadable inline list", idx + 1));
+                    }
+                } else {
+                    open_list = Some((key, acc, at));
+                }
+                continue;
             }
-            continue;
         }
         // Block-list item for the key on the previous line?
         if let Some(key) = pending_list_key.clone() {
@@ -233,7 +265,7 @@ pub fn parse(text: &str) -> Option<Frontmatter> {
                         fm.fields.insert(key, Value::List(items));
                     }
                 } else {
-                    open_list = Some((key, acc));
+                    open_list = Some((key, acc, idx));
                 }
                 continue;
             }
@@ -321,16 +353,29 @@ pub fn parse(text: &str) -> Option<Frontmatter> {
         } else if let Some(items) = parse_inline_list(rest) {
             fm.fields.insert(key.to_string(), Value::List(items));
         } else if rest.starts_with('[') && !rest.contains(']') {
-            open_list = Some((key.to_string(), rest.to_string()));
+            open_list = Some((key.to_string(), rest.to_string(), idx));
         } else {
             fm.fields
                 .insert(key.to_string(), Value::Str(strip_quotes(rest)));
         }
     }
 
+    note_unclosed(&mut fm, open_list.as_ref());
     fm.problems
         .push("frontmatter never closed with `---`".to_string());
     Some(fm)
+}
+
+/// An inline list still open where the block ends: a problem, and the
+/// field writers refuse on it.
+fn note_unclosed(fm: &mut Frontmatter, open: Option<&(String, String, usize)>) {
+    if let Some((key, _, at)) = open {
+        fm.problems.push(format!(
+            "line {}: the inline list `{key}` never closes with `]`",
+            at + 1
+        ));
+        fm.unclosed = Some((key.clone(), at + 1));
+    }
 }
 
 #[cfg(test)]
@@ -422,13 +467,11 @@ mod tests_more {
                 text,
                 &["verification", "verified_blocks", "verified_sources"]
             )
+            .and_then(Result::ok)
             .as_deref(),
             Some("---\nid: a\nsources: [x]\n---\nverified_by: in the body\n")
         );
-        assert_eq!(
-            super::without_fields("---\nid: a\n---\n", &["verification"]),
-            None
-        );
+        assert!(super::without_fields("---\nid: a\n---\n", &["verification"]).is_none());
     }
 
     #[test]
@@ -560,9 +603,27 @@ mod tests_more {
                 "---\nverified_blocks:\n[aa, bb]\nid: a\n---\n",
                 &["verified_blocks"]
             )
+            .and_then(Result::ok)
             .as_deref(),
             Some("---\nid: a\n---\n")
         );
+    }
+
+    #[test]
+    fn an_unclosed_list_is_a_problem_named_by_its_field_and_line() {
+        let f = fm("---\nid: a\nconsume: [a,\nother: x\n---\n");
+        assert!(
+            f.problems.iter().any(|p| p.contains("line 3")
+                && p.contains("`consume`")
+                && p.contains("never closes")),
+            "{:?}",
+            f.problems
+        );
+        let d = parse_fields("domains: [ops,\nmaintainers: [x]\n");
+        assert_eq!(d.unclosed, Some(("domains".to_string(), 1)));
+        assert!(refuse_unclosed(&d)
+            .unwrap_err()
+            .contains("`domains` on line 1"));
     }
 
     #[test]

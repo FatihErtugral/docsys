@@ -76,15 +76,16 @@ fn consumed(tree: &DocTree) -> Vec<String> {
 
 /// `.docmeta.yml` with one more `consume:` entry, whatever shape the list
 /// has (inline, block, absent).
-fn with_entry(text: &str, entry: &str) -> String {
+fn with_entry(text: &str, entry: &str) -> Result<String, String> {
     let parsed = crate::fm::parse_fields(text);
+    crate::fm::refuse_unclosed(&parsed)?;
     let Some(span) = parsed.spans.get("consume").cloned() else {
         let mut out = text.to_string();
         if !out.is_empty() && !out.ends_with('\n') {
             out.push('\n');
         }
         out.push_str(&format!("consume: [{entry}]\n"));
-        return out;
+        return Ok(out);
     };
     let lines: Vec<&str> = text.lines().collect();
     let block = lines.get(span.start + 1..span.end).is_some_and(|rest| {
@@ -116,7 +117,7 @@ fn with_entry(text: &str, entry: &str) -> String {
     }
     let mut joined = out.join("\n");
     joined.push('\n');
-    joined
+    Ok(joined)
 }
 
 /// `docsys consume add <path|git-url>[#subdir] [--as <ns>]`.
@@ -190,7 +191,8 @@ pub fn add(root: &Path, target: &str, as_ns: Option<&str>) -> Result<String, Str
     };
     let dm = root.join(".docmeta.yml");
     let text = fs::read_to_string(&dm).map_err(|e| e.to_string())?;
-    fs::write(&dm, with_entry(&text, &entry)).map_err(|e| e.to_string())?;
+    let new = with_entry(&text, &entry).map_err(|e| format!(".docmeta.yml: {e}"))?;
+    fs::write(&dm, new).map_err(|e| e.to_string())?;
     Ok(format!(
         "consume: {ns} ({note}) → {location}; now `docsys fetch --root {}`",
         root.display()
@@ -256,16 +258,16 @@ mod tests {
     #[test]
     fn an_entry_lands_in_any_list_shape() {
         assert_eq!(
-            with_entry("spec: docsys/0.4\n", "a=/p#docs"),
+            with_entry("spec: docsys/0.4\n", "a=/p#docs").unwrap(),
             "spec: docsys/0.4\nconsume: [a=/p#docs]\n"
         );
-        assert_eq!(with_entry("consume: []\n", "a"), "consume: [a]\n");
+        assert_eq!(with_entry("consume: []\n", "a").unwrap(), "consume: [a]\n");
         assert_eq!(
-            with_entry("consume: [a, b]\nx: y\n", "c"),
+            with_entry("consume: [a, b]\nx: y\n", "c").unwrap(),
             "consume: [a, b, c]\nx: y\n"
         );
         assert_eq!(
-            with_entry("consume:\n  - a\n  - b\nx: y\n", "c"),
+            with_entry("consume:\n  - a\n  - b\nx: y\n", "c").unwrap(),
             "consume:\n  - a\n  - b\n  - c\nx: y\n"
         );
     }
@@ -273,11 +275,11 @@ mod tests {
     #[test]
     fn an_entry_joins_the_list_the_parser_reads() {
         assert_eq!(
-            with_entry("consume: [a]   # the providers\nx: y\n", "c"),
+            with_entry("consume: [a]   # the providers\nx: y\n", "c").unwrap(),
             "consume: [a, c]\nx: y\n"
         );
         assert_eq!(
-            with_entry("consume: [a,\n  b]\nx: y\n", "c"),
+            with_entry("consume: [a,\n  b]\nx: y\n", "c").unwrap(),
             "consume: [a, b, c]\nx: y\n"
         );
     }

@@ -21,6 +21,7 @@ fn set_domains(root: &Path, domains: &[String]) -> Result<Option<String>, String
     let dm = root.join(".docmeta.yml");
     let text = fs::read_to_string(&dm).map_err(|e| e.to_string())?;
     let fields = crate::fm::parse_fields(&text);
+    crate::fm::refuse_unclosed(&fields).map_err(|e| format!(".docmeta.yml: {e}"))?;
     let declared = fields
         .fields
         .get("domains")
