@@ -556,7 +556,7 @@ mod tests {
         .unwrap();
         assert_eq!(
             out,
-            "Wire format settled\n\nWire format settled. Details on the page.\n\nDocs: reference/wire\n"
+            "Wire format settled. Details on the page.\n\nDocs: reference/wire\n"
         );
         assert!(!root.join("work/journal.md").exists());
         assert!(journal_add(&root, "x", None, Some("2026-01-01"), None).is_err());
