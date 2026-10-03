@@ -25,6 +25,7 @@ pub mod gate;
 pub mod git;
 pub mod graduate;
 pub mod graph;
+pub mod help;
 pub mod hook;
 pub mod inbox;
 pub mod items;

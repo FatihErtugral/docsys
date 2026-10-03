@@ -40,6 +40,8 @@ declares `spec: docsys/0.5`; a tree that declares `docsys/0.4` is served as
   that version, installed once on first use; the relays, the gate and the CI
   workflow read the pin, and `upgrade` moves it (D-120).
 - `docsys --version`: the binary and the spec it implements (D-099).
+- `docsys --help` says what each command is for; `docsys <command> --help`, or
+  `docsys help <command>`, gives its flags and an example (D-129).
 - `docsys verify --show <page>`: what a re-verification reads, block by block (D-103).
 - `docsys pin … --block <n>`: a pin bound to the block it backs (§21, R-212, D-103).
 - `docsys pin --gc`: removes the pin acknowledgements nothing needs (D-119).

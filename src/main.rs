@@ -2,94 +2,6 @@ use docsys::{migrate, to_json, Outcome};
 use std::path::PathBuf;
 use std::process::ExitCode;
 
-const USAGE: &str = "docsys — keeps a repository's documentation true to its code: typed pages, checked
-by lint, bound to the code they describe (spec: SPEC.md).
-In a repository: `docsys adopt` sets it up — the tree, the agent rules, the hooks and
-the git gate — and lists in ADOPTION.md what is left to do.
-
---root names a tree, `docs` by default: from any directory inside the repository the
-nearest tree above is found, and the repository is the tree's own (D-098). init, adopt
-and assistant create a tree where they are pointed.
-
-Usage:
-  docsys --version                          # the binary, the spec it implements, and the tree's pin
-  docsys upgrade [--apply] [--commit] [--force] [--json] [--root docs] [--dir .claude]
-                                             # move this tree to this docsys: one spec per commit, then its pin; the plan first, --json for an agent (D-117, D-120, D-104)
-  docsys feedback [--draft] [--type bug|false-positive|need] [--rule R-xxx] [--command \"docsys …\"] [--out <file>]
-                                             # docsys is wrong or in your way: the guide, or an issue drafted with the facts filled in — never filed by the tool
-  docsys lint    [--root <dir>] [--repo <dir>] [--json]   # inside a git repository: pins and history too
-  docsys pin     <page> <path> [--symbol <s>] [--repo .] [--root docs]   # pin a page to a code region (verifies:, §11)
-  docsys pin     <page> <path> [--symbol <s>] --block <n> …            # docsys/0.5: the pin backs block n as `verify --show` numbers it (§21, R-212)
-  docsys pin     --refresh <page> [--repo .] [--root docs]              # recompute its pins after re-reading the page
-  docsys pin     --gc [--repo .] [--root docs]                         # docsys/0.5: remove acknowledgements no current pin region matches (D-119)
-  docsys compile <howto> [--root docs] [--dir .claude] [--force]        # a howto's body as an executable skill, pinned to its source hash (R-094, R-095)
-  docsys lookup  <word…> [--root docs] [--json]   # a question's first hop: pages, local and consumed (@ns/id), naming every word
-  docsys consume add <path|git-url>[#subdir] [--as <ns>] [--root docs]   # one provider into this tree's consume: list
-  docsys consume discover <dir> [--root docs]     # the docsys trees one level under a directory, as candidates; writes nothing
-  docsys inbox   add --source <name> --id <item> [--title <t>] [--url <u>] [--date <d>] [<file>|-] [--root <dir>]
-                                             # a connector's record into raw/inbox/, with provenance; the same item lands once
-  docsys inbox   pull <repo> [--since <date>] [--limit <n>] [--as <ns>] [--all] [--root <dir>]
-                                             # the git connector: one record per commit since a date, newest first; --all keeps bookkeeping commits too
-  docsys status  [--root <dir>] [--repo <dir>] [--json]   # the digest: inbox, pages by state, open items, consumed, skills, findings
-  docsys forget  <page-id|page-path|record-path> --reason <text> [--root <dir>]   # a page to _archive/ with a tombstone, a record to raw/_forgotten/; the ledger says why
-  docsys verify  <page> [--by <handle|@login>] [--commit] [--revoke] [--root docs]   # a maintainer's record in one step: who from git identity, rev from HEAD, sources checked; --revoke: back to unverified
-  docsys verify  --show <page> [--root docs]   # docsys/0.5: what a re-verification reads — the blocks numbered, the changed, new and removed ones, stale bound pins, the sources (R-028)
-  docsys verify  --range <a>...<b> (--by @login | --from-trailers) [--commit] [--root docs]   # every page the range touched, under the review approver's identity: a login a host adapter passes, or the Reviewed-by:/Approved-by: trailer in git (D-095); a login on no maintainer entry is a skip, exit 0 (D-105)
-  docsys raw     move <record> <domain> [--root <dir>]   # a note from raw/inbox/ to raw/<domain>/, through git, bytes untouched; every citing page's sources: rewritten (R-027)
-  docsys assistant [--root .] [--projects <dir>]… [--domains a,b] [--since 30.days] [--limit 3]
-                                             # an assistant's memory in one command: base, layer, projects consumed, pages, records, digest
-  docsys init    [--root <dir>] [--lang <code>] [--profile project|knowledge-base]
-  docsys migrate inventory [--root <dir>] [--repo <dir>]   # plan skeleton to stdout
-  docsys migrate apply --plan <file> [--root <dir>] [--lang <code>] [--repo <dir>]
-  docsys refs    --repo <dir> [--root <dir>] [--json]
-  docsys rules   --agents-md | --procedures [--max-lines <n>] [--write <file>]
-  docsys agents  --report [--dir .claude]    # existing layer + its shell calls
-  docsys adopt   [--repo .] [--root docs] [--lang <code>]  # one-command adoption
-  docsys adopt   … [--rules-file <path>] [--report-dir <dir> | --no-report]
-                                             # where the rules block and ADOPTION.md go; by default, where their markers are (D-110)
-  docsys adopt   … [--ci-runner <label>[,<label>…]] [--ci-install cargo | --ci-install release --ci-sha256 <target>=<hex>,…]
-                   [--verify-on-approval pull-request|direct|off]
-                                             # the workflow written when .github/ exists: ubuntu-latest, cargo, a follow-up pull request by default (D-105, D-111)
-  docsys agents  [--dir .claude] [--force]   # install hooks + skills + /docsys-sync, /docsys-seed, /docsys-interview, /docsys-upgrade
-  docsys agents  --kb [--root <base>] [--dir .claude] [--force]  # knowledge-base layer
-  docsys graduate plan <work-file>  [--root <dir>]
-  docsys graduate apply --plan <file> [--confirmed <who>] [--root <dir>] [--force]   # --confirmed: on a docsys/0.5 tree the work file leaves with its last blocks (D-127)
-  docsys export plan    [--root <dir>] [--audience <a>]   # draft product map to stdout
-  docsys export product <map> [--root <dir>] [--out <file>] [--lang <code>] [--audience <a>]
-  docsys export feature <id> [<id>...] [--follow] [--title <t>] [--root <dir>] [--out <file>] [--lang <code>] [--audience <a>]
-  docsys export manifest [--root <dir>] [--out <file>]   # what this namespace exports
-  docsys fetch   [--root <dir>]              # materialize consumed namespaces into .federation/
-  docsys gate    [--repo .] [--root docs] [--range <a>...<b>] [--skipped]   # commit-time question: lint + code-without-docs; --range: a pull request, in CI; under commit_policy: require it refuses, --skipped records a bypass as debt
-  docsys gate    --message <file> [--repo .] [--root docs]   # docsys/0.5, the commit-msg hook: under require, code with no docs needs `Docs: <why>`; a removed item needs its trailer (D-125)
-  docsys doctor  [--repo .] [--root docs] [--dir .claude]   # is the pipeline itself alive?
-  docsys seed    plan [--target <feature>] [--since <date>] [--memory <dir>] [--repo .] [--root docs]
-                                             # brownfield: feature inventory, or one feature's history as evidence
-  docsys seed    gaps [--since <date>] [--repo .] [--root docs]      # the inventory as JSON, for /docsys-interview
-  docsys seed    apply --plan <file> [--repo .] [--root docs] [--force]  # land the approved rows under work/
-  docsys debt    add <debt…> --deferred <reason> --repay-when <trigger> [--topic <id>] [--date <d>] [--root docs]   # work deferred on purpose: one dated item in its topic's file (R-108, D-124)
-  docsys debt    close <n|words> --note <how> [--root docs]   # repaid: the item leaves; the commit carries the `Resolved:` line it prints (D-124)
-  docsys question add <question…> [--topic <id>] [--context <c>] [--date <d>] [--root docs]   # not known: one dated item, never a guess on a page (R-108)
-  docsys question close <n|words> --answer <line> [--root docs]   # answered: the item leaves; the commit carries `Answered:` (D-124)
-  docsys ledger  fix [--root <dir>]          # a ledger's em-dash field markers ( — deferred: ) to R-108's ASCII ( -- ); field text untouched
-  docsys journal [--since <date>] [--root docs]          # the journal, read from history: every commit that changed the docs or carries `Docs:`, newest first, then a 0.4 tree's frozen journal (D-125)
-  docsys journal add <text…> [--title <t>] [--link <path>] [--root docs]   # docsys/0.5: prints the commit message the entry is; docsys/0.4: an entry in work/journal.md
-  docsys page    new <category|type> <id> [--title <t>] [--unverified] [--root docs]   # from _templates/, or a permanent skeleton; --unverified: a page written from evidence, for a maintainer to verify (R-208)
-  docsys backlinks <path|id|code-file> [--repo .] [--root docs]   # pages (and code) pointing at a page; for a code file, the pages that pin it or rest on it
-  docsys mentions [<path|id>] [--root docs]                 # prose naming a page without a link
-  docsys graph   [--format dot|json|jsoncanvas] [--repo .] [--root docs]
-  docsys adopt   --obsidian …                # + .obsidian settings and a stale-work .base view
-  docsys hook    pre-tool-use|stop|post-tool-use|user-prompt-submit [--repo .] [--root docs]
-                                             # agent-hook logic; the installed scripts relay to it
-
-A pinned tree (<root>/.docsys-version) runs its own version, installed once into
-$DOCSYS_HOME (~/.docsys); DOCSYS_NO_AUTO_INSTALL=1 prints the install command instead (D-120).
-
-Exit codes (the contract scripts and CI read):
-  0  ok — clean, or warnings only (warnings inform; they never block)
-  1  blocking findings — the tree violates an error-level rule
-  2  could not evaluate — missing docs root / .docmeta.yml, or bad invocation
-";
-
 struct Opts {
     root: PathBuf,
     json: bool,
@@ -487,11 +399,25 @@ fn main() -> ExitCode {
         Some((c, r)) => (c.as_str(), None, r),
         None => ("", None, &[]),
     };
+    // `docsys <command> [<sub>] --help`: its flags and an example
+    if !matches!(cmd, "--help" | "-h") && rest.iter().any(|a| a == "--help" || a == "-h") {
+        let words: Vec<&str> = std::iter::once(cmd).chain(sub).collect();
+        return match docsys::help::of(&words) {
+            Some(text) => {
+                print!("{text}");
+                ExitCode::SUCCESS
+            }
+            None => {
+                eprint!("{}", docsys::help::overview());
+                ExitCode::from(2)
+            }
+        };
+    }
     let mut opts = match parse_opts(rest) {
         Ok(o) => o,
         Err(e) => {
             eprintln!("{e}");
-            eprint!("{USAGE}");
+            eprint!("{}", docsys::help::overview());
             return ExitCode::from(2);
         }
     };
@@ -575,7 +501,11 @@ fn main() -> ExitCode {
         .unwrap_or_else(|| PathBuf::from("."));
     match (cmd, sub) {
         ("help", _) | ("--help", _) | ("-h", _) => {
-            print!("{USAGE}");
+            let words: Vec<&str> = opts.positional.iter().map(String::as_str).collect();
+            match docsys::help::of(&words) {
+                Some(text) if !words.is_empty() => print!("{text}"),
+                _ => print!("{}", docsys::help::overview()),
+            }
             ExitCode::SUCCESS
         }
         ("--version", _) | ("-V", _) | ("version", _) => {
@@ -2029,7 +1959,7 @@ next: review, `git add -A && git commit`, then open an agent session here."
             }
         }
         _ => {
-            eprint!("{USAGE}");
+            eprint!("{}", docsys::help::overview());
             ExitCode::from(2)
         }
     }
