@@ -35,7 +35,7 @@ pub const COMMANDS: &[Command] = &[
     Command {
         name: "adopt",
         synopsis: "[--repo .] [--root docs] [--lang <code>] [--rules-file <path>] [--report-dir <dir> | --no-report] [--ci-runner <label>,…] [--ci-install cargo|release] [--ci-sha256 <target>=<hex>,…] [--verify-on-approval description|pull-request|direct|off] [--obsidian]",
-        purpose: "a repository starts using docsys: the tree, the agent rules, the hooks and the git gate in one step; ADOPTION.md lists what is left",
+        purpose: "a repository starts using docsys, or a re-run brings its setup up to date",
         flags: &[
             REPO,
             ROOT,
@@ -217,7 +217,7 @@ pub const COMMANDS: &[Command] = &[
     Command {
         name: "debt close",
         synopsis: "<n|words> --note <how> [--root docs]",
-        purpose: "a debt is repaid: the item leaves its file, and the commit carries the `Resolved:` line it prints",
+        purpose: "a debt is repaid: its line goes, and `Resolved:` in the commit records how",
         flags: &[
             ("<n|words>", "the item's number in the list, or words only it holds"),
             ("--note <how>", "how it was repaid"),
@@ -241,7 +241,7 @@ pub const COMMANDS: &[Command] = &[
     Command {
         name: "question close",
         synopsis: "<n|words> --answer <line> [--root docs]",
-        purpose: "a question is answered: the item leaves its file, and the commit carries the `Answered:` line it prints",
+        purpose: "a question is answered: the answer rides the commit as `Answered:`, the line goes",
         flags: &[
             ("<n|words>", "the item's number in the list, or words only it holds"),
             ("--answer <line>", "the answer"),
@@ -514,7 +514,7 @@ pub const COMMANDS: &[Command] = &[
     Command {
         name: "feedback",
         synopsis: "[--draft] [--type bug|false-positive|need] [--rule R-xxx] [--command \"docsys …\"] [--out <file>]",
-        purpose: "docsys is wrong or in your way: the guide, or an issue drafted with the facts filled in; it files nothing",
+        purpose: "a report on docsys itself: the guide, or an issue drafted with the facts filled in; it files nothing",
         flags: &[
             ("--draft", "draft the issue"),
             ("--type bug|false-positive|need", "what kind of report"),
@@ -534,7 +534,7 @@ pub const COMMANDS: &[Command] = &[
     Command {
         name: "help",
         synopsis: "[<command> [<subcommand>]]",
-        purpose: "this list; with a command, its flags and an example (also `docsys <command> --help`)",
+        purpose: "this list; with a command, its flags and an example",
         flags: &[("<command>", "the command to explain")],
         example: "docsys help graduate apply",
     },

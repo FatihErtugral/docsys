@@ -198,13 +198,10 @@ pub fn agents_md() -> String {
         out.push_str(&procedure_head(id).unwrap_or_default());
     }
     out.push_str(
-        "- not known → `docsys question add <question> --topic <page-id>` (R-108),\n\
-           never a guess left on a page\n\
+        "- not known → `docsys question add` (R-108), never a guess left on a page\n\
          - agent memory is a question for the person, never a source (D-062)\n\
-         - work deferred on purpose → `docsys debt add <debt> --topic <page-id>\n\
-           --deferred <reason> --repay-when <trigger>`; once repaid, `docsys debt close\n\
-           <n|words> --note <how>`, and the commit carries the `Resolved:` line it\n\
-           prints (R-108)\n",
+         - work deferred on purpose → `docsys debt add`; once repaid, `docsys debt\n\
+           close` (R-108) — `docsys <command> --help` gives each one's flags\n",
     );
     out.push_str("\nWhen you verify:\n");
     out.push_str(&procedure_head(VERIFY).unwrap_or_default());
@@ -382,14 +379,13 @@ mod tests_teach {
                 .trim();
             assert!(block.contains(question), "{id}: `{question}` missing");
         }
+        // the block routes the intent to the command; its flags are help's (D-129)
+        assert!(block.contains("`docsys question add`"), "{block}");
         assert!(
-            block.contains("`docsys question add <question> --topic <page-id>`"),
+            block.contains("`docsys debt add`") && block.contains("`docsys debt\nclose`"),
             "{block}"
         );
-        assert!(
-            block.contains("`docsys debt close\n<n|words> --note <how>`"),
-            "{block}"
-        );
+        assert!(!block.contains("--repay-when"), "{block}");
         assert!(
             !block.contains("debt.md") && !block.contains("questions.md"),
             "{block}"

@@ -67,13 +67,10 @@ When you write a page:
 - P/R-123 — a term that might be translated
   QUESTION : is it on R-123's list?
   OPTIONS  : yes → keep the original form · no → translate freely
-- not known → `docsys question add <question> --topic <page-id>` (R-108),
-never a guess left on a page
+- not known → `docsys question add` (R-108), never a guess left on a page
 - agent memory is a question for the person, never a source (D-062)
-- work deferred on purpose → `docsys debt add <debt> --topic <page-id>
---deferred <reason> --repay-when <trigger>`; once repaid, `docsys debt close
-<n|words> --note <how>`, and the commit carries the `Resolved:` line it
-prints (R-108)
+- work deferred on purpose → `docsys debt add`; once repaid, `docsys debt
+close` (R-108) — `docsys <command> --help` gives each one's flags
 
 When you verify:
 - P/R-025 — verify a knowledge-base page

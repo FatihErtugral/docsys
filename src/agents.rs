@@ -131,11 +131,10 @@ approval gates. Never re-implement what a command does; never skip a gate.
 
 - The work has a type — feature, bug, improvement, research — and a record:
   a work file under `work/<category>/` or, at minimum, a commit message that
-  says why — the journal is history, and a commit that changes no page
-  carries `Docs: <why>` (D-125). Under `commit_policy: require` (D-093) the
-  gate refuses a commit without it and the end of a turn holds until it is
-  written: the session may be gone when the commit lands, so the knowledge
-  is captured while the session is here.
+  says why — the journal is history (D-125). Under `commit_policy: require`
+  (D-093) the gate refuses a commit without it and the end of a turn holds
+  until it is written: the session may be gone when the commit lands, so the
+  knowledge is captured while the session is here.
 - A question about the tree starts with `docsys lookup <words>` — every page,
   local and consumed (`@namespace/id`), naming the words — then the page.
 
@@ -1089,6 +1088,11 @@ reader starts on day one, not the truth.
 Never write prose of your own into the tree beyond that one page. Never
 mark anything done or verified.
 "#;
+
+/// The docsys skill's text, as `agents` installs it.
+pub fn skill_text() -> &'static str {
+    SKILL_MD
+}
 
 /// Rounds of the seeding interview across features — resumable, evidence
 /// first, never a question git already answers.

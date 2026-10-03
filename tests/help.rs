@@ -213,3 +213,51 @@ fn a_group_alone_lists_its_sub_commands() {
     let (ok, text) = run(&["help", "journal"]);
     assert!(ok && text.contains("docsys journal add "), "{text}");
 }
+
+/// The six-word phrases of a text, its words lowercased and stripped of
+/// punctuation.
+fn phrases(text: &str) -> Vec<String> {
+    let words: Vec<String> = text
+        .split_whitespace()
+        .map(|w| {
+            w.chars()
+                .filter(|c| c.is_alphanumeric() || *c == '-')
+                .collect::<String>()
+                .to_lowercase()
+        })
+        .filter(|w| !w.is_empty())
+        .collect();
+    words.windows(6).map(|w| w.join(" ")).collect()
+}
+
+/// Each thing is said once (D-114, D-129): `--help` repeats no phrase of its
+/// own, and shares none with the always-loaded rules block — the block routes
+/// an intent to a command, help explains the command.
+#[test]
+fn help_says_each_thing_once_and_none_the_block_says() {
+    let (ok, overview) = run(&["--help"]);
+    assert!(ok);
+    let mut seen = std::collections::BTreeSet::new();
+    let twice: Vec<String> = phrases(&overview)
+        .into_iter()
+        .filter(|p| !seen.insert(p.clone()))
+        .collect();
+    assert!(twice.is_empty(), "--help says twice: {twice:?}");
+    let (ok, block) = run(&["rules", "--agents-md"]);
+    assert!(ok);
+    let block: BTreeSet<String> = phrases(&block).into_iter().collect();
+    let mut all_help = overview.clone();
+    for c in docsys::help::COMMANDS {
+        all_help.push_str(c.purpose);
+        all_help.push('\n');
+        for (_, what) in c.flags {
+            all_help.push_str(what);
+            all_help.push('\n');
+        }
+    }
+    let shared: BTreeSet<String> = phrases(&all_help)
+        .into_iter()
+        .filter(|p| block.contains(p))
+        .collect();
+    assert!(shared.is_empty(), "help and the block both say: {shared:?}");
+}

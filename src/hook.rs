@@ -431,8 +431,8 @@ const ERA_PHRASES: [(&str, &str); 11] = [
         "idea → journal or roadmap line",
     ),
     (
-        "End of session: the commit message says what and why (≤5 lines, links not\ncontent); one that changes no page carries `Docs: <why>`.",
-        "End of session: journal line (≤5 lines, links not content).",
+        "End of session: the commit message says what and why (≤5 lines, links not\ncontent).",
+        "End of session: journal line (≤5 lines, links not content). Gate: docsys lint.",
     ),
     (
         "→ work file, or `Docs:` in the commit message)",
@@ -443,8 +443,8 @@ const ERA_PHRASES: [(&str, &str); 11] = [
         "record it (a work file or a journal entry linking these files)",
     ),
     (
-        "`sources:`; it is unverified until a maintainer approves it — an\n`Approved-by:` on its pull request, or `docsys verify <page>` in another\nsession; an approval and `confirmed:` name someone in .docmeta.yml",
-        "`verification: unverified` (+ sources); a maintainer verifies it in another\nsession — `verified_by:` and `confirmed:` name someone in .docmeta.yml",
+        "Contract-surface changes update their documentation in the SAME session.\n",
+        "Contract-surface changes update their documentation in the SAME session.\nA permanent page you write from evidence, or change in substance, carries\n`verification: unverified` (+ sources); a maintainer verifies it in another\nsession — `verified_by:` and `confirmed:` name someone in .docmeta.yml\n`maintainers:` (R-208). Nothing you write is the truth yet; say so in the page.\n",
     ),
     (
         "ingest → one wiki page per note (id, type, domain,\nsources),",
@@ -1038,16 +1038,9 @@ work/; existing code with no pages → /docsys-seed <feature>; pages that drifte
 from the code → /docsys-sync.
 
 Contract-surface changes update their documentation in the SAME session.
-A permanent page you write from evidence, or change in substance, carries
-`sources:`; it is unverified until a maintainer approves it — an
-`Approved-by:` on its pull request, or `docsys verify <page>` in another
-session; an approval and `confirmed:` name someone in .docmeta.yml
-`maintainers:` (R-208). Nothing you write is the truth yet; say so in the page.
-Inside docs a page is linked as [[dir/id]] (full path). A page about code pins
-its region (docsys pin); docsys backlinks <code-file> names the pages that
-describe a file. An id is unique across the whole tree, drafts included.
+An id is unique across the whole tree, drafts included.
 End of session: the commit message says what and why (≤5 lines, links not
-content); one that changes no page carries `Docs: <why>`. Gate: docsys lint.
+content).
 Judgment calls follow the procedures: docsys rules --procedures.
 </session-doc-routing>
 ";
@@ -1356,12 +1349,23 @@ mod tests_routing {
         ] {
             assert!(ROUTING.contains(want), "project routing lacks `{want}`");
         }
+        // what the block says (the pin, the link form, `Docs:`, the gate) and
+        // what the skill says (`sources:`, the truth line) are not repeated
         for once in [
             "a symbol, never a large file whole",
             "docsys feedback --draft",
+            "docsys backlinks",
+            "Docs: <why>",
+            "[[dir/id]]",
+            "Gate: docsys lint",
+            "Nothing you write is the truth yet",
         ] {
             assert!(!ROUTING.contains(once), "project routing repeats `{once}`");
         }
+        assert!(
+            !crate::agents::skill_text().contains("Docs: <why>"),
+            "the skill repeats the block's `Docs:` line"
+        );
         // a knowledge base's contract is its owner's file: the routing is the
         // feedback line's one home there
         assert!(KB_ROUTING.contains("docsys feedback --draft"));
@@ -1399,7 +1403,8 @@ mod tests_routing {
         )
         .unwrap();
         assert_eq!(era_text(&root, ROUTING), ROUTING);
-        assert!(ROUTING.contains("`Approved-by:` on its pull request"));
+        // on docsys/0.5 the approval is the skill's to explain (D-114)
+        assert!(crate::agents::skill_text().contains("`Approved-by:` line"));
         assert!(!ROUTING.contains("verified_by"));
         let _ = fs::remove_dir_all(&root);
     }
