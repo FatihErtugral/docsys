@@ -226,9 +226,13 @@ Nothing is committed or recorded that the person did not say yes to.
 5. A relay, skill, command or contract its owner edited (a diff): propose
    one text that keeps the owner's lines and takes the new ones. Apply it on
    their word.
-6. A sha256 value is never invented: ask the person, or point to the
+6. A line of the team's own text that names a retired concept
+   (`retired-concepts`, at `file:line`): propose that line rewritten with the
+   item's replacement, keeping the owner's other words. Apply it on their
+   word; a line they keep stays as it is.
+7. A sha256 value is never invented: ask the person, or point to the
    release page the workflow names.
-7. The follow-ups are their own commit, or a pull request on the person's
+8. The follow-ups are their own commit, or a pull request on the person's
    word, described by the upgrade commit's message (`git log -1 --format=%B`).
 "#;
 

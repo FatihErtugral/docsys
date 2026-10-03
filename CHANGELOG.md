@@ -31,6 +31,11 @@ declares `spec: docsys/0.5`; a tree that declares `docsys/0.4` is served as
 - `/docsys-upgrade` and `docsys upgrade --json`: an agent finishes the items
   the upgrade lists for a person, with the person, and never sets `verified`
   (D-104).
+- `upgrade` lists each line of a team's own instructions, rules, skills and
+  commands that still names a concept the move retires — the journal file, a
+  ledger, `updated:`, a verification field, the post-edit relay — with what
+  replaces it, and edits none of them; `/docsys-upgrade` proposes the rewrite
+  (R-175, D-128).
 - A tree pins the docsys it runs (`.docsys-version`): every command on it runs
   that version, installed once on first use; the relays, the gate and the CI
   workflow read the pin, and `upgrade` moves it (D-120).

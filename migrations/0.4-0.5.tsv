@@ -17,4 +17,5 @@ records	auto	tracked	a verification record that no longer holds taken out; one t
 code-citations	manual	-	a doc: citation 0.15 read mid-comment that 0.5 reads as prose, listed (D-107)
 raw-records	info	-	what a project's raw/ becomes (D-112)
 spec-line	auto	tracked	spec: docsys/0.4 → docsys/0.5, last of the move (D-118)
+retired-concepts	manual	-	agent-facing text docsys did not write (instructions outside the rules block, the repository's own rules, skills and commands, the README) that names a concept this move retires, listed line by line with what replaces it; never edited (migrations/0.4-0.5-retired.tsv)
 pin	auto	tracked	<root>/.docsys-version → this docsys's version, with the last move (D-120)

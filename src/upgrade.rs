@@ -18,6 +18,10 @@ use crate::tree::{DocTree, Kind, Profile};
 /// <TAB> what`. Each step id is one block below.
 pub const STEPS: &str = include_str!("../migrations/0.4-0.5.tsv");
 
+/// The concepts the move retires, as agent-facing text names them:
+/// `concept <TAB> literal <TAB> what replaces it`.
+pub const RETIRED: &str = include_str!("../migrations/0.4-0.5-retired.tsv");
+
 /// Where a release's upgrade note lives: its CHANGELOG section's
 /// `### Upgrading` part, embedded so `upgrade` prints the note it ships with.
 const CHANGELOG: &str = include_str!("../CHANGELOG.md");
@@ -31,6 +35,8 @@ pub struct Migration {
     pub release: &'static str,
     /// the steps as data (R-173)
     pub steps: &'static str,
+    /// the concepts it retires, as data
+    pub retired: &'static str,
     pub apply: fn(&Ctx, &mut Upgrade, bool) -> Result<(), String>,
 }
 
@@ -40,6 +46,7 @@ pub const MIGRATIONS: [Migration; 1] = [Migration {
     to: 5,
     release: "0.16.0",
     steps: STEPS,
+    retired: RETIRED,
     apply: move_0_4_to_0_5,
 }];
 
@@ -332,12 +339,126 @@ pub fn run_with(
     } else {
         common(&ctx, &mut u, apply)?;
     }
+    let retired: Vec<&str> = migrations
+        .iter()
+        .filter(|m| m.to <= u.to)
+        .map(|m| m.retired)
+        .collect();
+    retired_concepts(&ctx, &mut u, &retired);
     if u.last {
         pin_step(&ctx, &mut u, pin.as_deref(), apply)?;
     }
     u.written.sort();
     u.written.dedup();
     Ok(u)
+}
+
+/// The files agent-facing text lives in that docsys does not own: the
+/// instructions files outside the rules block, the repository's own rules,
+/// skills and commands, the README.
+fn instruction_files(ctx: &Ctx) -> Vec<std::path::PathBuf> {
+    fn walk(dir: &Path, out: &mut Vec<std::path::PathBuf>) {
+        let Ok(entries) = fs::read_dir(dir) else {
+            return;
+        };
+        let mut entries: Vec<_> = entries.flatten().map(|e| e.path()).collect();
+        entries.sort();
+        for p in entries {
+            if p.is_dir() {
+                walk(&p, out);
+            } else {
+                out.push(p);
+            }
+        }
+    }
+    let repo = ctx.repo;
+    let mut files: Vec<std::path::PathBuf> = [
+        "CLAUDE.md",
+        "AGENTS.md",
+        ".claude/CLAUDE.md",
+        "README.md",
+        ".cursorrules",
+    ]
+    .iter()
+    .map(|f| repo.join(f))
+    .filter(|p| p.is_file())
+    .collect();
+    for dir in ["rules", "skills", "commands"] {
+        walk(&ctx.claude.join(dir), &mut files);
+    }
+    walk(&repo.join(".cursor/rules"), &mut files);
+    let owned: BTreeSet<String> = [false, true]
+        .into_iter()
+        .flat_map(crate::agents::owned_assets)
+        .map(|(asset, _, _)| rel(repo, &ctx.claude.join(asset)))
+        .collect();
+    let contract = ctx.kb.then(|| rel(repo, &ctx.root.join("AGENTS.md")));
+    files.dedup();
+    files
+        .into_iter()
+        .filter(|p| {
+            let file = rel(repo, p);
+            !owned.contains(&file) && contract.as_ref() != Some(&file)
+        })
+        .collect()
+}
+
+/// retired-concepts: agent-facing text docsys did not write that still names
+/// a concept a move retired — each line listed with what replaces it, for a
+/// person and `/docsys-upgrade`; never edited.
+fn retired_concepts(ctx: &Ctx, u: &mut Upgrade, tables: &[&str]) {
+    let rows: Vec<(String, &str)> = tables
+        .iter()
+        .flat_map(|t| t.lines())
+        .filter(|l| !l.starts_with('#') && !l.trim().is_empty())
+        .filter_map(|l| {
+            let mut f = l.split('\t');
+            let (_concept, literal, replacement) = (f.next()?, f.next()?, f.next()?);
+            Some((literal.to_lowercase(), replacement))
+        })
+        .collect();
+    if rows.is_empty() {
+        return;
+    }
+    let (mut listed, mut more) = (0usize, 0usize);
+    for path in instruction_files(ctx) {
+        let Ok(text) = fs::read_to_string(&path) else {
+            continue;
+        };
+        let file = rel(ctx.repo, &path);
+        let mut in_block = false;
+        for (i, line) in text.lines().enumerate() {
+            if line.contains(crate::rules::BLOCK_BEGIN) {
+                in_block = true;
+            }
+            if in_block {
+                in_block = !line.contains(crate::rules::BLOCK_END);
+                continue;
+            }
+            let lower = line.to_lowercase();
+            for (literal, replacement) in rows.iter().filter(|(l, _)| lower.contains(l.as_str())) {
+                if listed < 50 {
+                    u.item(
+                        "manual",
+                        "retired-concepts",
+                        &format!("{file}:{}", i + 1),
+                        format!("names `{literal}`, which docsys/0.5 retired — {replacement}"),
+                    );
+                    listed += 1;
+                } else {
+                    more += 1;
+                }
+            }
+        }
+    }
+    if more > 0 {
+        u.item(
+            "manual",
+            "retired-concepts",
+            "-",
+            format!("… and {more} more of the same"),
+        );
+    }
 }
 
 /// What the move changes in the findings, before any step writes.

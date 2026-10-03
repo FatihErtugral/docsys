@@ -644,6 +644,7 @@ fn a_tree_two_specs_behind_moves_one_commit_per_spec() {
             to: real.to,
             release: real.release,
             steps: real.steps,
+            retired: real.retired,
             apply: real.apply,
         },
         Migration {
@@ -651,6 +652,7 @@ fn a_tree_two_specs_behind_moves_one_commit_per_spec() {
             to: 6,
             release: "9.9.9",
             steps: "spec-line\tauto\ttracked\t-\n",
+            retired: "",
             apply: to_0_6,
         },
     ];
@@ -1211,6 +1213,81 @@ fn the_journal_moves_as_written_and_its_links_follow() {
         String::from_utf8_lossy(&shown.stdout)
             .contains("<!-- frozen: _archive/journal/journal.md -->"),
         "{shown:?}"
+    );
+    let _ = fs::remove_dir_all(&repo);
+}
+
+/// Agent-facing text docsys did not write that still names a concept the move
+/// retires is listed for a person, line by line, with what replaces it, and
+/// never edited; the rules block and docsys's own assets are docsys's.
+#[test]
+fn text_docsys_did_not_write_is_listed_where_it_names_a_retired_concept() {
+    let (repo, _) = build("retired");
+    let write = |rel: &str, text: &str| {
+        let p = repo.join(rel);
+        fs::create_dir_all(p.parent().unwrap()).unwrap();
+        fs::write(p, text).unwrap();
+    };
+    let claude_md = format!(
+        "# Team\n\n{}\nRecord debt in docs/work/debt.md.\n{}\n\nAfter each task, add a journal line to docs/work/journal.md.\n",
+        docsys::rules::BLOCK_BEGIN,
+        docsys::rules::BLOCK_END
+    );
+    write("CLAUDE.md", &claude_md);
+    write(
+        ".claude/rules/docs.md",
+        "Bump the `updated:` field whenever you edit a page.\n",
+    );
+    write(
+        ".claude/commands/ship.md",
+        "---\ndescription: ship a change\n---\nRecord deferred work in docs/work/debt.md before you push.\n",
+    );
+    git(&repo, &["add", "-A"]);
+    git(
+        &repo,
+        &[
+            "-c",
+            "core.hooksPath=/dev/null",
+            "commit",
+            "-qm",
+            "the team's own text",
+        ],
+    );
+    let out = docsys(&repo, &["upgrade"]);
+    assert!(out.status.success(), "{out:?}");
+    let plan = String::from_utf8_lossy(&out.stdout);
+    let listed: Vec<&str> = plan
+        .lines()
+        .filter(|l| l.contains(" retired-concepts "))
+        .filter(|l| [" CLAUDE.md:", " .claude/"].iter().any(|f| l.contains(f)))
+        .collect();
+    let at = |place: &str, literal: &str| {
+        listed
+            .iter()
+            .any(|l| l.starts_with("manual ") && l.contains(place) && l.contains(literal))
+    };
+    assert!(at(" CLAUDE.md:7 ", "`work/journal`"), "{plan}");
+    assert!(at(" CLAUDE.md:7 ", "`journal line`"), "{plan}");
+    assert!(at(" .claude/rules/docs.md:1 ", "``updated:``"), "{plan}");
+    assert!(
+        at(" .claude/commands/ship.md:4 ", "`work/debt.md`"),
+        "{plan}"
+    );
+    assert!(
+        listed.iter().all(|l| !l.contains(" CLAUDE.md:4 ")),
+        "inside the rules block: {plan}"
+    );
+    assert!(
+        listed.iter().all(|l| !l.contains("docsys-")),
+        "docsys's own assets: {plan}"
+    );
+    assert_eq!(listed.len(), 4, "{plan}");
+    // the move edits none of it
+    let out = docsys(&repo, &["upgrade", "--apply", "--commit"]);
+    assert!(out.status.success(), "{out:?}");
+    assert_eq!(
+        fs::read_to_string(repo.join("CLAUDE.md")).unwrap(),
+        claude_md
     );
     let _ = fs::remove_dir_all(&repo);
 }

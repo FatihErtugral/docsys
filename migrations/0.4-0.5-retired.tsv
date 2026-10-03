@@ -1,0 +1,15 @@
+# Concepts the docsys/0.4 → docsys/0.5 move retires, as agent-facing text names them (R-173).
+# concept <TAB> literal (found case-insensitively in a line) <TAB> what replaces it
+journal-file	work/journal	the journal is history: a commit that changes the docs is an entry, one that changes no page carries `Docs: <why>`, and `docsys journal` reads them (D-125)
+journal-line	journal line	a commit message that says why; one that changes no page carries `Docs: <why>` (D-125)
+journal-entry	journal entry	a commit message that says why; one that changes no page carries `Docs: <why>` (D-125)
+debt-ledger	work/debt.md	`work/debt/<topic>.md`, written by `docsys debt add`; closing removes the line and its commit carries `Resolved:` (D-124)
+questions-ledger	work/questions.md	`work/questions/<topic>.md`, written by `docsys question add`; closing removes the line and its commit carries `Answered:` (D-124)
+open-questions-ledger	wiki/open-questions.md	`wiki/open-questions/<topic>.md`, written by `docsys question add`; closing removes the line and its commit carries `Answered:` (D-124)
+updated-field	`updated:`	a page's date is its last content change in history; nothing writes `updated:` (D-122)
+updated-field	`updated`	a page's date is its last content change in history; nothing writes `updated:` (D-122)
+verification-field	verification: verified	a page is verified when a maintainer's `Approved-by:` follows its last body change; nothing is written into the page (D-126)
+verification-field	verification: unverified	a page written from evidence carries `sources:` and is unverified until a maintainer approves it; nothing is written into the page (D-126)
+verification-field	verified_by	a maintainer's `Approved-by:` on the commit, or `docsys verify <page>` (D-126)
+verification-field	verified_rev	the approval's place in history says which body it read (D-126)
+post-edit-relay	post-edit-updated	no post-edit relay on docsys/0.5: nothing writes a date or a record into a page (D-126)

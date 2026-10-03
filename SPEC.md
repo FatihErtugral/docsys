@@ -1883,7 +1883,11 @@ reviewed, diffed, and tested independently of the implementation that runs it.
 | `manual` | Listed only; never applied automatically |
 
 **R-175** `cmd` · MUST NOT — A change requiring judgment MUST NOT be applied
-automatically. Semantic changes are always `manual`.
+automatically. Semantic changes are always `manual`. Text the tooling did not
+write — a repository's own instructions outside the rules block, its rules,
+skills and commands — is one: where a line names a concept the migration
+retires, the line is listed with what replaces it, and the concepts are the
+migration's data (R-173, D-128).
 
 ### 16.3 Execution
 
