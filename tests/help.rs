@@ -747,3 +747,17 @@ fn a_command_takes_only_its_own_flags() {
     assert!(!dir.join("out.txt").exists() && !dir.join("x.md").exists());
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// Every command that works on a tree takes `--root`: its synopsis names it,
+/// since the flag lines leave `--root` and `--repo` to the closing paragraph
+/// (D-098, D-129). Only the commands with no tree of their own lack it.
+#[test]
+fn every_command_on_a_tree_takes_root() {
+    for c in docsys::help::COMMANDS {
+        if matches!(c.name, "rules" | "feedback" | "version" | "help") {
+            continue;
+        }
+        let flags = docsys::help::flags_of(&[c.name]).unwrap();
+        assert!(flags.contains(&"--root"), "{}: {}", c.name, c.synopsis);
+    }
+}

@@ -138,7 +138,7 @@ pub const COMMANDS: &[Command] = &[
     },
     Command {
         name: "verify",
-        synopsis: "<page> [--by <handle|@login>] [--commit] [--revoke] | --show <page> | --range <a>...<b> (--by @login | --from-trailers) | --approval <@login>",
+        synopsis: "<page> [--by <handle|@login>] [--commit] [--revoke] | --show <page> | --range <a>...<b> (--by @login | --from-trailers) | --approval <@login>  [--root <dir>]",
         purpose: "on docsys/0.5, the approval's own commit — `Verifies:` and `Approved-by:`, nothing in the page",
         flags: &[
             ("<page>", "the page's id or path"),
