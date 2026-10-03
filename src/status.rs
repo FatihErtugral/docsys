@@ -400,7 +400,16 @@ pub fn render(s: &Status, root: &Path) -> String {
         s.skills_compiled,
         s.by_rule.get("R-095").copied().unwrap_or(0)
     ));
-    out.push_str(&format!(
+    // a docsys/0.5 tree writes no `updated:` and keeps no record a body could
+    // outrun: its page reads unverified instead (D-122, D-126)
+    if crate::era::Era::at(root).verification_from_history() {
+        out.push_str(&format!(
+            "freshness: {} stale pin(s), {} untouched draft(s)\n",
+            s.by_rule.get("R-111").copied().unwrap_or(0),
+            s.by_rule.get("R-085").copied().unwrap_or(0),
+        ));
+    } else {
+        out.push_str(&format!(
         "freshness: {} stale pin(s), {} updated behind history, {} untouched draft(s), {} verified page(s) whose body moved\n",
         s.by_rule.get("R-111").copied().unwrap_or(0),
         s.by_rule.get("R-106").copied().unwrap_or(0),
@@ -411,6 +420,7 @@ pub fn render(s: &Status, root: &Path) -> String {
             .unwrap_or(0)
             .saturating_sub(s.sources_moved)
     ));
+    }
     if !s.consumed.is_empty() {
         out.push_str(&format!(
             "sources: {} verified page(s) whose consumed sources moved since verification\n",

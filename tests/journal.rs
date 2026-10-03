@@ -598,3 +598,24 @@ fn a_commit_points_at_each_rule_once() {
     );
     let _ = fs::remove_dir_all(&repo);
 }
+
+/// `status` on a docsys/0.5 tree counts what the tree still has: no counter
+/// of `updated:` lines nothing writes, no verified page "whose body moved" —
+/// such a page reads unverified (D-122, D-126).
+#[test]
+fn status_on_a_0_5_tree_names_no_retired_counter() {
+    let repo = adopted("status-counters", "ask");
+    let out = docsys(&repo, &["status"]);
+    assert!(out.status.success(), "{out:?}");
+    let said = String::from_utf8_lossy(&out.stdout);
+    let line = said
+        .lines()
+        .find(|l| l.starts_with("freshness:"))
+        .unwrap_or_default();
+    assert!(line.contains("stale pin(s)"), "{said}");
+    assert!(
+        !line.contains("updated behind history") && !line.contains("whose body moved"),
+        "{said}"
+    );
+    let _ = fs::remove_dir_all(&repo);
+}
