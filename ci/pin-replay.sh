@@ -25,7 +25,7 @@ OLD=$(cd "$(dirname "$4")" && pwd)/$(basename "$4")
 NEW=$(cd "$(dirname "$5")" && pwd)/$(basename "$5")
 ROOT=${DOCS_ROOT:-docs}
 WORK=$(mktemp -d)
-trap 'git -C "$CLONE" worktree prune; rm -rf "$WORK"' EXIT
+trap 'rm -rf "$WORK"; git -C "$CLONE" worktree prune' EXIT
 
 g() { git -c commit.gpgsign=false -c core.quotePath=false "$@"; }
 

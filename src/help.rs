@@ -109,7 +109,7 @@ pub const COMMANDS: &[Command] = &[
     Command {
         name: "adopt",
         synopsis: "[--repo .] [--root docs] [--lang <code>] [--rules-file <path>] [--report-dir <dir> | --no-report] [--ci-runner <label>,…] [--ci-install cargo|release] [--ci-sha256 <target>=<hex>,…] [--verify-on-approval description|pull-request|direct|off] [--obsidian]",
-        purpose: "a repository starts using docsys, or a re-run brings its setup up to date",
+        purpose: "a repository starts using docsys: the tree, the agent rules, the hooks and the git gate, with ADOPTION.md listing what is left; a re-run brings them up to date",
         flags: &[
             ("--lang <code>", "the language the pages are written in"),
             ("--rules-file <path>", "the file the rules block goes to; by default where its markers are"),
@@ -680,9 +680,8 @@ pub const COMMANDS: &[Command] = &[
 
 const HEAD: &str =
     "docsys — keeps a repository's documentation true to its code: typed pages, checked
-by lint, bound to the code they describe (spec: SPEC.md).
-In a repository: `docsys adopt` sets it up — the tree, the agent rules, the hooks and
-the git gate — and lists in ADOPTION.md what is left.
+by lint, bound to the code they describe (spec: SPEC.md). In a repository, start with
+`docsys adopt`.
 
 ";
 

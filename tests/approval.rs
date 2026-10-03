@@ -795,3 +795,30 @@ fn a_refused_approval_names_the_check_that_refused() {
     assert!(!err.contains("`docsys lint`"), "{err}");
     let _ = fs::remove_dir_all(&repo);
 }
+
+/// A page that names a pin takes part, `sources:` or not: a source it names
+/// or a pin to the code is something its claims are checked against (§3.2,
+/// D-126).
+#[test]
+fn a_pinned_page_takes_part_with_or_without_a_sources_key() {
+    let (repo, root) = project("pinned");
+    fs::write(
+        root.join("reference/pinned.md"),
+        "---\nid: pinned\ntype: reference\nverifies:\n  - path: src/retry.rs\n---\nThis page states the retry entry point; read it before changing it.\n",
+    )
+    .unwrap();
+    let tree = DocTree::load(&root).unwrap();
+    let pinned = tree
+        .pages
+        .iter()
+        .find(|p| p.rel == "reference/pinned.md")
+        .unwrap();
+    assert!(docsys::approval::tracked(&tree, pinned));
+    git(&repo, &["add", "-A"]);
+    git(&repo, &["commit", "-qm", "a pinned page"]);
+    let out = docsys(&repo, &["verify", "--show", "reference/pinned"]);
+    let text = String::from_utf8_lossy(&out.stdout);
+    assert!(!text.contains("takes no part"), "{text}");
+    assert!(!text.contains("no pin"), "{text}");
+    let _ = fs::remove_dir_all(&repo);
+}

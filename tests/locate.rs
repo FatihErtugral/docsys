@@ -649,13 +649,33 @@ fn the_agent_layer_is_written_and_named_from_the_top() {
 fn agents_for_a_knowledge_base_refuses_a_project_tree() {
     let repo = project("kb-on-project");
     let deep = repo.join("apps/x/src");
+    let gate = fs::read(repo.join(".git/hooks/pre-commit")).unwrap();
+    let settings = fs::read(repo.join(".claude/settings.json")).unwrap();
     for dir in [&repo, &deep] {
-        let (code, out) = docsys_all(dir, &["agents", "--kb"]);
-        assert_eq!(code, 2, "{out}");
-        assert!(out.contains("project"), "{out}");
+        for args in [
+            &["agents", "--kb"][..],
+            &["agents", "--kb", "--root", "."],
+            &["agents", "--kb", "--root", "docs"],
+            &["agents", "--kb", "--dir", ".claude", "--force"],
+        ] {
+            let (code, out) = docsys_all(dir, args);
+            assert_eq!(code, 2, "{args:?}: {out}");
+        }
     }
     assert!(!repo.join("docs/AGENTS.md").exists());
+    assert!(
+        !repo.join("AGENTS.md").exists()
+            || fs::read_to_string(repo.join("AGENTS.md"))
+                .unwrap()
+                .contains("docsys:rules:begin")
+    );
     assert!(!repo.join(".claude/skills/kb-capture").exists());
+    assert!(!repo.join(".claude/hooks/post-edit-updated.sh").exists());
+    assert_eq!(fs::read(repo.join(".git/hooks/pre-commit")).unwrap(), gate);
+    assert_eq!(
+        fs::read(repo.join(".claude/settings.json")).unwrap(),
+        settings
+    );
     let _ = fs::remove_dir_all(&repo);
 }
 
@@ -690,5 +710,135 @@ fn a_migration_root_is_named_from_the_top_everywhere() {
     );
     assert_eq!(code, 2, "{out}");
     assert!(out.contains("`nope`"), "{out}");
+    let _ = fs::remove_dir_all(&repo);
+}
+
+/// `migrate inventory --repo .` from the tree's own directory names the same
+/// inbound references it names from the top (D-098).
+#[test]
+fn a_migration_inventory_names_its_inbound_references_from_the_trees_own_root() {
+    let repo = project("migrate-inbound-root");
+    let args = ["migrate", "inventory", "--repo", "."];
+    let top = docsys_all(&repo, &args);
+    assert_eq!(top.0, 0, "{}", top.1);
+    assert!(top.1.contains("# inbound: "), "{}", top.1);
+    for dir in ["docs", "docs/reference"] {
+        assert_eq!(docsys_all(&repo.join(dir), &args), top, "{dir}");
+    }
+    let _ = fs::remove_dir_all(&repo);
+}
+
+/// `doctor` names a missing agent layer from the top, wherever it runs.
+#[test]
+fn doctor_names_a_missing_layer_from_the_top() {
+    let repo = project("doctor-no-layer");
+    fs::remove_dir_all(repo.join(".claude")).unwrap();
+    let top = docsys_all(&repo, &["doctor"]);
+    assert!(top.1.contains("FAIL .claude/settings.json"), "{}", top.1);
+    for dir in ["apps/x/src", "docs"] {
+        assert_eq!(docsys_all(&repo.join(dir), &["doctor"]), top, "{dir}");
+    }
+    let _ = fs::remove_dir_all(&repo);
+}
+
+/// `migrate apply` from a subdirectory lints the tree it migrated (D-098).
+#[test]
+fn a_migration_applied_from_below_lints_the_tree_it_wrote() {
+    let repo = tmp("migrate-apply-below");
+    ok(&repo, &["init", "-q"]);
+    fs::create_dir_all(repo.join("notes")).unwrap();
+    fs::create_dir_all(repo.join("src")).unwrap();
+    fs::write(
+        repo.join("notes/setup.md"),
+        "# Setup\n\nThis page says how to set it up.\n",
+    )
+    .unwrap();
+    fs::write(repo.join("plan.tsv"), "setup.md\thowto\n").unwrap();
+    let (code, out) = docsys_all(
+        &repo.join("src"),
+        &[
+            "migrate",
+            "apply",
+            "--plan",
+            "../plan.tsv",
+            "--root",
+            "notes",
+        ],
+    );
+    assert!(repo.join("notes/howto/setup.md").is_file(), "{out}");
+    assert!(!repo.join("src/notes").exists(), "{out}");
+    assert!(!out.contains("no .docmeta.yml"), "{out}");
+    assert_ne!(code, 2, "{out}");
+    let _ = fs::remove_dir_all(&repo);
+}
+
+/// An assistant's base made inside a project's repository shares its history
+/// and leaves the project's gate and wires as they are — as 0.15.1 left them:
+/// the project's next commit still runs its own gate.
+#[test]
+fn an_assistants_base_inside_a_project_leaves_the_projects_gate() {
+    let repo = project("assistant-inside");
+    let hooks: Vec<(String, Vec<u8>)> = ["pre-commit", "commit-msg"]
+        .iter()
+        .map(|h| {
+            (
+                h.to_string(),
+                fs::read(repo.join(".git/hooks").join(h)).unwrap_or_default(),
+            )
+        })
+        .collect();
+    let settings = fs::read(repo.join(".claude/settings.json")).unwrap();
+    let (code, out) = docsys_all(&repo, &["assistant", "--root", "asst"]);
+    assert_eq!(code, 0, "{out}");
+    for (h, before) in &hooks {
+        assert_eq!(
+            &fs::read(repo.join(".git/hooks").join(h)).unwrap_or_default(),
+            before,
+            "{h}: {out}"
+        );
+    }
+    assert_eq!(
+        fs::read(repo.join(".claude/settings.json")).unwrap(),
+        settings,
+        "{out}"
+    );
+    fs::write(repo.join("src/auth.rs"), format!("{AUTH_RS}// note\n")).unwrap();
+    ok(&repo, &["add", "src/auth.rs"]);
+    let out = git(
+        &repo,
+        &["commit", "-qm", "a note", "-m", "Docs: a comment only"],
+    );
+    assert!(out.status.success(), "{out:?}");
+    let _ = fs::remove_dir_all(&repo);
+}
+
+/// `agents --kb` names what it wrote from the repository's top, the layer's
+/// files and the base's alike (D-098).
+#[test]
+fn agents_for_a_knowledge_base_names_its_files_from_the_top() {
+    let repo = tmp("kb-names");
+    ok(&repo, &["init", "-q"]);
+    let (code, out) = docsys_all(
+        &repo,
+        &["init", "--profile", "knowledge-base", "--root", "."],
+    );
+    assert_eq!(code, 0, "{out}");
+    let (code, out) = docsys_all(&repo, &["agents", "--kb"]);
+    assert_eq!(code, 0, "{out}");
+    let written: Vec<&str> = out
+        .lines()
+        .filter_map(|l| l.strip_prefix("wrote   "))
+        .collect();
+    assert!(
+        written.contains(&".claude/hooks/pre-commit-docs.sh"),
+        "{out}"
+    );
+    assert!(written.contains(&"AGENTS.md"), "{out}");
+    assert!(
+        written
+            .iter()
+            .all(|w| w.starts_with(".claude/") || *w == "AGENTS.md"),
+        "{out}"
+    );
     let _ = fs::remove_dir_all(&repo);
 }

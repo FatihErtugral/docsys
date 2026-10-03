@@ -2,15 +2,32 @@
 //! v0 scope: `lint` over both profiles (`project`, `knowledge-base`). Every
 //! implementation-defined choice is registered in corpus/DECISIONS.md (R-193).
 
-/// Standard error, written as `eprint!` writes it — but a reader that closed
-/// its end ends the command, as on standard output: docsys stops and exits
-/// with a closed pipe's status, 128 + SIGPIPE, quietly; any other failure
-/// there has nowhere to be said, and exits 2.
+/// Whether this runs inside a git hook: git exports both to its hooks.
+pub fn in_git_hook() -> bool {
+    static IN: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *IN.get_or_init(|| {
+        std::env::var_os("GIT_EXEC_PATH").is_some() && std::env::var_os("GIT_INDEX_FILE").is_some()
+    })
+}
+
+/// What a write that met a closed reader does: outside a git hook the
+/// command ends with a closed pipe's status, 128 + SIGPIPE, quietly; inside
+/// one the findings alone decide the exit, so the output is dropped and the
+/// command runs on.
+pub fn closed_reader() {
+    if !in_git_hook() {
+        std::process::exit(141);
+    }
+}
+
+/// Standard error, written as `eprint!` writes it — a reader that closed its
+/// end is `closed_reader`'s; any other failure there has nowhere to be said,
+/// and exits 2.
 pub fn write_stderr(args: std::fmt::Arguments) {
     use std::io::Write;
     match std::io::stderr().write_fmt(args) {
         Ok(()) => {}
-        Err(e) if e.kind() == std::io::ErrorKind::BrokenPipe => std::process::exit(141),
+        Err(e) if e.kind() == std::io::ErrorKind::BrokenPipe => closed_reader(),
         Err(_) => std::process::exit(2),
     }
 }
@@ -57,6 +74,7 @@ pub mod place;
 pub mod refs;
 pub mod relocate;
 pub mod rules;
+pub mod say;
 pub mod seed;
 pub mod slug;
 pub mod status;

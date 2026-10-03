@@ -425,9 +425,15 @@ fn help_opens_with_what_docsys_is_and_where_to_start() {
     let head: Vec<&str> = out.lines().take(4).collect();
     let head = head.join("\n");
     assert!(head.starts_with("docsys — "), "{head}");
+    // where to start; what `adopt` writes is said once, in its own row
     assert!(
-        head.contains("In a repository: `docsys adopt`") && head.contains("agent rules"),
+        head.contains("In a repository, start with\n`docsys adopt`"),
         "{head}"
+    );
+    assert!(
+        out.lines()
+            .any(|l| l.contains("docsys adopt ") && l.contains("the agent rules")),
+        "{out}"
     );
     let _ = fs::remove_dir_all(&r);
 }

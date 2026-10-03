@@ -666,3 +666,65 @@ fn status_on_a_0_5_tree_names_no_retired_counter() {
     );
     let _ = fs::remove_dir_all(&repo);
 }
+
+/// The commit-msg half says what it stops — the message, not lint, which the
+/// pre-commit half runs (D-125).
+#[test]
+fn the_message_hook_says_what_its_half_stops() {
+    let repo = adopted("message-mode", "require");
+    let pre = fs::read_to_string(repo.join(".git/hooks/pre-commit")).unwrap();
+    let msg = fs::read_to_string(repo.join(".git/hooks/commit-msg")).unwrap();
+    assert!(pre.contains("lint errors"), "{pre}");
+    assert!(!msg.contains("lint errors"), "{msg}");
+    assert!(msg.contains("message"), "{msg}");
+    let _ = fs::remove_dir_all(&repo);
+}
+
+/// Inside a git hook only the findings decide: a reader that closed its end
+/// of the commit's output never turns a warnings-only gate into a refusal.
+#[test]
+fn a_closed_reader_never_refuses_a_commit_the_gate_lets_through() {
+    let repo = adopted("closed-reader", "ask");
+    fs::create_dir_all(repo.join("docs/reference")).unwrap();
+    fs::write(
+        repo.join("docs/reference/x.md"),
+        "---\nid: x\ntype: reference\nupdated: 2026-10-01\n---\n# X\n\nThis page states x.\n",
+    )
+    .unwrap();
+    ok(&repo, &["add", "-A"]);
+    ok(
+        &repo,
+        &["commit", "-qm", "x", "-m", "Docs: x", "--no-verify"],
+    );
+    let lint = docsys(&repo, &["lint"]);
+    let said = String::from_utf8_lossy(&lint.stdout);
+    assert!(
+        said.contains("WARN") && said.contains("0 error(s)"),
+        "{said}"
+    );
+    fs::write(repo.join("main.rs"), "fn main() { run() }\n").unwrap();
+    ok(&repo, &["add", "main.rs"]);
+    let head = ok(&repo, &["rev-parse", "HEAD"]);
+    let (r1, w1) = std::io::pipe().unwrap();
+    let (r2, w2) = std::io::pipe().unwrap();
+    drop(r1);
+    drop(r2);
+    let path = format!(
+        "{}:{}",
+        bin().parent().unwrap().display(),
+        std::env::var("PATH").unwrap_or_default()
+    );
+    let status = Command::new("git")
+        .args(["commit", "-q", "-m", "plain", "-m", "Docs: y"])
+        .current_dir(&repo)
+        .env("PATH", path)
+        .env_remove("DOCSYS_DISPATCHED")
+        .env("DOCSYS_NO_AUTO_INSTALL", "1")
+        .stdout(w1)
+        .stderr(w2)
+        .status()
+        .unwrap();
+    assert!(status.success(), "{status:?}");
+    assert_ne!(ok(&repo, &["rev-parse", "HEAD"]), head);
+    let _ = fs::remove_dir_all(&repo);
+}

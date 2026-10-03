@@ -44,7 +44,7 @@ fn with_topic(text: &str, topic: Option<&str>) -> Result<String, String> {
             "`{topic}` is not a topic — the id of the page or feature the item concerns"
         ));
     }
-    if text.starts_with('[') {
+    if crate::items::leading_tag(text).is_some() {
         return Ok(text.to_string());
     }
     Ok(format!("[{topic}] {text}"))
@@ -760,5 +760,17 @@ mod tests {
         let p = fs::read_to_string(root.join("reference/a.md")).unwrap();
         assert!(p.contains(&format!("\nupdated: {}\n", today())), "{p}");
         let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn a_topic_is_added_unless_the_text_carries_a_tag() {
+        assert_eq!(
+            with_topic("[[reference/cache]] is stale", Some("cache")).unwrap(),
+            "[cache] [[reference/cache]] is stale"
+        );
+        assert_eq!(
+            with_topic("[retry] Retries are unbounded", Some("cache")).unwrap(),
+            "[retry] Retries are unbounded"
+        );
     }
 }

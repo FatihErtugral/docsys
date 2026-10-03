@@ -12,6 +12,6 @@ stop; the next session resumes from `docsys seed gaps` —
 what landed is reserved (`work/research/<feature>.md`, active) and will not
 be asked again.
 
-When the survey stops, name the next step: what the builder confirmed
-graduates into permanent pages (`docsys graduate plan <work-file>`), and each
-page about code is bound to its region as the rules block says.
+When the survey stops, name the next step:
+`docsys graduate plan <work-file>` for what the builder confirmed, and each
+page about code bound to its region as the rules block says.

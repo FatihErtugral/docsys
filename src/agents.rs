@@ -14,13 +14,15 @@ use std::path::Path;
 /// warn-only channel (exit 0 stdout/stderr on PostToolUse/Stop) lands in the
 /// transcript, not the model — a fully broken pipeline and a healthy one were
 /// indistinguishable. Lint errors block outright (severity doctrine). The
-/// code-without-docs invariant ASKS ONCE: the first attempt stops with the
-/// question, re-running the same commit proceeds — a wall gets hooks disabled
-/// (R-150); a question does not.
+/// code-without-docs invariant ASKS ONCE under `ask`: the first attempt stops
+/// with the question, re-running the same commit proceeds — a wall gets hooks
+/// disabled (R-151); a question does not. Under `require` it refuses every
+/// time (R-209).
 const PRE_COMMIT_DOCS: &str = r#"#!/usr/bin/env bash
 # pre-commit-docs.sh — PreToolUse gate on `git commit`; the decision is made
-# by `docsys hook pre-tool-use` (D-051): lint errors block, the code-without-docs
-# question is asked once per change set. DOCSYS_SKIP=1 bypasses once.
+# by `docsys hook pre-tool-use` (D-051): lint errors block; code without
+# documentation is a question asked once per change set, and under
+# `commit_policy: require` a refusal every time (R-209). DOCSYS_SKIP=1 bypasses once.
 # In a knowledge base the same relay guards raw/: an existing record is never
 # overwritten or edited through Write/Edit (R-023, D-076).
 command -v docsys >/dev/null || exit 0
@@ -95,8 +97,7 @@ allowed-tools: Bash(git log:*), Bash(git diff:*), Bash(git show:*), Bash(docsys 
 
 # /docsys-sync — documentation drift check
 
-Manual, never automatic. Report; propose debt items (`docsys debt add`) and
-wait for approval. Commit nothing.
+Manual, never automatic. Report, wait for approval, commit nothing.
 
 1. Mechanical pass: the rules block's two checks — include both outputs (one
    line each if green). Freshness errors are drift
@@ -111,7 +112,7 @@ wait for approval. Commit nothing.
    candidate, not drift.
 3. Graduation debt: `grep -rl '^status: done' docs/work/` — for each, say
    concretely which section goes to which page.
-4. For each debt, the `docsys debt add` line that would write it.
+4. For each debt, its `docsys debt add` command, ready to run.
 
 No findings → say so; never invent debt.
 "#;
@@ -128,8 +129,7 @@ gate.
 
 ## Set up
 
-A repository is set up with `docsys adopt`; `docsys help adopt` says what it
-writes.
+`docsys adopt`; `docsys help adopt` says what it writes.
 
 ## Migrate (existing docs anywhere in the repo)
 
@@ -155,8 +155,8 @@ file's id moves to a destination in the same commit (D-127).
 
 Anyone writes — you included — and nothing you write is the truth yet. A
 permanent page you author from evidence, or change in substance, names what it
-rests on in `sources:`. Nothing about its verification is written into the
-page (D-126); `docsys help verify` says how an approval is recorded. When
+rests on in `sources:`; `docsys help verify` says how an approval is
+recorded. When
 `.docmeta.yml` declares
 `maintainers:`, an approval and a confirmation must name one of them (R-208):
 the people who review the code are the people who vouch for the page. A
@@ -499,16 +499,94 @@ pub struct Installed {
     /// what was decided rather than written: the gate's mode, a settings
     /// file left alone
     pub notes: Vec<String>,
+    /// each written file's path, in `written`'s order — what a command names
+    /// from the repository's top (D-098)
+    pub paths: Vec<std::path::PathBuf>,
+}
+
+/// What an agent layer is written for: its directory, the tree it serves,
+/// and the profile asked for. `agents`, `agents --kb` and `assistant` write
+/// a layer through `install_layer` alone.
+pub struct Layer<'a> {
+    pub dir: &'a Path,
+    pub tree: &'a Path,
+    /// the tree as the relays name it, relative to the repository
+    pub root_arg: &'a str,
+    pub kb: bool,
+    pub force: bool,
+    /// the owner's generated-file preamble (D-056), a project's markdown only
+    pub preamble: &'a str,
+}
+
+/// Write an agent layer. It serves the tree it names and no other: a
+/// knowledge base's layer is refused on a tree that is none, a project's on a
+/// knowledge base, so a project's gates and wires are never rewritten with
+/// another profile's; and the relays are the ones the tree's own spec runs —
+/// no post-edit relay on docsys/0.5 (D-118, D-126).
+pub fn install_layer(l: &Layer) -> Result<Installed, String> {
+    let docmeta = crate::tree::docmeta_at(l.tree);
+    let is_kb = docmeta.as_ref().is_some_and(|f| {
+        f.fields.get("profile").and_then(crate::fm::Value::as_str) == Some("knowledge-base")
+    });
+    let shown = crate::place::shown(l.tree);
+    let shown = shown.display();
+    match (l.kb, docmeta.is_some(), is_kb) {
+        (true, _, true) | (false, _, false) => {}
+        (true, true, false) => {
+            return Err(format!(
+                "`{shown}` is a project tree — `docsys agents` installs its layer; `--kb` is a knowledge base's"
+            ))
+        }
+        (true, false, _) => {
+            return Err(format!(
+                "`{shown}` is no knowledge base (no .docmeta.yml) — `docsys init --profile knowledge-base --root {shown}` makes one"
+            ))
+        }
+        (false, _, true) => {
+            return Err(format!(
+                "`{shown}` is a knowledge base — `docsys agents --kb` installs its layer"
+            ))
+        }
+    }
+    let mut done = if l.kb {
+        install_kb_layer(l.dir, l.tree, l.force)?
+    } else {
+        install_project_layer(l.dir, l.force, l.preamble, l.root_arg)?
+    };
+    done.paths = done
+        .written
+        .iter()
+        .map(|f| {
+            if f == "AGENTS.md" && l.kb {
+                l.tree.join(f)
+            } else {
+                l.dir.join(f)
+            }
+        })
+        .collect();
+    Ok(done)
 }
 
 /// The knowledge-base agent layer. Installed beside the base (`--kb`), never
 /// mixed with the project layer: a knowledge base has no code to gate, and a
 /// project has no inbox to ingest.
 pub fn install_kb(claude_dir: &Path, base_dir: &Path, force: bool) -> Result<Installed, String> {
+    install_layer(&Layer {
+        dir: claude_dir,
+        tree: base_dir,
+        root_arg: "",
+        kb: true,
+        force,
+        preamble: "",
+    })
+}
+
+fn install_kb_layer(claude_dir: &Path, base_dir: &Path, force: bool) -> Result<Installed, String> {
     let mut out = Installed {
         written: Vec::new(),
         skipped: Vec::new(),
         notes: Vec::new(),
+        paths: Vec::new(),
     };
     // The hooks name the base relative to where the agent runs — the
     // directory holding `.claude/` — and that is `.` for a base that is its
@@ -610,20 +688,34 @@ pub fn install_kb(claude_dir: &Path, base_dir: &Path, force: bool) -> Result<Ins
     // The git gate, as for a project: hard when the base lints clean inside
     // its repository, warn-mode while it carries debt (D-072). A linked
     // worktree's `.git` is a file; git says whether this is a repository.
-    if crate::git::toplevel(&repo).is_some() {
-        let clean = crate::adopt::gate_clean(base_dir, &repo);
-        let message = crate::era::Era::at(base_dir).journal_from_history();
-        let gate = crate::adopt::ensure_git_gate(&repo, &root_arg, clean, message);
-        let mode = if clean {
-            "hard"
-        } else {
-            "warn-mode until lint and refs are clean"
-        };
-        out.notes
-            .push(format!("git pre-commit gate: {gate} ({mode})"));
-    } else {
-        out.notes
-            .push("git pre-commit gate: skipped (not a git repository)".to_string());
+    // The gate is the repository's: a base inside another repository, or a
+    // gate that serves another tree, is left as it is.
+    let canon = |p: &Path| p.canonicalize().unwrap_or_else(|_| p.to_path_buf());
+    match crate::git::toplevel(&repo) {
+        None => out
+            .notes
+            .push("git pre-commit gate: skipped (not a git repository)".to_string()),
+        Some(top) if canon(&top) != canon(&repo) => out.notes.push(
+            "git pre-commit gate: skipped — the base sits inside a repository whose gate is its own"
+                .to_string(),
+        ),
+        Some(_) => match crate::adopt::gate_root(&repo).filter(|r| *r != root_arg) {
+            Some(other) => out
+                .notes
+                .push(format!("git pre-commit gate: kept — it serves `{other}`")),
+            None => {
+                let clean = crate::adopt::gate_clean(base_dir, &repo);
+                let message = crate::era::Era::at(base_dir).journal_from_history();
+                let gate = crate::adopt::ensure_git_gate(&repo, &root_arg, clean, message);
+                let mode = if clean {
+                    "hard"
+                } else {
+                    "warn-mode until lint and refs are clean"
+                };
+                out.notes
+                    .push(format!("git pre-commit gate: {gate} ({mode})"));
+            }
+        },
     }
     Ok(out)
 }
@@ -664,6 +756,26 @@ pub fn install_with_preamble(
     preamble: &str,
     root_arg: &str,
 ) -> Result<Installed, String> {
+    let repo = claude_dir
+        .parent()
+        .filter(|p| !p.as_os_str().is_empty())
+        .unwrap_or(Path::new("."));
+    install_layer(&Layer {
+        dir: claude_dir,
+        tree: &repo.join(root_arg),
+        root_arg,
+        kb: false,
+        force,
+        preamble,
+    })
+}
+
+fn install_project_layer(
+    claude_dir: &Path,
+    force: bool,
+    preamble: &str,
+    root_arg: &str,
+) -> Result<Installed, String> {
     let files: [(&str, &str, bool); 10] = [
         ("hooks/pre-commit-docs.sh", PRE_COMMIT_DOCS, true),
         ("hooks/stop-docs-reminder.sh", STOP_DOCS_REMINDER, true),
@@ -680,6 +792,7 @@ pub fn install_with_preamble(
         written: Vec::new(),
         skipped: Vec::new(),
         notes: Vec::new(),
+        paths: Vec::new(),
     };
     // `.claude` given relative to the working directory: the repository is `.`
     let repo = claude_dir
@@ -1052,20 +1165,16 @@ nobody's memory still land on that person's word: `research` (the evidence,
 reserved), `postmortem` (a commit's own account) and `question` (everything
 the builder would have been asked); the chronology is history's own. Only `answer`
 rows wait for a builder; a plan with none is not a plan withheld.
-Rows are TAB-separated; `docsys seed plan` prints their grammar. The
-permanent page comes later, through graduation, when the builder confirms.
+Rows are TAB-separated; `docsys seed plan` prints their grammar.
 
 ## 4b · The overview draft (the one page you may author)
 
-After the rows land, one permanent page per seeded feature may be yours:
-`docsys page new explanation <feature>-overview --unverified`, body written from the evidence only — what the feature is, how
+After the rows land, per seeded feature:
+`docsys page new explanation <feature>-overview --unverified`, its body written from the evidence only — what the feature is, how
 it is built, when it was born and moved, what broke and why, what the
 manifests and the code's own comments say — in the tree's language, with
 `sources:` naming the same `git:` locators and files the research page
-cites. When the builder's answers arrive, graduation moves them in byte-exact; the draft is where a
-reader starts on day one, not the truth.
-
-Never write prose of your own into the tree beyond that one page.
+cites. The draft is where a reader starts on day one.
 "#;
 
 /// The docsys skill's text, as `agents` installs it.
@@ -1089,9 +1198,9 @@ stop; the next session resumes from `docsys seed gaps` —
 what landed is reserved (`work/research/<feature>.md`, active) and will not
 be asked again.
 
-When the survey stops, name the next step: what the builder confirmed
-graduates into permanent pages (`docsys graduate plan <work-file>`), and each
-page about code is bound to its region as the rules block says.
+When the survey stops, name the next step:
+`docsys graduate plan <work-file>` for what the builder confirmed, and each
+page about code bound to its region as the rules block says.
 "#;
 
 /// Adoption report: what agent layer already exists, and which shell commands

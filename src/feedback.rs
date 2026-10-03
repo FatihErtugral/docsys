@@ -151,9 +151,9 @@ pub fn guide() -> String {
          problem in one sentence, names the rule, and proposes a fix where one can be\n\
          given. Draft it with `docsys feedback --draft` (`docsys help feedback` gives its\n\
          flags).\n\n\
-         The draft fills what the tool knows — version, OS, the tree's profile and spec,\n\
-         the rule's text, the command's exit code and output, a redacted .docmeta.yml and\n\
-         the files the rule's findings name — and leaves TODO where only you can write.\n\
+         The draft fills what the tool knows — the environment, the rule's text, the\n\
+         command's exit code and output, a redacted .docmeta.yml and the files the rule's\n\
+         findings name — and leaves TODO where only you can write.\n\
          Read it for private content before it leaves your machine.\n\n\
          The format:\n\n",
     );

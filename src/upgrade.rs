@@ -555,12 +555,11 @@ fn render_preview(ctx: &Ctx, u: &mut Upgrade) {
     };
     let added: Vec<String> = u.added.iter().filter(|f| kept(f)).cloned().collect();
     let removed = u.removed.clone();
-    u.preview.push(format!(
-            "judged by docsys/0.{} as the tree is now: {} new finding(s), {} gone — the steps below clear their part",
-            u.to,
-            added.len(),
-            removed.len()
-        ));
+    u.preview.push(crate::say::upgrade_preview(
+        u.to,
+        added.len(),
+        removed.len(),
+    ));
     u.preview
         .extend(added.iter().take(25).map(|f| format!("+ {f}")));
     if added.len() > 25 {
@@ -807,16 +806,14 @@ fn common(ctx: &Ctx, u: &mut Upgrade, apply: bool) -> Result<(), String> {
                 crate::adopt::gate_hooks_dir(repo).unwrap_or_else(|| repo.join(".git/hooks"));
             let file = rel(repo, &hooks.join("pre-commit"));
             let tracked = git_out(repo, &["ls-files", "--error-unmatch", "--", &file]).is_some();
-            let clone_only = if tracked {
-                ""
-            } else {
-                " — this clone only: every clone runs `docsys upgrade --apply` once"
-            };
+            // said once, on the gate's last row
+            let clone_only = if tracked { "" } else { crate::say::CLONE_ONLY };
+            let pre_clause = if message { "" } else { clone_only };
             u.item(
                 "auto",
                 "git-gate",
                 &file,
-                format!("the docsys block rewritten for this version, its mode kept{clone_only}"),
+                format!("the docsys block rewritten for this version, its mode kept{pre_clause}"),
             );
             // the half that reads the message, which a docsys/0.5 gate adds (D-125)
             if message {
@@ -1805,8 +1802,7 @@ fn move_0_4_to_0_5(ctx: &Ctx, u: &mut Upgrade, apply: bool) -> Result<(), String
     Ok(())
 }
 
-/// What a person pulling the upgrade needs in this clone, whatever the release.
-pub const TEAMMATES: &str = "Teammates: after pulling, run `docsys upgrade --apply` once in your clone — the git gate is per clone.";
+pub use crate::say::TEAMMATES;
 
 /// The upgrade commit's message: the move, the notes it crosses, and on the
 /// last move the step every other clone takes. It also describes a pull
@@ -1846,17 +1842,18 @@ pub fn commit_files(repo: &Path, files: &[String], message: &str) -> Result<(), 
     if files.is_empty() {
         return Ok(());
     }
-    // a file the move removed and an earlier try staged is in neither the
-    // working tree nor the index: its removal is staged already
-    let tracked = |f: &String| {
+    let git_ok = |args: &[&str]| {
         crate::git::cmd(repo)
-            .args(["ls-files", "--error-unmatch", "--", f])
+            .args(args)
             .output()
             .is_ok_and(|o| o.status.success())
     };
+    let in_index = |f: &str| git_ok(&["ls-files", "--error-unmatch", "--", f]);
+    // a path git ignores and does not track stays out: the person keeps it out
+    let ignored = |f: &str| !in_index(f) && git_ok(&["check-ignore", "-q", "--", f]);
     let to_stage: Vec<&String> = files
         .iter()
-        .filter(|f| repo.join(f).exists() || tracked(f))
+        .filter(|f| (repo.join(f).exists() || in_index(f)) && !ignored(f))
         .collect();
     let added = to_stage.is_empty()
         || crate::git::cmd(repo)
@@ -1867,8 +1864,23 @@ pub fn commit_files(repo: &Path, files: &[String], message: &str) -> Result<(), 
     if !added {
         return Err("git could not stage the files the move wrote".into());
     }
+    // the move's paths and no other — a removal an earlier try staged is in
+    // HEAD alone, and a file of the person's staged beside them stays staged
+    let paths: Vec<&String> = files
+        .iter()
+        .filter(|f| {
+            !ignored(f)
+                && (repo.join(f).exists()
+                    || in_index(f)
+                    || git_ok(&["cat-file", "-e", &format!("HEAD:{f}")]))
+        })
+        .collect();
+    if paths.is_empty() {
+        return Ok(());
+    }
     let staged = crate::git::cmd(repo)
-        .args(["diff", "--cached", "--quiet"])
+        .args(["diff", "--cached", "--quiet", "--"])
+        .args(&paths)
         .status()
         .is_ok_and(|s| !s.success());
     if !staged {
@@ -1877,6 +1889,8 @@ pub fn commit_files(repo: &Path, files: &[String], message: &str) -> Result<(), 
     let ok = crate::git::cmd(repo)
         .args(["commit", "-q", "-m"])
         .arg(message)
+        .arg("--")
+        .args(&paths)
         .status()
         .is_ok_and(|s| s.success());
     if ok {

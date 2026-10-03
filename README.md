@@ -144,9 +144,10 @@ flowchart LR
 One channel blocks — the pre-commit hook, where exit 2 stops the call and the
 model reads the reason: lint **errors** block outright, and the
 code-without-docs question **asks once** (the marker lives until HEAD moves,
-so a retry that dropped its `git add` is caught, not waved through). The other
-hooks warn and never block: a wall gets hooks disabled, a question does not
-(R-150, R-151, D-040, D-043, D-049).
+so a retry that dropped its `git add` is caught, not waved through); under
+`commit_policy: require` it refuses every time, and the end of a turn holds once
+(R-209). Otherwise the hooks warn and never block: a wall gets hooks disabled, a
+question does not (R-151, D-040, D-043, D-049).
 
 **Strict mode.** A team that wants the wall declares it: `commit_policy:
 require` in `.docmeta.yml` (R-209, D-093). Then a commit that touches code with
@@ -695,9 +696,8 @@ source that has since moved (D-082); the next `docsys status` lists it under
   change (R-152).
 - **Drift is caught by a hash, not by a reviewer.** A page pins the code it
   describes (`verifies:`); when that region moves, lint fails until someone
-  re-reads the page and refreshes the pin. History dates every page, so a
-  freshness field that lies and a draft left to rot are errors too (§11,
-  R-085, R-106, D-070).
+  re-reads the page and refreshes the pin. History dates every page, and a
+  draft left to rot is an error too (§11, R-085, D-070).
 - **A verification is checked, not trusted.** `verified` means "this body,
   against these sources, at this revision"; the body and the consumed sources
   are re-hashed against that revision on every lint, and a session never

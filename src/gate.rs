@@ -225,10 +225,7 @@ pub fn message(repo: &Path, root: &Path, text: &str) -> MessageVerdict {
     let documented = crate::journal::has_trailer(&message, crate::journal::DOCS);
     if !code.is_empty() && docs == 0 && !documented {
         let shown: Vec<&str> = code.iter().take(5).map(|s| s.as_str()).collect();
-        v.refusal = Some(format!(
-            "GATE commit_policy: require — this commit changes {} and no documentation, and its message says nothing of why: add a `Docs: <why>` line, or the page or work file the change needs (R-209)",
-            shown.join(", ")
-        ));
+        v.refusal = Some(crate::say::message_refusal(&shown));
     }
     // a closed item's record is its commit's trailer (R-108)
     let base = if prefix.is_empty() {
@@ -244,10 +241,10 @@ pub fn message(repo: &Path, root: &Path, text: &str) -> MessageVerdict {
         let dir = format!("{base}{}/", list.dir(kb));
         let removed = items_removed(repo, &dir);
         if removed > 0 && !crate::journal::has_trailer(&message, list.trailer()) {
-            v.reports.push(format!(
-                "GATE this commit removes {removed} item(s) from {} and carries no `{}:` line — that line is the record of what closed them (R-108)",
+            v.reports.push(crate::say::message_trailer(
+                removed,
                 list.dir(kb),
-                list.trailer()
+                list.trailer(),
             ));
         }
     }
@@ -263,9 +260,7 @@ pub fn message(repo: &Path, root: &Path, text: &str) -> MessageVerdict {
             })
             .unwrap_or(5);
         if entry > max {
-            v.reports.push(format!(
-                "GATE the `Docs:` entry is {entry} lines; a journal entry keeps {max} — link the page, do not narrate (R-101)"
-            ));
+            v.reports.push(crate::say::message_budget(entry, max));
         }
     }
     v

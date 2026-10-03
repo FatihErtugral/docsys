@@ -168,6 +168,47 @@ declares `spec: docsys/0.5`; a tree that declares `docsys/0.4` is served as
 - The usage text names the real default root; the workflow for a tree at the
   repository's top passes `--root .`.
 - `pin` and `pin --refresh` keep a pin's `block:`.
+- Every `.docmeta.yml`, frontmatter and provenance value is read one way: a
+  trailing comment ends every value form, so `spec: docsys/0.5   # required`
+  is a 0.5 tree to the gate as to lint, and a commented `commit_policy:` or
+  `profile:` is its value; writers replace a field by the lines the reader
+  joined to it, the feedback draft redacts the parsed fields, and `adopt`
+  stamps a `.docmeta.yml` without a spec line with the era it is read as,
+  docsys/0.4 (D-002, D-118).
+- The command table reads every command line: a single-dash flag, a stray
+  word and a flag the entry does not name are refused, named, with the entry;
+  a flag given to a group is named; `--version` and `-V` take what `version`
+  takes; `help <command> <words>` answers as `<command> <words> --help`
+  (D-129).
+- The relays, the gates and the upgrade say each thing once and only what is
+  true for the mode: a re-run once, a `git add` only when the blocked call
+  ran one, the commit relay's header says what it does under
+  `commit_policy: require`, the commit-msg hook says what its half stops, an
+  applied upgrade prints no forecast of findings and the per-clone step once,
+  and a docsys/0.4 tree's checklist names no 0.5 step (D-129, D-126).
+- `agents`, `agents --kb` and `assistant` write a layer through one installer:
+  `agents --kb --root .` on a project is refused, and an assistant's base
+  inside a project's repository leaves the project's git gate as 0.15.1 left
+  it (D-098, D-118).
+- Inside a git hook a reader that closed its end of the output never refuses
+  a commit the gate lets through.
+- A page that names a pin takes part in verification, `sources:` or not
+  (§3.2, D-126).
+- `migrate inventory --repo .` lists the inbound references from the tree's
+  own directory, `migrate apply` from below lints the tree it migrated, and
+  `doctor` names a missing agent layer and its relays from the top (D-098).
+- An upgrade commit holds the move's files and no other: a change staged
+  beside a pending move is refused by name, and a path git ignores stays out
+  (R-177).
+- `debt add` never writes over a topic file it cannot read, and `debt close`
+  closes an item in a file with CRLF line endings.
+- A shell pin's region keeps `$#`, `${#a[@]}` and `v1#x` as code: only a `#`
+  where a word starts is a comment (D-119).
+- `impl Trait` in a function's signature is no impl block to a symbol pin.
+- `--topic` adds its tag to an item whose text starts with a wiki-link.
+- `doctor` on a docsys/0.4 tree reads the gate block 0.15.1 wrote as the
+  tree's own (D-118).
+- `ci/pin-replay.sh` stopped early leaves no worktree in the clone.
 - A commit or a merge through the git gate says each finding, the version
   notice and a pinned version's install line once, with one install attempt;
   a docsys from before pins prints one line, never its usage; a skipped commit

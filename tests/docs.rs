@@ -74,3 +74,27 @@ fn no_document_says_what_this_release_retired() {
         "D-114 names the retired ledger"
     );
 }
+
+/// The README cites live rules only: a rule SPEC withdrew is no reason.
+#[test]
+fn the_readme_cites_no_withdrawn_rule() {
+    let withdrawn: Vec<String> = SPEC
+        .lines()
+        .filter(|l| l.contains("WITHDRAWN"))
+        .filter_map(|l| {
+            let at = l.find("R-")?;
+            let id: String = l[at..]
+                .chars()
+                .take_while(|c| *c == 'R' || *c == '-' || c.is_ascii_digit())
+                .collect();
+            (id.len() > 2).then_some(id)
+        })
+        .collect();
+    assert!(withdrawn.iter().any(|r| r == "R-150"), "{withdrawn:?}");
+    for r in &withdrawn {
+        let cited = README
+            .match_indices(r.as_str())
+            .any(|(at, _)| !README[at + r.len()..].starts_with(|c: char| c.is_ascii_digit()));
+        assert!(!cited, "README cites withdrawn {r}");
+    }
+}

@@ -232,7 +232,7 @@ fn adopt_names_hooks_behind_the_binary_template() {
     assert!(
         d.lines
             .iter()
-            .any(|l| l.starts_with("info hooks/stop-docs-reminder.sh template 0.4.4")),
+            .any(|l| l.starts_with("info .claude/hooks/stop-docs-reminder.sh template 0.4.4")),
         "{:?}",
         d.lines
     );
@@ -1021,5 +1021,25 @@ fn a_0_4_tree_missing_an_asset_is_told_the_upgrade_writes_it() {
         );
         assert!(!relay.exists(), "{args:?}");
     }
+    let _ = fs::remove_dir_all(repo.parent().unwrap());
+}
+
+/// A docsys/0.4 tree with the workflow 0.15.1 wrote is adopted again without
+/// a step of 0.5's: its approval job commits the records itself, and the
+/// description-borne `Approved-by:` is a docsys/0.5 tree's (D-118, D-126).
+#[test]
+fn a_0_4_trees_checklist_names_no_0_5_step() {
+    let (repo, _) = tree_04("v04-workflow");
+    let case = Path::new(env!("CARGO_MANIFEST_DIR")).join("migrations/workflow-0.15.yml");
+    let workflow = fs::read_to_string(case)
+        .unwrap()
+        .replace("@ROOT@", "docs")
+        .replace("@BRANCH@", "main");
+    fs::create_dir_all(repo.join(".github/workflows")).unwrap();
+    fs::write(repo.join(".github/workflows/docsys.yml"), workflow).unwrap();
+    let out = docsys(&repo, &["adopt"]);
+    assert!(out.status.success(), "{out:?}");
+    let report = fs::read_to_string(repo.join("ADOPTION.md")).unwrap();
+    assert!(!report.contains("Approved-by:"), "{report}");
     let _ = fs::remove_dir_all(repo.parent().unwrap());
 }

@@ -64,9 +64,12 @@ pub fn topic_of(line: &str) -> String {
 
 /// A line's topic tag and the text after it, when it carries one.
 fn tag_split(line: &str) -> Option<(&str, &str)> {
-    line.get(16..)
-        .map(str::trim_start)
-        .and_then(|rest| rest.strip_prefix('['))
+    line.get(16..).map(str::trim_start).and_then(leading_tag)
+}
+
+/// An item text's topic tag — `[local-id]` first — and the text after it.
+pub fn leading_tag(text: &str) -> Option<(&str, &str)> {
+    text.strip_prefix('[')
         .and_then(|rest| rest.split_once(']'))
         .map(|(tag, after)| (tag.trim(), after.trim_start()))
         .filter(|(tag, _)| crate::model::is_local_id(tag))
@@ -126,10 +129,12 @@ pub fn add(root: &Path, list: List, kb: bool, line: &str) -> Result<String, Stri
             text.push('\n');
             text
         }
-        Err(_) => {
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
             let pre = crate::migrate::generated_preamble(root);
             crate::migrate::with_preamble(&format!("{line}\n"), &pre)
         }
+        // a file it cannot read is never written over: its items stay
+        Err(e) => return Err(format!("{rel}: {e} — the file is left as it is")),
     };
     fs::write(&path, text).map_err(|e| e.to_string())?;
     Ok(rel)
@@ -187,13 +192,19 @@ pub fn close(
     let rest: String = text
         .split_inclusive('\n')
         .filter(|l| {
-            if !removed && l.trim_end_matches('\n') == item.line {
+            if !removed && l.trim_end_matches(['\n', '\r']) == item.line {
                 removed = true;
                 return false;
             }
             true
         })
         .collect();
+    if !removed {
+        return Err(format!(
+            "{}: its line was not found as written — the file is left as it is",
+            item.rel
+        ));
+    }
     if rest.lines().any(|l| l.starts_with("- [ ] ")) {
         fs::write(&path, rest).map_err(|e| e.to_string())?;
     } else {
@@ -306,5 +317,34 @@ mod tests {
             "wiki/open-questions/cache.md"
         );
         let _ = fs::remove_dir_all(&r);
+    }
+
+    #[test]
+    fn a_topic_file_it_cannot_read_is_never_overwritten() {
+        let r = root("unreadable");
+        fs::create_dir_all(r.join("work/debt")).unwrap();
+        let bytes = b"- [ ] 2026-10-01 caf\xe9 is slow -- deferred: x -- repay when: y\n".to_vec();
+        fs::write(r.join("work/debt/general.md"), &bytes).unwrap();
+        let line = "- [ ] 2026-10-02 The CI cache is cold -- deferred: later -- repay when: soon";
+        assert!(add(&r, List::Debt, false, line).is_err());
+        assert_eq!(fs::read(r.join("work/debt/general.md")).unwrap(), bytes);
+    }
+
+    #[test]
+    fn an_item_closes_in_a_crlf_file_and_a_close_that_finds_no_line_says_so() {
+        let r = root("crlf");
+        fs::create_dir_all(r.join("work/debt")).unwrap();
+        fs::write(
+            r.join("work/debt/general.md"),
+            "- [ ] 2026-10-01 First item -- deferred: x -- repay when: y\r\n- [ ] 2026-10-02 Second item -- deferred: x -- repay when: y\r\n",
+        )
+        .unwrap();
+        close(&r, List::Debt, false, "First item", "done").unwrap();
+        let left = fs::read_to_string(r.join("work/debt/general.md")).unwrap();
+        assert!(!left.contains("First item"), "{left}");
+        assert!(
+            left.ends_with("Second item -- deferred: x -- repay when: y\r\n"),
+            "{left:?}"
+        );
     }
 }

@@ -454,15 +454,9 @@ fn a_clone_with_the_old_gate_is_told_to_run_the_upgrade_once() {
             .map(str::to_string)
             .collect()
     };
-    // on the 0.4 tree the upgrade would move it: adopt is the command
-    let behind = doctor(&repo);
-    assert_eq!(behind.len(), 1, "{behind:?}");
-    assert!(
-        behind
-            .first()
-            .is_some_and(|l| l.ends_with("`docsys adopt` rewrites it")),
-        "{behind:?}"
-    );
+    // on the 0.4 tree the 0.15 block is the era's own (D-118): `adopt` keeps
+    // it, so nothing is behind
+    assert_eq!(doctor(&repo), Vec::<String>::new());
 
     let out = docsys(&repo, &["upgrade", "--apply", "--commit"]);
     assert!(out.status.success(), "{out:?}");
@@ -1621,5 +1615,76 @@ fn an_upgrade_commits_from_anywhere_and_a_re_run_finishes_one_cut_short() {
     assert!(out.status.success(), "{out:?}");
     assert!(subject(&repo).starts_with("docsys: upgrade"), "{out:?}");
     assert_eq!(clean(&repo), "", "{out:?}");
+    let _ = fs::remove_dir_all(&repo);
+}
+
+/// An applied upgrade says what it did, each thing once: the forecast of
+/// findings is the plan's, below the steps it speaks of, and the per-clone
+/// step is said once (D-129).
+#[test]
+fn an_applied_upgrade_says_what_it_did_once() {
+    let (repo, _) = build("applied-once");
+    let plan = String::from_utf8_lossy(&docsys(&repo, &["upgrade"]).stdout).into_owned();
+    assert!(plan.contains("the steps above clear their part"), "{plan}");
+    assert_eq!(plan.matches("this clone only").count(), 1, "{plan}");
+    let out = docsys(&repo, &["upgrade", "--apply", "--commit"]);
+    assert!(out.status.success(), "{out:?}");
+    let said = String::from_utf8_lossy(&out.stdout).into_owned();
+    assert!(!said.contains("as the tree is now"), "{said}");
+    assert_eq!(said.matches("this clone only").count(), 1, "{said}");
+    let _ = fs::remove_dir_all(&repo);
+}
+
+/// A move written and not yet committed, then a file of the person's staged
+/// beside it: the next `--apply --commit` refuses to take that file into the
+/// move's commit, and `--force` commits the move's files alone (R-097,
+/// R-177).
+#[test]
+fn an_upgrade_commit_holds_the_moves_files_and_no_other() {
+    let (repo, _) = build("pending-scope");
+    let out = docsys(&repo, &["upgrade", "--apply"]);
+    assert!(out.status.success(), "{out:?}");
+    fs::write(repo.join("other.rs"), "fn other() {}\n").unwrap();
+    git(&repo, &["add", "other.rs"]);
+    let head = git(&repo, &["rev-parse", "HEAD"]);
+    let out = docsys(&repo, &["upgrade", "--apply", "--commit"]);
+    assert_eq!(out.status.code(), Some(2), "{out:?}");
+    assert!(
+        String::from_utf8_lossy(&out.stderr).contains("other.rs"),
+        "{out:?}"
+    );
+    assert_eq!(git(&repo, &["rev-parse", "HEAD"]), head);
+    let out = docsys(&repo, &["upgrade", "--apply", "--commit", "--force"]);
+    assert!(out.status.success(), "{out:?}");
+    let moved = git(&repo, &["show", "--name-only", "--format=", "HEAD"]);
+    assert!(!moved.contains("other.rs"), "{moved}");
+    assert!(
+        git(&repo, &["diff", "--cached", "--name-only"]).contains("other.rs"),
+        "the person's file stays staged"
+    );
+    let _ = fs::remove_dir_all(&repo);
+}
+
+/// A repository that ignores its agent layer: the upgrade commits what git
+/// tracks and leaves what it ignores (R-177).
+#[test]
+fn an_upgrade_commits_around_an_ignored_agent_layer() {
+    let (repo, _) = build("ignored-layer");
+    fs::write(repo.join(".gitignore"), ".claude/\n").unwrap();
+    git(&repo, &["rm", "-rq", "--cached", ".claude"]);
+    git(&repo, &["add", ".gitignore"]);
+    git(
+        &repo,
+        &[
+            "-c",
+            "core.hooksPath=/dev/null",
+            "commit",
+            "-qm",
+            "ignore the agent layer",
+        ],
+    );
+    let out = docsys(&repo, &["upgrade", "--apply", "--commit"]);
+    assert!(out.status.success(), "{out:?}");
+    assert_eq!(git(&repo, &["status", "--porcelain"]), "", "{out:?}");
     let _ = fs::remove_dir_all(&repo);
 }

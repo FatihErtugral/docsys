@@ -45,7 +45,7 @@ pub fn tracked(tree: &DocTree, page: &Page) -> bool {
                     Value::List(l) => !l.is_empty(),
                     Value::Str(s) => !s.trim().is_empty(),
                     Value::Maps(m) => !m.is_empty(),
-                }) || (f.fields.contains_key("sources") && !crate::fresh::pins_of(f).is_empty())
+                }) || !crate::fresh::pins_of(f).is_empty()
             }))
 }
 

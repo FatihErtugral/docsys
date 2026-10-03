@@ -1024,7 +1024,9 @@ impl<'a> Src<'a> {
                     self.is(k + 1, ":").then_some((k, Shape::Stmt))
                 }
                 "macro_rules" if self.is(i + 1, "!") => Some((i + 2, Shape::Block)),
-                "impl" => {
+                // an impl block starts an item; `impl Trait` in a signature
+                // is a type
+                "impl" if self.item_starts(self.rust_start(i)) => {
                     if let Some(t) = self.impl_self(i) {
                         impls.push(Decl::new(t, self.rust_start(i), Shape::Block));
                     }
@@ -1037,6 +1039,12 @@ impl<'a> Src<'a> {
             }
         }
         out
+    }
+
+    /// Whether an item can start at token `s`: the file's start, or after
+    /// a `;`, a block's brace, or an attribute's `]`.
+    fn item_starts(&self, s: usize) -> bool {
+        s == 0 || matches!(self.text(s - 1), ";" | "}" | "{" | "]")
     }
 
     /// Back over `pub(…)`, `async`, `unsafe`, `const`, `extern "…"`.
@@ -2183,5 +2191,14 @@ class User extends Authenticatable
             CASES.len(),
             wrong.join("\n")
         );
+    }
+
+    #[test]
+    fn impl_in_a_signature_is_no_impl_block() {
+        let src = "pub struct Config {\n    v: u32,\n}\n\npub fn from_path(p: impl AsRef<str>) -> Config {\n    Config { v: 0 }\n}\n\npub fn all() -> impl Iterator<Item = Config> {\n    std::iter::empty()\n}\n\nimpl Config {\n    pub fn new() -> Self {\n        Config { v: 1 }\n    }\n}\n";
+        assert_eq!(resolve(src, "a.rs", "Config"), Ok((1, 3)));
+        assert_eq!(resolve(src, "a.rs", "Config::new"), Ok((14, 16)));
+        assert!(resolve(src, "a.rs", "AsRef").is_err());
+        assert!(resolve(src, "a.rs", "Iterator").is_err());
     }
 }

@@ -17,6 +17,9 @@
 #      line, which docsys the tree needs, and stop. (A gate in warn mode prints
 #      the line and lets the commit go on; the repositories here adopt clean,
 #      so theirs is hard.)
+#   5. An assistant's base made inside an adopted project leaves the project's
+#      git gate as the old docsys leaves it, on a 0.4 and a 0.5 project alike,
+#      and the project's next commit lands.
 #
 # Manual, not CI: it needs the previous release's binary. It writes only a
 # temporary directory.
@@ -188,4 +191,31 @@ printf '%s\n' "$commit_err" | grep -q "this tree pins docsys " || fail "B: the g
 [ "$(printf '%s\n' "$commit_err" | grep -c .)" = 1 ] || fail "B: the gate printed more than its one line: $commit_err"
 echo "every relay and the gate: one line, exit 1"
 
-say "compat: all four green"
+say "5 · an assistant's base inside an adopted project: the project's gate stays as the old docsys leaves it"
+gate_sum() { { cat .git/hooks/pre-commit; cat .git/hooks/commit-msg 2>/dev/null || true; } | cksum; }
+for who in old new; do
+  make_repo "$WORK/s1-$who"
+  before=$(gate_sum)
+  if [ "$who" = old ]; then
+    with_old docsys assistant --root asst >/dev/null 2>&1 || true
+  else
+    with_new docsys assistant --root asst >/dev/null || fail "S1: the new assistant failed"
+  fi
+  [ "$(gate_sum)" = "$before" ] || fail "S1: the $who docsys rewrote the project's gate"
+  printf 'more\n' >>README.md
+  g add README.md
+  PATH="$([ "$who" = old ] && echo "$OLD_PATH" || echo "$NEW_PATH")" g commit -qm "after the assistant" \
+    || fail "S1: the project's commit failed after the $who assistant"
+done
+# and on a project the new docsys moved to docsys/0.5
+make_repo "$WORK/s1-05"
+with_new docsys upgrade --apply --commit >/dev/null || fail "S1: the upgrade did not land"
+before=$(gate_sum)
+with_new docsys assistant --root asst >/dev/null || fail "S1: the assistant failed on 0.5"
+[ "$(gate_sum)" = "$before" ] || fail "S1: the new docsys rewrote a 0.5 project's gate"
+printf 'more\n' >>README.md
+g add README.md
+with_new g commit -qm "after the assistant" -m "Docs: a line" || fail "S1: the 0.5 project's commit failed after the assistant"
+echo "the old and the new docsys alike leave the project's gate as it was; its next commit lands"
+
+say "compat: all five green"

@@ -597,10 +597,8 @@ fn under_require_the_gate_refuses_every_time_and_a_bypass_leaves_debt() {
     let (code, err) = run_hook(&repo, commit_payload(), &[]);
     assert_eq!(code, 2, "{err}");
     assert!(err.contains("commit_policy: require"), "{err}");
-    assert!(
-        err.contains("feature | bug | improvement | research"),
-        "{err}"
-    );
+    // the work types are the routing's; the refusal names the work
+    assert!(err.contains("name the work"), "{err}");
     // the same commit again: still refused — a refusal, not a question
     let (code, err) = run_hook(&repo, commit_payload(), &[]);
     assert_eq!(code, 2, "{err}");
@@ -764,7 +762,7 @@ fn a_relay_message_says_each_thing_once() {
     fs::write(other.join("src/x.rs"), "fn x() { }\n").unwrap();
     let (code, msg) = run_hook(&other, add_and_commit_payload(), &[]);
     assert_eq!(code, 2, "{msg}");
-    assert_eq!(msg.matches("did not run either").count(), 1, "{msg}");
+    assert_eq!(msg.matches("its `git add` with it").count(), 1, "{msg}");
     let _ = fs::remove_dir_all(&other);
     // under require
     let dm = repo.join("docs/.docmeta.yml");
@@ -782,11 +780,10 @@ fn a_relay_message_says_each_thing_once() {
     assert_eq!(code, 2, "{msg}");
     assert_eq!(msg.matches("run the SAME commit again").count(), 1, "{msg}");
     assert!(!msg.contains("git add"), "{msg}");
-    // the work types are D-093's four, in the routing as in the relays
-    assert!(
-        msg.contains("feature | bug | improvement | research)"),
-        "{msg}"
-    );
+    // the work types are D-093's four, said once, in the routing; the relay
+    // names the work and leaves the list there
+    assert!(msg.contains("name the work"), "{msg}");
+    assert!(!msg.contains("feature | bug"), "{msg}");
     let routing = docsys::hook::ROUTING;
     assert!(
         routing.contains(
@@ -800,5 +797,99 @@ fn a_relay_message_says_each_thing_once() {
     assert_eq!(msg.matches("Docs: <why>").count(), 1, "{msg}");
     let relay = fs::read_to_string(repo.join(".claude/hooks/stop-docs-reminder.sh")).unwrap();
     assert!(!relay.contains("never blocks"), "{relay}");
+    let _ = fs::remove_dir_all(&repo);
+}
+
+/// Six words in a row that a text says twice.
+fn said_twice(text: &str) -> Vec<String> {
+    let words: Vec<String> = text
+        .split_whitespace()
+        .map(|w| {
+            w.chars()
+                .filter(|c| c.is_alphanumeric())
+                .collect::<String>()
+                .to_lowercase()
+        })
+        .filter(|w| !w.is_empty())
+        .collect();
+    let mut seen = std::collections::BTreeSet::new();
+    words
+        .windows(6)
+        .map(|w| w.join(" "))
+        .filter(|p| !seen.insert(p.clone()))
+        .collect()
+}
+
+/// A refusal says how to run again once, and names a `git add` only when the
+/// blocked call ran one — under either policy, for a lint error and for code
+/// without documentation alike (D-129).
+#[test]
+fn a_refusal_says_the_re_run_once_and_a_git_add_only_when_it_ran_one() {
+    for policy in ["ask", "require"] {
+        let repo = build_repo(&format!("rerun-{policy}"));
+        let dm = repo.join("docs/.docmeta.yml");
+        let text = fs::read_to_string(&dm).unwrap();
+        fs::write(
+            &dm,
+            text.replace("commit_policy: ask", &format!("commit_policy: {policy}")),
+        )
+        .unwrap();
+        if policy != "ask" {
+            git(
+                &repo,
+                &["commit", "-q", "-m", "policy", "docs/.docmeta.yml"],
+            );
+        }
+        fs::create_dir_all(repo.join("src")).unwrap();
+        fs::write(repo.join("src/x.rs"), "fn x() {}\n").unwrap();
+        git(&repo, &["add", "src/x.rs"]);
+        git(&repo, &["commit", "-q", "-m", "x", "--no-verify"]);
+        fs::write(repo.join("src/x.rs"), "fn x() { }\n").unwrap();
+        // the call stages its own files: the re-run is the whole call
+        let (code, msg) = run_hook(&repo, add_and_commit_payload(), &[]);
+        assert_eq!(code, 2, "{policy}: {msg}");
+        assert_eq!(
+            msg.to_lowercase().matches("same").count(),
+            1,
+            "{policy}: {msg}"
+        );
+        assert_eq!(msg.matches("git add").count(), 1, "{policy}: {msg}");
+        assert!(said_twice(&msg).is_empty(), "{policy}: {msg}");
+        // a staged change and a plain commit: no `git add` to speak of
+        fs::write(repo.join("src/y.rs"), "fn y() {}\n").unwrap();
+        git(&repo, &["add", "src/y.rs"]);
+        let (code, msg) = run_hook(&repo, commit_payload(), &[]);
+        assert_eq!(code, 2, "{policy}: {msg}");
+        assert!(!msg.contains("git add"), "{policy}: {msg}");
+        assert!(said_twice(&msg).is_empty(), "{policy}: {msg}");
+        // a lint error under a plain commit
+        git(&repo, &["reset", "-q"]);
+        fs::write(
+            repo.join("docs/index.md"),
+            fs::read_to_string(repo.join("docs/index.md")).unwrap() + "\nSee [[reference/nope]].\n",
+        )
+        .unwrap();
+        git(&repo, &["add", "docs/index.md"]);
+        let (code, msg) = run_hook(&repo, commit_payload(), &[]);
+        assert_eq!(code, 2, "{policy}: {msg}");
+        assert!(msg.contains("lint errors block"), "{policy}: {msg}");
+        assert!(!msg.contains("git add"), "{policy}: {msg}");
+        let _ = fs::remove_dir_all(&repo);
+    }
+}
+
+/// The commit relay's header says what it does under either policy: a
+/// question asked once under `ask`, a refusal every time under `require`.
+#[test]
+fn the_commit_relay_says_what_it_does_under_either_policy() {
+    let repo = build_repo("relay-header");
+    let relay = fs::read_to_string(repo.join(".claude/hooks/pre-commit-docs.sh")).unwrap();
+    let header: String = relay
+        .lines()
+        .take_while(|l| l.starts_with('#'))
+        .collect::<Vec<_>>()
+        .join(" ");
+    assert!(header.contains("commit_policy: require"), "{header}");
+    assert!(header.contains("every time"), "{header}");
     let _ = fs::remove_dir_all(&repo);
 }

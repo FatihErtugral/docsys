@@ -152,7 +152,13 @@ pub fn token_form(text: &str, path: &str) -> String {
             i = line_end(&chars, i);
             continue;
         }
-        if hash_comments && c == '#' {
+        // in shell and its kin a `#` starts a comment only where a word starts:
+        // `$#`, `${#a[@]}` and `v1#x` are code, and a change to them is one
+        let word_start = i == 0
+            || chars
+                .get(i - 1)
+                .is_some_and(|p| p.is_whitespace() || matches!(p, ';' | '|' | '&' | '(' | ')'));
+        if hash_comments && c == '#' && (kind == Kind::Python || word_start) {
             i = line_end(&chars, i);
             continue;
         }
@@ -440,5 +446,21 @@ mod tests {
         );
         assert!(!root.join(DIR).exists(), "an empty .verifies/ is removed");
         let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn a_hash_starts_a_shell_comment_only_where_a_word_starts() {
+        let form = |t: &str| token_form(t, "run.sh");
+        assert_ne!(
+            form("[ $# -eq 2 ] || exit 1\n"),
+            form("[ $# -eq 3 ] || exit 0\n")
+        );
+        assert_ne!(
+            form("n=${#arr[@]}; echo 1\n"),
+            form("n=${#arr[@]}; echo 2\n")
+        );
+        assert_ne!(form("v=v1#abc; echo a\n"), form("v=v1#abc; echo b\n"));
+        assert_eq!(form("echo x # one note\n"), form("echo x # another\n"));
+        assert_eq!(form("# a comment line\necho x\n"), form("echo x\n"));
     }
 }

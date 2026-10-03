@@ -62,17 +62,13 @@ nobody's memory still land on that person's word: `research` (the evidence,
 reserved), `postmortem` (a commit's own account) and `question` (everything
 the builder would have been asked); the chronology is history's own. Only `answer`
 rows wait for a builder; a plan with none is not a plan withheld.
-Rows are TAB-separated; `docsys seed plan` prints their grammar. The
-permanent page comes later, through graduation, when the builder confirms.
+Rows are TAB-separated; `docsys seed plan` prints their grammar.
 
 ## 4b · The overview draft (the one page you may author)
 
-After the rows land, one permanent page per seeded feature may be yours:
-`docsys page new explanation <feature>-overview --unverified`, body written from the evidence only — what the feature is, how
+After the rows land, per seeded feature:
+`docsys page new explanation <feature>-overview --unverified`, its body written from the evidence only — what the feature is, how
 it is built, when it was born and moved, what broke and why, what the
 manifests and the code's own comments say — in the tree's language, with
 `sources:` naming the same `git:` locators and files the research page
-cites. When the builder's answers arrive, graduation moves them in byte-exact; the draft is where a
-reader starts on day one, not the truth.
-
-Never write prose of your own into the tree beyond that one page.
+cites. The draft is where a reader starts on day one.

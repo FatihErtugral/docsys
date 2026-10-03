@@ -25,7 +25,7 @@ auto    hook-scripts       .claude/hooks/pre-commit-docs.sh  refreshed: a text d
 manual  hook-scripts       .claude/hooks/stop-docs-reminder.sh  edited by its owner — the diff to this version's relay is below
 auto    hook-scripts       .claude/hooks/post-edit-updated.sh  removed: a page's date and its verification are history's, and the relay has nothing left to do (D-126)
 auto    hook-scripts       .claude/hooks/session-intent.sh  refreshed: a text docsys 0.12.0 wrote, untouched — it now starts in the project directory, names the tree's root, and names the pinned docsys to a binary from before pins
-auto    git-gate           .git/hooks/pre-commit  the docsys block rewritten for this version, its mode kept — this clone only: every clone runs `docsys upgrade --apply` once
+auto    git-gate           .git/hooks/pre-commit  the docsys block rewritten for this version, its mode kept
 auto    git-gate           .git/hooks/commit-msg  the docsys block written, its mode kept: it reads the commit message, and under `commit_policy: require` code with no documentation needs `Docs: <why>` (D-125) — this clone only: every clone runs `docsys upgrade --apply` once
 auto    ci-workflow        .github/workflows/docsys.yml  the 0.15 workflow, untouched: regenerated, pinned to this version; its approval job moves from direct to description — the approval rides the pull request's description (D-126)
 auto    rules-block        AGENTS.md  the generated block refreshed in place
@@ -51,7 +51,7 @@ info    raw-records        docs/raw/  1 record(s): from 0.5 a record layer — t
 auto    spec-line          docs/.docmeta.yml  `spec: docsys/0.4` → `spec: docsys/0.5`
 auto    pin                docs/.docsys-version  no pin → `0.16.0`: every docsys call here runs it
 -- 25 automatic, 5 for a person, 1 for information
-judged by docsys/0.5 as the tree is now: 7 new finding(s), 1 gone — the steps below clear their part
+judged by docsys/0.5 as the tree is now: 7 new finding(s), 1 gone — the steps above clear their part
 + WARN R-024 reference/expiry.md [record] a verification field in the page — on docsys/0.5 the state is read from history (an `Approved-by:` after the last body change, D-126), and this no longer holds; `docsys upgrade --apply` takes it out
 + WARN R-050 reference/expiry.md [updated] `updated:` is not kept on docsys/0.5 — a page's date is its last content change in history; `docsys upgrade --apply` removes the line
 + WARN R-050 reference/refresh.md [updated] `updated:` is not kept on docsys/0.5 — a page's date is its last content change in history; `docsys upgrade --apply` removes the line
@@ -87,7 +87,7 @@ judged by docsys/0.5 as the tree is now: 7 new finding(s), 1 gone — the steps 
 # .claude/commands/docsys-sync.md
 --- .claude/commands/docsys-sync.md
 +++ .claude/commands/docsys-sync.md
-@@ -1,27 +1,26 @@
+@@ -1,27 +1,25 @@
  ---
 -description: Scan code↔doc drift and un-graduated done work; propose debt items as a diff
 +description: Scan code↔doc drift and un-graduated done work; propose debt items
@@ -98,8 +98,7 @@ judged by docsys/0.5 as the tree is now: 7 new finding(s), 1 gone — the steps 
  
 -Manual, never automatic; run it before a release. Report; propose `docs/work/debt.md` items as a diff
 -and wait for approval. Commit nothing.
-+Manual, never automatic. Report; propose debt items (`docsys debt add`) and
-+wait for approval. Commit nothing.
++Manual, never automatic. Report, wait for approval, commit nothing.
  
 -1. Mechanical pass: `docsys lint --root docs --repo .` and `docsys refs --repo .` —
 -   include both outputs (one line each if green). Freshness errors are drift
@@ -125,7 +124,7 @@ judged by docsys/0.5 as the tree is now: 7 new finding(s), 1 gone — the steps 
 -   <trigger>`) as an Edit diff; do not apply without approval.
 +3. Graduation debt: `grep -rl '^status: done' docs/work/` — for each, say
 +   concretely which section goes to which page.
-+4. For each debt, the `docsys debt add` line that would write it.
++4. For each debt, its `docsys debt add` command, ready to run.
  
  No findings → say so; never invent debt.
 

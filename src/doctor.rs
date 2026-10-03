@@ -87,6 +87,8 @@ fn wire_commands(doc: &crate::hook::Json) -> Vec<String> {
 }
 
 pub fn run(repo: &Path, root: &Path, claude_dir: &Path) -> Diagnosis {
+    // the agent layer, named from the repository's top (D-098)
+    let layer = crate::fresh::root_rel(repo, claude_dir);
     let mut d = Diagnosis {
         lines: Vec::new(),
         failed: 0,
@@ -146,7 +148,7 @@ pub fn run(repo: &Path, root: &Path, claude_dir: &Path) -> Diagnosis {
             false,
             format!(
                 "{}/settings.json — hooks on disk run only when this file wires them",
-                claude_dir.display()
+                layer
             ),
         );
     }
@@ -160,7 +162,8 @@ pub fn run(repo: &Path, root: &Path, claude_dir: &Path) -> Diagnosis {
             "edited by its owner, so never rewritten — `docsys upgrade` shows the diff to this version's relay".to_string()
         };
         d.lines.push(format!(
-            "info {rel} template {found}, binary {} — {fix}",
+            "info {}/{rel} template {found}, binary {} — {fix}",
+            layer,
             crate::agents::TEMPLATE_VERSION
         ));
     }
@@ -173,7 +176,8 @@ pub fn run(repo: &Path, root: &Path, claude_dir: &Path) -> Diagnosis {
         if rel == crate::agents::POST_EDIT && !post_edit {
             if exists || event_of(&settings, "post-edit-updated.sh").is_some() {
                 d.lines.push(format!(
-                    "info {rel}: no job on docsys/0.5 — `docsys upgrade --apply` takes it and its wire out"
+                    "info {}/{rel}: no job on docsys/0.5 — `docsys upgrade --apply` takes it and its wire out",
+                    layer
                 ));
             }
             continue;
@@ -185,7 +189,11 @@ pub fn run(repo: &Path, root: &Path, claude_dir: &Path) -> Diagnosis {
         };
         #[cfg(not(unix))]
         let runnable = exists;
-        push(&mut d, runnable, format!("{rel} present and executable"));
+        push(
+            &mut d,
+            runnable,
+            format!("{}/{rel} present and executable", layer),
+        );
         if !settings.is_empty() {
             let name = rel.rsplit('/').next().unwrap_or(rel);
             match event_of(&settings, name) {
@@ -275,7 +283,15 @@ pub fn run(repo: &Path, root: &Path, claude_dir: &Path) -> Diagnosis {
             } else {
                 push(&mut d, true, format!("{shown}/pre-commit gate reachable"));
                 let stamp = format!("# docsys-template: {}", crate::agents::TEMPLATE_VERSION);
-                if text.contains("docsys documentation gate") && !text.contains(&stamp) {
+                // a docsys/0.4 tree's block is the one 0.15.1 wrote, which
+                // carries no stamp; `adopt` keeps it (D-118)
+                let behind = if crate::era::Era::at(root).journal_from_history() {
+                    text.contains("docsys documentation gate") && !text.contains(&stamp)
+                } else {
+                    crate::adopt::gate_current(repo, &crate::fresh::root_rel(repo, root), false)
+                        == Some(false)
+                };
+                if behind {
                     let fix = if moved {
                         "`docsys upgrade --apply` rewrites it"
                     } else {

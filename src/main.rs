@@ -3,13 +3,13 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 
 /// Standard output, written as `print!` writes it — but a reader that closed
-/// its end (`| head`) ends the command, as a closed pipe ends any program:
-/// docsys stops writing and exits with that status, 128 + SIGPIPE, quietly.
+/// its end (`| head`) ends the command, as a closed pipe ends any program,
+/// except inside a git hook, where only the findings decide (`closed_reader`).
 fn write_stdout(args: std::fmt::Arguments) {
     use std::io::Write;
     match std::io::stdout().write_fmt(args) {
         Ok(()) => {}
-        Err(e) if e.kind() == std::io::ErrorKind::BrokenPipe => std::process::exit(141),
+        Err(e) if e.kind() == std::io::ErrorKind::BrokenPipe => docsys::closed_reader(),
         Err(e) => {
             eprintln!("docsys: standard output: {e}");
             std::process::exit(2)
@@ -656,18 +656,49 @@ fn main() -> ExitCode {
             };
             let message_path = git_path("docsys-upgrade-message");
             let files_path = git_path("docsys-upgrade-files");
-            let dirty = docsys::git::cmd(&repo)
+            let changed: Option<Vec<String>> = docsys::git::cmd(&repo)
                 .args(["status", "--porcelain", "--untracked-files=no"])
                 .output()
-                .map(|o| !o.stdout.is_empty())
-                .unwrap_or(true);
-            let pending = dirty && message_path.is_file() && files_path.is_file();
+                .ok()
+                .map(|o| {
+                    docsys::hook::porcelain_paths(
+                        &String::from_utf8_lossy(&o.stdout)
+                            .lines()
+                            .map(str::to_string)
+                            .collect::<Vec<_>>(),
+                    )
+                });
+            let dirty = changed.as_ref().is_none_or(|c| !c.is_empty());
+            let recorded: Vec<String> = std::fs::read_to_string(&files_path)
+                .unwrap_or_default()
+                .lines()
+                .map(str::to_string)
+                .collect();
+            // a move written and waiting holds only its own files; anything
+            // else changed is the person's, never the move's commit
+            // a recorded directory (`.verifies/`) holds the files under it
+            let outside: Vec<String> = changed
+                .unwrap_or_default()
+                .into_iter()
+                .filter(|f| {
+                    !recorded
+                        .iter()
+                        .any(|r| f == r || f.starts_with(&format!("{}/", r.trim_end_matches('/'))))
+                })
+                .collect();
+            let pending =
+                dirty && message_path.is_file() && files_path.is_file() && outside.is_empty();
             if !dirty {
                 let _ = std::fs::remove_file(&message_path);
                 let _ = std::fs::remove_file(&files_path);
             }
             if opts.apply && !opts.force && dirty && !pending {
-                eprintln!("upgrade: the working tree has uncommitted changes — commit or stash them first, so the upgrade is one commit of its own (R-097, R-177); --force overrides");
+                let named = if recorded.is_empty() || outside.is_empty() {
+                    "uncommitted changes".to_string()
+                } else {
+                    format!("changes outside the move: {}", outside.join(", "))
+                };
+                eprintln!("upgrade: the working tree has {named} — commit or stash them first, so the upgrade is one commit of its own (R-097, R-177); --force overrides");
                 return ExitCode::from(2);
             }
             // one move per round, each its own commit (R-177); with --commit the
@@ -770,8 +801,12 @@ fn main() -> ExitCode {
                             count("info")
                         );
                     }
-                    for p in &u.preview {
-                        println!("{p}");
+                    // the findings the move adds and takes away: a forecast,
+                    // the plan's alone
+                    if !opts.apply {
+                        for p in &u.preview {
+                            println!("{p}");
+                        }
                     }
                     for (file, diff) in &u.diffs {
                         println!("\n# {file}\n{diff}");
@@ -1738,11 +1773,7 @@ next: review, `git add -A && git commit`, then open an agent session here."
                         );
                     }
                     if !g.plan_files.is_empty() {
-                        println!(
-                            "GATE a seed plan is in the change set: {} — a plan is a draft, never documentation (D-091); `git reset -- {}` and land it with `docsys seed apply`",
-                            g.plan_files.join(", "),
-                            g.plan_files.join(" ")
-                        );
+                        println!("{}", docsys::say::gate_seed_plan(&g.plan_files));
                     }
                     let require =
                         docsys::hook::commit_policy(&root) == docsys::hook::CommitPolicy::Require;
@@ -1762,7 +1793,7 @@ next: review, `git add -A && git commit`, then open an agent session here."
                             &g.code,
                             &migrate::today(),
                         ) {
-                            Ok(file) => println!("gate: bypassed under commit_policy: require — a debt item records it in {file}"),
+                            Ok(file) => println!("{}", docsys::say::gate_bypassed(&file)),
                             Err(e) => eprintln!("gate: could not record the bypass: {e}"),
                         }
                     }
@@ -1771,20 +1802,12 @@ next: review, `git add -A && git commit`, then open an agent session here."
                     let deferred =
                         history_journal && require && !opts.skipped && opts.range.is_none();
                     if undocumented && !deferred {
-                        let head: Vec<&str> = g.code.iter().take(5).map(String::as_str).collect();
-                        let more = g.code.len().saturating_sub(head.len());
-                        let tail = if more > 0 {
-                            format!(" (+{more} more)")
-                        } else {
-                            String::new()
-                        };
-                        println!(
-                            "GATE {} changes with no docs change: {}{tail}",
-                            g.scope,
-                            head.join(", ")
-                        );
+                        println!("{}", docsys::say::gate_undocumented(g.scope, &g.code));
                         if require && !opts.skipped && !history_journal {
-                            println!("{}", docsys::hook::era_text(&root, "GATE commit_policy: require — name the work (feature | bug | improvement | research), record it (a work file, or `Docs: <why>` in the commit message), stage it, commit again. DOCSYS_SKIP=1 bypasses once and leaves a debt item."));
+                            println!(
+                                "{}",
+                                docsys::say::era_text(&root, docsys::say::GATE_REQUIRE_015)
+                            );
                         }
                     }
                     println!(
@@ -2028,24 +2051,22 @@ next: review, `git add -A && git commit`, then open an agent session here."
                     .and_then(|top| docsys::place::only_tree(&top))
                     .unwrap_or_else(|| repo.to_path_buf())
             };
-            // a project tree's layer is `agents`' own: `--kb` writes a
-            // knowledge base's, and on a project it would write beside it
-            if docsys::tree::DocTree::load(&base)
-                .is_ok_and(|t| t.docmeta_present && t.profile == docsys::tree::Profile::Project)
-            {
-                eprintln!(
-                    "agents --kb: `{}` is a project tree — `docsys agents` installs its layer; `--kb` is a knowledge base's",
-                    docsys::place::shown(&base).display()
-                );
-                return ExitCode::from(2);
-            }
+            // the installer serves the tree it names and no other profile's
             match docsys::agents::install_kb(&opts.dir, &base, opts.force) {
                 Ok(done) => {
-                    for f in &done.written {
-                        println!("wrote   {f}");
+                    for p in &done.paths {
+                        println!("wrote   {}", docsys::place::shown(p).display());
                     }
                     for f in &done.skipped {
-                        println!("skipped {f} (exists; --force to overwrite)");
+                        let p = if f == "AGENTS.md" {
+                            base.join(f)
+                        } else {
+                            opts.dir.join(f)
+                        };
+                        println!(
+                            "skipped {} (exists; --force to overwrite)",
+                            docsys::place::shown(&p).display()
+                        );
                     }
                     for n in &done.notes {
                         println!("{n}");
@@ -2248,6 +2269,7 @@ next: review, `git add -A && git commit`, then open an agent session here."
                     println!("-- running lint on the migrated tree --");
                     run_lint(&Opts {
                         json: false,
+                        root,
                         ..opts
                     })
                 }

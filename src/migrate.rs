@@ -698,7 +698,8 @@ fn git_listed_files(repo: &Path, docs_canon: Option<&Path>) -> Option<Vec<PathBu
 /// Inbound references from the repo into the docs tree, as inventory evidence
 /// (SPEC setup-migrate Phase A: the links that a move would break).
 pub fn inbound_report(repo: &Path, docs_root: &Path) -> Vec<(String, usize)> {
-    let prefix = rel(docs_root, repo);
+    // named from the top, whatever form the two paths came in (D-098)
+    let prefix = crate::fresh::root_rel(repo, docs_root);
     let needle = format!("{prefix}/");
     let mut out = Vec::new();
     for file in repo_text_files(repo, docs_root) {
@@ -721,7 +722,7 @@ pub fn rewrite_repo_references(
     moves: &BTreeMap<String, String>,
     out: &mut ApplyOutcome,
 ) {
-    let prefix = rel(docs_root, repo);
+    let prefix = crate::fresh::root_rel(repo, docs_root);
     for file in repo_text_files(repo, docs_root) {
         let Ok(text) = fs::read_to_string(&file) else {
             continue;

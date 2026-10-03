@@ -337,6 +337,64 @@ fn homes() -> Vec<(&'static str, String)> {
         ),
     );
     let block = docsys(&["rules", "--agents-md"], "");
+    // the relays and the gate at their moments: what the catalog says
+    let said = |args: &[&str], input: &str| {
+        let mut child = Command::new(bin())
+            .args(args)
+            .current_dir(&dir)
+            .env("DOCSYS_NO_AUTO_INSTALL", "1")
+            .stdin(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::null())
+            .spawn()
+            .unwrap();
+        std::io::Write::write_all(child.stdin.as_mut().unwrap(), input.as_bytes()).unwrap();
+        String::from_utf8_lossy(&child.wait_with_output().unwrap().stderr).into_owned()
+    };
+    let commit =
+        |cmd: &str| format!(r#"{{"tool_name":"Bash","tool_input":{{"command":"{cmd}"}}}}"#);
+    std::fs::create_dir_all(dir.join("src")).unwrap();
+    std::fs::write(dir.join("src/x.rs"), "fn x() {}\n").unwrap();
+    git(&["add", "src/x.rs"]);
+    std::fs::write(dir.join("msg.txt"), "x\n").unwrap();
+    let mut catalog = String::new();
+    for text in [
+        said(
+            &["hook", "pre-tool-use", "--root", "docs"],
+            &commit("git commit -m x"),
+        ),
+        said(
+            &["hook", "pre-tool-use", "--root", "docs"],
+            &commit("git add -A && git commit -m x"),
+        ),
+        said(
+            &["hook", "stop", "--root", "docs", "--stdin"],
+            r#"{"stop_hook_active":false}"#,
+        ),
+        said(
+            &[
+                "gate",
+                "--repo",
+                ".",
+                "--root",
+                "docs",
+                "--message",
+                "msg.txt",
+            ],
+            "",
+        ),
+    ] {
+        catalog.push_str(&text);
+    }
+    std::fs::write(&meta, text).unwrap();
+    for cmd in ["git commit -m x", "git add -A && git commit -m y"] {
+        std::fs::write(dir.join(format!("src/{}.rs", cmd.len())), "fn y() {}\n").unwrap();
+        git(&["add", "-A", "src"]);
+        catalog.push_str(&said(
+            &["hook", "pre-tool-use", "--root", "docs"],
+            &commit(cmd),
+        ));
+    }
     let _ = std::fs::remove_dir_all(&dir);
     // the overview holds every purpose; each command adds its synopsis and
     // its flags
@@ -358,6 +416,7 @@ fn homes() -> Vec<(&'static str, String)> {
         ("export", fold(&export)),
         ("commands", fold(&commands)),
         ("feedback", fold(&feedback)),
+        ("catalog", fold(&catalog)),
     ]
 }
 
@@ -440,7 +499,35 @@ fn each_fact_is_said_in_one_place() {
         ),
         ("a howto's complete steps", &["steps are complete"]),
         ("the plan skeleton", &["plan skeleton"]),
-        ("blocks move as written", &["never retype", "byte for byte"]),
+        (
+            "blocks move as written",
+            &["never retype", "byte for byte", "byte-exact"],
+        ),
+        (
+            "verification is written nowhere in the page",
+            &["written into the page", "nothing in the page"],
+        ),
+        (
+            "a page from evidence is not the truth yet",
+            &["the truth yet", "not the truth"],
+        ),
+        (
+            "confirmed work reaches permanent pages by graduation",
+            &[
+                "graduates into permanent pages",
+                "through graduation",
+                "must reach permanent pages",
+            ],
+        ),
+        (
+            "the one page a seeding may author",
+            &["may author", "may be yours", "beyond that one page"],
+        ),
+        ("the draft's filled fields", &["version, OS"]),
+        (
+            "sync proposes debt items",
+            &["propose debt items", "line that would write it"],
+        ),
         ("no guess", &["never a guess", "confident guess"]),
         (
             "what the code cannot say",
@@ -479,7 +566,15 @@ fn each_fact_is_said_in_one_place() {
             &["what points at it", "names the pages that describe"],
         ),
         ("lint's exit", &["exit 1 on an error", "blocking findings"]),
-        ("adopt does it all", &["sets it up", "`adopt` does both"]),
+        (
+            "adopt does it all",
+            &[
+                "sets it up",
+                "`adopt` does both",
+                "is set up with",
+                "starts using docsys",
+            ],
+        ),
         (
             "one feature's evidence",
             &["one feature's evidence", "one feature's history"],
@@ -901,5 +996,16 @@ fn the_parser_and_the_table_agree_on_every_flag() {
                 c.name
             );
         }
+    }
+}
+
+/// `docsys help adopt` says what adopt writes: the tree, the agent rules,
+/// the hooks, the git gate and the report.
+#[test]
+fn help_adopt_says_what_it_writes() {
+    let (ok, text) = run(&["help", "adopt"]);
+    assert!(ok, "{text}");
+    for what in ["tree", "rules", "hooks", "git gate", "ADOPTION.md"] {
+        assert!(text.contains(what), "{what}: {text}");
     }
 }

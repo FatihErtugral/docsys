@@ -310,8 +310,8 @@ unchanged neither makes nor breaks it (D-102). An empty or absent list means any
 before.
 
 A permanent page in the `project` profile takes part in verification when it
-carries `sources:` with something its claims are checked against (P/R-025) —
-a source it names, or a pin to the code; R-024 and
+names something its claims are checked against (P/R-025) — a source in
+`sources:`, or a pin to the code; R-024 and
 R-059 then apply to it exactly as to a wiki page (§3.1). A page written from
 evidence by the session that did the work — the seeding overview (D-092), a
 reference updated beside a contract change — is `unverified` until a

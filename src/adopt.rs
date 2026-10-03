@@ -67,7 +67,14 @@ fi
 fn message_block(root_rel: &str, hard: bool) -> String {
     MESSAGE_BLOCK
         .replace("@VERSION@", agents::TEMPLATE_VERSION)
-        .replace("@MODE@", if hard { HARD_MODE_LINE } else { WARN_MODE_LINE })
+        .replace(
+            "@MODE@",
+            if hard {
+                crate::say::MESSAGE_HARD
+            } else {
+                crate::say::MESSAGE_WARN
+            },
+        )
         .replace("@EXIT@", if hard { "1" } else { "0" })
         .replace("@ROOT@", root_rel)
 }
@@ -99,9 +106,8 @@ fn gate_block_015(root_rel: &str, hard: bool) -> String {
     )
 }
 
-const WARN_MODE_LINE: &str =
-    "# Warn-mode until the adoption debt is triaged; `docsys adopt` hardens it once lint is clean.";
-const HARD_MODE_LINE: &str = "# Hard gate: lint errors and dangling references stop the commit.";
+const WARN_MODE_LINE: &str = crate::say::GATE_WARN;
+const HARD_MODE_LINE: &str = crate::say::GATE_HARD;
 
 /// `namespace:` in the tree's `.docmeta.yml` — the repository's directory
 /// name as a local-id — written when absent, kept when present (D-075).
@@ -160,6 +166,8 @@ struct CiOutcome {
     verify_job: bool,
     /// and that job opens a follow-up pull request
     opens_pull_requests: bool,
+    /// and the approval rides the pull request's description (D-126)
+    in_description: bool,
 }
 
 /// `.github/workflows/docsys.yml` when the repository has a `.github/`: lint
@@ -174,6 +182,7 @@ fn ensure_ci_workflow(repo: &Path, root_rel: &str, ci: Option<&Ci>) -> CiOutcome
             summary: "skipped (no .github/)".to_string(),
             verify_job: false,
             opens_pull_requests: false,
+            in_description: false,
         };
     }
     let file = repo.join(workflow::PATH);
@@ -189,6 +198,7 @@ fn ensure_ci_workflow(repo: &Path, root_rel: &str, ci: Option<&Ci>) -> CiOutcome
             verify_job: existing.contains("\n  verify-on-approval:\n")
                 || existing.contains("\n  approval:\n"),
             opens_pull_requests: existing.contains("gh pr create"),
+            in_description: existing.contains("\n  approval:\n"),
         };
     }
     let ci = ci.cloned().unwrap_or_else(|| Ci {
@@ -211,12 +221,14 @@ fn ensure_ci_workflow(repo: &Path, root_rel: &str, ci: Option<&Ci>) -> CiOutcome
             summary: "failed".to_string(),
             verify_job: false,
             opens_pull_requests: false,
+            in_description: false,
         };
     }
     CiOutcome {
         summary: format!("written (verify-on-approval: {})", verify.name()),
         verify_job: verify != Verify::Off,
         opens_pull_requests: verify == Verify::PullRequest,
+        in_description: verify == Verify::Description,
     }
 }
 
@@ -759,7 +771,7 @@ pub fn run_placed(
              \x20     workflow and run `docsys adopt --verify-on-approval direct` (or `off`).\n",
         );
     }
-    if ci.verify_job && !ci.opens_pull_requests {
+    if ci.in_description {
         md.push_str(
             "- [ ] Set the repository's squash and merge commit messages to the pull\n\
              \x20     request's title and description (Settings > General > Pull Requests),\n\
@@ -1110,6 +1122,21 @@ fn gate_span(lines: &[&str]) -> Option<(usize, usize)> {
     Some((start, start + end))
 }
 
+/// The tree the repository's docsys gate serves: the `--root` its pre-commit
+/// block names; `None` when there is no block.
+pub(crate) fn gate_root(repo: &Path) -> Option<String> {
+    let text = fs::read_to_string(gate_hooks_dir(repo)?.join("pre-commit")).ok()?;
+    let lines: Vec<&str> = text.lines().collect();
+    let (s, e) = gate_span(&lines)?;
+    lines.get(s..=e)?.iter().find_map(|l| {
+        let at = l.find(" --root ")?;
+        l.get(at + 8..)?
+            .split_whitespace()
+            .next()
+            .map(|r| r.trim_matches('"').to_string())
+    })
+}
+
 /// Whether the docsys block in the repository's pre-commit hook is the one this
 /// binary writes, its mode kept — `None` when there is no block. For `docsys
 /// upgrade`'s plan, which rewrites a block behind the binary and never changes
@@ -1122,7 +1149,12 @@ pub(crate) fn gate_current(repo: &Path, root_rel: &str, message: bool) -> Option
     let (s0, e0) = gate_span(&lines)?;
     let old = lines.get(s0..=e0)?;
     let was_warn = is_warn(old);
-    let fresh = gate_block(root_rel, !was_warn);
+    // the block `ensure_git_gate` writes for this era
+    let fresh = if message {
+        gate_block(root_rel, !was_warn)
+    } else {
+        gate_block_015(root_rel, !was_warn)
+    };
     let fresh_lines: Vec<&str> = fresh.trim_matches('\n').lines().collect();
     if old != fresh_lines.as_slice() {
         return Some(false);

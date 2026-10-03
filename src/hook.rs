@@ -406,87 +406,17 @@ impl Reply {
     }
 }
 
-/// The question, said once: the GATE line above it names what moved (D-040).
-const ASK: &str = "If a contract moved, update the page (or say why in the commit message: `Docs: <why>`) and commit; if nothing user-visible moved, run the same commit again — this gate asks once.\n";
-/// Said only when the blocked command ran a `git add` too.
-const BLOCKED_ADD: &str = "This whole Bash call was blocked — a `git add` in it did not run either. Re-run the SAME command from the start, `add` included.\n";
-/// The question and the refusal as 0.15.1 said them, which a docsys/0.4 tree
-/// still hears (D-118).
-const ASK_015: &str = "code moves with no documentation change. If a contract moved, update the page (or say why in the commit message: `Docs: <why>`) and commit; if nothing user-visible moved, run the same commit again — this gate asks once.\nThis whole Bash call was blocked — a `git add` in it did not run either. Re-run the SAME command from the start, `add` included.\n";
-const REQUIRE_015: &str = "commit_policy: require — nothing lands without its documentation. Name the work (feature | bug | improvement | research), record it — a work file under work/<category>/ or, at minimum, a `Docs: <why>` trailer in this commit's message — stage it, and run the SAME commit again, `git add` included. DOCSYS_SKIP=1 bypasses once and leaves a debt item.\nThis whole Bash call was blocked — a `git add` in it did not run either.\n";
 /// The gate's words for this tree and this command: the 0.15.1 text on a
-/// docsys/0.4 tree; on 0.5, a `git add` named only when the command ran one.
-fn gate_words(root: &Path, now: &str, before: &str, adds: bool) -> String {
+/// docsys/0.4 tree; on 0.5 the catalog's, a `git add` named only when the
+/// command ran one.
+fn gate_words(root: &Path, now: fn(bool) -> String, before: &str, adds: bool) -> String {
     if !crate::era::Era::at(root).journal_from_history() {
         return before.to_string();
     }
-    format!("{now}{}", if adds { BLOCKED_ADD } else { "" })
-}
-/// Each phrase of this module's agent text that names the journal, as a
-/// docsys/0.5 tree hears it and as a 0.4 tree heard it from 0.15.1 (D-118).
-const ERA_PHRASES: [(&str, &str); 12] = [
-    (
-        "improvement (refactor, performance, cleanup), research. If the",
-        "improvement (refactor, performance, cleanup), research, idea-note. If the",
-    ),
-    (
-        "update the page (or say why in the commit message: `Docs: <why>`) and commit",
-        "update the page (or add the journal line) and commit",
-    ),
-    (
-        "a work file under work/<category>/ or, at minimum, a `Docs: <why>` trailer in this commit's message",
-        "a work file under work/<category>/ or, at minimum, a journal entry linking these files and saying why",
-    ),
-    (
-        "a work file under work/<category>/, or a commit whose message says why with `Docs: <why>`",
-        "a work file under work/<category>/ or a journal entry linking the files and saying why",
-    ),
-    (
-        "wrong line = the fix, wrong assumption = invariant\nin reference/ or a postmortem (test: can it recur?); research",
-        "wrong line = journal line, wrong assumption = invariant\nin reference/ or a postmortem (test: can it recur?); improvement touching a\npublic surface → reference/ updated, and always record WHY; research",
-    ),
-    (
-        "idea → a question item or a roadmap line",
-        "idea → journal or roadmap line",
-    ),
-    (
-        "An id is unique across the whole tree, drafts included.\n</session-doc-routing>",
-        "An id is unique across the whole tree, drafts included.\nEnd of session: journal line (≤5 lines, links not content). Gate: docsys lint.\nJudgment calls follow the procedures: docsys rules --procedures.\n</session-doc-routing>",
-    ),
-    (
-        "the end of a turn holds until the work is recorded.\n",
-        "the end of a turn holds until the work is recorded (feature | bug | improvement | research → work file or journal entry).\n",
-    ),
-    (
-        "record it (a work file, or `Docs: <why>` in the commit message)",
-        "record it (a work file or a journal entry linking these files)",
-    ),
-    (
-        "Contract-surface changes update their documentation in the SAME session.\n",
-        "Contract-surface changes update their documentation in the SAME session.\nA permanent page you write from evidence, or change in substance, carries\n`verification: unverified` (+ sources); a maintainer verifies it in another\nsession — `verified_by:` and `confirmed:` name someone in .docmeta.yml\n`maintainers:` (R-208). Nothing you write is the truth yet; say so in the page.\n",
-    ),
-    (
-        "ingest → one wiki page per note (id, type, domain,\nsources),",
-        "ingest → one wiki page per note (id, type, domain, verification: unverified,\nsources),",
-    ),
-    (
-        "page; an approval is the maintainer's commit (`docsys verify`).",
-        "page; `verified` records verified_by and verified_rev.",
-    ),
-];
-
-/// The agent text here is written for docsys/0.5, whose journal is history;
-/// a docsys/0.4 tree hears its journal named as 0.15.1 named it (D-118).
-pub fn era_text(root: &Path, text: &str) -> String {
-    if crate::era::Era::at(root).journal_from_history() {
-        return text.to_string();
-    }
-    ERA_PHRASES
-        .iter()
-        .fold(text.to_string(), |t, (now, before)| t.replace(now, before))
+    now(adds)
 }
 
-const DROPPED_ADD: &str = "docsys gate: the blocked call ran `git add`; this retry does not, and the working tree still has unstaged changes — did your `git add` run? Re-run the original command from the start, or stage explicitly. (asked once)\n";
+pub use crate::say::era_text;
 
 /// PreToolUse on `Bash`: the commit-time question (D-040), asked once per
 /// (HEAD, change set) with the marker kept until HEAD moves (D-043), and the
@@ -549,8 +479,6 @@ pub fn record_undocumented_commit(
     Ok("work/debt.md".to_string())
 }
 
-const REQUIRE: &str = "commit_policy: require — nothing lands without its documentation. Name the work (feature | bug | improvement | research), record it — a work file under work/<category>/ or, at minimum, a `Docs: <why>` trailer in this commit's message — stage it, and run the SAME commit again. DOCSYS_SKIP=1 bypasses once and leaves a debt item.\n";
-
 /// The edited file and the session's working directory a payload names —
 /// where a hook looks for its tree (D-098).
 pub fn payload_places(payload: &str) -> (Option<String>, Option<String>) {
@@ -600,12 +528,7 @@ pub fn pre_tool_use(repo: &Path, root: &Path, payload: &str, skip: bool) -> Repl
                 .string_at(&["tool_input", "file_path"])
                 .and_then(|f| raw_record(repo, root, f))
             {
-                return Reply::block(format!(
-                    "docsys: raw/ is the record and content-immutable (R-023): `{rel}` already \
-                     exists and is never edited or overwritten. New knowledge is a NEW file under \
-                     raw/inbox/; a processed note moves with `docsys raw move <record> <domain>` — \
-                     bytes untouched, every citing page's sources: rewritten (R-027).\n"
-                ));
+                return Reply::block(crate::say::raw_record(&rel));
             }
         }
     }
@@ -632,6 +555,8 @@ pub fn pre_tool_use(repo: &Path, root: &Path, payload: &str, skip: bool) -> Repl
         Ok(x) => x,
         Err(e) => return Reply::block(format!("docsys gate: {e}\n")),
     };
+    let v05 = crate::era::Era::at(root).journal_from_history();
+    let adds = has_git_add(&cmd);
     let mut err = String::new();
     if g.lint_errors > 0 {
         for f in &report.findings {
@@ -644,22 +569,11 @@ pub fn pre_tool_use(repo: &Path, root: &Path, payload: &str, skip: bool) -> Repl
                 f.message
             ));
         }
-        err.push_str("docsys gate: lint errors block this commit — fix them first (DOCSYS_SKIP=1 to bypass once). This whole Bash call was blocked, any `git add` in it included.\n");
+        err.push_str(&crate::say::lint_block(v05, adds));
         return Reply::block(err);
     }
     if !g.plan_files.is_empty() {
-        return Reply::block(format!(
-            "docsys gate: a seed plan is in this commit ({}) — a plan is a conversation's draft, \
-             never documentation (R-003, D-091). `git reset -- {}`, land its rows with \
-             `docsys seed apply --plan {} --repo . --root <docs>`, and commit the docs root only. \
-             This whole Bash call was blocked, any `git add` in it included.\n",
-            g.plan_files.join(", "),
-            g.plan_files.join(" "),
-            g.plan_files
-                .first()
-                .map(String::as_str)
-                .unwrap_or("SEED.tsv")
-        ));
+        return Reply::block(crate::say::seed_plan_block(v05, adds, &g.plan_files));
     }
     if g.code.is_empty() || g.docs > 0 {
         return Reply::ok();
@@ -673,20 +587,12 @@ pub fn pre_tool_use(repo: &Path, root: &Path, payload: &str, skip: bool) -> Repl
     }
     if policy == CommitPolicy::Require {
         // D-093: not a question — a refusal, every time, until the work is recorded
-        let head_lines: Vec<&str> = g.code.iter().take(5).map(String::as_str).collect();
-        let more = g.code.len().saturating_sub(head_lines.len());
-        let tail = if more > 0 {
-            format!(" (+{more} more)")
-        } else {
-            String::new()
-        };
         return Reply::block(era_text(
             root,
             &format!(
-                "GATE {} changes with no docs change: {}{tail}\n{}",
-                g.scope,
-                head_lines.join(", "),
-                gate_words(root, REQUIRE, REQUIRE_015, has_git_add(&cmd))
+                "{}\n{}",
+                crate::say::gate_undocumented(g.scope, &g.code),
+                gate_words(root, crate::say::require, crate::say::REQUIRE_015, adds)
             ),
         ));
     }
@@ -709,23 +615,14 @@ pub fn pre_tool_use(repo: &Path, root: &Path, payload: &str, skip: bool) -> Repl
         }
     }
     let marker = dir.join(format!("{head}.{key}"));
-    let adds = has_git_add(&cmd);
     if !marker.exists() {
         let _ = fs::write(&marker, format!("add={}\n", u8::from(adds)));
-        let head_lines: Vec<&str> = g.code.iter().take(5).map(String::as_str).collect();
-        let more = g.code.len().saturating_sub(head_lines.len());
-        let tail = if more > 0 {
-            format!(" (+{more} more)")
-        } else {
-            String::new()
-        };
         return Reply::block(era_text(
             root,
             &format!(
-                "GATE {} changes with no docs change: {}{tail}\n{}",
-                g.scope,
-                head_lines.join(", "),
-                gate_words(root, ASK, ASK_015, adds)
+                "{}\n{}",
+                crate::say::gate_undocumented(g.scope, &g.code),
+                gate_words(root, crate::say::ask, crate::say::ASK_015, adds)
             ),
         ));
     }
@@ -739,7 +636,7 @@ pub fn pre_tool_use(repo: &Path, root: &Path, payload: &str, skip: bool) -> Repl
         && !retry.exists()
     {
         let _ = fs::write(&retry, "");
-        return Reply::block(DROPPED_ADD.to_string());
+        return Reply::block(crate::say::DROPPED_ADD.to_string());
     }
     Reply::ok()
 }
@@ -785,9 +682,9 @@ pub fn stop(repo: &Path, root: &Path, payload: &str) -> Reply {
         .unwrap_or(false);
     // on 0.5 the reason above already names the way out; 0.4 hears 0.15.1
     let held_until = if crate::era::Era::at(root).journal_from_history() {
-        "commit_policy: require — this turn holds until the work is named (feature | bug | improvement | research) and recorded as said above.\n"
+        crate::say::HELD
     } else {
-        "commit_policy: require — before this session ends, name the work (feature | bug | improvement | research) and record it: a work file under work/<category>/, or a commit whose message says why with `Docs: <why>`. Then stop.\n"
+        crate::say::HELD_015
     };
     let hold = |text: String| -> Reply {
         if require && !already_held {
@@ -827,9 +724,7 @@ pub fn stop(repo: &Path, root: &Path, payload: &str) -> Reply {
         if recorded {
             return Reply::ok();
         }
-        return hold(format!(
-            "docs: {where_} changed code but no documentation — if a contract\nmoved, the page moves in the SAME session; at minimum the commit says why:\n`Docs: <why>`.\n"
-        ));
+        return hold(crate::say::stop_undocumented(where_));
     }
     if docs > 0 {
         // Documentation moved with the code — but the session's own record is
@@ -873,20 +768,9 @@ fn stop_kb(repo: &Path, root: &Path) -> Reply {
         .iter()
         .filter(|f| f.severity == crate::model::Severity::Error)
         .count();
-    let mut msg = String::new();
-    if notes > 0 {
-        msg.push_str(&format!(
-            "base: {notes} note(s) waiting in raw/inbox — `process my inbox` distils them when you are ready.\n"
-        ));
-    }
-    if errors > 0 {
-        msg.push_str(&format!(
-            "base: docsys lint reports {errors} error(s) — the gate stops the next commit until they are fixed.\n"
-        ));
-    }
     Reply {
         code: 0,
-        stderr: msg,
+        stderr: crate::say::stop_kb(notes, errors),
         stdout: String::new(),
     }
 }
@@ -1422,8 +1306,9 @@ mod tests_routing {
             "{routing}"
         );
         assert!(routing.contains("wrong line = journal line"), "{routing}");
-        assert!(era_text(&root, ASK).contains("(or add the journal line)"));
-        assert!(era_text(&root, REQUIRE).contains("a journal entry linking these files"));
+        assert!(era_text(&root, &crate::say::ask(false)).contains("(or add the journal line)"));
+        assert!(era_text(&root, &crate::say::require(false))
+            .contains("a journal entry linking these files"));
         assert!(!routing.contains("Docs:"), "{routing}");
         assert!(
             routing.contains("`verification: unverified` (+ sources)"),
