@@ -1122,6 +1122,57 @@ fn a_late_branchs_ledger_lines_are_absorbed_and_the_frozen_slice_keeps_its_bytes
     let _ = fs::remove_dir_all(&repo);
 }
 
+/// N4, seen on real clones: a ledger that held only its title and untagged
+/// items becomes `general.md`, and git takes that for a rename — a late
+/// branch's tagged item follows it there. Lint names the upgrade, and a
+/// re-run moves the line, verbatim, into the file its tag names (D-124).
+#[test]
+fn a_tagged_item_git_carried_into_another_topic_moves_to_its_own() {
+    let (repo, _) = build("late-topic");
+    let debt = repo.join("docs/work/debt.md");
+    let before = "- [ ] 2026-09-01 open before -- deferred: c -- repay when: d\n";
+    fs::write(&debt, format!("# Debt\n\n{before}")).unwrap();
+    git(&repo, &["commit", "-qam", "the ledger"]);
+    let late = "- [ ] 2026-09-04 [cache] added on the branch -- deferred: e -- repay when: f\n";
+    git(&repo, &["checkout", "-qb", "plain"]);
+    fs::write(&debt, fs::read_to_string(&debt).unwrap() + late).unwrap();
+    git(&repo, &["commit", "-qam", "a branch adds a debt"]);
+    git(&repo, &["checkout", "-q", "main"]);
+    let out = docsys(&repo, &["upgrade", "--apply", "--commit"]);
+    assert!(out.status.success(), "{out:?}");
+    let general = repo.join("docs/work/debt/general.md");
+    assert_eq!(fs::read_to_string(&general).unwrap(), before);
+    merge_keeping_both(&repo, "plain");
+    assert_eq!(
+        fs::read_to_string(&general).unwrap(),
+        format!("{before}{late}"),
+        "git followed the rename"
+    );
+    let lint = docsys(&repo, &["lint"]);
+    assert!(
+        String::from_utf8_lossy(&lint.stdout).contains("`docsys upgrade --apply` moves it there"),
+        "{lint:?}"
+    );
+    let out = docsys(&repo, &["upgrade", "--apply"]);
+    assert!(out.status.success(), "{out:?}");
+    assert_eq!(fs::read_to_string(&general).unwrap(), before);
+    assert_eq!(
+        fs::read_to_string(repo.join("docs/work/debt/cache.md")).unwrap(),
+        late
+    );
+    let lint = docsys(&repo, &["lint"]);
+    assert!(
+        !String::from_utf8_lossy(&lint.stdout).contains("R-108"),
+        "{lint:?}"
+    );
+    let again = docsys(&repo, &["upgrade", "--apply"]);
+    assert!(
+        !String::from_utf8_lossy(&again.stdout).contains("ledgers"),
+        "{again:?}"
+    );
+    let _ = fs::remove_dir_all(&repo);
+}
+
 /// D-125: the journal moves under `_archive/journal/` byte for byte, and a
 /// page that linked it links it where it is now (R-172).
 #[test]

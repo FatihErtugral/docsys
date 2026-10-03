@@ -1424,6 +1424,16 @@ pub(crate) fn routed_directory(tree: &DocTree, target: &str) -> Option<String> {
     (type_dir || on_disk.is_dir()).then(|| format!("{dir}/"))
 }
 
+/// On a docsys/0.5 tree the name a list's ledger had is the list: its
+/// directory of topic files, open items or none (D-124).
+fn names_a_list(tree: &DocTree, target: &str) -> bool {
+    let kb = tree.profile == crate::tree::Profile::KnowledgeBase;
+    crate::era::Era::of(tree).item_files()
+        && [crate::items::List::Debt, crate::items::List::Questions]
+            .iter()
+            .any(|l| l.dir(kb) == target.trim_end_matches('/'))
+}
+
 fn check_links(tree: &DocTree, r: &mut Report) {
     // Resolution set: relative page paths without extension (R-070 full paths).
     let paths: BTreeSet<String> = tree
@@ -1472,7 +1482,7 @@ fn check_links(tree: &DocTree, r: &mut Report) {
                 .join("_archive")
                 .join(format!("{target}.md"))
                 .exists();
-            if paths.contains(&target) || explicit_archive {
+            if paths.contains(&target) || explicit_archive || names_a_list(tree, &target) {
                 // resolves — and a fragment on a resolved page is the finding
                 if fragment.is_some() {
                     r.findings.push(Finding::warn(
@@ -2022,7 +2032,7 @@ fn check_item_files(tree: &DocTree, r: &mut Report) {
                             &at,
                             format!(
                                 "line {}: tagged `[{tagged}]` in {topic}.md — the item belongs in \
-                                 {}/{tagged}.md",
+                                 {}/{tagged}.md; `docsys upgrade --apply` moves it there",
                                 i + 1,
                                 list.dir(kb)
                             ),

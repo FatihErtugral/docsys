@@ -1094,6 +1094,75 @@ fn ledgers(ctx: &Ctx, u: &mut Upgrade, apply: bool) -> Result<(), String> {
             }
             u.written.push(file);
         }
+        misfiled(ctx, u, list, apply)?;
+    }
+    Ok(())
+}
+
+/// A tagged item in another topic's file into its own, its line verbatim:
+/// a ledger that became `general.md` reads to git as a rename, and a branch
+/// from before the move that appended to the ledger lands there (D-124).
+fn misfiled(
+    ctx: &Ctx,
+    u: &mut Upgrade,
+    list: crate::items::List,
+    apply: bool,
+) -> Result<(), String> {
+    use crate::items::{topic_of, GENERAL};
+    let open = crate::items::open(ctx.root, list, ctx.kb);
+    let mut by_file: Vec<(String, Vec<String>)> = Vec::new();
+    for item in &open {
+        let tag = topic_of(&item.line);
+        if tag == GENERAL || tag == item.topic {
+            continue;
+        }
+        match by_file.iter_mut().find(|(rel, _)| *rel == item.rel) {
+            Some((_, lines)) => lines.push(item.line.clone()),
+            None => by_file.push((item.rel.clone(), vec![item.line.clone()])),
+        }
+    }
+    for (rel, lines) in by_file {
+        let file = format!("{}{rel}", ctx.prefix);
+        u.item(
+            "auto",
+            "ledgers",
+            &file,
+            format!(
+                "{} item(s) tagged for another topic into their own files, lines verbatim — git's rename of the ledger carried a branch's line here (D-124)",
+                lines.len()
+            ),
+        );
+        if !apply {
+            continue;
+        }
+        let path = ctx.root.join(&rel);
+        let mut text = fs::read_to_string(&path).map_err(|e| e.to_string())?;
+        for line in &lines {
+            let mut removed = false;
+            text = text
+                .split_inclusive('\n')
+                .filter(|l| {
+                    if !removed && l.trim_end_matches('\n') == line {
+                        removed = true;
+                        return false;
+                    }
+                    true
+                })
+                .collect();
+            let held = crate::items::open(ctx.root, list, ctx.kb)
+                .iter()
+                .any(|i| i.line == *line && i.topic == topic_of(line));
+            if !held {
+                let to = crate::items::add(ctx.root, list, ctx.kb, line)?;
+                u.written.push(format!("{}{to}", ctx.prefix));
+            }
+        }
+        if text.trim().is_empty() {
+            fs::remove_file(&path).map_err(|e| e.to_string())?;
+        } else {
+            fs::write(&path, &text).map_err(|e| e.to_string())?;
+        }
+        u.written.push(file);
     }
     Ok(())
 }

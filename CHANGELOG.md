@@ -73,8 +73,9 @@ declares `spec: docsys/0.5`; a tree that declares `docsys/0.4` is served as
   without one, written by `docsys debt add` and `docsys question add`
   (`--topic`); closing removes the line and prints the `Resolved:` or
   `Answered:` line its commit carries, and `upgrade` groups the old ledgers'
-  open items by tag and moves the rest, as written, under `_archive/` (R-108,
-  D-124). D-109's vanished-item check is retired
+  open items by tag and moves the rest, as written, under `_archive/`; a link
+  to the list by its old name, `[[work/debt]]`, resolves to the list (R-071,
+  R-108, D-124). D-109's vanished-item check is retired
   with the ledgers.
 - Graduation ends by removing the work file: `docsys graduate apply --plan
   <file> --confirmed <who>` moves the last blocks byte for byte, removes the

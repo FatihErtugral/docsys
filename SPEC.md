@@ -771,7 +771,10 @@ design — inline code is their field convention, R-073.) Resolution appends
 `.md` when the path has no extension, and does not follow symlinks outside the
 tree. A target that moved to `_archive/` still resolves — to the archived
 copy — and **is reported**: the live link is evidence of remaining interest, so
-archiving never breaks a build; it surfaces the pages that still cared. A
+archiving never breaks a build; it surfaces the pages that still cared. On a
+docsys/0.5 tree the name a list's ledger had — `work/debt`, `work/questions`, a
+knowledge base's `wiki/open-questions` — is the list: a link to it resolves to
+its directory of topic files, whether or not an item is open (D-124). A
 target that exists nowhere is dangling, and a dangling target **is an error**:
 a dangling wiki-link, a dangling `doc:` reference (R-076) and a dangling
 foreign reference (under federation: R-139, §13) are one failure class — the
