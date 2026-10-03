@@ -3,8 +3,9 @@
 # guarantees around ingest by hand. Order (a page may cite the destination
 # before the note arrives), relocation through `docsys raw move` (R-027),
 # the record guards (R-023, the PreToolUse relay), routers (R-034/R-035),
-# the frontmatter rules (R-024/R-026/R-029), and the audit record
-# (R-024 body check, R-028). Every expectation is an exact string.
+# the frontmatter rules (R-024/R-026/R-029), and the audit read from history
+# (an approval commit, a body it never read, a revoke; D-126). Every
+# expectation is an exact string.
 source "$(dirname "${BASH_SOURCE[0]}")/../lib.sh"
 lab_binary
 F=kb-ingest
@@ -30,8 +31,6 @@ cat > wiki/embedded/reference/uart-dma.md <<MD
 id: uart-dma
 type: reference
 domain: embedded
-verification: unverified
-updated: $TODAY
 sources: [raw/embedded/2026-07-01-uart-dma-timing.md]
 ---
 # UART DMA timing
@@ -100,26 +99,24 @@ awk '{ if ($0 == "id: uart-dma") print "id: uart-dma-cooking"; else if ($0 == "d
 lint_to . $O/lint.out
 expect_re $F undeclared-domain '^WARN R-026 wiki/embedded/reference/uart-dma-cooking\.md' $O/lint.out
 rm wiki/embedded/reference/uart-dma-cooking.md
-printf -- '---\nid: bare\ntype: reference\nupdated: %s\n---\n# Bare\n\nThis page has no domain, no verification and no sources; it is here to be caught.\n' "$TODAY" > wiki/embedded/reference/bare.md
+printf -- '---\nid: bare\ntype: reference\n---\n# Bare\n\nThis page has no domain and no sources; it is here to be caught.\n' > wiki/embedded/reference/bare.md
 lint_to . $O/lint.out
-expect_re $F missing-kb-fields '^WARN R-024 wiki/embedded/reference/bare\.md \[domain,verification,sources\]' $O/lint.out
+expect_re $F missing-kb-fields '^WARN R-024 wiki/embedded/reference/bare\.md \[domain,sources\]' $O/lint.out
 rm wiki/embedded/reference/bare.md
 expect_clean $F frontmatter-restored .
 
-say "$F · 8 audit: the record, the body check, a revision that does not exist"
-rev=$(git rev-parse --short HEAD)
-awk -v rev="$rev" '{ if ($0 == "verification: unverified") { print "verification: verified"; print "verified_by: mech"; print "verified_rev: " rev } else print }' \
-  wiki/embedded/reference/uart-dma.md > $O/page.tmp && mv $O/page.tmp wiki/embedded/reference/uart-dma.md
+say "$F · 8 audit: an approval, then a body it never read, then the approval taken back"
+unverified_list() { docsys status --root . --json | grep -o '"unverified":\[[^]]*\]'; }
+git add -A && git commit -qm "the base before the audit" >/dev/null 2>&1 || true
+docsys verify uart-dma --root . > $O/verify.out 2>&1 || check $F verify FAIL "$(cat $O/verify.out)"
+expect_true $F approval-commit "the approval is a commit carrying Approved-by:" sh -c "git log -1 --format=%B | grep -q '^Approved-by: '"
 expect_clean $F verified-clean .
+expect_true $F verified-read "uart-dma reads verified ($(unverified_list))" sh -c "! docsys status --root . --json | grep -o '\"unverified\":\[[^]]*\]' | grep -q 'uart-dma.md'"
 printf 'A line the audit never saw.\n' >> wiki/embedded/reference/uart-dma.md
-lint_to . $O/lint.out
-expect_re $F body-moved '^ERROR R-024 wiki/embedded/reference/uart-dma\.md \[verification\]' $O/lint.out
+expect_true $F body-moved "a body the approval never read reads unverified ($(unverified_list))" sh -c "docsys status --root . --json | grep -o '\"unverified\":\[[^]]*\]' | grep -q 'uart-dma.md'"
 git checkout -q -- wiki/embedded/reference/uart-dma.md
-awk '{ if ($0 == "verification: unverified") { print "verification: verified"; print "verified_by: mech"; print "verified_rev: 0000000" } else print }' \
-  wiki/embedded/reference/uart-dma.md > $O/page.tmp && mv $O/page.tmp wiki/embedded/reference/uart-dma.md
-lint_to . $O/lint.out
-expect_re $F unknown-rev '^ERROR R-028 wiki/embedded/reference/uart-dma\.md \[verified_rev\]' $O/lint.out
-git checkout -q -- wiki/embedded/reference/uart-dma.md
+docsys verify uart-dma --revoke --root . > $O/revoke.out 2>&1 || check $F revoke FAIL "$(cat $O/revoke.out)"
+expect_true $F revoked "the approval taken back reads unverified ($(unverified_list))" sh -c "docsys status --root . --json | grep -o '\"unverified\":\[[^]]*\]' | grep -q 'uart-dma.md'"
 
 say "$F · 9 raw move rewrites the citing page and keeps its verification (R-027, D-077)"
 mkdir -p wiki/ops/howto
@@ -128,8 +125,6 @@ cat > wiki/ops/howto/rotate-keys.md <<MD
 id: rotate-keys
 type: howto
 domain: ops
-verification: unverified
-updated: $TODAY
 sources: [raw/inbox/2026-07-15-rotate-keys.md]
 ---
 # Rotate the deploy keys
@@ -142,17 +137,14 @@ This page is the quarterly key rotation, step by step; read it when the calendar
 MD
 printf -- '- [[ops/howto/rotate-keys|Rotate the deploy keys]] -- quarterly, three steps.\n' >> wiki/ops/index.md
 git add -A && git commit -qm "rotate-keys: page" 2>$O/commit.err || check $F commit-2 FAIL "$(cat $O/commit.err)"
-rev=$(git rev-parse --short HEAD)
-awk -v rev="$rev" '{ if ($0 == "verification: unverified") { print "verification: verified"; print "verified_by: mech"; print "verified_rev: " rev } else print }' \
-  wiki/ops/howto/rotate-keys.md > $O/page.tmp && mv $O/page.tmp wiki/ops/howto/rotate-keys.md
-git add -A && git commit -qm "rotate-keys: verified" 2>$O/commit.err || check $F commit-3 FAIL "$(cat $O/commit.err)"
+docsys verify rotate-keys --root . > $O/verify2.out 2>&1 || check $F commit-3 FAIL "$(cat $O/verify2.out)"
 expect_clean $F verified-before-move .
 body_before=$(awk 'f{print} /^---$/ && NR>1 {f=1}' wiki/ops/howto/rotate-keys.md)
 docsys raw move raw/inbox/2026-07-15-rotate-keys.md ops --root . > $O/move.out 2>&1 || true
 expect_in $F move2-line "moved: raw/inbox/2026-07-15-rotate-keys.md -> raw/ops/2026-07-15-rotate-keys.md" $O/move.out
 expect_in $F move2-rewrote "rewrote: wiki/ops/howto/rotate-keys.md (1 entry)" $O/move.out
 expect_in $F sources-rewritten "sources: [raw/ops/2026-07-15-rotate-keys.md]" wiki/ops/howto/rotate-keys.md
-expect_in $F still-verified "verification: verified" wiki/ops/howto/rotate-keys.md
+expect_true $F still-verified "rotate-keys still reads verified ($(unverified_list))" sh -c "! docsys status --root . --json | grep -o '\"unverified\":\[[^]]*\]' | grep -q 'rotate-keys.md'"
 body_after=$(awk 'f{print} /^---$/ && NR>1 {f=1}' wiki/ops/howto/rotate-keys.md)
 expect_true $F body-untouched "the body is byte-identical" test "$body_before" = "$body_after"
 expect_true $F bytes-same-2 "sha256 of the moved note" \

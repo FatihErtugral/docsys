@@ -39,8 +39,8 @@ mv /tmp/gate.bak .git/hooks/pre-commit
 say "4 · gate: the code-without-docs question"
 echo 'fn main() {}' > main.rs && git add main.rs
 docsys gate --repo . --root docs | grep -q '^GATE ' || fail "gate misses staged code without docs"
-git add docs 2>/dev/null; printf -- '- [ ] 2026-08-16 wire CI -- deferred: e2e -- repay when: v1\n' >> docs/work/debt.md
-git add docs/work/debt.md
+docsys debt add "wire CI" --deferred e2e --repay-when v1 --root docs >/dev/null
+git add docs
 docsys gate --repo . --root docs | grep -q '^GATE ' && fail "gate fires although docs are staged"
 git commit -qm "code with docs"
 cd "$WORK"
@@ -194,8 +194,6 @@ cat > wiki/coding/explanation/auth-in-one-page.md <<EOF
 id: auth-in-one-page
 type: explanation
 domain: coding
-verification: unverified
-updated: $(date +%F)
 sources: [@auth/use-auth]
 ---
 # Auth in one page
@@ -220,14 +218,14 @@ docsys status --root . --json > /tmp/status.json || fail "status --json failed"
 grep -q '"inbox":3' /tmp/status.json || fail "status --json disagrees"
 # staying current: verify the page against the source as fetched, then let the provider move
 git add -A && git commit -qm "learned from auth"
-rev=$(git rev-parse --short HEAD)
-awk -v rev="$rev" '{ if ($0 == "verification: unverified") { print "verification: verified"; print "verified_by: e2e"; print "verified_rev: " rev } else print }' \
-  wiki/coding/explanation/auth-in-one-page.md > /tmp/page.tmp && mv /tmp/page.tmp wiki/coding/explanation/auth-in-one-page.md
-docsys lint --root . | grep -q -- '-- 0 error(s)' || fail "a page verified against the fetched source is not clean: $(docsys lint --root . | head -3)"
+docsys verify auth-in-one-page --root . >/dev/null || fail "the maintainer could not verify the page"
+git log -1 --format=%B | grep -q '^Approved-by: ' || fail "verify made no approval commit"
+docsys status --root . | grep -q '0 unverified\|wiki: 1 page(s)$' || true
+docsys lint --root . | grep -q -- '-- 0 error(s), 0 warning(s)' || fail "a page verified against the fetched source is not clean: $(docsys lint --root . | head -3)"
 (cd "$WORK/auth" && sed 's/in one page\./in one page, now with tokens./' docs/howto/use-auth.md > /tmp/use-auth.tmp \
   && mv /tmp/use-auth.tmp docs/howto/use-auth.md && git add -A && git commit -qm "auth: tokens")
 docsys fetch --root . >/dev/null
-(docsys lint --root . || true) | grep -q 'R-024 wiki/coding/explanation/auth-in-one-page.md \[@auth/use-auth\]' || fail "a moved source did not stale the page that rested on it: $(docsys lint --root . | head -3)"
+docsys status --root . | grep -q '1 unverified — wiki/coding/explanation/auth-in-one-page.md' || fail "a moved source did not stale the page that rested on it: $(docsys status --root .)"
 docsys status --root . > /tmp/status2.out; grep -q 'sources: 1 verified page(s) whose consumed sources moved' /tmp/status2.out || fail "status does not count the moved source: $(cat /tmp/status2.out)"
 cd "$WORK"
 

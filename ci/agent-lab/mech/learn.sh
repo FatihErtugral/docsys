@@ -3,8 +3,8 @@
 # projects. `consume discover`, `docsys assistant` in one command (and
 # idempotent), the git connector's arithmetic (`--since`, `--limit`,
 # `--all`, `--as`, bookkeeping skipped, nothing landed twice), the record
-# shape, the `@namespace/id` lifecycle (clean after fetch, R-024 when the
-# source moves, status counting it), `forget` on a cited record, and
+# shape, the `@namespace/id` lifecycle (clean after fetch, unverified when the
+# source moves, status counting it, D-126), `forget` on a cited record, and
 # `lookup`. Exact strings throughout.
 source "$(dirname "${BASH_SOURCE[0]}")/../lib.sh"
 lab_binary
@@ -74,8 +74,6 @@ cat > wiki/coding/explanation/relay-in-one-page.md <<MD
 id: relay-in-one-page
 type: explanation
 domain: coding
-verification: unverified
-updated: $TODAY
 sources: [@relay/retry-policy]
 ---
 # Relay in one page
@@ -88,31 +86,26 @@ printf '# coding\n\n- [[coding/explanation/relay-in-one-page|Relay in one page]]
 grep -q 'coding/index' wiki/index.md || printf -- '- [[coding/index|Coding]] -- code.\n' >> wiki/index.md
 expect_clean $F cites-fetched-page .
 git add -A && git commit -qm "learned from relay" 2>"$O/commit.err" || check $F commit-1 FAIL "$(cat "$O/commit.err")"
-rev=$(git rev-parse --short HEAD)
-awk -v rev="$rev" '{ if ($0 == "verification: unverified") { print "verification: verified"; print "verified_by: mech"; print "verified_rev: " rev } else print }' \
-  wiki/coding/explanation/relay-in-one-page.md > "$O/page.tmp" && mv "$O/page.tmp" wiki/coding/explanation/relay-in-one-page.md
+docsys verify relay-in-one-page --root . > "$O/verify.out" 2>&1 || check $F verify FAIL "$(cat "$O/verify.out")"
 expect_clean $F verified-against-fetched .
-git add -A && git commit -qm "verified" 2>/dev/null
+expect_true $F verified-read "the page reads verified" sh -c "docsys status --root . | grep -q '^wiki: 1 page(s), 0 unverified'"
 ( cd "$E/relay" && awk '{ if (index($0, "Four attempts, exponential backoff") == 1) print "Six attempts, exponential backoff starting at 200 ms, then a dead letter."; else print }' docs/reference/retry-policy.md > r.tmp && mv r.tmp docs/reference/retry-policy.md && dated_commit . 2026-08-01 "relay: six attempts" "Four was not enough for the slow dependency; six, measured, finishes under 13 s." )
 docsys fetch --root . >/dev/null 2>&1 || true
-lint_to . "$O/lint.out"
-expect_re $F source-moved '^ERROR R-024 wiki/coding/explanation/relay-in-one-page\.md \[@relay/retry-policy\]' "$O/lint.out"
 docsys status --root . > "$O/status.out"
+expect_in $F source-moved "1 unverified — wiki/coding/explanation/relay-in-one-page.md" "$O/status.out"
 expect_in $F status-sources-moved "sources: 1 verified page(s) whose consumed sources moved since verification" "$O/status.out"
 docsys inbox pull "$E/relay" --since 2026-01-01 --root . > "$O/pull6.out" 2>&1 || true
 expect_true $F new-commit-lands "the six-attempts commit lands" grep -q '^captured: raw/inbox/.*six-attempts' "$O/pull6.out"
-# D-077's order: the hard gate refuses a commit while a verified page is stale; the page goes back
-# to unverified first, the fetch and the record land, then another audit verifies against the new baseline
-rc=0; git add -A && git commit -qm "relay moved: fetched, pulled" 2>"$O/commit.err" || rc=$?
-expect_true $F gate-refuses-stale-verified "the gate refuses the commit while the verified page is stale (exit $rc)" test "$rc" != 0
-awk '{ if (index($0, "verification: verified") == 1) print "verification: unverified"; else if (index($0, "verified_by:") == 1 || index($0, "verified_rev:") == 1) next; else print }' \
-  wiki/coding/explanation/relay-in-one-page.md > "$O/page.tmp" && mv "$O/page.tmp" wiki/coding/explanation/relay-in-one-page.md
+# D-126: a stale verification is the derived state "unverified", not a stored claim to clean up
+# first — the fetch and the record land, and another audit verifies against the new baseline
+git add -A && git commit -qm "relay moved: fetched, pulled" 2>"$O/commit.err" || check $F commit-fetch FAIL "$(cat "$O/commit.err")"
 expect_clean $F unverified-again .
-git add -A && git commit -qm "relay moved: fetched, pulled; the page back to unverified" 2>"$O/commit.err" || check $F commit-fetch FAIL "$(cat "$O/commit.err")"
-rev=$(git rev-parse --short HEAD)
-awk -v rev="$rev" '{ if ($0 == "verification: unverified") { print "verification: verified"; print "verified_by: mech"; print "verified_rev: " rev } else print }' \
-  wiki/coding/explanation/relay-in-one-page.md > "$O/page.tmp" && mv "$O/page.tmp" wiki/coding/explanation/relay-in-one-page.md
+expect_true $F still-unverified "the page still reads unverified after the commit" sh -c "docsys status --root . | grep -q '1 unverified — wiki/coding/explanation/relay-in-one-page.md'"
+docsys verify relay-in-one-page --root . > "$O/verify2.out" 2>&1 || check $F re-verify FAIL "$(cat "$O/verify2.out")"
 expect_clean $F re-verified .
+docsys status --root . > "$O/status3.out"
+expect_in $F re-verified-reads "wiki: 1 page(s), 0 unverified" "$O/status3.out"
+expect_in $F re-verified-sources "sources: 0 verified page(s) whose consumed sources moved since verification" "$O/status3.out"
 
 say "$F · 5 forgetting a cited record is refused; the page first"
 rec=$(ls raw/inbox/*-relay-*backoff*.md | head -1)
@@ -121,8 +114,6 @@ cat > wiki/coding/explanation/backoff.md <<MD
 id: backoff
 type: explanation
 domain: coding
-verification: unverified
-updated: $TODAY
 sources: [$rec]
 ---
 # Why relay's backoff doubles

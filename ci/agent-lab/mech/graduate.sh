@@ -71,7 +71,7 @@ expect_in $F rejected-arrived "Keying by session id: the second tab." docs/expla
 expect_in $F contract-arrived 'returns today'"'"'s document for that cart' docs/reference/cart-key-contract.md
 expect_in $F graduated-to "graduated_to: [cart-key-decision, cart-key-contract, keys]" $src
 expect_true $F keys-untouched "reference/keys.md unchanged by a link:" cmp -s docs/reference/keys.md "$WORK/keys.before"
-expect_in $F dest-updated "updated: $TODAY" docs/explanation/cart-key-decision.md
+expect_absent $F dest-date-is-history "updated:" docs/explanation/cart-key-decision.md
 arrived_byte_exact $F byte-exact-decision "$WORK/cart-key.before" "$WORK/cart-key-decision.before" docs/explanation/cart-key-decision.md
 arrived_byte_exact $F byte-exact-contract "$WORK/cart-key.before" "$WORK/cart-key-contract.before" docs/reference/cart-key-contract.md
 expect_in $F status-unchanged "status: done" $src

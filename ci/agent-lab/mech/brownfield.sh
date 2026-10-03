@@ -102,22 +102,21 @@ expect_in $F research-headings "## Why no decision" $r
 expect_in $F answer-quoted "> The window is 30 seconds, not 60:" $r
 expect_in $F answer-second-line "> we measured 60 losing order on 2021-11-04." $r
 expect_in $F answer-attributed "> — builder, $TODAY" $r
-expect_in $F journal-entry "## 2019-03-02 - sync born" docs/work/journal.md
-expect_in $F journal-provenance "- git: $birth" docs/work/journal.md
-expect_true $F journal-order "the 2019 entry sits below today's adoption entry (R-104)" \
-  sh -c "awk '/^## /{print}' docs/work/journal.md | head -1 | grep -q '^## $TODAY' && awk '/^## /{print}' docs/work/journal.md | tail -1 | grep -q '^## 2019-03-02 - sync born'"
+# D-125: the birth is history's own entry, cited by the research file's sources; nothing is copied
+expect_in $F journal-is-history "journal: $birth is history's own entry (D-125)" "$O/apply.out"
+expect_true $F journal-no-file "no journal file is written" test ! -e docs/work/journal.md
 pm=docs/work/postmortems/clock-skew.md
 expect_in $F postmortem-subject "> fix(sync): replay buffer is 4096 entries" $pm
 expect_in $F postmortem-body "> Root cause: replay accepted frames with clock skew above 30s; the buffer is 4096 entries, not 4000 — 4000 lost 2.3% of events on 2021-11-04." $pm
 expect_in $F postmortem-provenance "> — git:$fixsha" $pm
-expect_in $F debt-item "- [ ] $TODAY attribution for the vendor snapshot missing -- deferred: no licence list yet -- repay when: v3" docs/work/debt.md
-expect_in $F question-item "- [ ] $TODAY Is the 4096 buffer a product limit or a measurement?" docs/work/questions.md
+expect_in $F debt-item "- [ ] $TODAY attribution for the vendor snapshot missing -- deferred: no licence list yet -- repay when: v3" docs/work/debt/general.md
+expect_in $F question-item "- [ ] $TODAY Is the 4096 buffer a product limit or a measurement?" docs/work/questions/general.md
 expect_clean $F after-apply docs .
 git add docs && git commit -qm "seed: sync" 2>"$O/commit.err" || check $F commit-seed FAIL "$(cat "$O/commit.err")"
 expect_true $F seed-tsv-not-committed "SEED.tsv stays outside" test -z "$(git ls-files | grep SEED.tsv)"
 cp -r docs "$O/docs.first"
 docsys seed apply --plan "$O/SEED.tsv" --repo . --root docs > "$O/apply2.out" 2>&1 || check $F seed-apply-2 FAIL "$(cat "$O/apply2.out")"
-expect_true $F apply-idempotent-lines "every line says already ($(tr '\n' '|' < "$O/apply2.out"))" test "$(grep -vc 'already' "$O/apply2.out")" = 0
+expect_true $F apply-idempotent-lines "every line says already, or names history's own entry ($(tr '\n' '|' < "$O/apply2.out"))" test "$(grep -v "is history's own entry" "$O/apply2.out" | grep -vc 'already')" = 0
 expect_true $F apply-idempotent-bytes "docs/ byte-identical after the second apply" diff -rq docs "$O/docs.first"
 expect_true $F apply-idempotent-tree "nothing to commit" test -z "$(git status --porcelain)"
 rc=0; docsys seed plan --repo . --root docs --target sync > "$O/sync2.out" 2>&1 || rc=$?

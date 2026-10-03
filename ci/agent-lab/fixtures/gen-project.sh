@@ -50,7 +50,6 @@ cat > docs/work/features/cart-key.md <<MD
 id: cart-key
 status: done
 confirmed: owner, $TODAY
-updated: $TODAY
 ---
 ## Context
 
@@ -77,7 +76,6 @@ cat > docs/work/postmortems/cache-stampede.md <<MD
 id: cache-stampede
 status: done
 confirmed: owner, $TODAY
-updated: $TODAY
 ---
 ## What happened
 
@@ -102,7 +100,6 @@ cat > docs/work/research/retry-budget.md <<MD
 id: retry-budget
 status: done
 confirmed: owner, $TODAY
-updated: $TODAY
 ---
 ## Question
 

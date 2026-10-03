@@ -107,6 +107,7 @@ ci_green() {
 relays() {
   local bin_path=$1
   for hook in session-intent pre-commit-docs post-edit-updated stop-docs-reminder; do
+    [ -f ".claude/hooks/$hook.sh" ] || continue
     local err code
     err=$(printf '{}' | PATH="$bin_path" CLAUDE_PROJECT_DIR="$PWD" bash ".claude/hooks/$hook.sh" 2>&1 >/dev/null) && code=0 || code=$?
     printf '%s\t%s\t%s\n' "$hook" "$code" "$(printf '%s' "$err" | grep -c . || true)"
@@ -155,9 +156,12 @@ make_repo "$WORK/b"
 base_b=$(g rev-parse HEAD)
 with_new docsys upgrade --apply --commit >/dev/null || fail "B: the upgrade did not land"
 grep -q '^spec: docsys/0.5' docs/.docmeta.yml || fail "B: still declares 0.4"
+sed -i.bak 's|^type: reference$|type: reference\nsources: [src/auth.rs]|' docs/reference/refresh.md && rm -f docs/reference/refresh.md.bak
+g add -A; with_new g commit -qm "refresh rests on the code"
 refresh_and_verify "$NEW_PATH"
 [ -d docs/.verifies/refresh ] || fail "B: the refresh wrote no acknowledgement"
-grep -q '^verified_blocks:' docs/reference/refresh.md || fail "B: verify wrote no block record"
+! grep -q '^verified' docs/reference/refresh.md || fail "B: verify wrote into the page"
+g log -1 --format=%B | grep -q '^Approved-by: ' || fail "B: verify made no approval commit"
 ci_green "$NEW_PATH" "$base_b"
 relays_run "B" "$(relays "$NEW_PATH")"
 cd "$WORK/a"

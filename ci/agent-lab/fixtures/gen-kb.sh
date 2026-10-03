@@ -44,7 +44,6 @@ cat > wiki/embedded/index.md <<'MD'
 - [[embedded/reference/spi-clock|SPI clock]] -- the sensor bus clock on the F4 board.
 - [[embedded/reference/uart-basics|UART basics]] -- the three UARTs and what hangs off them.
 MD
-printf '# Open questions\n\nProposals and discrepancies the base cannot settle by itself; one dated line each.\n' > wiki/open-questions.md
 
 cat > raw/embedded/2026-06-20-spi.md <<'MD'
 SPI1 to the pressure sensor runs at 4 MHz. Tried 8 MHz on the bench: the
@@ -59,8 +58,6 @@ cat > wiki/embedded/reference/spi-clock.md <<'MD'
 id: spi-clock
 type: reference
 domain: embedded
-verification: unverified
-updated: 2026-06-21
 sources: [raw/embedded/2026-06-20-spi.md]
 ---
 # SPI clock on the F4 board
@@ -77,8 +74,6 @@ cat > wiki/embedded/reference/uart-basics.md <<'MD'
 id: uart-basics
 type: reference
 domain: embedded
-verification: unverified
-updated: 2026-06-21
 sources: [raw/embedded/2026-06-20-uart-basics.md]
 ---
 # UART basics on the F4 board
