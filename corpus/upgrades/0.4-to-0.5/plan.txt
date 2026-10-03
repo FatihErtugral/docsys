@@ -26,7 +26,7 @@ manual  hook-scripts       .claude/hooks/stop-docs-reminder.sh  edited by its ow
 auto    hook-scripts       .claude/hooks/post-edit-updated.sh  removed: a page's date and its verification are history's, and the relay has nothing left to do (D-126)
 auto    hook-scripts       .claude/hooks/session-intent.sh  refreshed: a text docsys 0.12.0 wrote, untouched — it now starts in the project directory, names the tree's root, and names the pinned docsys to a binary from before pins
 auto    git-gate           .git/hooks/pre-commit  the docsys block rewritten for this version, its mode kept — this clone only: every clone runs `docsys upgrade --apply` once
-auto    ci-workflow        .github/workflows/docsys.yml  the 0.15 workflow, untouched: regenerated with its mode, pinned to this version
+auto    ci-workflow        .github/workflows/docsys.yml  the 0.15 workflow, untouched: regenerated, pinned to this version; its approval job moves from direct to description — the approval rides the pull request's description (D-126)
 auto    rules-block        AGENTS.md  the generated block refreshed in place
 auto    assets             .claude/commands/docsys-upgrade.md  written: new in this version
 manual  assets             .claude/commands/docsys-sync.md  edited by its owner — the diff to this version's text is below

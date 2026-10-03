@@ -62,7 +62,7 @@
       "strategy": "auto",
       "step": "ci-workflow",
       "file": ".github/workflows/docsys.yml",
-      "what": "the 0.15 workflow, untouched: regenerated with its mode, pinned to this version",
+      "what": "the 0.15 workflow, untouched: regenerated, pinned to this version; its approval job moves from direct to description — the approval rides the pull request's description (D-126)",
       "command": null
     },
     {
