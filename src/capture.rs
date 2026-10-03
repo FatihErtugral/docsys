@@ -459,10 +459,15 @@ pub fn page_new(
     } else if VALID_TYPES.contains(&kind) {
         // --unverified (D-092): a page written from evidence that nobody has
         // vouched for yet — the record fields a maintainer will fill (R-028)
-        let verification = if unverified {
-            "verification: unverified\nsources: []\n"
-        } else {
-            ""
+        // a docsys/0.5 page takes part in verification by its `sources:`,
+        // and its state is history's (D-126)
+        let verification = match (
+            unverified,
+            crate::era::Era::at(root).verification_from_history(),
+        ) {
+            (true, true) => "sources: []\n",
+            (true, false) => "verification: unverified\nsources: []\n",
+            (false, _) => "",
         };
         // a directory the index routes already reaches the page (D-123)
         let routed = crate::era::Era::at(root).directory_routes()

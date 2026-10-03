@@ -63,7 +63,7 @@ fn build_base(name: &str) -> PathBuf {
     write(
         &base,
         "wiki/ops/reference/rotation.md",
-        "---\nid: rotation\ntype: reference\ndomain: ops\nverification: unverified\nsources: [raw/inbox/2026-09-02-note.md]\n---\n# Rotation\n\nThis page states the rotation cadence; read it before rotating.\n\nMonthly.\n",
+        "---\nid: rotation\ntype: reference\ndomain: ops\nsources: [raw/inbox/2026-09-02-note.md]\n---\n# Rotation\n\nThis page states the rotation cadence; read it before rotating.\n\nMonthly.\n",
     );
     write(
         &base,
@@ -167,30 +167,31 @@ fn an_existing_record_is_guarded_and_a_new_note_passes() {
     assert_eq!(code, 0, "{err}");
 }
 
+/// A docsys/0.5 base runs no post-edit relay: a page's date and its
+/// verification are history's (D-122, D-126), and the hook, if a stale wire
+/// still calls it, changes nothing — a record least of all.
 #[test]
-fn a_wiki_edit_writes_no_date_and_a_record_never_changes() {
+fn a_wiki_edit_writes_nothing_and_a_record_never_changes() {
     let base = build_base("bump");
+    assert!(!base.join(".claude/hooks/post-edit-updated.sh").exists());
     let page = base.join("wiki/ops/reference/rotation.md");
     let before = fs::read_to_string(&page).unwrap();
-    let payload = format!(
-        r#"{{"session_id":"SESSION","tool_name":"Edit","tool_input":{{"file_path":"{}","old_string":"Monthly.","new_string":"Weekly."}}}}"#,
+    let today = docsys::migrate::today();
+    let edit = format!(
+        r#"{{"tool_name":"Edit","tool_input":{{"file_path":"{}"}}}}"#,
         page.display()
     );
-    let (code, _, err) = run_relay(&base, "post-edit-updated.sh", &payload, "s2");
-    assert_eq!(code, 0, "{err}");
-    assert_eq!(
-        fs::read_to_string(&page).unwrap(),
-        before,
-        "a docsys/0.5 page's date is history's (D-122)"
-    );
+    let r = docsys::hook::post_tool_use(&base, &base, &edit, &today);
+    assert_eq!(r.code, 0, "{}", r.stderr);
+    assert_eq!(fs::read_to_string(&page).unwrap(), before);
     let record = base.join("raw/inbox/2026-09-02-note.md");
     fs::write(&record, "updated: 2026-01-01\nRotate keys monthly.\n").unwrap();
-    let payload = format!(
-        r#"{{"session_id":"SESSION","tool_name":"Write","tool_input":{{"file_path":"{}","content":"x"}}}}"#,
+    let write = format!(
+        r#"{{"tool_name":"Write","tool_input":{{"file_path":"{}"}}}}"#,
         record.display()
     );
-    let (code, _, _) = run_relay(&base, "post-edit-updated.sh", &payload, "s2");
-    assert_eq!(code, 0);
+    let r = docsys::hook::post_tool_use(&base, &base, &write, &today);
+    assert_eq!(r.code, 0);
     assert_eq!(
         fs::read_to_string(&record).unwrap(),
         "updated: 2026-01-01\nRotate keys monthly.\n",
@@ -255,57 +256,37 @@ fn the_doctor_finds_the_layer_alive() {
     assert_eq!(d.failed, 0, "{:?}", d.lines);
 }
 
+/// An audit's approval is a commit, and holds until the body moves (R-024,
+/// D-126); a record typed into the page is not one.
 #[test]
 fn a_verified_page_must_still_hold_the_verified_body() {
     let base = build_base("verified");
     let page = base.join("wiki/ops/reference/rotation.md");
-    let head = String::from_utf8(
-        Command::new("git")
-            .args(["rev-parse", "--short", "HEAD"])
-            .current_dir(&base)
-            .output()
-            .unwrap()
-            .stdout,
-    )
-    .unwrap()
-    .trim()
-    .to_string();
-    let errors = |base: &Path| -> Vec<String> {
-        let (r, _) = docsys::lint_in(base, Some(base));
-        r.findings
-            .iter()
-            .filter(|f| f.severity == docsys::model::Severity::Error)
-            .map(|f| format!("{} {} {}", f.rule, f.file, f.subject))
-            .collect()
-    };
-    // the audit records the revision it read: bookkeeping only, body intact
-    let text = fs::read_to_string(&page).unwrap().replace(
-        "verification: unverified",
-        &format!("verification: verified\nverified_by: other-session\nverified_rev: {head}"),
+    let rel = "wiki/ops/reference/rotation.md";
+    let state =
+        || docsys::approval::Approvals::of(&docsys::tree::DocTree::load(&base).unwrap()).state(rel);
+    assert_eq!(state(), docsys::approval::State::Unverified);
+    git(
+        &base,
+        &[
+            "commit",
+            "-q",
+            "--allow-empty",
+            "-m",
+            "audit",
+            "-m",
+            "Verifies: wiki/ops/reference/rotation.md\nApproved-by: other-session",
+        ],
     );
-    fs::write(&page, &text).unwrap();
-    assert!(errors(&base).is_empty(), "{:?}", errors(&base));
-    // an `updated:` bump is bookkeeping too
-    fs::write(
-        &page,
-        text.replace("updated: 2026-01-01", "updated: 2026-09-02"),
-    )
-    .unwrap();
-    assert!(errors(&base).is_empty(), "{:?}", errors(&base));
-    // the body moves: the verification describes content that is gone
+    assert!(
+        matches!(state(), docsys::approval::State::Verified { .. }),
+        "{:?}",
+        state()
+    );
+    // the body moves: the approval describes content that is gone
+    let text = fs::read_to_string(&page).unwrap();
     fs::write(&page, text.replace("Monthly.", "Weekly.")).unwrap();
-    let errs = errors(&base);
-    assert!(
-        errs.contains(&"R-024 wiki/ops/reference/rotation.md verification".to_string()),
-        "{errs:?}"
-    );
-    // a revision nobody can audit
-    fs::write(&page, text.replace(&head, "0000000")).unwrap();
-    let errs = errors(&base);
-    assert!(
-        errs.contains(&"R-028 wiki/ops/reference/rotation.md verified_rev".to_string()),
-        "{errs:?}"
-    );
+    assert_eq!(state(), docsys::approval::State::Unverified);
 }
 
 #[test]
@@ -326,7 +307,7 @@ fn an_existing_settings_file_is_merged_into_and_never_clobbered() {
     assert!(
         done.notes
             .iter()
-            .any(|n| n.contains("merged 4 docsys hook wire(s)")),
+            .any(|n| n.contains("merged 3 docsys hook wire(s)")),
         "{:?}",
         done.notes
     );
@@ -344,11 +325,12 @@ fn an_existing_settings_file_is_merged_into_and_never_clobbered() {
     for hook in [
         "session-intent.sh",
         "pre-commit-docs.sh",
-        "post-edit-updated.sh",
         "stop-docs-reminder.sh",
     ] {
         assert!(text.contains(hook), "{hook} missing:\n{text}");
     }
+    // a docsys/0.5 base runs no post-edit relay (D-126)
+    assert!(!text.contains("post-edit-updated.sh"), "{text}");
     let (p, h, m) = (
         text.find("\"permissions\"").unwrap(),
         text.find("\"hooks\"").unwrap(),

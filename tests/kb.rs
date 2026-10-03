@@ -167,9 +167,10 @@ fn a_personal_base_stands_up_in_two_commands() {
     // 2. the agent layer
     let claude = base.join(".claude");
     let done = docsys::agents::install_kb(&claude, &base, false).unwrap();
-    // four organs, /docsys-upgrade, AGENTS.md, four hook relays, settings.json
-    // (D-076, D-104)
-    assert_eq!(done.written.len(), 11, "{:?}", done.written);
+    // four organs, /docsys-upgrade, AGENTS.md, three hook relays — a docsys/0.5
+    // base runs no post-edit relay — and settings.json (D-076, D-104, D-126)
+    assert_eq!(done.written.len(), 10, "{:?}", done.written);
+    assert!(!claude.join("hooks/post-edit-updated.sh").exists());
     assert!(claude.join("hooks/pre-commit-docs.sh").is_file());
     assert!(claude.join("settings.json").is_file());
     for organ in ["kb-capture", "kb-ingest", "kb-audit", "kb-lookup"] {

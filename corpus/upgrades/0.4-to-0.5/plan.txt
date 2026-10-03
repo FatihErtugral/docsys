@@ -12,10 +12,11 @@ Upgrading to docsys 0.16.0:
   same way, and only a topic both sides added to can conflict. A branch merged
   without it is caught by lint, and a re-run moves its lines.
 
-auto    hook-wires         .claude/settings.json  4 change(s): every docsys wire to `"$CLAUDE_PROJECT_DIR"/.claude/hooks/<name>.sh`, duplicates folded
+auto    hook-wires         .claude/settings.json  1 post-edit wire(s) taken out: a page's date and its verification are history's, and the relay has nothing left to do (D-126)
+auto    hook-wires         .claude/settings.json  3 change(s): every docsys wire to `"$CLAUDE_PROJECT_DIR"/.claude/hooks/<name>.sh`, duplicates folded
 auto    hook-scripts       .claude/hooks/pre-commit-docs.sh  refreshed: a text docsys 0.12.0 wrote, untouched — it now starts in the project directory, names the tree's root, and names the pinned docsys to a binary from before pins
 manual  hook-scripts       .claude/hooks/stop-docs-reminder.sh  edited by its owner — the diff to this version's relay is below
-auto    hook-scripts       .claude/hooks/post-edit-updated.sh  refreshed: a text docsys 0.5.0 wrote, untouched — it now starts in the project directory, names the tree's root, and names the pinned docsys to a binary from before pins
+auto    hook-scripts       .claude/hooks/post-edit-updated.sh  removed: a page's date and its verification are history's, and the relay has nothing left to do (D-126)
 auto    hook-scripts       .claude/hooks/session-intent.sh  refreshed: a text docsys 0.12.0 wrote, untouched — it now starts in the project directory, names the tree's root, and names the pinned docsys to a binary from before pins
 auto    git-gate           .git/hooks/pre-commit  the docsys block rewritten for this version, its mode kept — this clone only: every clone runs `docsys upgrade --apply` once
 auto    ci-workflow        .github/workflows/docsys.yml  the 0.15 workflow, untouched: regenerated with its mode, pinned to this version
@@ -36,17 +37,21 @@ auto    ledger-separators  docs/work/debt.md  work/debt.md line 3
 auto    ledgers            docs/work/debt.md  1 open item(s) into work/debt/; the ledger goes (D-124)
 auto    ledgers            docs/work/questions.md  no open item; the ledger goes (D-124)
 auto    journal            docs/work/journal.md  → docs/_archive/journal/journal.md, as written; the journal is history from here on (D-125)
+auto    records            docs/reference/expiry.md  the verification record taken out: it no longer holds, and the state is read from history — an `Approved-by:` after the body's last change (D-126)
 manual  code-citations     src/auth.rs:8  `doc: expiry` sits mid-comment: from 0.5 it is prose (R-072) — move it to the start of its comment, or leave it as prose
 info    raw-records        docs/raw/  1 record(s): from 0.5 a record layer — their dangling references are reported, an edited record stops the commit (R-023)
 auto    spec-line          docs/.docmeta.yml  `spec: docsys/0.4` → `spec: docsys/0.5`
 auto    pin                docs/.docsys-version  no pin → `0.16.0`: every docsys call here runs it
--- 22 automatic, 5 for a person, 1 for information
-judged by docsys/0.5 as the tree is now: 5 new finding(s), 0 gone — the steps below clear their part
+-- 24 automatic, 5 for a person, 1 for information
+judged by docsys/0.5 as the tree is now: 7 new finding(s), 1 gone — the steps below clear their part
++ WARN R-024 reference/expiry.md [record] a verification field in the page — on docsys/0.5 the state is read from history (an `Approved-by:` after the last body change, D-126), and this no longer holds; `docsys upgrade --apply` takes it out
++ WARN R-024 reference/refresh.md [record] a verification field in the page — on docsys/0.5 the state is read from history (an `Approved-by:` after the last body change, D-126), and this no longer holds; `docsys upgrade --apply` takes it out
 + WARN R-050 reference/expiry.md [updated] `updated:` is not kept on docsys/0.5 — a page's date is its last content change in history; `docsys upgrade --apply` removes the line
 + WARN R-050 reference/refresh.md [updated] `updated:` is not kept on docsys/0.5 — a page's date is its last content change in history; `docsys upgrade --apply` removes the line
 + WARN R-100 work/journal.md [legacy] a docsys/0.4 journal file on a docsys/0.5 tree, whose journal is history — `docsys upgrade --apply` moves it under `_archive/journal/` (D-125)
 + WARN R-108 work/debt.md [legacy] a docsys/0.4 ledger on a docsys/0.5 tree — `docsys upgrade --apply` moves its items into work/debt/ (D-124)
 + WARN R-108 work/questions.md [legacy] a docsys/0.4 ledger on a docsys/0.5 tree — `docsys upgrade --apply` moves its items into work/questions/ (D-124)
+- ERROR R-024 reference/expiry.md [verification] `verified` at @REV@, but the body changed since — verification describes content that no longer exists: set `verification: unverified` and audit again (R-025)
 
 # .claude/hooks/stop-docs-reminder.sh
 --- .claude/hooks/stop-docs-reminder.sh

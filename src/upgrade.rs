@@ -477,6 +477,22 @@ fn common(ctx: &Ctx, u: &mut Upgrade, apply: bool) -> Result<(), String> {
         let file = rel(repo, &settings);
         match crate::hook::parse_json(&text) {
             Some(mut doc) => {
+                // a docsys/0.5 tree runs no post-edit relay (D-126)
+                if Era(u.to).verification_from_history() {
+                    let n = crate::agents::remove_relay_wires(&mut doc, crate::agents::POST_EDIT);
+                    if n > 0 {
+                        u.item(
+                            "auto",
+                            "hook-wires",
+                            &file,
+                            format!("{n} post-edit wire(s) taken out: a page's date and its verification are history's, and the relay has nothing left to do (D-126)"),
+                        );
+                        if apply {
+                            fs::write(&settings, doc.render()).map_err(|e| e.to_string())?;
+                            u.written.push(file.clone());
+                        }
+                    }
+                }
                 if let Some(n) = crate::agents::canonicalize_wires(&mut doc).filter(|n| *n > 0) {
                     u.item(
                         "auto",
@@ -512,6 +528,34 @@ fn common(ctx: &Ctx, u: &mut Upgrade, apply: bool) -> Result<(), String> {
             continue;
         };
         let file = rel(repo, &path);
+        // a docsys/0.5 tree runs no post-edit relay: the one docsys wrote
+        // goes, an edited one is its owner's to retire (D-126)
+        if hook == crate::agents::POST_EDIT && Era(u.to).verification_from_history() {
+            if text == fresh || crate::agents::released(hook, &text, "").is_some() {
+                u.item(
+                    "auto",
+                    "hook-scripts",
+                    &file,
+                    "removed: a page's date and its verification are history's, and the relay has nothing left to do (D-126)".to_string(),
+                );
+                if apply {
+                    let tracked =
+                        git_out(repo, &["ls-files", "--error-unmatch", "--", &file]).is_some();
+                    fs::remove_file(&path).map_err(|e| e.to_string())?;
+                    if tracked {
+                        u.written.push(file);
+                    }
+                }
+            } else {
+                u.item(
+                    "manual",
+                    "hook-scripts",
+                    &file,
+                    "edited by its owner, and with no job on docsys/0.5 (D-126) — move what you added elsewhere, then remove it".to_string(),
+                );
+            }
+            continue;
+        }
         if text == fresh {
             carry_untracked(repo, u, "hook-scripts", &file, apply);
             continue;
@@ -818,6 +862,62 @@ fn common(ctx: &Ctx, u: &mut Upgrade, apply: bool) -> Result<(), String> {
     }
     if Era::of(&ctx.tree).journal_from_history() {
         journal(ctx, u, apply)?;
+    }
+    if Era::of(&ctx.tree).verification_from_history() {
+        records(ctx, u, apply)?;
+    }
+    Ok(())
+}
+
+/// The fields a verification record took in a page.
+const RECORD_FIELDS: [&str; 5] = [
+    "verification",
+    "verified_by",
+    "verified_rev",
+    "verified_blocks",
+    "verified_sources",
+];
+
+/// records: a docsys/0.5 page's verification is read from history (D-126).
+/// A record that still holds — its blocks the body's, its sources as
+/// recorded — stays valid evidence until the body moves; every other one
+/// leaves the page. A page that took part in verification keeps `sources:`.
+fn records(ctx: &Ctx, u: &mut Upgrade, apply: bool) -> Result<(), String> {
+    // the pages as the steps before left them
+    let tree = DocTree::load(ctx.root).map_err(|e| e.to_string())?;
+    for page in tree.pages.iter().filter(|p| p.kind == Kind::Permanent) {
+        let Some(fm) = &page.fm else { continue };
+        let file = format!("{}{}", ctx.prefix, page.rel);
+        // in a plan, a record the verified-record step converts is one that holds
+        let converted = u
+            .items
+            .iter()
+            .any(|i| i.step == "verified-record" && i.strategy == "auto" && i.file == file);
+        if !RECORD_FIELDS.iter().any(|k| fm.fields.contains_key(*k))
+            || converted
+            || crate::approval::holding_record(&tree, page)
+        {
+            continue;
+        }
+        u.item(
+            "auto",
+            "records",
+            &file,
+            "the verification record taken out: it no longer holds, and the state is read from history — an `Approved-by:` after the body's last change (D-126)".to_string(),
+        );
+        if !apply {
+            continue;
+        }
+        let Some(mut text) = crate::fm::without_fields(&page.text, &RECORD_FIELDS) else {
+            continue;
+        };
+        if !fm.fields.contains_key("sources") {
+            if let Some(at) = text.find("\n---\n") {
+                text.insert_str(at + 1, "sources: []\n");
+            }
+        }
+        fs::write(ctx.root.join(&page.rel), text).map_err(|e| e.to_string())?;
+        u.written.push(file);
     }
     Ok(())
 }
@@ -1287,6 +1387,8 @@ fn move_0_4_to_0_5(ctx: &Ctx, u: &mut Upgrade, apply: bool) -> Result<(), String
     ledgers(ctx, u, apply)?;
     // journal: history from here on, the files frozen under _archive/ (D-125)
     journal(ctx, u, apply)?;
+    // records: after verified-record, so a record that holds stays (D-126)
+    records(ctx, u, apply)?;
 
     // code-citations: a `doc:` 0.15 read mid-comment that 0.5 reads as prose
     if !kb {

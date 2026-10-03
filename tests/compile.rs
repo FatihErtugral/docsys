@@ -138,6 +138,25 @@ fn only_a_howto_compiles_and_an_authored_skill_is_kept() {
 #[test]
 fn a_knowledge_base_howto_compiles_only_when_verified() {
     let base = tmp("kb");
+    let git = |args: &[&str]| {
+        let out = std::process::Command::new("git")
+            .args([
+                "-c",
+                "core.hooksPath=/dev/null",
+                "-c",
+                "commit.gpgsign=false",
+            ])
+            .args(args)
+            .current_dir(&base)
+            .env("GIT_AUTHOR_NAME", "t")
+            .env("GIT_AUTHOR_EMAIL", "t@example.invalid")
+            .env("GIT_COMMITTER_NAME", "t")
+            .env("GIT_COMMITTER_EMAIL", "t@example.invalid")
+            .output()
+            .unwrap();
+        assert!(out.status.success(), "git {args:?}: {out:?}");
+    };
+    git(&["init", "-q"]);
     docsys::migrate::init_profile(&base, "en", "knowledge-base").unwrap();
     let dm = base.join(".docmeta.yml");
     let text = fs::read_to_string(&dm)
@@ -154,7 +173,7 @@ fn a_knowledge_base_howto_compiles_only_when_verified() {
     let page = base.join("wiki/ops/howto/rotate-keys.md");
     fs::write(
         &page,
-        "---\nid: rotate-keys\ntype: howto\ndomain: ops\nverification: unverified\nupdated: 2026-09-02\nsources: [raw/ops/2026-09-02-note.md]\n---\n# Rotate keys\n\nThis page lists the rotation steps; read it before rotating.\n\n1. Generate the new key.\n2. Swap it in.\n",
+        "---\nid: rotate-keys\ntype: howto\ndomain: ops\nsources: [raw/ops/2026-09-02-note.md]\n---\n# Rotate keys\n\nThis page lists the rotation steps; read it before rotating.\n\n1. Generate the new key.\n2. Swap it in.\n",
     )
     .unwrap();
     fs::write(
@@ -167,14 +186,21 @@ fn a_knowledge_base_howto_compiles_only_when_verified() {
         "# Knowledge base\n\n- [[ops/index|Ops]] -- operations.\n",
     )
     .unwrap();
+    git(&["add", "-A"]);
+    git(&["commit", "-qm", "the rotation"]);
     let claude = base.join(".claude");
     let err = compile::compile(&base, &claude, "rotate-keys", false).unwrap_err();
     assert!(err.contains("verified"), "{err}");
-    let text = fs::read_to_string(&page).unwrap().replace(
-        "verification: unverified",
-        "verification: verified\nverified_by: auditor\nverified_rev: abc123",
-    );
-    fs::write(&page, text).unwrap();
+    // an audit in another session: its approval is a commit (D-126)
+    git(&[
+        "commit",
+        "-q",
+        "--allow-empty",
+        "-m",
+        "audit: rotate keys",
+        "-m",
+        "Verifies: wiki/ops/howto/rotate-keys.md\nApproved-by: auditor",
+    ]);
     compile::compile(&base, &claude, "rotate-keys", false).unwrap();
     assert!(claude.join("skills/rotate-keys/SKILL.md").is_file());
 }

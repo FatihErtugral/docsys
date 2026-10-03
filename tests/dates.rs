@@ -24,9 +24,17 @@ fn git(dir: &Path, args: &[&str]) {
 }
 
 fn docsys(dir: &Path, args: &[&str], stdin: Option<&str>) -> String {
-    let mut child = Command::new(env!("CARGO_BIN_EXE_docsys"))
+    // the git hooks a command's own commit runs find this build first
+    let bin = PathBuf::from(env!("CARGO_BIN_EXE_docsys"));
+    let path = format!(
+        "{}:{}",
+        bin.parent().unwrap().display(),
+        std::env::var("PATH").unwrap_or_default()
+    );
+    let mut child = Command::new(&bin)
         .args(args)
         .current_dir(dir)
+        .env("PATH", path)
         .env_remove("DOCSYS_DISPATCHED")
         .env("DOCSYS_NO_AUTO_INSTALL", "1")
         .stdin(Stdio::piped())
@@ -181,18 +189,8 @@ fn no_command_and_no_relay_writes_a_date_and_no_agent_text_names_it() {
         &repo,
         &["-c", "core.hooksPath=/dev/null", "commit", "-qm", "page"],
     );
+    // the approval is its own commit, and writes nothing into the page (D-126)
     docsys(&repo, &["verify", "a", "--by", "t"], None);
-    git(&repo, &["add", "-A"]);
-    git(
-        &repo,
-        &[
-            "-c",
-            "core.hooksPath=/dev/null",
-            "commit",
-            "-qm",
-            "verified",
-        ],
-    );
 
     // a graduation into the page
     let plan = docsys(&repo, &["graduate", "plan", "work/features/f.md"], None);

@@ -208,29 +208,9 @@ fn every_relay_works_from_a_subdirectory() {
     );
     ok(&repo, &["commit", "-qm", "page"]);
 
-    // the post-edit bookkeeping: a verified page whose body no longer reads
-    // as its record, edited by a session standing below, is demoted
-    fs::write(
-        &page,
-        fs::read_to_string(&page).unwrap().replace(
-            "type: reference\n",
-            "type: reference\nverification: verified\nverified_by: t\nverified_rev: 0000000\nverified_blocks: [000000000000]\n",
-        ),
-    )
-    .unwrap();
-    let edit = format!(
-        r#"{{"cwd":"{}","tool_name":"Edit","tool_input":{{"file_path":"{}"}}}}"#,
-        cwd(&deep),
-        page.display()
-    );
-    let (code, _, err) = relay(&repo, "post-edit-updated.sh", &deep, &edit);
-    assert_eq!(code, 2, "{err}");
-    assert!(
-        fs::read_to_string(&page)
-            .unwrap()
-            .contains("verification: unverified"),
-        "the demotion was a silent no-op from a subdirectory"
-    );
+    // a docsys/0.5 tree runs no post-edit relay: its date and its
+    // verification are history's (D-126)
+    assert!(!repo.join(".claude/hooks/post-edit-updated.sh").exists());
 
     // the first-turn digest counts the tree's pages
     let prompt = format!(

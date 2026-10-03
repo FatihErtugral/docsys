@@ -1,9 +1,6 @@
 ---
 id: expiry
 type: reference
-verification: verified
-verified_by: maintainer
-verified_rev: @REV@
 sources: []
 verifies:
   - path: src/auth.rs

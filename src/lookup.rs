@@ -175,6 +175,10 @@ pub fn lookup(root: &Path, words: &[String]) -> Result<Vec<Hit>, String> {
         .anchored_verification()
         .then(|| crate::repo_of(&tree.root))
         .flatten();
+    // a docsys/0.5 page's verification is history's (D-126)
+    let approvals = era
+        .verification_from_history()
+        .then(|| crate::approval::Approvals::of(&tree));
     let mut hits = Vec::new();
     for page in &tree.pages {
         let Some(fm) = page.fm.as_ref() else { continue };
@@ -183,13 +187,16 @@ pub fn lookup(root: &Path, words: &[String]) -> Result<Vec<Hit>, String> {
         }
         // only a page with a block record has blocks a stale pin can take away
         let stale = match &repo {
-            Some(r) if crate::blocks::record_of(fm).is_some() => {
+            Some(r) if crate::blocks::record_of(fm).is_some() || approvals.is_some() => {
                 crate::fresh::stale_blocks(&tree.root, r, era, fm)
             }
             _ => Vec::new(),
         };
         let blocks = era.anchored_verification().then_some(stale.as_slice());
-        if let Some(h) = hit_of(page, id_of(page), words, blocks) {
+        if let Some(mut h) = hit_of(page, id_of(page), words, blocks) {
+            if let (Some(a), Kind::Permanent) = (&approvals, page.kind) {
+                h.caveat = crate::approval::caveat(&tree, a, page, &stale);
+            }
             hits.push(h);
         }
     }

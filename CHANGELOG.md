@@ -50,11 +50,13 @@ declares `spec: docsys/0.5`; a tree that declares `docsys/0.4` is served as
 
 ### Changed
 
-- A verification records the body as its blocks and is checked without
-  history, so it survives a squash; an edit that changes the body demotes the
-  page, and a revoke keeps the record (R-024, R-028, D-101, D-103).
-- R-208 reads the maintainer's act from the record's own history, trailers
-  included (D-102).
+- A page's verification is read from history: verified when a commit
+  carrying `Approved-by:` from a maintainer follows its last body change.
+  Nothing is written into the page and no follow-up pull request is opened;
+  the approval rides the merge commit's message, and `docsys verify` makes the
+  maintainer's own empty commit where no host does. A record kept from before
+  stays valid until the body moves; `upgrade` takes out the rest, and the
+  post-edit relay with them (R-024, R-208, D-126; R-028 withdrawn).
 - A pin's evidence lives beside the page under `.verifies/`; a refresh never
   writes the page, and pull requests that refresh pins merge cleanly (D-119).
 - A pinned symbol resolves to its declaration, never to a use (D-106).

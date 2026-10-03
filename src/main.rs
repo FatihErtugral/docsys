@@ -121,6 +121,7 @@ struct Opts {
     deferred: Option<String>,
     repay_when: Option<String>,
     answer: Option<String>,
+    approval: Option<String>,
     topic: Option<String>,
     context: Option<String>,
     date: Option<String>,
@@ -190,6 +191,7 @@ fn parse_opts(args: &[String]) -> Result<Opts, String> {
         deferred: None,
         repay_when: None,
         answer: None,
+        approval: None,
         topic: None,
         context: None,
         date: None,
@@ -266,6 +268,9 @@ fn parse_opts(args: &[String]) -> Result<Opts, String> {
                 o.repay_when = Some(it.next().ok_or("--repay-when needs a value")?.clone())
             }
             "--answer" => o.answer = Some(it.next().ok_or("--answer needs a value")?.clone()),
+            "--approval" => {
+                o.approval = Some(it.next().ok_or("--approval needs a @login")?.clone())
+            }
             "--topic" => o.topic = Some(it.next().ok_or("--topic needs a value")?.clone()),
             "--context" => o.context = Some(it.next().ok_or("--context needs a value")?.clone()),
             "--reason" => o.note = Some(it.next().ok_or("--reason needs a value")?.clone()),
@@ -1281,6 +1286,22 @@ next: review, `git add -A && git commit`, then open an agent session here."
                 }
             }
         }
+        ("verify", None) if opts.approval.is_some() => {
+            // the approval job: the line a maintainer's approval adds to the
+            // pull request's description (D-126)
+            match docsys::verify::approval_line(&opts.root, opts.approval.as_deref().unwrap_or(""))
+            {
+                Ok(Some(line)) => {
+                    println!("{line}");
+                    ExitCode::SUCCESS
+                }
+                Ok(None) => ExitCode::SUCCESS,
+                Err(e) => {
+                    eprintln!("verify: {e}");
+                    ExitCode::from(2)
+                }
+            }
+        }
         ("verify", None) if opts.range.is_some() => {
             match docsys::verify::verify_range(
                 &opts.root,
@@ -1839,7 +1860,10 @@ next: review, `git add -A && git commit`, then open an agent session here."
                     .parent()
                     .filter(|p| !p.as_os_str().is_empty())
                     .unwrap_or(std::path::Path::new("."));
-                let wired = docsys::agents::settings_wired(&opts.dir.join("settings.json"));
+                // a docsys/0.5 tree has no post-edit relay (D-126)
+                let post_edit = !docsys::era::Era::at(&opts.root).verification_from_history();
+                let wired =
+                    docsys::agents::settings_wired(&opts.dir.join("settings.json"), post_edit);
                 let holder = docsys::adopt::rules_block_holder(repo);
                 if let (true, Some(file)) = (wired, &holder) {
                     println!(
@@ -1850,7 +1874,7 @@ next: review, `git add -A && git commit`, then open an agent session here."
                 }
                 if !wired {
                     println!("\n-- merge into .claude/settings.json by hand (protected file): --");
-                    println!("{}", docsys::agents::SETTINGS_SNIPPET);
+                    println!("{}", docsys::agents::settings_snippet(post_edit));
                 }
                 if holder.is_none() {
                     println!("-- and add the generated block to AGENTS.md: --");

@@ -141,12 +141,21 @@ pub fn status(root: &Path, repo: Option<&Path>) -> Result<Status, String> {
         // a project has no ingest organ: its records wait for nothing (D-112)
         Profile::Project => (s.records, s.records_uncited) = records(&tree, repo),
     }
+    // a docsys/0.5 page's verification is history's (D-126)
+    let from_history = crate::era::Era::of(&tree).verification_from_history();
+    let approvals = from_history.then(|| crate::approval::Approvals::of(&tree));
     for page in &tree.pages {
         let Some(fm) = &page.fm else { continue };
         match page.kind {
             Kind::Permanent => {
                 s.permanent += 1;
-                if fm.fields.get("verification").and_then(Value::as_str) == Some("unverified") {
+                let unverified = match &approvals {
+                    Some(a) => a.is_unverified(&tree, page),
+                    None => {
+                        fm.fields.get("verification").and_then(Value::as_str) == Some("unverified")
+                    }
+                };
+                if unverified {
                     s.unverified.push(page.rel.clone());
                 }
             }
@@ -229,7 +238,7 @@ pub fn status(root: &Path, repo: Option<&Path>) -> Result<Status, String> {
         }
     }
     s.forgotten = crate::forget::count(root);
-    if let Some(repo) = repo {
+    if let Some(repo) = repo.filter(|_| !from_history) {
         for page in tree.pages.iter().filter(|p| p.kind == Kind::Permanent) {
             let Some(fm) = &page.fm else { continue };
             let get = |k: &str| fm.fields.get(k).and_then(Value::as_str);
@@ -256,15 +265,18 @@ pub fn status(root: &Path, repo: Option<&Path>) -> Result<Status, String> {
         let mut partial = Vec::new();
         for page in tree.pages.iter().filter(|p| p.kind == Kind::Permanent) {
             let Some(fm) = &page.fm else { continue };
-            if crate::blocks::record_of(fm).is_none() {
+            if approvals.is_none() && crate::blocks::record_of(fm).is_none() {
                 continue;
             }
             let stale = repo
                 .map(|r| crate::fresh::stale_blocks(root, r, era, fm))
                 .unwrap_or_default();
-            if let Some(r) = crate::blocks::reading(fm, &page.text, &stale)
-                .filter(crate::blocks::Reading::partial)
-            {
+            // on docsys/0.5 against what the last approval read (D-126)
+            let reading = match &approvals {
+                Some(a) => a.reading(page, &stale).map(|(r, _)| r),
+                None => crate::blocks::reading(fm, &page.text, &stale),
+            };
+            if let Some(r) = reading.filter(crate::blocks::Reading::partial) {
                 partial.push((page.rel.clone(), r.found, r.of));
             }
         }
@@ -288,13 +300,17 @@ pub fn status(root: &Path, repo: Option<&Path>) -> Result<Status, String> {
                 .sum(),
         );
     }
+    // a docsys/0.5 approval read the source as it was then (D-126)
+    if let Some(a) = &approvals {
+        s.sources_moved = a.sources_moved();
+    }
     // what lint would say, once
     let (report, _) = crate::lint_in(root, repo);
     for f in &report.findings {
         if f.severity == Severity::Error {
             s.errors += 1;
             *s.by_rule.entry(f.rule.0.to_string()).or_insert(0) += 1;
-            if f.rule.0 == "R-024" && f.subject.starts_with('@') {
+            if approvals.is_none() && f.rule.0 == "R-024" && f.subject.starts_with('@') {
                 s.sources_moved += 1;
             }
             if s.first_errors.len() < 5 {

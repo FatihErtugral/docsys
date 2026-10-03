@@ -842,6 +842,11 @@ pub fn check_history(tree: &DocTree, repo: &Path, h: &History, r: &mut Report) {
     // every page that carries a verification answers to the same contract,
     // in either profile (§3.1 for the base, §3.2 for a project — D-092)
     let era = crate::era::Era::of(tree);
+    // a docsys/0.5 page's verification is history's, checked where it is read
+    // (D-126)
+    if era.verification_from_history() {
+        return;
+    }
     check_verified_bodies(tree, repo, &prefix, era.anchored_verification(), r);
     if era.record_window() {
         check_record_authors(tree, repo, &prefix, r);

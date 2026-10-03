@@ -350,7 +350,12 @@ impl Reading {
 /// The reading of a page text against its block record; `stale` holds the
 /// blocks whose bound pin is stale. `None` without a record.
 pub fn reading(fm: &Frontmatter, text: &str, stale: &[String]) -> Option<Reading> {
-    let recorded = record_of(fm)?;
+    Some(reading_of(&record_of(fm)?, text, stale))
+}
+
+/// The reading of a page text against the blocks a verification read.
+pub fn reading_of(recorded: &[String], text: &str, stale: &[String]) -> Reading {
+    let recorded = recorded.to_vec();
     let body = crate::fresh::body_text(text);
     let current = hashes(&body);
     let fates = compare(&recorded, &current).current;
@@ -360,11 +365,11 @@ pub fn reading(fm: &Frontmatter, text: &str, stale: &[String]) -> Option<Reading
         .filter(|(f, h)| **f == Fate::Same && !stale.contains(h))
         .count();
     let moved = recorded != current;
-    Some(Reading {
+    Reading {
         found,
         of: current.len(),
         moved,
-    })
+    }
 }
 
 #[cfg(test)]

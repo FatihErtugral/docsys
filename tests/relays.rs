@@ -103,12 +103,9 @@ fn adopt_wires_the_project_dir_form_and_bakes_the_trees_root() {
     );
     assert!(sync.contains("<sha> -- documentation/`"), "{sync}");
     let settings = fs::read_to_string(r.join(".claude/settings.json")).unwrap();
-    for name in [
-        "session-intent",
-        "pre-commit-docs",
-        "post-edit-updated",
-        "stop-docs-reminder",
-    ] {
+    // a docsys/0.5 tree runs no post-edit relay (D-126)
+    assert!(!settings.contains("post-edit-updated"), "{settings}");
+    for name in ["session-intent", "pre-commit-docs", "stop-docs-reminder"] {
         assert!(
             settings.contains(&format!(
                 r#""command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/{name}.sh""#
@@ -371,7 +368,6 @@ fn an_older_docsys_under_upgraded_relays_is_named_in_one_line() {
     for script in [
         "pre-commit-docs.sh",
         "stop-docs-reminder.sh",
-        "post-edit-updated.sh",
         "session-intent.sh",
     ] {
         let (code, err) = run(script);

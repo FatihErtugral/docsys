@@ -399,7 +399,7 @@ fn adopt_merges_the_hook_wires_into_an_existing_settings_file() {
     assert!(
         out.summary
             .iter()
-            .any(|s| s.contains("settings.json: merged 4 docsys hook wire(s)")),
+            .any(|s| s.contains("settings.json: merged 3 docsys hook wire(s)")),
         "{:?}",
         out.summary
     );
@@ -411,11 +411,13 @@ fn adopt_merges_the_hook_wires_into_an_existing_settings_file() {
     for hook in [
         "session-intent.sh",
         "pre-commit-docs.sh",
-        "post-edit-updated.sh",
         "stop-docs-reminder.sh",
     ] {
         assert!(text.contains(hook), "{hook} missing:\n{text}");
     }
+    // a docsys/0.5 tree runs no post-edit relay (D-126)
+    assert!(!text.contains("post-edit-updated.sh"), "{text}");
+    assert!(!claude.join("hooks/post-edit-updated.sh").exists());
     assert!(
         docsys::hook::parse_json(&text).is_some(),
         "still JSON:\n{text}"

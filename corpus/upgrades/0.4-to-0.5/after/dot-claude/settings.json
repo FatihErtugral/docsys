@@ -21,17 +21,6 @@
         ]
       }
     ],
-    "PostToolUse": [
-      {
-        "matcher": "Write|Edit",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/post-edit-updated.sh"
-          }
-        ]
-      }
-    ],
     "Stop": [
       {
         "hooks": [

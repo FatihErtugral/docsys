@@ -16,7 +16,7 @@ use std::fs;
 use std::path::Path;
 
 use crate::fm::Value;
-use crate::tree::{DocTree, Kind};
+use crate::tree::{DocTree, Kind, Page};
 
 #[derive(Debug, Default)]
 pub struct Verified {
@@ -266,6 +266,11 @@ pub fn verify_range(
         return Err(format!("`{}` has no .docmeta.yml", root.display()));
     }
     let repo = crate::repo_of(root).ok_or("the tree must be inside a git repository")?;
+    // docsys/0.5: the approval is the merge commit's `Approved-by:` line, and
+    // there is nothing to write (D-126)
+    if crate::era::Era::of(&tree).verification_from_history() {
+        return Ok(Range::Pages(Vec::new()));
+    }
     // the approver first: an unknown one is not a page-by-page skip, it is no run at all
     let trailer_by;
     let by = if from_trailers {
@@ -437,6 +442,9 @@ pub fn verify(
     })?;
     let page = find_page(&tree, target)
         .ok_or_else(|| format!("no permanent page at `{target}` and none with that id"))?;
+    if crate::era::Era::of(&tree).verification_from_history() {
+        return verify_by_commit(root, &tree, &repo, page, by, revoke);
+    }
     let path = root.join(&page.rel);
     // a docsys/0.5 page's date is history's (D-122)
     let today = (!crate::era::Era::at(root).derived_dates()).then(crate::migrate::today);
@@ -586,6 +594,160 @@ pub fn verify(
     Ok(out)
 }
 
+/// How an approval names the maintainer: `handle <email>` when the entry
+/// carries one, else `@login`, else the handle (R-208).
+fn approver_value(tree: &DocTree, handle: &str) -> String {
+    crate::checks::maintainer_handles(tree)
+        .into_iter()
+        .find(|m| m.handle == crate::checks::record_handle(handle))
+        .map_or_else(
+            || handle.to_string(),
+            |m| match (&m.email, &m.login) {
+                (Some(e), _) => format!("{} <{e}>", m.handle),
+                (None, Some(l)) => format!("@{l}"),
+                (None, None) => m.handle,
+            },
+        )
+}
+
+/// `verify` on a docsys/0.5 tree (R-024, D-126): nothing is written into the
+/// page. The maintainer's word is their own commit — an empty one carrying
+/// `Verifies: <page>` and `Approved-by:`, or `Revokes:` — so a branch that
+/// verifies merges with every other branch.
+fn verify_by_commit(
+    root: &Path,
+    tree: &DocTree,
+    repo: &Path,
+    page: &Page,
+    by: Option<&str>,
+    revoke: bool,
+) -> Result<Verified, String> {
+    let (by, email) = who(tree, repo, by)?;
+    let root_rel = root_prefix(repo, root);
+    let repo_path = format!("{root_rel}{}", page.rel);
+    if git(repo, &["ls-files", "--error-unmatch", "--", &repo_path]).is_none() {
+        return Err(format!(
+            "`{}` is not committed yet — commit the page first; an approval vouches for the body history holds",
+            page.rel
+        ));
+    }
+    if git(repo, &["diff", "--quiet", "HEAD", "--", &repo_path]).is_none() {
+        return Err(format!(
+            "`{}` has uncommitted changes — commit them first, then verify what you read",
+            page.rel
+        ));
+    }
+    if git(repo, &["diff", "--cached", "--quiet"]).is_none() {
+        return Err(
+            "something is staged — commit or unstage it first; the approval is a commit of its own"
+                .into(),
+        );
+    }
+    let state = crate::approval::Approvals::of(tree).state(&page.rel);
+    let mut out = Verified {
+        page: page.rel.clone(),
+        ..Default::default()
+    };
+    let verified = matches!(state, crate::approval::State::Verified { .. });
+    if !revoke {
+        if !crate::approval::tracked(tree, page) {
+            return Err(format!(
+                "`{}` carries no `sources:` — a verification checks claims against them (§3.2, P/R-025); name what it rests on first",
+                page.rel
+            ));
+        }
+        let (report, _) = crate::lint_in(root, Some(repo));
+        let severed: Vec<String> = report
+            .findings
+            .iter()
+            .filter(|f| f.file == page.rel && f.rule.0 == "R-059")
+            .map(|f| f.subject.clone())
+            .collect();
+        if !severed.is_empty() {
+            return Err(format!(
+                "`{}` cites sources that do not resolve: {} — fix `sources:` first (R-059)",
+                page.rel,
+                severed.join(", ")
+            ));
+        }
+        if let crate::approval::State::Verified { by: was, commit } = &state {
+            out.by = was.clone();
+            out.rev = commit.clone();
+            out.notes
+                .push("already verified, and the body has not moved since — nothing to do".into());
+            return Ok(out);
+        }
+    } else if !verified {
+        out.notes.push("not verified — nothing to take back".into());
+        return Ok(out);
+    }
+    let value = approver_value(tree, &by);
+    let name = page.rel.trim_end_matches(".md");
+    let (subject, trailers) = if revoke {
+        (
+            format!("docs: {name} back to unverified"),
+            format!(
+                "{}: {}\nRevoked-by: {value}",
+                crate::approval::REVOKES,
+                page.rel
+            ),
+        )
+    } else {
+        (
+            format!("docs: {name} verified by {by}"),
+            format!(
+                "{}: {}\n{}: {value}",
+                crate::approval::VERIFIES,
+                page.rel,
+                crate::approval::APPROVED_BY
+            ),
+        )
+    };
+    // the maintainer's own commit (R-208): their identity, even when the
+    // repository's configured one is somebody else's
+    let mut cmd = crate::git::cmd(repo);
+    if let Some(e) = &email {
+        cmd.args([
+            "-c",
+            &format!("user.email={e}"),
+            "-c",
+            &format!("user.name={by}"),
+        ]);
+    }
+    let ok = cmd
+        .args(["commit", "-q", "--allow-empty", "-m"])
+        .arg(&subject)
+        .arg("-m")
+        .arg(&trailers)
+        .status()
+        .is_ok_and(|s| s.success());
+    if !ok {
+        return Err("the approval commit did not land — the gate may have refused it; `docsys lint` says why".into());
+    }
+    out.by = if revoke { String::new() } else { by };
+    out.rev = git(repo, &["rev-parse", "--short", "HEAD"]).unwrap_or_default();
+    out.committed = true;
+    out.notes.push(if revoke {
+        "back to unverified: the commit carries `Revokes:` — a maintainer verifies it again (R-025)".into()
+    } else {
+        "R-025: this is your reading of the page against its sources — the commit carries `Approved-by:`".into()
+    });
+    Ok(out)
+}
+
+/// The line the approval job adds to a pull request's description when the
+/// reviewer is a maintainer (D-126); `None` for anyone else.
+pub fn approval_line(root: &Path, login: &str) -> Result<Option<String>, String> {
+    let tree = DocTree::load(root).map_err(|e| e.to_string())?;
+    let maintainers = crate::checks::maintainer_handles(&tree);
+    let login = format!("@{}", login.trim().trim_start_matches('@'));
+    if maintainers.is_empty() {
+        return Ok(None);
+    }
+    Ok(crate::approval::maintainer_of(&maintainers, &login)
+        .map(|_| format!("{}: {login}", crate::approval::APPROVED_BY)))
+}
+
 /// A block's first line, cut for one line of output.
 fn excerpt(text: &str) -> String {
     let mut lines = text.lines();
@@ -634,19 +796,47 @@ pub fn show(root: &Path, target: &str) -> Result<String, String> {
         .as_deref()
         .map(|r| crate::fresh::stale_blocks(root, r, era, fm))
         .unwrap_or_default();
-    let state = get("verification").unwrap_or("no verification field");
-    let last = match (get("verified_by"), get("verified_rev")) {
-        (Some(by), Some(rev)) => Some((by, rev)),
-        _ => None,
+    // what was read last: on docsys/0.5 the body the newest approval vouched
+    // for (D-126); else, or with no approval yet, a record in the page
+    let from_history = era.verification_from_history();
+    let approved = from_history
+        .then(|| crate::approval::last_approval(&tree, page))
+        .flatten();
+    let state = if from_history {
+        match crate::approval::Approvals::of(&tree).state(rel) {
+            crate::approval::State::Verified { .. } => "verified",
+            crate::approval::State::Unverified => "unverified",
+            crate::approval::State::Unknown => "verification unknown",
+        }
+    } else {
+        get("verification").unwrap_or("no verification field")
     };
-    let recorded = crate::blocks::record_of(fm);
+    let (recorded, last, then_text) = match approved {
+        Some((by, sha, text)) => (
+            Some(crate::blocks::hashes(&crate::fresh::body_text(&text))),
+            Some((by, sha)),
+            Some(text),
+        ),
+        None => (
+            crate::blocks::record_of(fm),
+            match (get("verified_by"), get("verified_rev")) {
+                (Some(by), Some(rev)) => Some((by.to_string(), rev.to_string())),
+                _ => None,
+            },
+            None,
+        ),
+    };
+    let last = last.as_ref().map(|(b, r)| (b.as_str(), r.as_str()));
     let compared = recorded
         .as_deref()
         .map(|r| crate::blocks::compare(r, &current));
     let mut out = String::new();
     let mut next =
         format!("then: read every block against what it rests on, and `docsys verify {rel}`\n");
-    match (&recorded, crate::blocks::reading(fm, &page.text, &stale), last) {
+    let reading = recorded
+        .as_deref()
+        .map(|r| crate::blocks::reading_of(r, &page.text, &stale));
+    match (&recorded, reading, last) {
         (Some(_), Some(reading), Some((by, rev))) => {
             next = if reading.partial() {
                 format!("then: read what is marked against what it rests on, and `docsys verify {rel}`\n")
@@ -699,6 +889,10 @@ pub fn show(root: &Path, target: &str) -> Result<String, String> {
         if !c.removed.is_empty() {
             // the text the record was taken of, where history still holds it
             let then: Vec<crate::blocks::Block> = match (&repo, last) {
+                _ if then_text.is_some() => then_text
+                    .as_deref()
+                    .map(|t| crate::blocks::split(&crate::fresh::body_text(t)))
+                    .unwrap_or_default(),
                 (Some(repo), Some((_, rev))) => {
                     let spec = format!("{rev}:{}{rel}", root_prefix(repo, root));
                     git(repo, &["show", &spec])

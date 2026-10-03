@@ -75,7 +75,7 @@ fn build(name: &str) -> PathBuf {
     write(
         &base,
         "wiki/ops/howto/rotate-keys.md",
-        &format!("---\nid: rotate-keys\ntype: howto\ndomain: ops\nverification: unverified\nupdated: {today}\nsources: [{record}]\n---\n# Rotate keys\n\nThis page lists the rotation steps; read it before rotating.\n\n1. Generate the new key.\n2. Swap it in.\n"),
+        &format!("---\nid: rotate-keys\ntype: howto\ndomain: ops\nsources: [{record}]\n---\n# Rotate keys\n\nThis page lists the rotation steps; read it before rotating.\n\n1. Generate the new key.\n2. Swap it in.\n"),
     );
     write(
         &base,
@@ -89,26 +89,19 @@ fn build(name: &str) -> PathBuf {
     );
     git(&base, &["add", "-A"]);
     git(&base, &["commit", "-q", "-m", "learned"]);
-    let rev = String::from_utf8(
-        Command::new("git")
-            .args(["rev-parse", "--short", "HEAD"])
-            .current_dir(&base)
-            .output()
-            .unwrap()
-            .stdout,
-    )
-    .unwrap()
-    .trim()
-    .to_string();
-    let page = base.join("wiki/ops/howto/rotate-keys.md");
-    fs::write(
-        &page,
-        fs::read_to_string(&page).unwrap().replace(
-            "verification: unverified",
-            &format!("verification: verified\nverified_by: other\nverified_rev: {rev}"),
-        ),
-    )
-    .unwrap();
+    // another session's audit: its approval is a commit (D-126)
+    git(
+        &base,
+        &[
+            "commit",
+            "-q",
+            "--allow-empty",
+            "-m",
+            "audit",
+            "-m",
+            "Verifies: wiki/ops/howto/rotate-keys.md\nApproved-by: other",
+        ],
+    );
     compile::compile(&base, &base.join(".claude"), "rotate-keys", false).unwrap();
     git(&base, &["add", "-A"]);
     git(&base, &["commit", "-q", "-m", "verified, compiled"]);
@@ -168,7 +161,7 @@ fn a_page_is_forgotten_with_its_tombstone_route_and_skill() {
     write(
         &base,
         "wiki/ops/howto/rotate-keys.md",
-        &format!("---\nid: rotate-keys\ntype: howto\ndomain: ops\nverification: unverified\nupdated: {today}\nsources: [{record}]\n---\n# Rotate keys again\n\nThis page lists steps; read it first.\n\n1. Step.\n"),
+        &format!("---\nid: rotate-keys\ntype: howto\ndomain: ops\nsources: [{record}]\n---\n# Rotate keys again\n\nThis page lists steps; read it first.\n\n1. Step.\n"),
     );
     let errs = errors(&base);
     assert!(

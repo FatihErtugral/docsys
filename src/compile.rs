@@ -81,9 +81,15 @@ pub fn compile(root: &Path, claude_dir: &Path, page: &str, force: bool) -> Resul
             p.rel
         ));
     }
-    if tree.profile == Profile::KnowledgeBase
-        && fm.fields.get("verification").and_then(Value::as_str) != Some("verified")
-    {
+    let verified = if crate::era::Era::of(&tree).verification_from_history() {
+        matches!(
+            crate::approval::Approvals::of(&tree).state(&p.rel),
+            crate::approval::State::Verified { .. }
+        )
+    } else {
+        fm.fields.get("verification").and_then(Value::as_str) == Some("verified")
+    };
+    if tree.profile == Profile::KnowledgeBase && !verified {
         return Err(format!(
             "{}: `verification` is not `verified` — a knowledge-base howto compiles after \
              an independent audit, never from the session that wrote it (R-025, D-073)",

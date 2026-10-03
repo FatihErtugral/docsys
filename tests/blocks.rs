@@ -4,10 +4,10 @@
     clippy::expect_used,
     clippy::indexing_slicing
 )]
-// Block-level verification (R-028, R-212, D-103): a verification records
-// the body's blocks, so a changed page costs a re-read of the change, not of
-// the page. Driven through the binary and plain git, so the same file runs
-// against a build without block records, where every test here fails.
+// Block-level verification (R-212, D-103): an approval vouches for the
+// body's blocks, so a changed page costs a re-read of the change, not of the
+// page. On docsys/0.5 the approval is a commit (D-126); the blocks it read are
+// the page as that commit held it. Driven through the binary and plain git.
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -96,16 +96,25 @@ fn project(name: &str, spec: &str) -> (PathBuf, PathBuf) {
         "index.md",
         "# Docs\n\n- [[reference/token-ttl|Token lifetime]] -- how long a token lives.\n",
     );
-    write("work/journal.md", "# Journal\n");
-    write("work/debt.md", "# Debt\n");
-    write("work/questions.md", "# Questions\n");
-    write(
-        "reference/token-ttl.md",
-        &format!(
-            "---\nid: token-ttl\ntype: reference\nupdated: {}\nverification: unverified\nsources: []\n---\n{BODY}",
-            docsys::migrate::today()
-        ),
-    );
+    if spec == "0.4" {
+        write("work/journal.md", "# Journal\n");
+        write("work/debt.md", "# Debt\n");
+        write("work/questions.md", "# Questions\n");
+        write(
+            "reference/token-ttl.md",
+            &format!(
+                "---\nid: token-ttl\ntype: reference\nupdated: {}\nverification: unverified\nsources: []\n---\n{BODY}",
+                docsys::migrate::today()
+            ),
+        );
+    } else {
+        // docsys/0.5: a page takes part by its sources, and its date and its
+        // verification are history's (D-122, D-126)
+        write(
+            "reference/token-ttl.md",
+            &format!("---\nid: token-ttl\ntype: reference\nsources: []\n---\n{BODY}"),
+        );
+    }
     fs::create_dir_all(repo.join("src")).unwrap();
     fs::write(repo.join("src/lib.rs"), LIB_RS).unwrap();
     commit(&repo, "docs: token lifetime");
@@ -128,13 +137,16 @@ fn marked<'a>(out: &'a str, mark: &str) -> Vec<&'a str> {
 #[test]
 fn show_prints_exactly_the_bullet_that_changed() {
     let (repo, root) = project("show", "0.5");
-    ok(&repo, &["verify", "token-ttl", "--commit"]);
+    let done = ok(&repo, &["verify", "token-ttl"]);
+    assert!(
+        done.contains("verified: reference/token-ttl.md by ayse"),
+        "{done}"
+    );
+    // the word is the maintainer's commit; nothing is written into the page
+    assert!(git(&repo, &["log", "-1", "--format=%B"])
+        .contains("Verifies: reference/token-ttl.md\nApproved-by: ayse <ayse@example.com>"),);
     let page = fs::read_to_string(root.join("reference/token-ttl.md")).unwrap();
-    let record = page
-        .lines()
-        .find_map(|l| l.strip_prefix("verified_blocks: "))
-        .unwrap_or_else(|| panic!("no block record: {page}"));
-    assert_eq!(record.matches(',').count(), 5, "{record}");
+    assert!(!page.contains("verifi"), "{page}");
 
     edit(
         &root,
@@ -152,27 +164,7 @@ fn show_prints_exactly_the_bullet_that_changed() {
         "{out}"
     );
     assert!(out.contains("5/6 blocks"), "{out}");
-
-    // lint's error for a page still marked verified points to the reading list,
-    // where the count is (one count, one place)
-    let lint = docsys(&repo, &["lint"]);
-    assert_eq!(lint.code, 1, "{}", lint.out);
-    let r024: Vec<&str> = lint
-        .out
-        .lines()
-        .filter(|l| l.starts_with("ERROR R-024 reference/token-ttl.md [verification]"))
-        .collect();
-    assert_eq!(r024.len(), 1, "{}", lint.out);
-    assert!(
-        r024[0].contains(
-            "the body changed since — `docsys verify --show reference/token-ttl.md` lists what to re-read"
-        ) && !r024[0].contains("blocks unchanged"),
-        "{}",
-        r024[0]
-    );
-
-    // demoted, the record kept: lookup says how much still reads as verified
-    ok(&repo, &["verify", "token-ttl", "--revoke"]);
+    // the edit made it unverified; lookup says how much still reads as verified
     let hits = ok(&repo, &["lookup", "token"]);
     assert!(
         hits.contains("(unverified — 5/6 blocks as verified by ayse)"),
@@ -182,9 +174,9 @@ fn show_prints_exactly_the_bullet_that_changed() {
 }
 
 #[test]
-fn a_removed_block_prints_from_history_and_says_so_when_history_lost_it() {
+fn a_removed_block_prints_from_what_the_approval_read() {
     let (repo, root) = project("removed", "0.5");
-    // the body is verified on a branch that a squash merge later strands
+    // the body is approved on a branch
     git(&repo, &["checkout", "-q", "-b", "pr"]);
     edit(
         &root,
@@ -192,7 +184,7 @@ fn a_removed_block_prints_from_history_and_says_so_when_history_lost_it() {
         "- The clock skew allowed is a minute.\n- A session ends at sign-out.\n",
     );
     commit(&repo, "docs: sessions");
-    ok(&repo, &["verify", "token-ttl", "--commit"]);
+    ok(&repo, &["verify", "token-ttl"]);
     edit(&root, "- A revoked token fails at once.\n", "");
     let out = ok(&repo, &["verify", "--show", "token-ttl"]);
     assert!(out.contains("1 removed:"), "{out}");
@@ -200,32 +192,28 @@ fn a_removed_block_prints_from_history_and_says_so_when_history_lost_it() {
     assert!(marked(&out, "changed").is_empty(), "{out}");
     git(&repo, &["checkout", "--", "."]);
 
+    // a squash whose message carries the pull request's description keeps the
+    // approval, and what it read, after the branch is gone
     git(&repo, &["checkout", "-q", "main"]);
     git(&repo, &["merge", "-q", "--squash", "pr"]);
-    git(&repo, &["commit", "-q", "-m", "docs: sessions (squashed)"]);
+    git(
+        &repo,
+        &[
+            "commit",
+            "-q",
+            "-m",
+            "docs: sessions (#2)\n\nApproved-by: ayse <ayse@example.com>",
+        ],
+    );
     git(&repo, &["branch", "-q", "-D", "pr"]);
     git(&repo, &["reflog", "expire", "--expire=now", "--all"]);
     git(&repo, &["gc", "-q", "--prune=now"]);
-    let page = fs::read_to_string(root.join("reference/token-ttl.md")).unwrap();
-    let rev = page
-        .lines()
-        .find_map(|l| l.strip_prefix("verified_rev: "))
-        .unwrap()
-        .to_string();
-    let held = Command::new("git")
-        .args(["cat-file", "-e", &format!("{rev}^{{commit}}")])
-        .current_dir(&repo)
-        .output()
-        .unwrap();
-    assert!(!held.status.success(), "{rev} is still in this history");
-
+    let hits = ok(&repo, &["lookup", "token"]);
+    assert!(!hits.contains("unverified"), "{hits}");
     edit(&root, "- A revoked token fails at once.\n", "");
     let out = ok(&repo, &["verify", "--show", "token-ttl"]);
-    assert!(
-        out.contains("1 removed (text not in this history)"),
-        "{out}"
-    );
-    assert!(!out.contains("A revoked token fails at once."), "{out}");
+    assert!(out.contains("1 removed:"), "{out}");
+    assert!(out.contains("A revoked token fails at once."), "{out}");
     let _ = fs::remove_dir_all(&repo);
 }
 
@@ -250,7 +238,7 @@ fn a_stale_bound_pin_names_its_block_and_only_that_block_stops_reading_as_verifi
         "{page}"
     );
     commit(&repo, "docs: pin");
-    ok(&repo, &["verify", "token-ttl", "--commit"]);
+    ok(&repo, &["verify", "token-ttl"]);
     assert_eq!(docsys(&repo, &["lint"]).code, 0);
 
     // the region the bullet rests on moves: only that bullet stops counting
@@ -371,9 +359,10 @@ fn a_0_4_tree_records_no_blocks_and_refuses_a_binding() {
 }
 
 /// The corpus case's R-024 message, which `expected.tsv` cannot carry
-/// (D-011): it names the reading list and leaves the count to it.
+/// (D-011): a record left in a docsys/0.5 page names the command that takes
+/// it out (D-126).
 #[test]
-fn the_corpus_error_points_to_the_reading_list() {
+fn the_corpus_record_names_the_upgrade() {
     let root =
         PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("corpus/cases/46-block-record/tree/docs");
     let (report, _) = docsys::lint(&root);
@@ -382,12 +371,12 @@ fn the_corpus_error_points_to_the_reading_list() {
         .iter()
         .filter(|f| f.rule.0 == "R-024")
         .collect();
-    assert_eq!(r024.len(), 1, "{:?}", report.findings);
-    assert!(
-        r024[0].message.contains(
-            "the body changed since — `docsys verify --show reference/edited.md` lists what to re-read"
-        ) && !r024[0].message.contains("blocks unchanged"),
-        "{}",
-        r024[0].message
-    );
+    assert!(!r024.is_empty(), "{:?}", report.findings);
+    for f in r024 {
+        assert!(
+            f.message.contains("`docsys upgrade --apply` takes it out"),
+            "{}",
+            f.message
+        );
+    }
 }

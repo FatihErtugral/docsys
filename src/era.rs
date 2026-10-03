@@ -160,6 +160,14 @@ impl Era {
         self.v05()
     }
 
+    /// D-126: a page's verification is read from history — an approval
+    /// commit (`Approved-by:` naming a maintainer) after its last body change;
+    /// nothing is written into the page. Before: the record in the page's
+    /// frontmatter (D-101's anchored record on a 0.5 tree from before).
+    pub fn verification_from_history(self) -> bool {
+        self.v05()
+    }
+
     /// D-116: `lint`, `refs` and `gate` end with a pointer to `docsys feedback`
     /// under a finding of a rule that reads free text. Before: the findings alone.
     pub fn finding_pointers(self) -> bool {

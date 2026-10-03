@@ -552,14 +552,18 @@ pub fn install_kb(claude_dir: &Path, base_dir: &Path, force: bool) -> Result<Ins
             Err(_) => base_dir.to_string_lossy().replace('\\', "/"),
         }
     };
-    // The same four relays as a project — the binary reads the profile and
-    // guards the record layer instead of asking the code-without-docs question.
+    // The same relays as a project — the binary reads the profile and guards
+    // the record layer instead of asking the code-without-docs question.
+    let post_edit = keeps_post_edit(&repo, &root_arg);
     for (rel, template) in [
         ("hooks/pre-commit-docs.sh", PRE_COMMIT_DOCS),
         ("hooks/stop-docs-reminder.sh", STOP_DOCS_REMINDER),
-        ("hooks/post-edit-updated.sh", POST_EDIT_UPDATED),
+        (POST_EDIT, POST_EDIT_UPDATED),
         ("hooks/session-intent.sh", SESSION_INTENT),
     ] {
+        if rel == POST_EDIT && !post_edit {
+            continue;
+        }
         let path = claude_dir.join(rel);
         if path.exists() && !force {
             out.skipped.push(rel.to_string());
@@ -598,7 +602,7 @@ pub fn install_kb(claude_dir: &Path, base_dir: &Path, force: bool) -> Result<Ins
     // present (D-086) — MCP servers, permissions and the owner's own hooks
     // stay. Only a file that is not JSON is left alone, with the wiring in a note.
     let settings = claude_dir.join("settings.json");
-    match wire_settings(&settings, KB_SETTINGS_SNIPPET)? {
+    match wire_settings(&settings, &kb_settings_snippet(post_edit))? {
         Wired::Created => out.written.push("settings.json".to_string()),
         Wired::Merged(n) => {
             out.written.push("settings.json".to_string());
@@ -697,7 +701,14 @@ pub fn install_with_preamble(
         skipped: Vec::new(),
         notes: Vec::new(),
     };
+    let post_edit = claude_dir
+        .parent()
+        .filter(|p| !p.as_os_str().is_empty())
+        .is_none_or(|repo| keeps_post_edit(repo, root_arg));
     for (rel, content, executable) in files {
+        if rel == POST_EDIT && !post_edit {
+            continue;
+        }
         let path = claude_dir.join(rel);
         if path.exists() && !force {
             out.skipped.push(rel.to_string());
@@ -766,14 +777,14 @@ pub fn wire_settings(path: &Path, snippet: &str) -> Result<Wired, String> {
 }
 
 /// Whether the settings file wires every docsys relay already.
-pub fn settings_wired(path: &Path) -> bool {
+pub fn settings_wired(path: &Path, post_edit: bool) -> bool {
     let Some(mut doc) = fs::read_to_string(path)
         .ok()
         .and_then(|t| crate::hook::parse_json(&t))
     else {
         return false;
     };
-    crate::hook::parse_json(SETTINGS_SNIPPET)
+    crate::hook::parse_json(&settings_snippet(post_edit))
         .is_some_and(|want| merge_hook_wires(&mut doc, &want) == Some(0))
 }
 
@@ -924,6 +935,33 @@ pub fn canonicalize_wires(doc: &mut Json) -> Option<usize> {
         *list = kept;
     }
     Some(changes)
+}
+
+/// Take every wire of one relay out of a settings document — the post-edit
+/// relay a docsys/0.5 tree no longer runs (D-126). The number taken out.
+pub fn remove_relay_wires(doc: &mut Json, relay: &str) -> usize {
+    let name = relay.strip_prefix("hooks/").unwrap_or(relay);
+    let Json::Obj(fields) = doc else { return 0 };
+    let Some((_, Json::Obj(events))) = fields.iter_mut().find(|(k, _)| k == "hooks") else {
+        return 0;
+    };
+    let mut removed = 0;
+    for (_, entries) in events.iter_mut() {
+        let Json::Arr(list) = entries else { continue };
+        list.retain_mut(|entry| {
+            if let Json::Obj(ef) = entry {
+                if let Some((_, Json::Arr(hooks))) = ef.iter_mut().find(|(k, _)| k == "hooks") {
+                    let before = hooks.len();
+                    hooks.retain(|h| h.string_at(&["command"]).and_then(relay_name) != Some(name));
+                    removed += before - hooks.len();
+                    return !hooks.is_empty();
+                }
+            }
+            true
+        });
+    }
+    events.retain(|(_, entries)| !matches!(entries, Json::Arr(l) if l.is_empty()));
+    removed
 }
 
 /// The settings.json snippet for a project (the same wires `wire_settings`
@@ -1196,6 +1234,50 @@ pub fn stale_hooks(claude_dir: &Path) -> Vec<(String, String)> {
         .collect()
 }
 
+/// The post-edit relay. A docsys/0.4 tree keeps it; on a 0.5 tree a page's
+/// date and its verification are history's, and it has nothing left to do
+/// (D-122, D-126).
+pub const POST_EDIT: &str = "hooks/post-edit-updated.sh";
+
+/// Whether the tree at `<repo>/<root_arg>` keeps the post-edit relay.
+pub fn keeps_post_edit(repo: &Path, root_arg: &str) -> bool {
+    !crate::era::Era::at(&repo.join(root_arg)).verification_from_history()
+}
+
+/// The relays a tree is wired with.
+pub fn relays(post_edit: bool) -> Vec<&'static str> {
+    HOOK_FILES
+        .into_iter()
+        .filter(|rel| post_edit || *rel != POST_EDIT)
+        .collect()
+}
+
+/// The post-edit relay's wire in a settings snippet.
+const POST_EDIT_WIRE: &str = r#"    "PostToolUse": [
+      { "matcher": "Write|Edit",
+        "hooks": [ { "type": "command", "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/post-edit-updated.sh" } ] }
+    ],
+"#;
+
+/// The project's settings snippet, with the post-edit relay or without.
+pub fn settings_snippet(post_edit: bool) -> String {
+    if post_edit {
+        SETTINGS_SNIPPET.to_string()
+    } else {
+        SETTINGS_SNIPPET.replace(POST_EDIT_WIRE, "")
+    }
+}
+
+/// The knowledge base's settings snippet, with the post-edit relay or without.
+pub fn kb_settings_snippet(post_edit: bool) -> String {
+    if post_edit {
+        KB_SETTINGS_SNIPPET.to_string()
+    } else {
+        KB_SETTINGS_SNIPPET.replace(POST_EDIT_WIRE, "")
+    }
+}
+
+/// Every relay name docsys has written — the ones it recognises in a wire.
 pub const HOOK_FILES: [&str; 4] = [
     "hooks/pre-commit-docs.sh",
     "hooks/stop-docs-reminder.sh",

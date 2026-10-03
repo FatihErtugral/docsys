@@ -73,6 +73,43 @@ pub fn without_scalar(text: &str, key: &str) -> Option<String> {
     removed.then_some(out)
 }
 
+/// The text with the frontmatter's `keys` removed, each with the lines that
+/// continue it — a block list's indented items, a reflowed inline list up to
+/// its `]`; `None` when none is there. The body is never touched.
+pub fn without_fields(text: &str, keys: &[&str]) -> Option<String> {
+    let fm = parse(text)?;
+    let mut removed = false;
+    let mut out = String::with_capacity(text.len());
+    let mut skipping: Option<bool> = None; // Some(open inline list)
+    for (i, line) in text.split_inclusive('\n').enumerate() {
+        let inside = i > 0 && i < fm.body_start.saturating_sub(1);
+        if inside {
+            if let Some(open) = skipping {
+                let continues = if open {
+                    true
+                } else {
+                    line.starts_with(' ') || line.starts_with('\t')
+                };
+                if continues {
+                    if open && line.contains(']') {
+                        skipping = Some(false);
+                    }
+                    continue;
+                }
+                skipping = None;
+            }
+            if let Some(key) = keys.iter().find(|k| line.starts_with(&format!("{k}:"))) {
+                removed = true;
+                let value = line.trim_end().get(key.len() + 1..).unwrap_or("").trim();
+                skipping = Some(value.starts_with('[') && !value.contains(']'));
+                continue;
+            }
+        }
+        out.push_str(line);
+    }
+    removed.then_some(out)
+}
+
 fn is_key(s: &str) -> bool {
     let mut chars = s.chars();
     match chars.next() {
@@ -345,6 +382,23 @@ mod tests {
     clippy::indexing_slicing
 )]
 mod tests_more {
+    #[test]
+    fn fields_leave_with_their_continuations_and_the_body_stays() {
+        let text = "---\nid: a\nverification: verified\nverified_blocks: [aa,\n  bb]\nverified_sources:\n  - source: \"@up/x\"\n    hash: \"fnv:1\"\nsources: [x]\n---\nverified_by: in the body\n";
+        assert_eq!(
+            super::without_fields(
+                text,
+                &["verification", "verified_blocks", "verified_sources"]
+            )
+            .as_deref(),
+            Some("---\nid: a\nsources: [x]\n---\nverified_by: in the body\n")
+        );
+        assert_eq!(
+            super::without_fields("---\nid: a\n---\n", &["verification"]),
+            None
+        );
+    }
+
     #[test]
     fn a_scalar_leaves_the_frontmatter_and_the_body_stays() {
         let text = "---\nid: a\nupdated: 2026-01-01\n---\nupdated: in the body\n";

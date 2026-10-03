@@ -176,6 +176,13 @@ fn discover_lists_the_trees_under_a_directory_and_writes_nothing() {
 #[test]
 fn a_raw_record_is_never_an_answer() {
     let base = tmp("kb");
+    // a base with a history, so its pages' verification can be read (D-126)
+    assert!(Command::new("git")
+        .args(["init", "-q"])
+        .current_dir(&base)
+        .status()
+        .unwrap()
+        .success());
     docsys::migrate::init_profile(&base, "en", "knowledge-base").unwrap();
     let dm = base.join(".docmeta.yml");
     let text = fs::read_to_string(&dm)
@@ -190,7 +197,7 @@ fn a_raw_record_is_never_an_answer() {
     write(
         &base,
         "wiki/finance/reference/fx-fee.md",
-        "---\nid: fx-fee\ntype: reference\ndomain: finance\nverification: unverified\nupdated: 2026-09-02\nsources: [raw/inbox/2026-09-02-fee.md]\n---\n# FX transfer fee\n\nThis page states the fee; read it before wiring money.\n\n0.5 percent, 20 minimum.\n",
+        "---\nid: fx-fee\ntype: reference\ndomain: finance\nsources: [raw/inbox/2026-09-02-fee.md]\n---\n# FX transfer fee\n\nThis page states the fee; read it before wiring money.\n\n0.5 percent, 20 minimum.\n",
     );
     write(
         &base,

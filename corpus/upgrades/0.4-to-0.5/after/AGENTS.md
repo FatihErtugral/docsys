@@ -79,7 +79,8 @@ When you verify:
 - P/R-025 — verify a knowledge-base page
   QUESTION : did this session produce any of the page's content?
   OPTIONS  : yes → do not verify — leave for another session
-             no  → check every claim against sources:, then set verified
+             no  → check every claim against sources:, then the
+             maintainer approves it (`docsys verify <page>`)
 - read every claim against `sources:` and the code it names; a maintainer's own
 word in the session is recorded with `docsys verify <page>` (D-096)
 

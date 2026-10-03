@@ -905,6 +905,11 @@ pub fn is_live_page(file: &str, root_rel: &str) -> bool {
 /// demotes it (R-024); on a docsys/0.4 tree the page's `updated:` is also
 /// bumped, as 0.15 did. `today` is injected so the rewrite is testable.
 pub fn post_tool_use(repo: &Path, root: &Path, payload: &str, today: &str) -> Reply {
+    // a docsys/0.5 page's date and verification are history's: nothing to
+    // keep (D-122, D-126)
+    if crate::era::Era::at(root).verification_from_history() {
+        return Reply::ok();
+    }
     let Some(file) = parse_json(payload).and_then(|j| {
         j.string_at(&["tool_input", "file_path"])
             .map(str::to_string)
@@ -1153,17 +1158,25 @@ fn tree_digest(root: &Path) -> String {
         .iter()
         .filter(|p| p.kind == Kind::Permanent)
         .count();
-    let unverified = tree
-        .pages
-        .iter()
-        .filter(|p| p.kind == Kind::Permanent)
-        .filter(|p| {
-            p.fm.as_ref()
-                .and_then(|f| f.fields.get("verification"))
-                .and_then(Value::as_str)
-                == Some("unverified")
-        })
-        .count();
+    // a docsys/0.5 page's verification is history's (D-126)
+    let unverified = if crate::era::Era::of(&tree).verification_from_history() {
+        let a = crate::approval::Approvals::of(&tree);
+        tree.pages
+            .iter()
+            .filter(|p| a.is_unverified(&tree, p))
+            .count()
+    } else {
+        tree.pages
+            .iter()
+            .filter(|p| p.kind == Kind::Permanent)
+            .filter(|p| {
+                p.fm.as_ref()
+                    .and_then(|f| f.fields.get("verification"))
+                    .and_then(Value::as_str)
+                    == Some("unverified")
+            })
+            .count()
+    };
     let mut out = String::from("<docs-in-hand>\n");
     out.push_str(&format!(
         "{permanent} permanent page(s){}; index.md routes them; `docsys lookup <words>` before writing a page.\n",

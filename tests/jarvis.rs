@@ -351,7 +351,7 @@ fn a_verified_page_fails_when_a_consumed_source_moves_after_verification() {
     write(
         &b,
         "wiki/coding/explanation/relay-in-one-page.md",
-        &format!("---\nid: relay-in-one-page\ntype: explanation\ndomain: coding\nverification: unverified\nupdated: {today}\nsources: [@relay/retry-policy]\n---\n# Relay in one page\n\nThis page explains relay's promise; read it before depending on it.\n\nFour attempts, then a dead letter.\n"),
+        "---\nid: relay-in-one-page\ntype: explanation\ndomain: coding\nsources: [@relay/retry-policy]\n---\n# Relay in one page\n\nThis page explains relay's promise; read it before depending on it.\n\nFour attempts, then a dead letter.\n",
     );
     write(
         &b,
@@ -365,24 +365,29 @@ fn a_verified_page_fails_when_a_consumed_source_moves_after_verification() {
     );
     git(&b, &["add", "-A"]);
     git(&b, &["commit", "-q", "-m", "learned"]);
-    let rev = String::from_utf8(
-        Command::new("git")
-            .args(["rev-parse", "--short", "HEAD"])
-            .current_dir(&b)
-            .output()
-            .unwrap()
-            .stdout,
-    )
-    .unwrap()
-    .trim()
-    .to_string();
-    // another session verifies it against the source as fetched
-    let page = b.join("wiki/coding/explanation/relay-in-one-page.md");
-    let text = fs::read_to_string(&page).unwrap().replace(
-        "verification: unverified",
-        &format!("verification: verified\nverified_by: other-session\nverified_rev: {rev}"),
+    // another session verifies it against the source as fetched: its
+    // approval is a commit (D-126)
+    git(
+        &b,
+        &[
+            "commit",
+            "-q",
+            "--allow-empty",
+            "-m",
+            "audit",
+            "-m",
+            "Verifies: wiki/coding/explanation/relay-in-one-page.md\nApproved-by: other-session",
+        ],
     );
-    fs::write(&page, &text).unwrap();
+    let page_rel = "wiki/coding/explanation/relay-in-one-page.md";
+    let state = || {
+        docsys::approval::Approvals::of(&docsys::tree::DocTree::load(&b).unwrap()).state(page_rel)
+    };
+    assert!(
+        matches!(state(), docsys::approval::State::Verified { .. }),
+        "{:?}",
+        state()
+    );
     assert!(errors(&b).is_empty(), "{:?}", errors(&b));
 
     // the provider changes its page; the next fetch brings the new hash
@@ -394,13 +399,9 @@ fn a_verified_page_fails_when_a_consumed_source_moves_after_verification() {
     git(&relay, &["add", "-A"]);
     git(&relay, &["commit", "-q", "-m", "relay: six attempts"]);
     export::fetch(&b).unwrap();
-    let errs = errors(&b);
-    assert!(
-        errs.contains(
-            &"R-024 wiki/coding/explanation/relay-in-one-page.md @relay/retry-policy".to_string()
-        ),
-        "{errs:?}"
-    );
+    // the approval read the source as it was: the page reads unverified, the
+    // fetch committed or not
+    assert_eq!(state(), docsys::approval::State::Unverified);
     let s = status::status(&b, Some(&b)).unwrap();
     assert_eq!(s.sources_moved, 1);
     assert!(
@@ -408,7 +409,8 @@ fn a_verified_page_fails_when_a_consumed_source_moves_after_verification() {
     );
     assert!(status::render_json(&s).contains("\"sources_moved\":1"));
 
-    // a verification with no committed baseline cannot be audited
+    // a verification typed into a page is no approval: the page reads
+    // unverified, and the leftover record is named (D-126)
     let fresh = hub.join("jarvis2");
     fs::create_dir_all(&fresh).unwrap();
     git(&fresh, &["init", "-q"]);
@@ -453,11 +455,18 @@ fn a_verified_page_fails_when_a_consumed_source_moves_after_verification() {
         "wiki/index.md",
         "# Knowledge base\n\n- [[coding/index|Coding]] -- code.\n",
     );
-    let errs = errors(&fresh);
+    let (report, _) = docsys::lint_in(&fresh, Some(&fresh));
     assert!(
-        errs.iter()
-            .any(|e| e.starts_with("R-028 wiki/coding/explanation/relay-in-one-page.md")),
-        "{errs:?}"
+        report.findings.iter().any(|f| f.rule.0 == "R-024"
+            && f.file == "wiki/coding/explanation/relay-in-one-page.md"
+            && f.subject == "record"),
+        "{:?}",
+        report.findings
+    );
+    assert_eq!(
+        docsys::approval::Approvals::of(&docsys::tree::DocTree::load(&fresh).unwrap())
+            .state("wiki/coding/explanation/relay-in-one-page.md"),
+        docsys::approval::State::Unverified
     );
 }
 

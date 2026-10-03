@@ -539,7 +539,9 @@ pub fn run_placed(
     // the owner's own hooks stay as they are. Only a file that is not JSON is
     // left alone, and then the merge goes to the checklist.
     let settings = claude.join("settings.json");
-    let settings_unparsable = match agents::wire_settings(&settings, agents::SETTINGS_SNIPPET)? {
+    // a docsys/0.5 tree has no post-edit relay (D-126)
+    let snippet = agents::settings_snippet(!crate::era::Era::at(root).verification_from_history());
+    let settings_unparsable = match agents::wire_settings(&settings, &snippet)? {
         agents::Wired::Created => {
             summary.push("settings.json: created with docsys hook wires".to_string());
             false
@@ -737,7 +739,7 @@ pub fn run_placed(
              \x20     agent (the file is not valid JSON, so the tool did not touch it). Snippet:\n\n\
              ```json\n",
         );
-        md.push_str(agents::SETTINGS_SNIPPET);
+        md.push_str(&snippet);
         md.push_str("\n```\n");
     }
 

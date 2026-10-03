@@ -156,9 +156,20 @@ pub fn run(repo: &Path, root: &Path, claude_dir: &Path) -> Diagnosis {
             crate::agents::TEMPLATE_VERSION
         ));
     }
+    // a docsys/0.5 tree runs no post-edit relay (D-126); one left from before
+    // is said, never failed
+    let post_edit = !crate::era::Era::at(root).verification_from_history();
     for (rel, want_event) in HOOKS {
         let path = claude_dir.join(rel);
         let exists = path.is_file();
+        if rel == crate::agents::POST_EDIT && !post_edit {
+            if exists || event_of(&settings, "post-edit-updated.sh").is_some() {
+                d.lines.push(format!(
+                    "info {rel}: no job on docsys/0.5 — `docsys upgrade --apply` takes it and its wire out"
+                ));
+            }
+            continue;
+        }
         #[cfg(unix)]
         let runnable = exists && {
             use std::os::unix::fs::PermissionsExt;
