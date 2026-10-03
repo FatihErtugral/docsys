@@ -87,9 +87,14 @@ pub fn untagged(line: &str) -> String {
 /// The open items of a list, topic by topic in name order, each topic's in
 /// the order its file holds them — the order `close <n>` numbers them in.
 pub fn open(root: &Path, list: List, kb: bool) -> Vec<Item> {
+    read_open(root, list, kb).0
+}
+
+/// `open`, with each topic file it could not read: its path and why.
+fn read_open(root: &Path, list: List, kb: bool) -> (Vec<Item>, Vec<(String, String)>) {
     let dir = list.dir(kb);
     let Ok(entries) = fs::read_dir(root.join(dir)) else {
-        return Vec::new();
+        return (Vec::new(), Vec::new());
     };
     let mut names: Vec<String> = entries
         .flatten()
@@ -98,9 +103,14 @@ pub fn open(root: &Path, list: List, kb: bool) -> Vec<Item> {
         .collect();
     names.sort();
     let mut items = Vec::new();
+    let mut unreadable = Vec::new();
     for name in names {
-        let Ok(text) = fs::read_to_string(root.join(dir).join(&name)) else {
-            continue;
+        let text = match fs::read_to_string(root.join(dir).join(&name)) {
+            Ok(text) => text,
+            Err(e) => {
+                unreadable.push((format!("{dir}/{name}"), e.to_string()));
+                continue;
+            }
         };
         let topic = name.trim_end_matches(".md").to_string();
         for line in text.lines().filter(|l| l.starts_with("- [ ] ")) {
@@ -111,7 +121,7 @@ pub fn open(root: &Path, list: List, kb: bool) -> Vec<Item> {
             });
         }
     }
-    items
+    (items, unreadable)
 }
 
 /// Append one open item to its topic's file, the file made with the first;
@@ -141,9 +151,16 @@ pub fn add(root: &Path, list: List, kb: bool, line: &str) -> Result<String, Stri
 }
 
 /// One open item: its 1-based number in the order `open` lists, or a piece
-/// of its text no other open item holds.
+/// of its text no other open item holds. Numbers and words span every topic
+/// file, so one it cannot read is named, and nothing is closed.
 pub fn find(root: &Path, list: List, kb: bool, which: &str) -> Result<Item, String> {
-    let items = open(root, list, kb);
+    let (items, unreadable) = read_open(root, list, kb);
+    if let Some((rel, e)) = unreadable.first() {
+        return Err(format!(
+            "{rel}: {e} — its open items cannot be read, so none of {} is closed; the file is left as it is",
+            list.dir(kb)
+        ));
+    }
     let which = which.trim();
     if items.is_empty() {
         return Err(format!("{} has no open item", list.dir(kb)));

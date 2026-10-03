@@ -527,7 +527,11 @@ fn each_fact_is_said_in_one_place() {
             "the one page a seeding may author",
             &["may author", "may be yours", "beyond that one page"],
         ),
-        ("the draft's filled fields", &["version, OS"]),
+        (
+            "the draft fills the environment",
+            &["version, OS", "the environment, the rule"],
+        ),
+        ("a seeded feature's evidence", &["born and moved"]),
         (
             "sync proposes debt items",
             &["propose debt items", "line that would write it"],
@@ -577,6 +581,7 @@ fn each_fact_is_said_in_one_place() {
                 "`adopt` does both",
                 "is set up with",
                 "starts using docsys",
+                "start with `docsys adopt`",
             ],
         ),
         (
@@ -736,8 +741,8 @@ fn an_unknown_command_is_named_and_a_flag_is_never_a_value() {
 }
 
 /// A reader that closed its end — `| head` — ends the command: docsys stops
-/// writing and exits with a closed pipe's status (128 + SIGPIPE), quietly,
-/// whatever the command.
+/// writing and exits with a closed pipe's status (128 + SIGPIPE), quietly —
+/// but a verdict keeps its own status, its output dropped.
 #[test]
 fn a_closed_stdout_ends_the_command_quietly() {
     let dir = std::env::temp_dir().join(format!("docsys-help-pipe-{}", std::process::id()));
@@ -754,7 +759,6 @@ fn a_closed_stdout_ends_the_command_quietly() {
         &["--help"][..],
         &["help", "export"],
         &["rules", "--procedures"],
-        &["lint"],
         &["version"],
     ] {
         let (reader, writer) = std::io::pipe().unwrap();
@@ -770,6 +774,18 @@ fn a_closed_stdout_ends_the_command_quietly() {
         assert!(err.is_empty(), "{args:?}: {err}");
         assert_eq!(out.status.code(), Some(141), "{args:?}: {err}");
     }
+    // `lint` on a clean tree: its verdict, 0, with nobody reading it
+    let (reader, writer) = std::io::pipe().unwrap();
+    drop(reader);
+    let out = Command::new(bin())
+        .args(["lint"])
+        .current_dir(&dir)
+        .env("DOCSYS_NO_AUTO_INSTALL", "1")
+        .stdout(writer)
+        .output()
+        .unwrap();
+    assert!(out.stderr.is_empty(), "{out:?}");
+    assert_eq!(out.status.code(), Some(0), "{out:?}");
     // a closed standard error is the same: what writes there stops quietly
     for args in [
         &["nope"][..],
@@ -975,6 +991,94 @@ fn help_reads_a_command_with_its_words() {
     }
 }
 
+/// `hook` takes one event word (D-129). Without it the word is named as
+/// missing, as `verify` names its page — a listed command is never "no docsys
+/// command"; a first word that is no event gets the events to choose from;
+/// a word after the event is refused alone, never offered back as a choice.
+#[test]
+fn hook_names_the_event_word_it_misses_or_refuses() {
+    let dir = std::env::temp_dir();
+    let events = "one of: pre-tool-use, stop, post-tool-use, user-prompt-submit";
+    let (code, out, err) = run_at(&dir, &["hook"]);
+    assert_eq!(code, Some(2), "{err}");
+    assert!(out.is_empty(), "{out}");
+    assert!(!err.contains("no docsys command"), "{err}");
+    assert_eq!(
+        err.lines().next(),
+        Some(format!("hook needs <event>, {events}").as_str()),
+        "{err}"
+    );
+    for args in [
+        &["hook", "stop", "stop"][..],
+        &["help", "hook", "stop", "stop"],
+    ] {
+        let (code, _, err) = run_at(&dir, args);
+        assert_eq!(code, Some(2), "{args:?}: {err}");
+        assert_eq!(
+            err.lines().next(),
+            Some("`stop` is no argument of hook"),
+            "{args:?}: {err}"
+        );
+    }
+    let (code, _, err) = run_at(&dir, &["hook", "nope"]);
+    assert_eq!(code, Some(2), "{err}");
+    assert_eq!(
+        err.lines().next(),
+        Some(format!("`nope` is no argument of hook — {events}").as_str()),
+        "{err}"
+    );
+}
+
+/// A command line docsys cannot run as asked is a bad invocation, never a
+/// finding: a missing or wrong argument, or one that names nothing the tree
+/// holds, exits 2 — 1 is blocking findings alone, as `docsys --help` says —
+/// and its message names the command once.
+#[test]
+fn a_bad_invocation_exits_2_and_names_its_command_once() {
+    let dir = std::env::temp_dir().join(format!("docsys-help-invocation-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    assert!(Command::new(bin())
+        .arg("init")
+        .current_dir(&dir)
+        .output()
+        .unwrap()
+        .status
+        .success());
+    for (args, name) in [
+        (&["backlinks"][..], "backlinks"),
+        (&["backlinks", "nope"], "backlinks"),
+        (&["mentions", "nope"], "mentions"),
+        (&["graph", "--format", "nope"], "graph"),
+        (&["debt", "add", "x"], "debt add"),
+        (
+            &["debt", "add", "--deferred", "a", "--repay-when", "b"],
+            "debt add",
+        ),
+        (&["question", "add"], "question add"),
+        (&["debt", "close", "9", "--note", "x"], "debt close"),
+        (
+            &["question", "close", "9", "--answer", "x"],
+            "question close",
+        ),
+        (&["ledger", "fix", "--root", "nowhere"], "ledger fix"),
+        (&["journal", "add"], "journal add"),
+        (&["page", "new", "nope", "x"], "page new"),
+        (&["seed", "plan"], "seed"),
+        (&["seed", "gaps"], "seed"),
+        (&["seed", "apply", "--plan", "missing.tsv"], "seed apply"),
+        (&["pin"], "pin"),
+        (&["pin", "--refresh"], "pin"),
+    ] {
+        let (code, out, err) = run_at(&dir, args);
+        assert_eq!(code, Some(2), "{args:?}: {err}");
+        assert!(out.is_empty(), "{args:?}: {out}");
+        assert!(err.contains(name), "{args:?}: {err}");
+        assert!(!err.contains(&format!("{name}: {name}")), "{args:?}: {err}");
+    }
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 /// `--root` and `--repo` are explained once, in the list's closing paragraph;
 /// an entry names them in its synopsis only (D-129).
 #[test]
@@ -1004,12 +1108,20 @@ fn the_parser_and_the_table_agree_on_every_flag() {
 }
 
 /// `docsys help adopt` says what adopt writes: the tree, the agent rules,
-/// the hooks, the git gate and the report.
+/// the hooks, the skills, the slash commands, the git gate and the report.
 #[test]
 fn help_adopt_says_what_it_writes() {
     let (ok, text) = run(&["help", "adopt"]);
     assert!(ok, "{text}");
-    for what in ["tree", "rules", "hooks", "git gate", "ADOPTION.md"] {
+    for what in [
+        "tree",
+        "rules",
+        "hooks",
+        "skills",
+        "slash commands",
+        "git gate",
+        "ADOPTION.md",
+    ] {
         assert!(text.contains(what), "{what}: {text}");
     }
 }

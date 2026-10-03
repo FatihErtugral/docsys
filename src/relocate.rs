@@ -66,25 +66,23 @@ pub fn raw_move(root: &Path, record: &str, domain: &str) -> Result<Moved, String
              place until it has another name"
         ));
     }
-    let repo = crate::repo_of(root).unwrap_or_else(|| root.to_path_buf());
-    crate::forget::relocate(&repo, root, &from, &to)?;
-
+    // every page that may cite it is read before anything moves: one whose
+    // `sources:` never closes may name it, and a citing page whose
+    // frontmatter holds an unclosed list is not rewritten
     let today = crate::migrate::today();
-    let mut out = Moved {
-        from: from.clone(),
-        to: to.clone(),
-        rewritten: Vec::new(),
-    };
+    let mut rewrites = Vec::new();
     for page in &tree.pages {
-        let cites = page
-            .fm
-            .as_ref()
-            .and_then(|f| f.fields.get("sources"))
+        let Some(fm) = &page.fm else { continue };
+        let cites = fm
+            .fields
+            .get("sources")
             .and_then(Value::as_list)
             .is_some_and(|l| l.iter().any(|s| s.trim() == from));
-        if !cites {
+        let unread = fm.unclosed.as_ref().is_some_and(|(k, _)| k == "sources");
+        if !cites && !unread {
             continue;
         }
+        crate::fm::refuse_unclosed_in(&page.rel, &page.text)?;
         let (text, n) = rewrite_sources(&page.text, &from, &to);
         if n == 0 {
             continue;
@@ -94,8 +92,19 @@ pub fn raw_move(root: &Path, record: &str, domain: &str) -> Result<Moved, String
         } else {
             crate::hook::bump_updated(&text, &today).unwrap_or(text)
         };
-        fs::write(root.join(&page.rel), text).map_err(|e| e.to_string())?;
-        out.rewritten.push((page.rel.clone(), n));
+        rewrites.push((page.rel.clone(), text, n));
+    }
+    let repo = crate::repo_of(root).unwrap_or_else(|| root.to_path_buf());
+    crate::forget::relocate(&repo, root, &from, &to)?;
+
+    let mut out = Moved {
+        from: from.clone(),
+        to: to.clone(),
+        rewritten: Vec::new(),
+    };
+    for (rel, text, n) in rewrites {
+        fs::write(root.join(&rel), text).map_err(|e| e.to_string())?;
+        out.rewritten.push((rel, n));
     }
     Ok(out)
 }

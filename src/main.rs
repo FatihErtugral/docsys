@@ -4,7 +4,7 @@ use std::process::ExitCode;
 
 /// Standard output, written as `print!` writes it — but a reader that closed
 /// its end (`| head`) ends the command, as a closed pipe ends any program,
-/// except inside a git hook, where only the findings decide (`closed_reader`).
+/// except a verdict, which only its findings decide (`closed_reader`).
 fn write_stdout(args: std::fmt::Arguments) {
     use std::io::Write;
     match std::io::stdout().write_fmt(args) {
@@ -110,12 +110,72 @@ struct Opts {
     positional: Vec<String>,
 }
 
-/// A flag's value: the next argument, never another flag.
+/// A flag's value: the next argument, never another flag (`help::is_flag`).
 fn value<'a>(it: &mut std::slice::Iter<'a, String>, need: &str) -> Result<&'a String, String> {
     match it.next() {
-        Some(v) if v.starts_with("--") => Err(format!("{need}, not the flag `{v}`")),
+        Some(v) if docsys::help::is_flag(v) => Err(format!("{need}, not the flag `{v}`")),
         Some(v) => Ok(v),
         None => Err(need.to_string()),
+    }
+}
+
+/// One run of `docsys upgrade` as the text form prints it: the move or the
+/// leftover check, its notes, its items, the forecast a plan carries and the
+/// diffs of what is the owner's.
+fn print_upgrade(u: &docsys::upgrade::Upgrade, apply: bool) {
+    let idle = u.from == u.to;
+    let count = |s: &str| u.items.iter().filter(|i| i.strategy == s).count();
+    if idle && u.items.is_empty() {
+        println!(
+            "docsys upgrade: docsys/0.{} — no leftover of an earlier version",
+            u.to
+        );
+    } else {
+        let head = if idle {
+            format!("docsys/0.{}", u.to)
+        } else {
+            format!("docsys/0.{} → docsys/0.{}", u.from, u.to)
+        };
+        // a move's note says how it is applied
+        let state = match (apply, idle, count("auto")) {
+            (true, _, _) => "applied",
+            (false, false, _) => "the plan",
+            (false, true, 0) => "what an earlier version left",
+            (false, true, _) => {
+                "what an earlier version left; `docsys upgrade --apply` applies the `auto` rows"
+            }
+        };
+        println!("docsys upgrade: {head} — {state}");
+        for (release, text) in &u.notes {
+            println!("\nUpgrading to docsys {release}:\n{text}\n");
+        }
+        for i in &u.items {
+            let command = i
+                .command
+                .as_deref()
+                .map(|c| format!(": `{c}`"))
+                .unwrap_or_default();
+            println!(
+                "{:<7} {:<18} {}  {}{command}",
+                i.strategy, i.step, i.file, i.what
+            );
+        }
+        println!(
+            "-- {} automatic, {} for a person, {} for information",
+            count("auto"),
+            count("manual"),
+            count("info")
+        );
+        // the findings the move adds and takes away: a
+        // forecast, the plan's alone
+        if !apply {
+            for p in &u.preview {
+                println!("{p}");
+            }
+        }
+        for (file, diff) in &u.diffs {
+            println!("\n# {file}\n{diff}");
+        }
     }
 }
 
@@ -469,6 +529,9 @@ fn main() -> ExitCode {
         }
     };
     let rest: &[String] = args.get(from..).unwrap_or_default();
+    if docsys::VERDICTS.contains(&entry.name) {
+        docsys::exit_is_a_verdict();
+    }
     let (cmd, sub): (&str, Option<&str>) = match entry.name.split_once(' ') {
         Some((c, s)) => (c, Some(s)),
         // a hook's event is its sub-command here
@@ -583,7 +646,7 @@ fn main() -> ExitCode {
         let ours = docsys::upgrade::implemented();
         if quiet {
         } else if cmd != "upgrade" && tree < ours {
-            eprintln!("docsys: this tree declares docsys/0.{tree} and is served by its rules; `docsys upgrade` — or `/docsys-upgrade` with an agent — moves it to docsys/0.{ours} when the repository is ready");
+            eprintln!("docsys: this tree {}; `docsys upgrade` — or `/docsys-upgrade` with an agent — moves it to docsys/0.{ours} when the repository is ready", docsys::era::served(&p.root));
         } else if tree > ours {
             eprintln!("docsys: this tree declares docsys/0.{tree}; this docsys implements docsys/0.{ours} — install a newer docsys");
         }
@@ -659,6 +722,18 @@ fn main() -> ExitCode {
             // the commit the record was written on: a record from an earlier
             // HEAD was committed by hand, or abandoned, and is no move now
             let head_path = git_path("docsys-upgrade-head");
+            // the messages of the approvers after the first (D-126)
+            let draft_path = |n: usize| git_path(&format!("docsys-upgrade-approval-{n}"));
+            let drafts =
+                || -> Vec<PathBuf> { (1..).map(draft_path).take_while(|p| p.is_file()).collect() };
+            let forget = || {
+                for p in drafts() {
+                    let _ = std::fs::remove_file(p);
+                }
+                let _ = std::fs::remove_file(&message_path);
+                let _ = std::fs::remove_file(&files_path);
+                let _ = std::fs::remove_file(&head_path);
+            };
             let head = || {
                 docsys::git::cmd(&repo)
                     .args(["rev-parse", "-q", "--verify", "HEAD"])
@@ -668,11 +743,6 @@ fn main() -> ExitCode {
                     .unwrap_or_default()
             };
             let current = std::fs::read_to_string(&head_path).is_ok_and(|h| h.trim() == head());
-            if !current {
-                let _ = std::fs::remove_file(&message_path);
-                let _ = std::fs::remove_file(&files_path);
-                let _ = std::fs::remove_file(&head_path);
-            }
             let changed: Option<Vec<String>> = docsys::git::cmd(&repo)
                 .args(["status", "--porcelain", "--untracked-files=no"])
                 .output()
@@ -686,32 +756,52 @@ fn main() -> ExitCode {
                     )
                 });
             let dirty = changed.as_ref().is_none_or(|c| !c.is_empty());
-            let recorded: Vec<String> = std::fs::read_to_string(&files_path)
-                .unwrap_or_default()
-                .lines()
-                .map(str::to_string)
-                .collect();
-            // a move written and waiting holds only its own files; anything
-            // else changed is the person's, never the move's commit
-            // a recorded directory (`.verifies/`) holds the files under it
+            // a record whose move is no longer in the working tree — committed
+            // by hand, or discarded — is named once, and taken out
+            let record_shown = docsys::place::shown(&message_path)
+                .display()
+                .to_string()
+                .replace("docsys-upgrade-message", "docsys-upgrade-*");
+            let mut left = [&message_path, &files_path, &head_path]
+                .iter()
+                .any(|p| p.is_file())
+                && (!current || !dirty);
+            if left {
+                forget();
+            }
+            let recorded = docsys::upgrade::read_record(
+                &std::fs::read_to_string(&files_path).unwrap_or_default(),
+            );
+            // what the move wrote and the person edited since, and what else
+            // changed: the person's
+            let edited = docsys::upgrade::edited_since(&repo, &recorded);
             let outside: Vec<String> = changed
                 .unwrap_or_default()
                 .into_iter()
-                .filter(|f| {
-                    !recorded
-                        .iter()
-                        .any(|r| f == r || f.starts_with(&format!("{}/", r.trim_end_matches('/'))))
-                })
+                .filter(|f| !recorded.iter().any(|(r, _)| docsys::upgrade::covers(r, f)))
                 .collect();
+            // one commit cannot hold the move without the person's edit to a
+            // file it writes: the plan names those files before anything is
+            // written, `--force` or not (R-177)
+            let mut held = edited;
+            if opts.apply && !outside.is_empty() {
+                if let Ok(plan) = docsys::upgrade::run(&repo, &opts.root, &dir, false) {
+                    held.extend(
+                        outside
+                            .iter()
+                            .filter(|f| plan.written.iter().any(|w| docsys::upgrade::covers(w, f)))
+                            .cloned(),
+                    );
+                }
+            }
+            if opts.apply && !held.is_empty() {
+                eprintln!("upgrade: the move writes {}, and each holds an edit of yours — one commit cannot hold the move without the edit, so nothing is written or committed: commit or stash the edit first, `--force` or not (R-177)", held.join(", "));
+                return ExitCode::from(2);
+            }
             // a recorded move stays the move's, `--force` or not: what lies
             // outside it decides only the refusal, and the commit takes the
             // move's paths alone
             let pending = dirty && message_path.is_file() && files_path.is_file();
-            if !dirty {
-                let _ = std::fs::remove_file(&message_path);
-                let _ = std::fs::remove_file(&files_path);
-                let _ = std::fs::remove_file(&head_path);
-            }
             if opts.apply && !opts.force && dirty && !(pending && outside.is_empty()) {
                 let named = if recorded.is_empty() || outside.is_empty() {
                     "uncommitted changes".to_string()
@@ -724,24 +814,28 @@ fn main() -> ExitCode {
             // one move per round, each its own commit (R-177); with --commit the
             // rounds run until the tree is where this docsys is
             let mut pending = pending;
+            let mut moved = false;
             loop {
-                let u = match docsys::upgrade::run(&repo, &opts.root, &dir, opts.apply) {
+                let mut u = match docsys::upgrade::run(&repo, &opts.root, &dir, opts.apply) {
                     Ok(u) => u,
-                    Err(e) => {
+                    Err(docsys::upgrade::Stop::Failed(e)) if opts.apply => {
                         eprintln!("upgrade: {e}; nothing is committed — `git status` lists what the move wrote");
                         return ExitCode::from(2);
                     }
+                    Err(e) => {
+                        eprintln!("upgrade: {e}");
+                        return ExitCode::from(2);
+                    }
                 };
+                if std::mem::take(&mut left) {
+                    docsys::upgrade::record_taken_out(&mut u, &record_shown);
+                }
                 // the move and its commit come before any word of output, so
                 // a reader that leaves early cannot stand between them
                 let mut committed = None;
                 if opts.apply {
                     let mut files: Vec<String> = if pending {
-                        std::fs::read_to_string(&files_path)
-                            .unwrap_or_default()
-                            .lines()
-                            .map(str::to_string)
-                            .collect()
+                        recorded.iter().map(|(p, _)| p.clone()).collect()
                     } else {
                         Vec::new()
                     };
@@ -754,10 +848,32 @@ fn main() -> ExitCode {
                         Ok(m) if pending => m,
                         _ => docsys::upgrade::message(&u),
                     };
+                    let approvals: Vec<String> = if pending {
+                        drafts()
+                            .iter()
+                            .filter_map(|p| std::fs::read_to_string(p).ok())
+                            .collect()
+                    } else {
+                        docsys::upgrade::approval_messages(&u)
+                    };
                     if !files.is_empty() {
+                        for p in drafts() {
+                            let _ = std::fs::remove_file(p);
+                        }
                         let recorded = std::fs::write(&message_path, &message)
-                            .and_then(|()| std::fs::write(&files_path, files.join("\n") + "\n"))
-                            .and_then(|()| std::fs::write(&head_path, format!("{}\n", head())));
+                            .and_then(|()| {
+                                std::fs::write(
+                                    &files_path,
+                                    docsys::upgrade::record_text(&repo, &files),
+                                )
+                            })
+                            .and_then(|()| std::fs::write(&head_path, format!("{}\n", head())))
+                            .and_then(|()| {
+                                approvals
+                                    .iter()
+                                    .enumerate()
+                                    .try_for_each(|(n, m)| std::fs::write(draft_path(n + 1), m))
+                            });
                         if let Err(e) = recorded {
                             eprintln!("upgrade: {}: {e}", message_path.display());
                             return ExitCode::from(1);
@@ -772,9 +888,11 @@ fn main() -> ExitCode {
                             );
                             return ExitCode::from(1);
                         }
-                        let _ = std::fs::remove_file(&message_path);
-                        let _ = std::fs::remove_file(&files_path);
-                        let _ = std::fs::remove_file(&head_path);
+                        if let Err(e) = docsys::upgrade::commit_approvals(&repo, &approvals) {
+                            eprintln!("upgrade: {e}");
+                            return ExitCode::from(1);
+                        }
+                        forget();
                         pending = false;
                         if !files.is_empty() {
                             committed = Some(message.lines().next().unwrap_or("").to_string());
@@ -785,56 +903,13 @@ fn main() -> ExitCode {
                 if opts.json {
                     println!("{}", u.to_json());
                 } else {
-                    let head = if u.from < u.to {
-                        format!("docsys/0.{} → docsys/0.{}", u.from, u.to)
-                    } else {
-                        format!("docsys/0.{}", u.to)
-                    };
-                    println!(
-                        "docsys upgrade: {head} — {}",
-                        if opts.apply {
-                            "applied"
-                        } else {
-                            "the plan; `docsys upgrade --apply` writes it"
-                        }
-                    );
-                    for (release, text) in &u.notes {
-                        println!("\nUpgrading to docsys {release}:\n{text}\n");
-                    }
-                    for i in &u.items {
-                        let command = i
-                            .command
-                            .as_deref()
-                            .map(|c| format!(": `{c}`"))
-                            .unwrap_or_default();
-                        println!(
-                            "{:<7} {:<18} {}  {}{command}",
-                            i.strategy, i.step, i.file, i.what
-                        );
-                    }
-                    let count = |s: &str| u.items.iter().filter(|i| i.strategy == s).count();
-                    if u.items.is_empty() {
-                        println!("-- nothing to do");
-                    } else {
-                        println!(
-                            "-- {} automatic, {} for a person, {} for information",
-                            count("auto"),
-                            count("manual"),
-                            count("info")
-                        );
-                    }
-                    // the findings the move adds and takes away: a forecast,
-                    // the plan's alone
-                    if !opts.apply {
-                        for p in &u.preview {
-                            println!("{p}");
-                        }
-                    }
-                    for (file, diff) in &u.diffs {
-                        println!("\n# {file}\n{diff}");
-                    }
+                    print_upgrade(&u, opts.apply);
+                    moved |= opts.apply && u.from < u.to;
                     if let Some(subject) = &committed {
                         println!("committed: {subject}");
+                    }
+                    if opts.apply && !u.approvals.is_empty() {
+                        println!("{}", docsys::say::CARRIED_MERGE);
                     }
                 }
                 if opts.apply && opts.commit {
@@ -848,6 +923,21 @@ fn main() -> ExitCode {
                         "now commit it as one commit (R-177): stage what it wrote, then `git commit -F {}` — the message names the move and carries the note above",
                         docsys::place::shown(&message_path).display()
                     );
+                    let waiting: Vec<String> = drafts()
+                        .iter()
+                        .map(|p| {
+                            format!(
+                                "`git commit --allow-empty --only -F {}`",
+                                docsys::place::shown(p).display()
+                            )
+                        })
+                        .collect();
+                    if !waiting.is_empty() {
+                        println!(
+                            "then each other approver's carried approvals, an empty commit each: {}",
+                            waiting.join(", ")
+                        );
+                    }
                     if !u.last {
                         println!(
                             "\nthen run `docsys upgrade` again: the next move is its own commit"
@@ -855,6 +945,15 @@ fn main() -> ExitCode {
                     }
                 }
                 break;
+            }
+            // a move ends with the leftover check, whoever runs it: what an
+            // earlier version left on the moved tree, last (D-117)
+            if moved {
+                println!();
+                match docsys::upgrade::run(&repo, &opts.root, &dir, false) {
+                    Ok(left) => print_upgrade(&left, false),
+                    Err(e) => eprintln!("upgrade: the leftover check: {e}"),
+                }
             }
             ExitCode::SUCCESS
         }
@@ -1087,7 +1186,7 @@ fn main() -> ExitCode {
                 }
                 Err(e) => {
                     eprintln!("seed: {e}");
-                    ExitCode::from(1)
+                    ExitCode::from(2)
                 }
             }
         }
@@ -1109,7 +1208,7 @@ fn main() -> ExitCode {
                 }
                 Err(e) => {
                     eprintln!("{cmd} close: {e}");
-                    ExitCode::from(1)
+                    ExitCode::from(2)
                 }
             }
         }
@@ -1140,7 +1239,7 @@ fn main() -> ExitCode {
                 }
                 Err(e) => {
                     eprintln!("{cmd} add: {e}");
-                    ExitCode::from(1)
+                    ExitCode::from(2)
                 }
             }
         }
@@ -1151,7 +1250,7 @@ fn main() -> ExitCode {
             }
             Err(e) => {
                 eprintln!("ledger fix: {e}");
-                ExitCode::from(1)
+                ExitCode::from(2)
             }
         },
         ("journal", None) if !docsys::era::Era::at(&opts.root).journal_from_history() => {
@@ -1196,7 +1295,7 @@ fn main() -> ExitCode {
                 }
                 Err(e) => {
                     eprintln!("journal add: {e}");
-                    ExitCode::from(1)
+                    ExitCode::from(2)
                 }
             }
         }
@@ -1218,7 +1317,7 @@ fn main() -> ExitCode {
                 }
                 Err(e) => {
                     eprintln!("page new: {e}");
-                    ExitCode::from(1)
+                    ExitCode::from(2)
                 }
             }
         }
@@ -1246,7 +1345,10 @@ fn main() -> ExitCode {
                         }
                     }
                     Some(w) => docsys::graph::backlinks(&tree, repo, w),
-                    None => Err("backlinks needs a page path or id, or a code file".to_string()),
+                    None => {
+                        eprintln!("backlinks needs a page path or id, or a code file");
+                        return ExitCode::from(2);
+                    }
                 },
                 "mentions" => {
                     docsys::graph::mentions(&tree, opts.positional.first().map(String::as_str))
@@ -1260,7 +1362,7 @@ fn main() -> ExitCode {
                 }
                 Err(e) => {
                     eprintln!("{cmd}: {e}");
-                    ExitCode::from(1)
+                    ExitCode::from(2)
                 }
             }
         }
@@ -1278,7 +1380,7 @@ fn main() -> ExitCode {
                 }
                 Err(e) => {
                     eprintln!("seed: {e}");
-                    ExitCode::from(1)
+                    ExitCode::from(2)
                 }
             }
         }
@@ -1297,9 +1399,16 @@ fn main() -> ExitCode {
                 }
                 Err(e) => {
                     eprintln!("seed apply: {e}");
-                    ExitCode::from(1)
+                    ExitCode::from(2)
                 }
             }
+        }
+        ("hook", None) => {
+            eprintln!(
+                "hook needs <event>, one of: {}",
+                docsys::help::EVENTS.join(", ")
+            );
+            ExitCode::from(2)
         }
         ("hook", Some(event)) => {
             // The payload comes on stdin from the agent harness. `stop` needs
@@ -1726,7 +1835,10 @@ next: review, `git add -A && git commit`, then open an agent session here."
             } else if opts.refresh {
                 match opts.positional.first() {
                     Some(page) => docsys::fresh::refresh(&root, &repo, page),
-                    None => Err("pin --refresh needs <page>".to_string()),
+                    None => {
+                        eprintln!("pin --refresh needs <page>");
+                        return ExitCode::from(2);
+                    }
                 }
             } else {
                 match (opts.positional.first(), opts.positional.get(1)) {
@@ -1738,10 +1850,10 @@ next: review, `git add -A && git commit`, then open an agent session here."
                         opts.symbol.as_deref(),
                         opts.block,
                     ),
-                    _ => Err(
-                        "pin needs <page> <path> [--symbol <s>] [--block <n>], --refresh <page>, or --gc"
-                            .to_string(),
-                    ),
+                    _ => {
+                        eprintln!("pin needs <page> <path> [--symbol <s>] [--block <n>], --refresh <page>, or --gc");
+                        return ExitCode::from(2);
+                    }
                 }
             };
             match result {
@@ -1808,24 +1920,34 @@ next: review, `git add -A && git commit`, then open an agent session here."
                             .as_deref()
                             .is_some_and(|r| docsys::gate::range_has_docs(&repo, r));
                     let undocumented = !g.code.is_empty() && g.docs == 0 && !by_message;
-                    if undocumented && require && opts.skipped {
-                        // the git hook, bypassed with DOCSYS_SKIP=1: the bypass leaves a debt item (D-093)
-                        match docsys::hook::record_undocumented_commit(
+                    if opts.skipped {
+                        // the git hook, bypassed with DOCSYS_SKIP=1: the skip is the
+                        // person's word, and its one job is the debt item an
+                        // undocumented commit leaves under require (D-093)
+                        if !(undocumented && require) {
+                            return ExitCode::SUCCESS;
+                        }
+                        return match docsys::hook::record_undocumented_commit(
                             &root,
                             &g.code,
                             &migrate::today(),
                         ) {
-                            Ok(file) => println!("{}", docsys::say::gate_bypassed(&file)),
-                            Err(e) => eprintln!("gate: could not record the bypass: {e}"),
-                        }
+                            Ok(file) => {
+                                println!("{}", docsys::say::gate_bypassed(&file));
+                                ExitCode::SUCCESS
+                            }
+                            Err(e) => {
+                                eprintln!("gate: could not record the bypass: {e}");
+                                ExitCode::from(1)
+                            }
+                        };
                     }
                     // under require on docsys/0.5 the commit-msg gate, which
                     // reads the message, is the one that speaks (D-125)
-                    let deferred =
-                        history_journal && require && !opts.skipped && opts.range.is_none();
+                    let deferred = history_journal && require && opts.range.is_none();
                     if undocumented && !deferred {
                         println!("{}", docsys::say::gate_undocumented(g.scope, &g.code));
-                        if require && !opts.skipped && !history_journal {
+                        if require && !history_journal {
                             println!(
                                 "{}",
                                 docsys::say::era_text(&root, docsys::say::GATE_REQUIRE_015)
@@ -1846,9 +1968,8 @@ next: review, `git add -A && git commit`, then open an agent session here."
                     }
                     // Over a range there is nobody to ask once: code without
                     // documentation fails the check, as CI must.
-                    let unanswered = (opts.range.is_some()
-                        || (require && !opts.skipped && !history_journal))
-                        && undocumented;
+                    let unanswered =
+                        (opts.range.is_some() || (require && !history_journal)) && undocumented;
                     if g.lint_errors > 0 || unanswered || !g.plan_files.is_empty() {
                         ExitCode::from(1)
                     } else {
@@ -1884,7 +2005,9 @@ next: review, `git add -A && git commit`, then open an agent session here."
                 ExitCode::SUCCESS
             }
         }
-        ("fetch", None) => match docsys::export::fetch(&opts.root) {
+        ("fetch", None) => match docsys::consume::providers_readable(&opts.root)
+            .and_then(|()| docsys::export::fetch(&opts.root))
+        {
             Ok(summary) => {
                 for s in &summary {
                     println!("{s}");

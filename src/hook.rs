@@ -540,10 +540,17 @@ pub fn pre_tool_use(repo: &Path, root: &Path, payload: &str, skip: bool) -> Repl
         return Reply::ok();
     }
     let policy = commit_policy(root);
+    // a `git add` in the call stages what the commit carries, new files too
+    let adds = has_git_add(&cmd);
+    let question = if adds && crate::era::Era::at(root).untracked_in_question() {
+        gate::run_adding
+    } else {
+        gate::run
+    };
     if skip {
         // D-093: under `require`, the bypass is recorded as debt, never silent
         if policy == CommitPolicy::Require {
-            if let Ok((g, _)) = gate::run(repo, root) {
+            if let Ok((g, _)) = question(repo, root) {
                 if !g.code.is_empty() && g.docs == 0 {
                     let _ = record_undocumented_commit(root, &g.code, &crate::migrate::today());
                 }
@@ -551,12 +558,11 @@ pub fn pre_tool_use(repo: &Path, root: &Path, payload: &str, skip: bool) -> Repl
         }
         return Reply::ok();
     }
-    let (g, report) = match gate::run(repo, root) {
+    let (g, report) = match question(repo, root) {
         Ok(x) => x,
         Err(e) => return Reply::block(format!("docsys gate: {e}\n")),
     };
     let v05 = crate::era::Era::at(root).journal_from_history();
-    let adds = has_git_add(&cmd);
     let mut err = String::new();
     if g.lint_errors > 0 {
         for f in &report.findings {

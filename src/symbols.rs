@@ -472,6 +472,9 @@ struct Decl {
     shape: Shape,
     /// Go: a method's receiver type
     owner: Option<usize>,
+    /// TS/JS: a function written as a property's or a member's value — it
+    /// declares its name only where nothing else in the file does
+    fallback: bool,
 }
 
 impl Decl {
@@ -481,6 +484,14 @@ impl Decl {
             start,
             shape,
             owner: None,
+            fallback: false,
+        }
+    }
+
+    fn fallback(name: usize, start: usize, shape: Shape) -> Self {
+        Decl {
+            fallback: true,
+            ..Decl::new(name, start, shape)
         }
     }
 }
@@ -1104,6 +1115,8 @@ impl<'a> Src<'a> {
     fn script_decls(&self) -> Vec<Decl> {
         let mut out = Vec::new();
         let mut classes = Vec::new();
+        // the bodies of interfaces and type literals: a member there is a type
+        let mut types = Vec::new();
         for i in 0..self.n() {
             if !self.word(i) || !self.starts(i, false) {
                 continue;
@@ -1130,16 +1143,40 @@ impl<'a> Src<'a> {
                         classes.push(open);
                     }
                 }
-                "interface" | "enum" | "namespace" | "module" if self.word(k) => {
+                "interface" if self.word(k) => {
+                    out.push(Decl::new(k, i, Shape::Block));
+                    if let (_, Some(open)) = self.extent(i, Shape::Block) {
+                        types.push(open);
+                    }
+                }
+                "enum" | "namespace" | "module" if self.word(k) => {
                     out.push(Decl::new(k, i, Shape::Block))
                 }
                 "const" if self.is(k, "enum") && self.word(k + 1) => {
                     out.push(Decl::new(k + 1, i, Shape::Block))
                 }
                 "type" if self.word(k) && matches!(self.text(k + 1), "=" | "<") => {
-                    out.push(Decl::new(k, i, Shape::Stmt))
+                    out.push(Decl::new(k, i, Shape::Stmt));
+                    let eq = if self.is(k + 1, "<") {
+                        self.angle_close(k + 1) + 1
+                    } else {
+                        k + 1
+                    };
+                    if self.is(eq, "=") && self.is(eq + 1, "{") {
+                        types.push(eq + 1);
+                    }
                 }
                 "const" | "let" | "var" => self.bindings(i, k, &mut out),
+                // a function assigned to a member: `a.b.name = function …`
+                _ if self.word(j) && self.is(j + 1, ".") => {
+                    let mut k = j;
+                    while self.is(k + 1, ".") && self.word(k + 2) {
+                        k += 2;
+                    }
+                    if self.is(k + 1, "=") && self.function_value(k + 2) {
+                        out.push(Decl::fallback(k, i, Shape::Stmt));
+                    }
+                }
                 _ => {}
             }
         }
@@ -1163,9 +1200,61 @@ impl<'a> Src<'a> {
                 }
             } else if self.method_shape(j) {
                 out.push(Decl::new(j, i, Shape::Block));
+            } else if self.is(j + 1, ":") && self.function_value(j + 2) && !self.within(p, &types) {
+                // `name: (…) => …` or `name: function (…) {` — a method by
+                // another spelling
+                out.push(Decl::fallback(j, i, Shape::Member));
             }
         }
         out
+    }
+
+    /// Does a function or an arrow function begin at `k`?
+    fn function_value(&self, k: usize) -> bool {
+        let k = if self.is(k, "async") { k + 1 } else { k };
+        if self.is(k, "function") || (self.word(k) && self.is(k + 1, "=>")) {
+            return true;
+        }
+        let k = if self.is(k, "<") {
+            self.angle_close(k) + 1
+        } else {
+            k
+        };
+        let Some(close) = self.is(k, "(").then(|| self.pair(k)).flatten() else {
+            return false;
+        };
+        let mut m = close + 1;
+        if self.is(m, "=>") {
+            return true;
+        }
+        if !self.is(m, ":") {
+            return false;
+        }
+        // a return type, then the arrow
+        m += 1;
+        while m < self.n() {
+            match self.text(m) {
+                "=>" => return true,
+                "(" | "[" | "{" => m = self.pair(m).unwrap_or(m),
+                "<" => m = self.angle_close(m),
+                "," | ";" | "=" | ")" | "]" | "}" => return false,
+                _ => {}
+            }
+            m += 1;
+        }
+        false
+    }
+
+    /// Is the bracket at `b`, or one around it, among `opens`?
+    fn within(&self, b: usize, opens: &[usize]) -> bool {
+        let mut q = Some(b);
+        while let Some(o) = q {
+            if opens.contains(&o) {
+                return true;
+            }
+            q = self.parent(o);
+        }
+        false
     }
 
     /// The names a `const`/`let`/`var` statement declares, destructuring
@@ -1268,10 +1357,8 @@ impl<'a> Src<'a> {
                     let name = close + 1;
                     if self.word(name) && matches!(self.text(name + 1), "(" | "[") {
                         out.push(Decl {
-                            name,
-                            start: i,
-                            shape: Shape::Block,
                             owner: self.receiver(i + 1, close),
+                            ..Decl::new(name, i, Shape::Block)
                         });
                     }
                 }
@@ -1564,6 +1651,9 @@ pub fn resolve(source: &str, path: &str, symbol: &str) -> Result<(usize, usize),
         .filter(|d| src.top(d) && src.text(d.name) == *head)
         .copied()
         .collect();
+    if scope.iter().any(|d| !d.fallback) {
+        scope.retain(|d| !d.fallback);
+    }
     // an `impl` stands for a type declared in another file
     if scope.is_empty() && fam == Family::Rust {
         scope = named(&decls.impls, head);
@@ -1830,6 +1920,40 @@ const api = {
     return 1
   },
 }
+"##;
+
+    const JS_FUNCTION_VALUES: &str = r##"export const useStore = defineStore('s', {
+  getters: {
+    badges: (state): Badge[] => {
+      return state.list;
+    },
+    theme: state => {
+      return state.t;
+    },
+    count: (state) => state.n,
+    legacy: function (state) {
+      return state.l;
+    },
+  },
+});
+editorMethods.measure = function (): number[] {
+  return [];
+};
+interface Shape {
+  draw: (ctx: Ctx) => void;
+}
+type Hooks = {
+  onDone: () => void;
+};
+"##;
+
+    const JS_FUNCTION_AND_VALUE: &str = r##"export function getParameter(name: string): string {
+  return name;
+}
+const mock = {
+  stub: () => 1,
+  fns: { getParameter: () => String(1) },
+};
 "##;
 
     const VUE_SFC: &str = r##"<template>
@@ -2102,6 +2226,26 @@ class User extends Authenticatable
         ("a.js", JS_KINDS, "legacy", Ok((7, 9))),
         ("a.js", JS_KINDS, "api.fetch", Ok((11, 13))),
         ("a.js", JS_KINDS, "fetch", Ok((11, 13))),
+        ("a.ts", JS_FUNCTION_VALUES, "badges", Ok((3, 5))),
+        ("a.ts", JS_FUNCTION_VALUES, "theme", Ok((6, 8))),
+        ("a.ts", JS_FUNCTION_VALUES, "count", Ok((9, 9))),
+        ("a.ts", JS_FUNCTION_VALUES, "legacy", Ok((10, 12))),
+        ("a.ts", JS_FUNCTION_VALUES, "measure", Ok((15, 17))),
+        (
+            "a.ts",
+            JS_FUNCTION_VALUES,
+            "draw",
+            Err("only outside declarations"),
+        ),
+        (
+            "a.ts",
+            JS_FUNCTION_VALUES,
+            "onDone",
+            Err("only outside declarations"),
+        ),
+        ("a.ts", JS_FUNCTION_VALUES, "Shape.draw", Ok((19, 19))),
+        ("a.ts", JS_FUNCTION_AND_VALUE, "getParameter", Ok((1, 3))),
+        ("a.ts", JS_FUNCTION_AND_VALUE, "stub", Ok((5, 5))),
         ("Panel.vue", VUE_SFC, "save", Ok((9, 11))),
         ("Panel.vue", VUE_SFC, "label", Ok((8, 8))),
         ("Hello.svelte", SVELTE, "greet", Ok((3, 5))),

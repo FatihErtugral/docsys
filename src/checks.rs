@@ -461,33 +461,84 @@ impl Maintainer {
     }
 }
 
-pub(crate) fn maintainer_handles(tree: &DocTree) -> Vec<Maintainer> {
-    tree.docmeta_list("maintainers")
-        .iter()
-        .filter_map(|e| {
-            let e = e.trim().trim_matches(|c| c == '"' || c == '\'');
-            if e.is_empty() {
-                return None;
-            }
-            let mut handle = String::new();
-            let mut email = None;
-            let mut login = None;
-            for (i, word) in e.split_whitespace().enumerate() {
-                if let Some(l) = word.strip_prefix('@') {
-                    login = Some(l.to_lowercase());
-                } else if word.starts_with('<') && word.ends_with('>') {
-                    email = Some(word.trim_matches(|c| c == '<' || c == '>').to_lowercase());
-                } else if i == 0 {
-                    handle = word.to_lowercase();
-                }
-            }
-            (!handle.is_empty()).then_some(Maintainer {
-                handle,
-                email,
-                login,
-            })
-        })
-        .collect()
+/// The maintainers `.docmeta.yml` declares (R-208). A list that opens and
+/// never closes with `]` names people nobody can read: it lists no one, and
+/// it is not "none declared" either — nobody vouches until it is closed.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Maintainers {
+    listed: Vec<Maintainer>,
+    unreadable: Option<String>,
+}
+
+impl Maintainers {
+    /// The list as the tree reads it: its entries, or the refusal naming the
+    /// line where it opens and never closes.
+    pub fn read(list: Result<&[String], String>) -> Maintainers {
+        match list {
+            Ok(entries) => Maintainers {
+                listed: entries.iter().filter_map(|e| maintainer_entry(e)).collect(),
+                unreadable: None,
+            },
+            Err(refusal) => Maintainers {
+                listed: Vec::new(),
+                unreadable: Some(refusal),
+            },
+        }
+    }
+
+    /// The entries the list names; none while it cannot be read.
+    pub fn iter(&self) -> std::slice::Iter<'_, Maintainer> {
+        self.listed.iter()
+    }
+
+    /// No maintainer is declared, so anyone vouches — never true of a list
+    /// that cannot be read.
+    pub fn anyone(&self) -> bool {
+        self.listed.is_empty() && self.unreadable.is_none()
+    }
+
+    /// The refusal a command that acts on the list gives while it cannot be
+    /// read.
+    pub fn readable(&self) -> Result<(), String> {
+        self.unreadable.clone().map_or(Ok(()), Err)
+    }
+}
+
+impl IntoIterator for Maintainers {
+    type Item = Maintainer;
+    type IntoIter = std::vec::IntoIter<Maintainer>;
+    fn into_iter(self) -> Self::IntoIter {
+        self.listed.into_iter()
+    }
+}
+
+/// One `maintainers:` entry: `handle`, `handle <email>`, `handle <email> @login`.
+fn maintainer_entry(e: &str) -> Option<Maintainer> {
+    let e = e.trim().trim_matches(|c| c == '"' || c == '\'');
+    if e.is_empty() {
+        return None;
+    }
+    let mut handle = String::new();
+    let mut email = None;
+    let mut login = None;
+    for (i, word) in e.split_whitespace().enumerate() {
+        if let Some(l) = word.strip_prefix('@') {
+            login = Some(l.to_lowercase());
+        } else if word.starts_with('<') && word.ends_with('>') {
+            email = Some(word.trim_matches(|c| c == '<' || c == '>').to_lowercase());
+        } else if i == 0 {
+            handle = word.to_lowercase();
+        }
+    }
+    (!handle.is_empty()).then_some(Maintainer {
+        handle,
+        email,
+        login,
+    })
+}
+
+pub(crate) fn maintainer_handles(tree: &DocTree) -> Maintainers {
+    Maintainers::read(tree.docmeta_list_whole("maintainers"))
 }
 
 /// The person a record names: the first word of `confirmed: fatih, 2026-08-15`
@@ -522,7 +573,9 @@ fn check_maintainers(tree: &DocTree, r: &mut Report) {
         ));
     }
     let maintainers = maintainer_handles(tree);
-    if maintainers.is_empty() {
+    // a list that cannot be read is R-161's finding, and every command that
+    // would act on it refuses; there is nothing to check records against
+    if maintainers.anyone() || maintainers.readable().is_err() {
         return;
     }
     let known = |h: &str| maintainers.iter().any(|m| m.handle == h);
@@ -2477,7 +2530,12 @@ pub(crate) fn archive_slices(root: &std::path::Path, ledger: &str) -> Vec<String
 /// Local forms of the list-item field labels (R-108), same shape as the
 /// heading map: canonical name → the form this tree actually writes.
 pub(crate) fn label_of(tree: &DocTree, canonical: &str) -> String {
-    tree.docmeta_list("list_labels")
+    label_in(tree.docmeta_list("list_labels"), canonical)
+}
+
+/// `label_of`, from the `list_labels` entries themselves.
+pub(crate) fn label_in(labels: &[String], canonical: &str) -> String {
+    labels
         .iter()
         .filter_map(|e| e.split_once('='))
         .find(|(k, _)| k.trim() == canonical)

@@ -893,3 +893,268 @@ fn the_commit_relay_says_what_it_does_under_either_policy() {
     assert!(header.contains("every time"), "{header}");
     let _ = fs::remove_dir_all(&repo);
 }
+
+// ── what a skip and a closed reader leave of the gate's verdict ─────────────
+
+/// PATH with the test binary first: the gate and the relays run `docsys`.
+fn path_with_bin() -> String {
+    let bin = PathBuf::from(env!("CARGO_BIN_EXE_docsys"));
+    format!(
+        "{}:{}",
+        bin.parent().unwrap().display(),
+        std::env::var("PATH").unwrap_or_default()
+    )
+}
+
+/// A repository `docsys adopt` set up, its git gate included, committed.
+fn adopted(name: &str) -> PathBuf {
+    let repo = tmp(name);
+    git(&repo, &["init", "-q"]);
+    git(&repo, &["config", "user.email", "t@example.invalid"]);
+    git(&repo, &["config", "user.name", "t"]);
+    fs::write(repo.join("README.md"), "# r\n").unwrap();
+    let out = Command::new(env!("CARGO_BIN_EXE_docsys"))
+        .arg("adopt")
+        .current_dir(&repo)
+        .env("PATH", path_with_bin())
+        .env("DOCSYS_NO_AUTO_INSTALL", "1")
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "{out:?}");
+    commit_through_gate(&repo, &["-q", "-m", "adopt"], &[]);
+    repo
+}
+
+/// `git add -A && git commit <args>` through the git gate: its status and
+/// what it said on stderr.
+fn commit_through_gate(repo: &Path, args: &[&str], env: &[(&str, &str)]) -> (i32, String) {
+    git(repo, &["add", "-A"]);
+    let mut cmd = Command::new("git");
+    cmd.arg("commit")
+        .args(args)
+        .current_dir(repo)
+        .env("PATH", path_with_bin())
+        .env("DOCSYS_NO_AUTO_INSTALL", "1");
+    for (k, v) in env {
+        cmd.env(k, v);
+    }
+    let out = cmd.output().unwrap();
+    (
+        out.status.code().unwrap_or(-1),
+        String::from_utf8_lossy(&out.stderr).into_owned(),
+    )
+}
+
+/// A skipped commit is the person's word (R-209): the gate's only job is the
+/// record `require` asks for, and it says something only when that record
+/// could not be written — never a pointer to a reason nobody sees.
+#[test]
+fn a_skipped_commit_says_only_what_its_record_needs() {
+    let repo = adopted("skip-lint");
+    require(&repo);
+    commit_through_gate(
+        &repo,
+        &["-q", "-m", "policy", "-m", "Docs: the policy"],
+        &[],
+    );
+    // code and a documentation change with a lint error: documented, so no
+    // record is due, and nothing is said
+    fs::create_dir_all(repo.join("src")).unwrap();
+    fs::write(repo.join("src/x.rs"), "fn x() {}\n").unwrap();
+    let index = repo.join("docs/index.md");
+    fs::write(
+        &index,
+        fs::read_to_string(&index).unwrap() + "\nSee [[reference/nope]].\n",
+    )
+    .unwrap();
+    let (code, err) = commit_through_gate(&repo, &["-q", "-m", "both"], &[("DOCSYS_SKIP", "1")]);
+    assert_eq!(code, 0, "{err}");
+    assert!(!err.contains("not recorded"), "{err}");
+    assert!(!repo.join("docs/work/debt").exists());
+    // code alone while that lint error stands: the record is written, and
+    // nothing claims it was not
+    fs::write(repo.join("src/y.rs"), "fn y() {}\n").unwrap();
+    let (code, err) = commit_through_gate(&repo, &["-q", "-m", "code"], &[("DOCSYS_SKIP", "1")]);
+    assert_eq!(code, 0, "{err}");
+    assert!(!err.contains("not recorded"), "{err}");
+    let debt = fs::read_to_string(repo.join("docs/work/debt/general.md")).unwrap();
+    assert!(debt.contains("(DOCSYS_SKIP): src/y.rs"), "{debt}");
+    // a record that cannot be written says why, above the line that points at it
+    // the record lands beside the commit, untracked: an empty read-only
+    // directory is no change to commit, and takes no file
+    use std::os::unix::fs::PermissionsExt as _;
+    let debt_dir = repo.join("docs/work/debt");
+    fs::remove_dir_all(&debt_dir).unwrap();
+    fs::create_dir_all(&debt_dir).unwrap();
+    fs::set_permissions(&debt_dir, fs::Permissions::from_mode(0o555)).unwrap();
+    fs::write(repo.join("src/z.rs"), "fn z() {}\n").unwrap();
+    let (code, err) = commit_through_gate(&repo, &["-q", "-m", "more"], &[("DOCSYS_SKIP", "1")]);
+    fs::set_permissions(&debt_dir, fs::Permissions::from_mode(0o755)).unwrap();
+    assert_eq!(code, 0, "{err}");
+    let lines: Vec<&str> = err.lines().collect();
+    let at = lines
+        .iter()
+        .position(|l| l.contains("not recorded — the line above says why"))
+        .unwrap_or_else(|| panic!("{err}"));
+    assert!(
+        at.checked_sub(1)
+            .and_then(|above| lines.get(above))
+            .is_some_and(|l| l.contains("could not record the bypass")),
+        "{err}"
+    );
+    let _ = fs::remove_dir_all(&repo);
+}
+
+/// A process whose stream at `which` has no reader: its status.
+fn status_with_closed(mut cmd: Command, which: &str, stdin: &str) -> i32 {
+    use std::io::Write as _;
+    use std::process::Stdio;
+    cmd.stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    let mut child = cmd.spawn().unwrap();
+    // the reader leaves before the process says a word
+    match which {
+        "stdout" => drop(child.stdout.take()),
+        _ => drop(child.stderr.take()),
+    }
+    let _ = child.stdin.take().unwrap().write_all(stdin.as_bytes());
+    let out = child.wait_with_output().unwrap();
+    out.status.code().unwrap_or(-1)
+}
+
+/// A verdict is a status: a relay or a gate whose reader closed its end
+/// exits with what it decided, whoever runs it — never 141 (R-209).
+#[test]
+fn a_closed_reader_never_changes_a_verdict() {
+    let repo = adopted("closed-reader");
+    require(&repo);
+    commit_through_gate(
+        &repo,
+        &["-q", "-m", "policy", "-m", "Docs: the policy"],
+        &[],
+    );
+    fs::create_dir_all(repo.join("src")).unwrap();
+    fs::write(repo.join("src/x.rs"), "fn x() {}\n").unwrap();
+    git(&repo, &["add", "src/x.rs"]);
+    // the relay refuses, its stderr's reader gone or not
+    for which in ["stderr", "stdout"] {
+        let mut relay = Command::new("bash");
+        relay
+            .arg(repo.join(".claude/hooks/pre-commit-docs.sh"))
+            .current_dir(&repo)
+            .env("PATH", path_with_bin())
+            .env("TMPDIR", repo.join(".markers"));
+        assert_eq!(
+            status_with_closed(relay, which, commit_payload()),
+            2,
+            "relay, {which}"
+        );
+        let mut direct = Command::new(env!("CARGO_BIN_EXE_docsys"));
+        direct
+            .args(["hook", "pre-tool-use", "--root", "docs"])
+            .current_dir(&repo)
+            .env("TMPDIR", repo.join(".markers"));
+        assert_eq!(
+            status_with_closed(direct, which, commit_payload()),
+            2,
+            "hook, {which}"
+        );
+    }
+    // the git hook run by hand, outside git: the gate lets docs through
+    git(&repo, &["reset", "-q"]);
+    let index = repo.join("docs/index.md");
+    fs::write(&index, fs::read_to_string(&index).unwrap() + "\nMore.\n").unwrap();
+    git(&repo, &["add", "docs/index.md"]);
+    for which in ["stdout", "stderr"] {
+        let mut hook = Command::new("bash");
+        hook.arg(".git/hooks/pre-commit")
+            .current_dir(&repo)
+            .env("PATH", path_with_bin())
+            .env_remove("GIT_EXEC_PATH")
+            .env_remove("GIT_INDEX_FILE");
+        assert_eq!(
+            status_with_closed(hook, which, ""),
+            0,
+            "pre-commit, {which}"
+        );
+    }
+    let _ = fs::remove_dir_all(&repo);
+}
+
+/// A call that stages a new file and commits it is asked about that file as
+/// about a changed one: `git add` in the call takes untracked files too
+/// (D-040).
+#[test]
+fn a_new_file_the_call_stages_is_part_of_its_commit() {
+    for policy in ["ask", "require"] {
+        let repo = build_repo(&format!("new-file-{policy}"));
+        if policy == "require" {
+            require(&repo);
+            git(&repo, &["add", "-A"]);
+            git(&repo, &["commit", "-q", "-m", "policy"]);
+        }
+        fs::create_dir_all(repo.join("src")).unwrap();
+        fs::write(repo.join("src/new.rs"), "fn n() {}\n").unwrap();
+        let payload = r#"{"tool_name":"Bash","tool_input":{"command":"git add src/new.rs && git commit -m wip"}}"#;
+        let (code, msg) = run_hook(&repo, payload, &[]);
+        assert_eq!(code, 2, "{policy}: {msg}");
+        assert!(msg.contains("src/new.rs"), "{policy}: {msg}");
+        // a call that stages nothing commits nothing new: an untracked file
+        // stays out of it
+        let (code, msg) = run_hook(&repo, commit_payload(), &[]);
+        assert_eq!(code, 0, "{policy}: {msg}");
+        let _ = fs::remove_dir_all(&repo);
+    }
+    // a docsys/0.4 tree is asked what 0.15.1 asked: tracked changes alone (D-118)
+    let repo = build_repo04("new-file-04");
+    fs::create_dir_all(repo.join("src")).unwrap();
+    fs::write(repo.join("src/new.rs"), "fn n() {}\n").unwrap();
+    let payload = r#"{"tool_name":"Bash","tool_input":{"command":"git add src/new.rs && git commit -m wip"}}"#;
+    let (code, msg) = run_hook(&repo, payload, &[]);
+    assert_eq!(code, 0, "{msg}");
+    let _ = fs::remove_dir_all(&repo);
+}
+
+/// A relay's text is read by the agent it refuses: the bypass it names is the
+/// person's, since the same relay refuses `DOCSYS_SKIP=1` in the agent's own
+/// command (R-209).
+#[test]
+fn the_bypass_a_relay_names_is_the_persons() {
+    let skip_commit =
+        r#"{"tool_name":"Bash","tool_input":{"command":"DOCSYS_SKIP=1 git commit -m x"}}"#;
+    // a lint error, under ask
+    let repo = build_repo("bypass-lint");
+    let index = repo.join("docs/index.md");
+    fs::write(
+        &index,
+        fs::read_to_string(&index).unwrap() + "\nSee [[reference/nope]].\n",
+    )
+    .unwrap();
+    git(&repo, &["add", "docs/index.md"]);
+    let (code, msg) = run_hook(&repo, commit_payload(), &[]);
+    assert_eq!(code, 2, "{msg}");
+    assert!(
+        msg.contains("DOCSYS_SKIP=1") && msg.contains("person"),
+        "{msg}"
+    );
+    let (code, again) = run_hook(&repo, skip_commit, &[]);
+    assert_eq!(code, 2, "{again}");
+    let _ = fs::remove_dir_all(&repo);
+    // code with no documentation, under require
+    let repo = build_repo("bypass-require");
+    require(&repo);
+    git(&repo, &["add", "-A"]);
+    git(&repo, &["commit", "-q", "-m", "policy"]);
+    fs::write(repo.join("main.rs"), "fn main() {}\n").unwrap();
+    git(&repo, &["add", "main.rs"]);
+    let (code, msg) = run_hook(&repo, commit_payload(), &[]);
+    assert_eq!(code, 2, "{msg}");
+    assert!(
+        msg.contains("DOCSYS_SKIP=1") && msg.contains("person"),
+        "{msg}"
+    );
+    let (code, again) = run_hook(&repo, skip_commit, &[]);
+    assert_eq!(code, 2, "{again}");
+    let _ = fs::remove_dir_all(&repo);
+}

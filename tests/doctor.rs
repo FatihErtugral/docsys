@@ -218,3 +218,54 @@ fn doctor_never_advises_overwriting_an_owners_relay() {
     assert!(line.contains("edited by its owner"), "{said}");
     let _ = fs::remove_dir_all(&repo);
 }
+
+/// A tree whose `spec:` names no version is served as docsys/0.4 (D-118),
+/// and nothing says it declares that version: `doctor` and graduation say
+/// what it declares, as the version notice does.
+#[test]
+fn a_tree_that_declares_no_spec_is_never_said_to_declare_one() {
+    let (repo, docs) = repo_with_tree("no-spec");
+    let meta = docs.join(".docmeta.yml");
+    let text = fs::read_to_string(&meta).unwrap();
+    let spec = text.lines().next().unwrap().to_string();
+    fs::write(&meta, text.replacen(&spec, "spec:   # none yet", 1)).unwrap();
+    let run = |args: &[&str]| {
+        let out = Command::new(env!("CARGO_BIN_EXE_docsys"))
+            .args(args)
+            .current_dir(&repo)
+            .env("DOCSYS_NO_AUTO_INSTALL", "1")
+            .output()
+            .unwrap();
+        format!(
+            "{}{}",
+            String::from_utf8_lossy(&out.stdout),
+            String::from_utf8_lossy(&out.stderr)
+        )
+    };
+    fs::create_dir_all(docs.join("work/features")).unwrap();
+    fs::write(
+        docs.join("work/features/x.md"),
+        "---\nid: x\nstatus: done\n---\n# X\n\n## Decisions\n\n- a decision\n",
+    )
+    .unwrap();
+    let plan = run(&["graduate", "plan", "work/features/x.md"]);
+    fs::write(repo.join("plan.tsv"), plan).unwrap();
+    for (said, own) in [
+        (run(&["doctor"]), "the tree declares no spec"),
+        (
+            run(&[
+                "graduate",
+                "apply",
+                "--plan",
+                "plan.tsv",
+                "--confirmed",
+                "t",
+            ]),
+            "graduate apply: this tree declares no spec",
+        ),
+    ] {
+        assert!(!said.contains("declares docsys/0.4"), "{said}");
+        assert!(said.contains(own), "{said}");
+    }
+    let _ = fs::remove_dir_all(&repo);
+}

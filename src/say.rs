@@ -28,7 +28,7 @@ pub fn ask(adds: bool) -> String {
 /// The refusal under `commit_policy: require`, every time (R-209).
 pub fn require(adds: bool) -> String {
     format!(
-        "commit_policy: require — name the work, record it — a work file under work/<category>/ or, at minimum, a `Docs: <why>` trailer in this commit's message — stage it, and {}. DOCSYS_SKIP=1 bypasses once and leaves a debt item.\n",
+        "commit_policy: require — name the work, record it — a work file under work/<category>/ or, at minimum, a `Docs: <why>` trailer in this commit's message — stage it, and {}. {BYPASS}, and it leaves a debt item.\n",
         rerun(adds)
     )
 }
@@ -51,10 +51,21 @@ fn blocked(v05: bool, adds: bool) -> &'static str {
     }
 }
 
+/// The bypass a relay names: the agent it speaks to cannot take it, since
+/// the relay refuses `DOCSYS_SKIP=1` in the agent's own command (R-209).
+const BYPASS: &str =
+    "Only the person bypasses this, once: `DOCSYS_SKIP=1 git commit` at their terminal";
+
 /// Lint errors stop the commit the relay saw.
 pub fn lint_block(v05: bool, adds: bool) -> String {
+    if !v05 {
+        return format!(
+            "docsys gate: lint errors block this commit — fix them first (DOCSYS_SKIP=1 to bypass once).{}\n",
+            blocked(v05, adds)
+        );
+    }
     format!(
-        "docsys gate: lint errors block this commit — fix them first (DOCSYS_SKIP=1 to bypass once).{}\n",
+        "docsys gate: lint errors block this commit — fix them first. {BYPASS}.{}\n",
         blocked(v05, adds)
     )
 }
@@ -178,12 +189,6 @@ pub const MESSAGE_HARD: &str =
 pub const MESSAGE_WARN: &str =
     "# Warn-mode with the pre-commit half: the gate's lines inform until `docsys adopt` hardens it.";
 
-/// The per-clone step, said once in an upgrade's output.
-pub const CLONE_ONLY: &str = " — this clone only: every clone runs `docsys upgrade --apply` once";
-
-/// What a person pulling the upgrade needs in this clone, in the commit.
-pub const TEAMMATES: &str = "Teammates: after pulling, run `docsys upgrade --apply` once in your clone — the git gate is per clone.";
-
 /// The findings an upgrade adds and removes: a forecast before the move.
 pub fn upgrade_preview(to: u32, added: usize, removed: usize) -> String {
     format!(
@@ -257,6 +262,10 @@ pub fn era_text(root: &Path, text: &str) -> String {
 
 /// Every text above as a docsys/0.5 tree hears it, in each mode: what the
 /// one-home check reads (D-129).
+/// Where an upgrade's carried approvals live, said once before the merge
+/// (D-126).
+pub const CARRIED_MERGE: &str = "the carried approvals live in the upgrade's commit messages: merge it with a merge commit, or keep the commit bodies in the squash message — a squash message without them leaves those pages unverified";
+
 pub fn catalog() -> Vec<String> {
     let code = vec!["src/x.rs".to_string()];
     let plans = vec!["SEED.tsv".to_string()];
@@ -285,9 +294,8 @@ pub fn catalog() -> Vec<String> {
     out.push(message_trailer(1, "work/debt", "Resolved"));
     out.push(message_budget(7, 5));
     out.extend([GATE_HARD, GATE_WARN, MESSAGE_HARD, MESSAGE_WARN].map(String::from));
-    out.push(CLONE_ONLY.to_string());
-    out.push(TEAMMATES.to_string());
     out.push(upgrade_preview(5, 3, 0));
+    out.push(CARRIED_MERGE.to_string());
     out
 }
 

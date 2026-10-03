@@ -1376,6 +1376,7 @@ pub fn pin_block(
     let rel = locate(root, page)?;
     let file = root.join(&rel);
     let text = fs::read_to_string(&file).map_err(|e| e.to_string())?;
+    crate::fm::refuse_unclosed_in(&rel, &text)?;
     let fm = crate::fm::parse(&text).ok_or("the page has no frontmatter (R-050)")?;
     let era = Era::at(root);
     let bound = match block {
@@ -1482,6 +1483,7 @@ pub fn refresh(root: &Path, repo: &Path, page: &str) -> Result<String, String> {
     let rel = locate(root, page)?;
     let file = root.join(&rel);
     let text = fs::read_to_string(&file).map_err(|e| e.to_string())?;
+    crate::fm::refuse_unclosed_in(&rel, &text)?;
     let fm = crate::fm::parse(&text).ok_or("the page has no frontmatter (R-050)")?;
     let mut pins = pins_of(&fm);
     if pins.is_empty() {
@@ -1552,6 +1554,8 @@ pub fn gc(root: &Path, repo: &Path) -> Result<Vec<String>, String> {
         if page.kind != Kind::Permanent {
             continue;
         }
+        // what a page pins is read whole, or no acknowledgement is judged unneeded
+        crate::fm::refuse_unclosed_in(&page.rel, &page.text)?;
         let Some(fm) = &page.fm else { continue };
         if let Some(id) = page_id(fm) {
             by_id.entry(id).or_default().extend(pins_of(fm));

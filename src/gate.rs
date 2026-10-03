@@ -31,7 +31,17 @@ fn is_plan_file(path: &str) -> bool {
 }
 
 pub fn run(repo: &Path, root: &Path) -> Result<(GateOutcome, crate::checks::Report), String> {
-    run_scoped(repo, root, None)
+    run_scoped(repo, root, None, false)
+}
+
+/// The question for a call that runs `git add` before it commits: with
+/// nothing staged yet, the working tree's untracked files are changes that
+/// `git add` may take into the commit (D-040).
+pub fn run_adding(
+    repo: &Path,
+    root: &Path,
+) -> Result<(GateOutcome, crate::checks::Report), String> {
+    run_scoped(repo, root, None, true)
 }
 
 /// The same question over a commit range (`origin/main...HEAD`): what CI asks
@@ -41,13 +51,14 @@ pub fn run_range(
     root: &Path,
     range: &str,
 ) -> Result<(GateOutcome, crate::checks::Report), String> {
-    run_scoped(repo, root, Some(range))
+    run_scoped(repo, root, Some(range), false)
 }
 
 fn run_scoped(
     repo: &Path,
     root: &Path,
     range: Option<&str>,
+    untracked: bool,
 ) -> Result<(GateOutcome, crate::checks::Report), String> {
     let (report, _) = crate::lint_in(root, Some(repo));
     let lint_errors = report
@@ -84,7 +95,11 @@ fn run_scoped(
         None => {
             let staged = changed(&["diff", "--cached", "--name-only"]);
             if staged.is_empty() {
-                (changed(&["diff", "--name-only"]), "working tree")
+                let mut files = changed(&["diff", "--name-only"]);
+                if untracked {
+                    files.extend(changed(&["ls-files", "--others", "--exclude-standard"]));
+                }
+                (files, "working tree")
             } else {
                 (staged, "staged")
             }

@@ -111,12 +111,18 @@ pub fn run(repo: &Path, root: &Path, claude_dir: &Path) -> Diagnosis {
             Ok(Some(pin)) => push(
                 &mut d,
                 tree <= ours && pin == own,
-                format!("the tree declares docsys/0.{tree} and pins docsys {pin}; this is docsys {own} (docsys/0.{ours})"),
+                format!(
+                    "the tree {} and pins docsys {pin}; this is docsys {own} (docsys/0.{ours})",
+                    crate::era::declared(root)
+                ),
             ),
             Ok(None) => push(
                 &mut d,
                 tree <= ours,
-                format!("the tree declares docsys/0.{tree}; this is docsys {own} (docsys/0.{ours})"),
+                format!(
+                    "the tree {}; this is docsys {own} (docsys/0.{ours})",
+                    crate::era::declared(root)
+                ),
             ),
             Err(e) => push(&mut d, false, e),
         }

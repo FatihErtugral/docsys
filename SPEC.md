@@ -834,7 +834,7 @@ and `raw/` records):
 a dated record cannot be corrected by editing it, and the legitimate repairs —
 a tombstone for a renamed identifier (R-066), a page distilled at last — are
 exactly what the report names. An error nobody may honestly clear is an error
-people learn to bypass (R-150). In 0.1 local references were
+people learn to bypass (R-151). In 0.1 local references were
 not required to resolve, so a typo was invisible. Foreign references resolve
 under federation (§13, R-139); in a tree with no federation state a foreign
 reference **is reported** as unresolvable here, never silently accepted and
@@ -1153,7 +1153,7 @@ which a tree MAY raise to state a discipline it actually keeps. Making it
 configurable is not a loophole: the number stays in one visible place instead of
 in an agent's memory, a tree that never declares it keeps the strict default,
 and a tool that warns hundreds of times against a documented house rule teaches
-people to ignore warnings — the failure R-150 exists to prevent.
+people to ignore warnings — the friction R-151 exists to prevent.
 
 **R-102** `agent` · MUST NOT — Measurements, tables, algorithms, API lists,
 register maps, and rejected alternatives MUST NOT be written to the journal. They
@@ -1531,7 +1531,8 @@ commit message (§10) — linking the files and
 saying why; and the end of a turn in which code changed without its record
 **holds the session** once, so the knowledge is captured while the session
 that has it still exists — the commit may come later, from another session or
-from a person at a terminal. `DOCSYS_SKIP=1` still bypasses once; under
+from a person at a terminal. `DOCSYS_SKIP=1` in the hook's own environment —
+the person's, never a word in the agent's command — still bypasses once; under
 `require` the bypass leaves a dated debt item under `work/debt/` (derived, not
 authored — R-156), so an undocumented commit is visible, never silent
 (R-151's second criterion: silently wrong). The first turn of a session names
@@ -1904,7 +1905,10 @@ an explicit apply.
 
 **R-177** `cmd` · MUST — Chained migrations apply one version at a time, each as
 its own commit. A single combined commit destroys the information about which
-step broke.
+step broke. Its own commit holds nothing of the person's: a migration that would
+write into a file holding their uncommitted edit is refused. An approval a
+page's record carried rides that commit; one commit is one approver's act, so a
+second approver's follows as an empty commit of its own (D-117).
 
 **R-178** `advisory` · MAY — Rollback uses version control. No separate rollback
 mechanism is specified.

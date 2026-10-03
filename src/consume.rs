@@ -74,6 +74,19 @@ fn consumed(tree: &DocTree) -> Vec<String> {
         .collect()
 }
 
+/// The provider list is read whole before anything is fetched: a `consume:`
+/// that opens and never closes with `]` is refused by its line, never read
+/// as no provider at all (D-002).
+pub fn providers_readable(root: &Path) -> Result<(), String> {
+    match crate::tree::docmeta_at(root).and_then(|f| f.unclosed) {
+        Some((key, line)) if key == "consume" => Err(format!(
+            ".docmeta.yml: {}",
+            crate::fm::unclosed_refusal(&key, line)
+        )),
+        _ => Ok(()),
+    }
+}
+
 /// `.docmeta.yml` with one more `consume:` entry, whatever shape the list
 /// has (inline, block, absent).
 fn with_entry(text: &str, entry: &str) -> Result<String, String> {

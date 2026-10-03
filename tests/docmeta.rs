@@ -125,6 +125,54 @@ fn a_commented_spec_line_is_the_spec_it_names() {
     assert!(!repo.join("docs/work/debt.md").exists());
 }
 
+/// A tree whose `spec:` line names no version is served as docsys/0.4
+/// (D-118), and the version notice says why in lint's terms: it declares
+/// nothing, or a value that is no version — never `docsys/0.4`.
+#[test]
+fn the_version_notice_says_what_the_spec_line_declares() {
+    let dir = tmp("notice");
+    let init = docsys(&dir, &["init"]);
+    assert!(init.status.success(), "{init:?}");
+    let meta = dir.join("docs/.docmeta.yml");
+    let text = fs::read_to_string(&meta).unwrap();
+    for (line, notice, finding) in [
+        (
+            "spec: docsys/0.4   # c",
+            "this tree declares docsys/0.4 and is served by its rules;",
+            "",
+        ),
+        (
+            "spec:   # only a comment",
+            "this tree declares no spec and is served by docsys/0.4's rules;",
+            "missing `spec:`",
+        ),
+        (
+            "",
+            "this tree declares no spec and is served by docsys/0.4's rules;",
+            "missing `spec:`",
+        ),
+        (
+            "spec: docsys/0.5#x",
+            "this tree declares `docsys/0.5#x`, no `docsys/0.<minor>` version, and is served by docsys/0.4's rules;",
+            "`docsys/0.5#x` is not an implemented `docsys/0.<minor>` version",
+        ),
+    ] {
+        let spec = text.lines().next().unwrap();
+        assert!(spec.starts_with("spec: "), "{text}");
+        fs::write(&meta, text.replacen(spec, line, 1)).unwrap();
+        let out = docsys(&dir, &["lint"]);
+        let err = String::from_utf8_lossy(&out.stderr);
+        let said = String::from_utf8_lossy(&out.stdout);
+        assert!(err.contains(&format!("docsys: {notice}")), "{line}: {err}");
+        assert_eq!(err.matches("docsys: this tree").count(), 1, "{line}: {err}");
+        if !finding.is_empty() {
+            assert!(!err.contains("declares docsys/0.4"), "{line}: {err}");
+            assert!(said.contains(finding), "{line}: {said}");
+        }
+    }
+    let _ = fs::remove_dir_all(&dir);
+}
+
 #[test]
 fn a_commented_commit_policy_is_the_policy_it_names() {
     let repo = adopted("policy", |t| {

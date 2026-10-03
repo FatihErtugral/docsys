@@ -49,24 +49,13 @@ pub fn tracked(tree: &DocTree, page: &Page) -> bool {
             }))
 }
 
-/// The values of every `<key>:` line of a message, after its subject.
-fn trailer_values(message: &str, key: &str) -> Vec<String> {
-    let prefix = format!("{key}:");
-    message
-        .lines()
-        .skip(1)
-        .filter_map(|l| l.trim_start().strip_prefix(&prefix))
-        .map(|v| v.trim().to_string())
-        .filter(|v| !v.is_empty())
-        .collect()
-}
-
 /// The maintainer an `Approved-by:` value names — `@login`, `handle` or
 /// `handle <email>`, matched against `maintainers:` — or, with no maintainers
-/// declared, the value itself (anyone, as before; R-208).
-pub fn maintainer_of(maintainers: &[crate::checks::Maintainer], value: &str) -> Option<String> {
+/// declared, the value itself (anyone, as before; R-208). A list that cannot
+/// be read names nobody.
+pub fn maintainer_of(maintainers: &crate::checks::Maintainers, value: &str) -> Option<String> {
     let value = value.trim();
-    if maintainers.is_empty() {
+    if maintainers.anyone() {
         return (!value.is_empty()).then(|| value.to_string());
     }
     let lower = value.to_lowercase();
@@ -96,6 +85,37 @@ pub fn body_hash(text: &str) -> String {
     crate::blocks::short_hash(&crate::blocks::hashes(&crate::fresh::body_text(text)).join("\n"))
 }
 
+/// The paragraphs of a message after its subject: each a trailer block.
+fn trailer_blocks(message: &str) -> Vec<String> {
+    let mut blocks = Vec::new();
+    let mut block = String::new();
+    for line in message.lines().skip(1) {
+        if line.trim().is_empty() {
+            if !block.is_empty() {
+                blocks.push(std::mem::take(&mut block));
+            }
+        } else {
+            block.push_str(line);
+            block.push('\n');
+        }
+    }
+    if !block.is_empty() {
+        blocks.push(block);
+    }
+    blocks
+}
+
+/// The values of `key:` lines in one block.
+fn block_values(block: &str, key: &str) -> Vec<String> {
+    let prefix = format!("{key}:");
+    block
+        .lines()
+        .filter_map(|l| l.trim_start().strip_prefix(&prefix))
+        .map(|v| v.trim().to_string())
+        .filter(|v| !v.is_empty())
+        .collect()
+}
+
 /// A `Verifies:` value: the page it names, and the body hash after it when
 /// `docsys verify` wrote it.
 fn verifies_value(value: &str) -> (String, Option<String>) {
@@ -107,7 +127,7 @@ fn verifies_value(value: &str) -> (String, Option<String>) {
     }
 }
 
-/// A commit that speaks of verification: its trailers.
+/// A commit that speaks of verification: one trailer block of its message.
 struct Act {
     /// the first-parent commit it counts at
     sha: String,
@@ -123,6 +143,7 @@ struct Act {
 
 /// Where an act was made, when that is not the first-parent commit it counts
 /// at: a commit a merge brought in, or one a squash message quotes.
+#[derive(Clone)]
 enum Made {
     Here,
     /// the commit the approver read, and the paths it changed
@@ -391,7 +412,9 @@ fn approves(
     if let Some((_, Some(read))) = named {
         return body(&act.sha).as_ref() == Some(read);
     }
-    if act.remade {
+    // an act that names its pages approves those alone, whatever else its
+    // commit changed
+    if act.remade || (named.is_none() && !act.verifies.is_empty()) {
         return false;
     }
     let named = named.is_some();
@@ -431,7 +454,7 @@ fn names_of(page: &Page) -> BTreeSet<String> {
 /// verifier is a maintainer.
 fn legacy(
     root: &Path,
-    maintainers: &[crate::checks::Maintainer],
+    maintainers: &crate::checks::Maintainers,
     page: &Page,
     fm: Option<&Frontmatter>,
 ) -> State {
@@ -551,7 +574,8 @@ pub fn last_approval(tree: &DocTree, page: &Page) -> Option<LastApproval> {
     };
     let (at, act, by) = history.acts.iter().find_map(|(at, act)| {
         let touched = matches!(&act.made, Made::On { touched, .. } if touched.contains(&path));
-        if !landed_here(at) && !touched && !act.verifies.iter().any(|(v, _)| names.contains(v)) {
+        let named = act.verifies.iter().any(|(v, _)| names.contains(v));
+        if !named && (!act.verifies.is_empty() || (!landed_here(at) && !touched)) {
             return None;
         }
         let by = act
@@ -761,19 +785,24 @@ fn walk(repo: &Path, prefix: &str) -> History {
                         }
                     }
                 };
-                let act = Act {
-                    sha: (*landed).to_string(),
-                    approved_by: trailer_values(&text, APPROVED_BY),
-                    verifies: trailer_values(&text, VERIFIES)
-                        .iter()
-                        .map(|v| verifies_value(v))
-                        .collect(),
-                    revokes: trailer_values(&text, REVOKES),
-                    made,
-                    remade,
-                };
-                if !act.approved_by.is_empty() || !act.revokes.is_empty() {
-                    h.acts.push((at, act));
+                // each trailer block is an act of its own: a squash message
+                // holds every commit's, and an `Approved-by:` speaks for the
+                // pages of its own block
+                for block in trailer_blocks(&text) {
+                    let act = Act {
+                        sha: (*landed).to_string(),
+                        approved_by: block_values(&block, APPROVED_BY),
+                        verifies: block_values(&block, VERIFIES)
+                            .iter()
+                            .map(|v| verifies_value(v))
+                            .collect(),
+                        revokes: block_values(&block, REVOKES),
+                        made: made.clone(),
+                        remade,
+                    };
+                    if !act.approved_by.is_empty() || !act.revokes.is_empty() {
+                        h.acts.push((at, act));
+                    }
                 }
             }
         }
@@ -796,18 +825,12 @@ fn walk(repo: &Path, prefix: &str) -> History {
 #[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 mod tests {
     use super::*;
-
-    fn m(handle: &str, email: Option<&str>, login: Option<&str>) -> crate::checks::Maintainer {
-        crate::checks::Maintainer {
-            handle: handle.into(),
-            email: email.map(str::to_string),
-            login: login.map(str::to_string),
-        }
-    }
+    use crate::checks::Maintainers;
 
     #[test]
     fn an_approval_names_a_maintainer_by_login_email_or_handle() {
-        let list = [m("ayse", Some("ayse@example.com"), Some("ayse-gh"))];
+        let entries = ["ayse <ayse@example.com> @ayse-gh".to_string()];
+        let list = Maintainers::read(Ok(&entries));
         assert_eq!(maintainer_of(&list, "@Ayse-GH").as_deref(), Some("ayse"));
         assert_eq!(
             maintainer_of(&list, "Ayşe <AYSE@example.com>").as_deref(),
@@ -815,13 +838,23 @@ mod tests {
         );
         assert_eq!(maintainer_of(&list, "ayse").as_deref(), Some("ayse"));
         assert_eq!(maintainer_of(&list, "@mallory"), None);
-        assert_eq!(maintainer_of(&[], "@anyone").as_deref(), Some("@anyone"));
+        let none = Maintainers::read(Ok(&[]));
+        assert_eq!(maintainer_of(&none, "@anyone").as_deref(), Some("@anyone"));
+        // a list that never closes names nobody
+        let unread = Maintainers::read(Err("`maintainers` on line 4".into()));
+        assert_eq!(maintainer_of(&unread, "ayse"), None);
     }
 
     #[test]
-    fn trailers_are_read_after_the_subject() {
-        let msg = "Verifies: not this\n\nVerifies: reference/a\nApproved-by: @ayse\n";
-        assert_eq!(trailer_values(msg, VERIFIES), ["reference/a"]);
-        assert_eq!(trailer_values(msg, APPROVED_BY), ["@ayse"]);
+    fn trailers_are_read_after_the_subject_block_by_block() {
+        let msg = "Verifies: not this\n\nVerifies: reference/a\nApproved-by: @ayse\n\nApproved-by: @bora\n";
+        let blocks = trailer_blocks(msg);
+        assert_eq!(blocks.len(), 2, "{blocks:?}");
+        let first = blocks.first().unwrap();
+        assert_eq!(block_values(first, VERIFIES), ["reference/a"]);
+        assert_eq!(block_values(first, APPROVED_BY), ["@ayse"]);
+        let second = blocks.get(1).unwrap();
+        assert!(block_values(second, VERIFIES).is_empty());
+        assert_eq!(block_values(second, APPROVED_BY), ["@bora"]);
     }
 }

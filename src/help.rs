@@ -92,6 +92,15 @@ pub fn takes_value(flag: &str) -> bool {
     VALUE_FLAGS.contains(&flag)
 }
 
+/// A flag's form: `--…`, or `-` and a letter. A flag's value is never one;
+/// `-1` and `-` alone are values (D-129).
+pub fn is_flag(arg: &str) -> bool {
+    arg.starts_with("--")
+        || arg
+            .strip_prefix('-')
+            .is_some_and(|f| f.starts_with(|c: char| c.is_ascii_alphabetic()))
+}
+
 /// The events `docsys hook` relays.
 pub const EVENTS: &[&str] = &[
     "pre-tool-use",
@@ -109,7 +118,7 @@ pub const COMMANDS: &[Command] = &[
     Command {
         name: "adopt",
         synopsis: "[--repo .] [--root docs] [--lang <code>] [--rules-file <path>] [--report-dir <dir> | --no-report] [--ci-runner <label>,…] [--ci-install cargo|release] [--ci-sha256 <target>=<hex>,…] [--verify-on-approval description|pull-request|direct|off] [--obsidian]",
-        purpose: "a repository starts using docsys: the tree, the agent rules, the hooks and the git gate, with ADOPTION.md listing what is left; a re-run brings them up to date",
+        purpose: "a repository starts using docsys: the tree, the agent rules, the agent's hooks, skills and slash commands, and the git gate, with ADOPTION.md listing what is left; a re-run brings them up to date",
         flags: &[
             ("--lang <code>", "the language the pages are written in"),
             ("--rules-file <path>", "the file the rules block goes to; by default where its markers are"),
@@ -680,8 +689,7 @@ pub const COMMANDS: &[Command] = &[
 
 const HEAD: &str =
     "docsys — keeps a repository's documentation true to its code: typed pages, checked
-by lint, bound to the code they describe (spec: SPEC.md). In a repository, start with
-`docsys adopt`.
+by lint, bound to the code they describe (spec: SPEC.md).
 
 ";
 
@@ -950,7 +958,7 @@ fn check(entry: &'static Command, rest: &[String]) -> Result<(Vec<String>, bool)
                 return Err(refuse(not_a_flag(entry.name, a)));
             }
             // a value is never another flag: the parser says so
-            if takes_value(a) && it.peek().is_some_and(|v| !v.starts_with("--")) {
+            if takes_value(a) && it.peek().is_some_and(|v| !is_flag(v)) {
                 it.next();
             }
         } else if a.starts_with('-') && a.len() > 1 {
@@ -960,17 +968,18 @@ fn check(entry: &'static Command, rest: &[String]) -> Result<(Vec<String>, bool)
         }
     }
     let stray = match entry.words {
-        Words::None => words.first(),
-        Words::UpTo(n) => words.get(n),
-        Words::OneOf(set) => words
-            .first()
-            .filter(|w| !set.contains(&w.as_str()))
-            .or_else(|| words.get(1)),
+        Words::None => Some(0),
+        Words::UpTo(n) => Some(n),
+        Words::OneOf(set) => Some(usize::from(
+            words.first().is_none_or(|w| set.contains(&w.as_str())),
+        )),
         Words::Any => None,
-    };
-    if let Some(w) = stray {
+    }
+    .and_then(|at| words.get(at).map(|w| (at, w)));
+    if let Some((at, w)) = stray {
         let line = match entry.words {
-            Words::OneOf(set) if words.first() == Some(w) => format!(
+            // only the first word is chosen from the set
+            Words::OneOf(set) if at == 0 => format!(
                 "`{w}` is no argument of {} — one of: {}",
                 entry.name,
                 set.join(", ")

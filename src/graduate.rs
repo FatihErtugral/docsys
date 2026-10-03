@@ -384,15 +384,16 @@ fn run(
     let tree = match confirmed {
         Some(who) => {
             if !crate::era::Era::at(root).graduation_removes() {
-                return Err(
-                    "this tree declares docsys/0.4, where a graduated file stays: graduate without \
-                     --confirmed and record `confirmed:` on the file (R-081); removing it is docsys/0.5's \
-                     end of graduation (D-127)"
-                        .to_string(),
-                );
+                return Err(format!(
+                    "this tree {}, where a graduated file stays: graduate without --confirmed and \
+                     record `confirmed:` on the file (R-081); removing it is docsys/0.5's end of \
+                     graduation (D-127)",
+                    crate::era::served(root)
+                ));
             }
             let tree = crate::tree::DocTree::load(root).map_err(|e| e.to_string())?;
             let maintainers = crate::checks::maintainer_handles(&tree);
+            maintainers.readable()?;
             if crate::approval::maintainer_of(&maintainers, who).is_none() {
                 return Err(format!(
                     "`{who}` names no maintainer in .docmeta.yml — the word that graduates a file is a maintainer's (R-208)"

@@ -1,4 +1,4 @@
-docsys upgrade: docsys/0.4 → docsys/0.5 — the plan; `docsys upgrade --apply` writes it
+docsys upgrade: docsys/0.4 → docsys/0.5 — the plan
 
 Upgrading to docsys 0.16.0:
 - Nothing has to move on the day 0.16.0 is installed: a docsys/0.4 tree keeps
@@ -6,7 +6,9 @@ Upgrading to docsys 0.16.0:
 - Every clone must install docsys >= 0.16.0 before pulling this change; a gate
   under .git/hooks cannot warn an old binary.
 - `docsys upgrade` prints the plan; `docsys upgrade --apply --commit` moves the
-  tree in one commit. The items it lists for a person are theirs to finish.
+  tree in one commit, and one empty commit for each further approver whose
+  verifications it carries. The items it lists for a person are theirs to
+  finish.
 - On docsys/0.5 a verified page whose body or consumed source moved is no
   longer a lint error or a gate refusal: it reads `unverified` until a
   maintainer approves it again; drift between code and a page still blocks
@@ -23,10 +25,10 @@ auto    hook-wires         .claude/settings.json  1 post-edit wire(s) taken out:
 auto    hook-wires         .claude/settings.json  3 change(s): every docsys wire to `"$CLAUDE_PROJECT_DIR"/.claude/hooks/<name>.sh`, duplicates folded
 auto    hook-scripts       .claude/hooks/pre-commit-docs.sh  refreshed: a text docsys 0.12.0 wrote, untouched — it now starts in the project directory, names the tree's root, and names the pinned docsys to a binary from before pins
 manual  hook-scripts       .claude/hooks/stop-docs-reminder.sh  edited by its owner — the diff to this version's relay is below
-auto    hook-scripts       .claude/hooks/post-edit-updated.sh  removed: a page's date and its verification are history's, and the relay has nothing left to do (D-126)
+auto    hook-scripts       .claude/hooks/post-edit-updated.sh  removed, with its wire above
 auto    hook-scripts       .claude/hooks/session-intent.sh  refreshed: a text docsys 0.12.0 wrote, untouched — it now starts in the project directory, names the tree's root, and names the pinned docsys to a binary from before pins
 auto    git-gate           .git/hooks/pre-commit  the docsys block rewritten for this version, its mode kept
-auto    git-gate           .git/hooks/commit-msg  the docsys block written, its mode kept: it reads the commit message, and under `commit_policy: require` code with no documentation needs `Docs: <why>` (D-125) — this clone only: every clone runs `docsys upgrade --apply` once
+auto    git-gate           .git/hooks/commit-msg  the docsys block written, its mode kept: it reads the commit message, and under `commit_policy: require` code with no documentation needs `Docs: <why>` (D-125)
 auto    ci-workflow        .github/workflows/docsys.yml  the 0.15 workflow, untouched: regenerated, pinned to this version; its approval job moves from direct to description — the approval rides the pull request's description (D-126)
 auto    rules-block        AGENTS.md  the generated block refreshed in place
 auto    assets             .claude/commands/docsys-upgrade.md  written: new in this version
@@ -37,7 +39,7 @@ auto    assets             .claude/skills/docsys/SKILL.md  refreshed: a text doc
 auto    assets             .claude/skills/docsys-export/SKILL.md  refreshed: a text docsys 0.4.0 wrote, untouched
 auto    dates              docs  `updated:` removed from 6 page(s) and template(s): a page's date is its last content change in history (D-122)
 manual  verified-record    docs/reference/expiry.md  the body changed since @REV@ — never recorded blind; a maintainer reads it and verifies it again: `docsys verify reference/expiry.md`
-auto    verified-record    docs/reference/refresh.md  the body @REV@ holds is the body now: `verified_blocks` recorded
+auto    verified-record    docs/reference/refresh.md  the body @REV@ holds is the body now: its approval goes into the move's commit as `Verifies:` and `Approved-by: maintainer`, and the record leaves the page (D-126)
 manual  pins               docs/reference/expiry.md  `src/auth.rs#expire`: stale before the upgrade, still stale — re-read the page against it: `docsys pin --refresh reference/expiry.md`
 auto    pins               docs/reference/refresh.md  `src/auth.rs#refresh_token`: acknowledged beside the page
 auto    ledger-separators  docs/work/debt.md  work/debt.md line 3

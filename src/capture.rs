@@ -21,7 +21,12 @@ fn lists_of(root: &Path) -> (bool, bool) {
 /// A ledger with `line` appended — the docsys/0.4 form (D-118).
 fn append_to_ledger(root: &Path, ledger: &str, title: &str, line: &str) -> Result<(), String> {
     let path = root.join(ledger);
-    let mut text = fs::read_to_string(&path).unwrap_or_else(|_| title.to_string());
+    let mut text = match fs::read_to_string(&path) {
+        Ok(text) => text,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => title.to_string(),
+        // a ledger it cannot read is never written over: its items stay
+        Err(e) => return Err(format!("{ledger}: {e} — the file is left as it is")),
+    };
     if !text.ends_with('\n') {
         text.push('\n');
     }
@@ -79,12 +84,13 @@ pub fn debt_add(
         return Err("nothing to add".into());
     }
     let text = with_topic(text, topic)?;
-    let tree = crate::tree::DocTree::load(root).map_err(|e| e.to_string())?;
+    // the labels are the tree's `.docmeta.yml`'s; no page is read for them
+    let labels = crate::tree::docmeta_list_at(root, "list_labels");
     let line = format!(
         "- [ ] {} {text} -- {}: {deferred} -- {}: {repay}",
         item_date(date)?,
-        crate::checks::label_of(&tree, "deferred"),
-        crate::checks::label_of(&tree, "repay when")
+        crate::checks::label_in(&labels, "deferred"),
+        crate::checks::label_in(&labels, "repay when")
     );
     let (items, kb) = lists_of(root);
     if items {

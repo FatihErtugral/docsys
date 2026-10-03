@@ -70,18 +70,25 @@ fn yaml_quote(s: &str) -> String {
     format!("\"{}\"", s.replace('\\', "\\\\").replace('"', "\\\""))
 }
 
-/// The pages whose `sources:` name this record.
-fn citing_pages(tree: &DocTree, rel: &str) -> Vec<String> {
-    tree.pages
-        .iter()
-        .filter(|p| {
-            p.fm.as_ref()
-                .and_then(|f| f.fields.get("sources"))
-                .and_then(Value::as_list)
-                .is_some_and(|l| l.iter().any(|s| s.trim() == rel))
-        })
-        .map(|p| p.rel.clone())
-        .collect()
+/// The pages whose `sources:` name this record; refused while a page's
+/// `sources:` never closes, since whether it names the record cannot be read.
+fn citing_pages(tree: &DocTree, rel: &str) -> Result<Vec<String>, String> {
+    let mut citing = Vec::new();
+    for page in &tree.pages {
+        let Some(fm) = &page.fm else { continue };
+        if fm.unclosed.as_ref().is_some_and(|(k, _)| k == "sources") {
+            crate::fm::refuse_unclosed_in(&page.rel, &page.text)?;
+        }
+        if fm
+            .fields
+            .get("sources")
+            .and_then(Value::as_list)
+            .is_some_and(|l| l.iter().any(|s| s.trim() == rel))
+        {
+            citing.push(page.rel.clone());
+        }
+    }
+    Ok(citing)
 }
 
 /// Drop the router lines that link to `rel` (without `.md`) in the tree's
@@ -143,7 +150,7 @@ pub fn forget(root: &Path, target: &str, reason: &str) -> Result<Forgotten, Stri
         if record_rel.starts_with("raw/_forgotten/") {
             return Err(format!("`{record_rel}` is already forgotten"));
         }
-        let citing = citing_pages(&tree, &record_rel);
+        let citing = citing_pages(&tree, &record_rel)?;
         if !citing.is_empty() {
             return Err(format!(
                 "`{record_rel}` is cited by {} — forget the page first, or it keeps resting on a \

@@ -53,6 +53,9 @@ pub struct DocTree {
     pub docmeta: BTreeMap<String, fm::Value>,
     pub docmeta_present: bool,
     pub docmeta_problems: Vec<String>,
+    /// A `.docmeta.yml` list that opens and never closes with `]`: its field
+    /// and 1-based line — what it declares cannot be read.
+    pub docmeta_unclosed: Option<(String, usize)>,
     /// Parsed `.tombstones.yml` ids (D-003 registers the v0 ledger format).
     pub tombstones: Vec<String>,
 }
@@ -170,9 +173,10 @@ pub fn docmeta_value(root: &Path, key: &str) -> Option<String> {
 
 impl DocTree {
     pub fn load(root: &Path) -> std::io::Result<DocTree> {
-        let (docmeta, docmeta_present, docmeta_problems) = match docmeta_at(root) {
-            Some(f) => (f.fields, true, f.problems),
-            None => (BTreeMap::new(), false, Vec::new()),
+        let (docmeta, docmeta_present, docmeta_problems, docmeta_unclosed) = match docmeta_at(root)
+        {
+            Some(f) => (f.fields, true, f.problems, f.unclosed),
+            None => (BTreeMap::new(), false, Vec::new(), None),
         };
 
         let extra_tracked: Vec<String> = docmeta
@@ -213,7 +217,8 @@ impl DocTree {
             {
                 continue;
             }
-            let text = fs::read_to_string(&path)?;
+            let text = fs::read_to_string(&path)
+                .map_err(|e| std::io::Error::new(e.kind(), format!("{rel}: {e}")))?;
             let kind = classify(&rel, &extra_tracked, profile, era);
             let fm = fm::parse(&text);
             pages.push(Page {
@@ -231,6 +236,7 @@ impl DocTree {
             docmeta,
             docmeta_present,
             docmeta_problems,
+            docmeta_unclosed,
             tombstones,
         })
     }
@@ -245,6 +251,31 @@ impl DocTree {
             .and_then(fm::Value::as_list)
             .unwrap_or(&[])
     }
+
+    /// A `.docmeta.yml` list for a reader that decides by it: its entries,
+    /// or — while it opens and never closes with `]` — the refusal naming the
+    /// file, the field and its line, since what it declares cannot be read.
+    pub fn docmeta_list_whole(&self, key: &str) -> Result<&[String], String> {
+        match &self.docmeta_unclosed {
+            Some((k, line)) if k == key => {
+                Err(format!(".docmeta.yml: {}", fm::unclosed_refusal(k, *line)))
+            }
+            _ => Ok(self.docmeta_list(key)),
+        }
+    }
+}
+
+/// One list of the tree's `.docmeta.yml`, as the tree reads it, for a command
+/// that needs nothing else of the tree; empty when there is no such list.
+pub fn docmeta_list_at(root: &Path, key: &str) -> Vec<String> {
+    docmeta_at(root)
+        .and_then(|f| {
+            f.fields
+                .get(key)
+                .and_then(fm::Value::as_list)
+                .map(<[String]>::to_vec)
+        })
+        .unwrap_or_default()
 }
 
 /// The path prefix a `scan_exclude` entry names (R-077). The common spellings

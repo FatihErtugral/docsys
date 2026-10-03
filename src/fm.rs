@@ -68,11 +68,25 @@ pub struct Frontmatter {
 /// writes nothing.
 pub fn refuse_unclosed(fm: &Frontmatter) -> Result<(), String> {
     match &fm.unclosed {
-        Some((key, line)) => Err(format!(
-            "`{key}` on line {line} opens a list that never closes with `]` — nothing is written; close the list first"
-        )),
+        Some((key, line)) => Err(unclosed_refusal(key, *line)),
         None => Ok(()),
     }
+}
+
+/// The refusal for a list `key` that opens on `line` and never closes.
+pub fn unclosed_refusal(key: &str, line: usize) -> String {
+    format!(
+        "`{key}` on line {line} opens a list that never closes with `]` — nothing is written; close the list first"
+    )
+}
+
+/// Every writer of a page's frontmatter asks this first: while the
+/// frontmatter of `file` holds an unclosed list, it refuses, naming the
+/// file, the list and its line, and writes nothing (D-002).
+pub fn refuse_unclosed_in(file: &str, text: &str) -> Result<(), String> {
+    parse(text)
+        .map_or(Ok(()), |fm| refuse_unclosed(&fm))
+        .map_err(|e| format!("{file}: {e}"))
 }
 
 /// The text with the frontmatter's one-line `key:` removed; `None` when the
@@ -113,8 +127,8 @@ pub fn without_fields(text: &str, keys: &[&str]) -> Option<Result<String, String
 
 /// The fields of a file in the registered subset that has no fences —
 /// `.docmeta.yml`, a provenance sidecar — read by the frontmatter reader, so
-/// a value reads one way wherever it is read (D-002). Spans are the file's
-/// own line indexes.
+/// a value reads one way wherever it is read (D-002). Spans, problems and
+/// the unclosed list name the file's own lines.
 pub fn parse_fields(text: &str) -> Frontmatter {
     let mut framed = String::with_capacity(text.len() + 8);
     framed.push_str("---\n");
@@ -123,12 +137,9 @@ pub fn parse_fields(text: &str) -> Frontmatter {
         framed.push('\n');
     }
     framed.push_str("---\n");
-    let mut fm = parse(&framed).unwrap_or_default();
+    let mut fm = parse_framed(&framed, 1).unwrap_or_default();
     for r in fm.spans.values_mut() {
         *r = r.start.saturating_sub(1)..r.end.saturating_sub(1);
-    }
-    if let Some((_, line)) = fm.unclosed.as_mut() {
-        *line = line.saturating_sub(1);
     }
     fm
 }
@@ -193,6 +204,13 @@ fn parse_inline_list(v: &str) -> Option<Vec<String>> {
 /// Parse the frontmatter block of `text`. Returns `None` when the file does
 /// not open with `---` — absence is the caller's finding, not a parse error.
 pub fn parse(text: &str) -> Option<Frontmatter> {
+    parse_framed(text, 0)
+}
+
+/// `parse`, for a text whose first `framing` lines the caller added: every
+/// line number it reports is the caller's own text's.
+fn parse_framed(text: &str, framing: usize) -> Option<Frontmatter> {
+    let line_no = |idx: usize| idx + 1 - framing;
     let mut lines = text.lines().enumerate();
     match lines.next() {
         Some((_, "---")) => {}
@@ -204,6 +222,7 @@ pub fn parse(text: &str) -> Option<Frontmatter> {
     // A formatter (prettier and friends) reflows a long `key: [a, b, c]` across
     // several lines; the value is the same value, so the parser follows it to
     // the closing bracket instead of reading indented continuations as nesting.
+    // Its key, its text so far, and the line it opens on.
     let mut open_list: Option<(String, String, usize)> = None;
     let join = |fm: &mut Frontmatter, key: &str, idx: usize| {
         if let Some(r) = fm.spans.get_mut(key) {
@@ -245,7 +264,7 @@ pub fn parse(text: &str) -> Option<Frontmatter> {
                         fm.fields.insert(key, Value::List(items));
                     } else {
                         fm.problems
-                            .push(format!("line {}: unreadable inline list", idx + 1));
+                            .push(format!("line {}: unreadable inline list", line_no(idx)));
                     }
                 } else {
                     open_list = Some((key, acc, at));
@@ -265,7 +284,7 @@ pub fn parse(text: &str) -> Option<Frontmatter> {
                         fm.fields.insert(key, Value::List(items));
                     }
                 } else {
-                    open_list = Some((key, acc, idx));
+                    open_list = Some((key, acc, line_no(idx)));
                 }
                 continue;
             }
@@ -296,9 +315,10 @@ pub fn parse(text: &str) -> Option<Frontmatter> {
                     (Value::List(items), None) => {
                         items.push(strip_quotes(uncommented(item.trim())));
                     }
-                    _ => fm
-                        .problems
-                        .push(format!("line {}: a list mixes scalars and maps", idx + 1)),
+                    _ => fm.problems.push(format!(
+                        "line {}: a list mixes scalars and maps",
+                        line_no(idx)
+                    )),
                 }
                 continue;
             }
@@ -321,26 +341,26 @@ pub fn parse(text: &str) -> Option<Frontmatter> {
         if line.starts_with(' ') || line.starts_with('\t') {
             fm.problems.push(format!(
                 "line {}: nesting beyond the registered subset",
-                idx + 1
+                line_no(idx)
             ));
             continue;
         }
         let Some((key, rest)) = line.split_once(':') else {
             fm.problems
-                .push(format!("line {}: not a `key: value` line", idx + 1));
+                .push(format!("line {}: not a `key: value` line", line_no(idx)));
             continue;
         };
         let key = key.trim();
         if !is_key(key) {
             fm.problems.push(format!(
                 "line {}: key `{key}` is not a structural token",
-                idx + 1
+                line_no(idx)
             ));
             continue;
         }
         if fm.fields.contains_key(key) {
             fm.problems
-                .push(format!("line {}: duplicate key `{key}`", idx + 1));
+                .push(format!("line {}: duplicate key `{key}`", line_no(idx)));
             continue;
         }
         fm.spans.insert(key.to_string(), idx..idx + 1);
@@ -353,7 +373,7 @@ pub fn parse(text: &str) -> Option<Frontmatter> {
         } else if let Some(items) = parse_inline_list(rest) {
             fm.fields.insert(key.to_string(), Value::List(items));
         } else if rest.starts_with('[') && !rest.contains(']') {
-            open_list = Some((key.to_string(), rest.to_string(), idx));
+            open_list = Some((key.to_string(), rest.to_string(), line_no(idx)));
         } else {
             fm.fields
                 .insert(key.to_string(), Value::Str(strip_quotes(rest)));
@@ -366,15 +386,14 @@ pub fn parse(text: &str) -> Option<Frontmatter> {
     Some(fm)
 }
 
-/// An inline list still open where the block ends: a problem, and the
-/// field writers refuse on it.
+/// An inline list still open where the block ends, opened on 1-based
+/// `line`: a problem, and the field writers refuse on it.
 fn note_unclosed(fm: &mut Frontmatter, open: Option<&(String, String, usize)>) {
-    if let Some((key, _, at)) = open {
+    if let Some((key, _, line)) = open {
         fm.problems.push(format!(
-            "line {}: the inline list `{key}` never closes with `]`",
-            at + 1
+            "line {line}: the inline list `{key}` never closes with `]`"
         ));
-        fm.unclosed = Some((key.clone(), at + 1));
+        fm.unclosed = Some((key.clone(), *line));
     }
 }
 

@@ -75,6 +75,69 @@ fn no_document_says_what_this_release_retired() {
     );
 }
 
+/// The rules SPEC withdrew, each by its id.
+fn withdrawn() -> Vec<String> {
+    SPEC.lines()
+        .filter(|l| l.contains("WITHDRAWN"))
+        .filter_map(|l| {
+            let at = l.find("R-")?;
+            let id: String = l[at..]
+                .chars()
+                .take_while(|c| *c == 'R' || *c == '-' || c.is_ascii_digit())
+                .collect();
+            (id.len() > 2).then_some(id)
+        })
+        .collect()
+}
+
+/// A live rule cites a withdrawn one only as withdrawn: its reason lives in
+/// the rule that absorbed it.
+#[test]
+fn a_live_rule_cites_no_withdrawn_rule_as_live() {
+    let withdrawn = withdrawn();
+    assert!(withdrawn.iter().any(|r| r == "R-150"), "{withdrawn:?}");
+    let mut cited = Vec::new();
+    for rule in SPEC.split("\n**R-").skip(1) {
+        let rule = rule.split("\n#").next().unwrap_or(rule);
+        let id: String = rule.chars().take_while(char::is_ascii_digit).collect();
+        if rule.lines().next().is_some_and(|l| l.contains("WITHDRAWN")) {
+            continue;
+        }
+        for r in &withdrawn {
+            for (at, _) in rule.match_indices(r.as_str()) {
+                let after = &rule[at + r.len()..];
+                let before = rule[..at].trim_end();
+                if !after.starts_with(|c: char| c.is_ascii_digit())
+                    && !before.ends_with("withdrawn")
+                {
+                    cited.push(format!("R-{id} cites {r}"));
+                }
+            }
+        }
+    }
+    assert!(cited.is_empty(), "{cited:?}");
+}
+
+/// D-118 says which 0.4 findings 0.16 changes: the reader fixes of D-002
+/// reach a docsys/0.4 tree, so it no longer claims 0.15's findings exactly.
+#[test]
+fn d_118_names_the_reader_fixes_a_0_4_tree_gets() {
+    let d118 = decision("D-118");
+    assert!(
+        !d118.contains("gets exactly the findings 0.15 gave it"),
+        "{d118}"
+    );
+    for named in [
+        "D-002",
+        "`commit_policy: require   # …` is `require`",
+        "R-111 or R-113",
+        "R-050 in a page, R-161 in `.docmeta.yml`",
+        "R-059",
+    ] {
+        assert!(d118.contains(named), "D-118 names {named}: {d118}");
+    }
+}
+
 /// The README cites live rules only: a rule SPEC withdrew is no reason.
 #[test]
 fn the_readme_cites_no_withdrawn_rule() {

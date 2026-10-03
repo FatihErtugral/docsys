@@ -2,20 +2,23 @@
 //! v0 scope: `lint` over both profiles (`project`, `knowledge-base`). Every
 //! implementation-defined choice is registered in corpus/DECISIONS.md (R-193).
 
-/// Whether this runs inside a git hook: git exports both to its hooks.
-pub fn in_git_hook() -> bool {
-    static IN: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-    *IN.get_or_init(|| {
-        std::env::var_os("GIT_EXEC_PATH").is_some() && std::env::var_os("GIT_INDEX_FILE").is_some()
-    })
+static VERDICT: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// The commands whose exit status is a verdict — `lint`, `refs`, `gate` and
+/// the relays' `hook` — keep it whoever reads them: a git hook, a relay or a
+/// script.
+pub const VERDICTS: [&str; 4] = ["lint", "refs", "gate", "hook"];
+
+/// This run's exit status is a verdict.
+pub fn exit_is_a_verdict() {
+    VERDICT.store(true, std::sync::atomic::Ordering::Relaxed);
 }
 
-/// What a write that met a closed reader does: outside a git hook the
-/// command ends with a closed pipe's status, 128 + SIGPIPE, quietly; inside
-/// one the findings alone decide the exit, so the output is dropped and the
-/// command runs on.
+/// What a write that met a closed reader does: a command ends with a closed
+/// pipe's status, 128 + SIGPIPE, quietly; a verdict is decided by its findings
+/// alone, so the output is dropped and the command runs on.
 pub fn closed_reader() {
-    if !in_git_hook() {
+    if !VERDICT.load(std::sync::atomic::Ordering::Relaxed) {
         std::process::exit(141);
     }
 }

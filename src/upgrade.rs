@@ -12,7 +12,7 @@ use std::path::Path;
 
 use crate::era::Era;
 use crate::fm::Value;
-use crate::tree::{DocTree, Kind, Profile};
+use crate::tree::{DocTree, Kind, Page, Profile};
 
 /// The steps of the move, as data (R-173): `step <TAB> strategy <TAB> scope
 /// <TAB> what`. Each step id is one block below.
@@ -111,9 +111,48 @@ pub struct Upgrade {
     /// journal lines a branch from before the move wrote after it: the
     /// commit's message carries them into history (D-125)
     pub carried: Vec<String>,
+    /// the approvals the pages' records held, carried into history as
+    /// `Verifies:` and `Approved-by:` (D-126)
+    pub approvals: Vec<Approval>,
+    /// whether the steps wrote; a plan lists in `written` what they would
+    pub applied: bool,
     /// the findings the next version adds and removes, before the steps
     added: Vec<String>,
     removed: Vec<String>,
+}
+
+/// An approval a page's record held, carried into history (D-126).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Approval {
+    /// the `Approved-by:` value, as `docsys verify` writes it
+    pub by: String,
+    /// the page, root-relative
+    pub page: String,
+    /// the hash of the body the record vouched for
+    pub hash: String,
+}
+
+/// Why a run stops.
+#[derive(Debug)]
+pub enum Stop {
+    /// refused before any step wrote: the tree is as it was
+    Refused(String),
+    /// a step failed: what the steps before it wrote is in the working tree
+    Failed(String),
+}
+
+impl From<String> for Stop {
+    fn from(e: String) -> Stop {
+        Stop::Failed(e)
+    }
+}
+
+impl std::fmt::Display for Stop {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Stop::Refused(e) | Stop::Failed(e) => f.write_str(e),
+        }
+    }
 }
 
 impl Upgrade {
@@ -182,26 +221,43 @@ impl Upgrade {
             ("diffs".into(), Json::Arr(diffs)),
             (
                 "written".into(),
-                Json::Arr(self.written.iter().map(|w| s(w)).collect()),
+                Json::Arr(
+                    self.written
+                        .iter()
+                        .filter(|_| self.applied)
+                        .map(|w| s(w))
+                        .collect(),
+                ),
             ),
         ])
         .render()
     }
 }
 
-/// The docsys version an owner's workflow installs, where a line that names
-/// docsys carries one (`DOCSYS_VERSION: v0.15.1`, `cargo install docsys
-/// --version 0.15.1`).
-fn installed_version(workflow: &str) -> Option<String> {
+/// The docsys version an owner's workflow installs, and its 1-based line,
+/// where a line that names docsys carries one (`DOCSYS_VERSION: v0.15.1`,
+/// `cargo install docsys --version 0.15.1`). Line 1's stamp names the
+/// template, not an install.
+fn installed_version(workflow: &str) -> Option<(String, usize)> {
     workflow
         .lines()
-        .filter(|l| l.to_ascii_lowercase().contains("docsys"))
-        .flat_map(|l| {
+        .enumerate()
+        .filter(|(_, l)| !l.starts_with("# docsys-template:"))
+        .filter(|(_, l)| l.to_ascii_lowercase().contains("docsys"))
+        .find_map(|(i, l)| {
             l.split(|c: char| !(c.is_ascii_digit() || c == '.'))
-                .map(str::to_string)
-                .collect::<Vec<_>>()
+                .find(|t| crate::dispatch::parse(t).is_some())
+                .map(|t| (t.to_string(), i + 1))
         })
-        .find(|t| crate::dispatch::parse(t).is_some())
+}
+
+/// Whether a workflow installs a release archive checked against sha256
+/// values: a line that names docsys names `sha256` too.
+fn release_install(workflow: &str) -> bool {
+    workflow.lines().any(|l| {
+        let l = l.to_ascii_lowercase();
+        l.contains("docsys") && l.contains("sha256")
+    })
 }
 
 /// The spec minor this binary implements.
@@ -238,44 +294,48 @@ fn rel(repo: &Path, path: &Path) -> String {
         .unwrap_or_else(|_| path.to_string_lossy().replace('\\', "/"))
 }
 
-/// The frontmatter with the 0.5 record added right after `verified_rev:`, in
-/// the order `verify` writes it: the body's blocks, then the sources.
-fn add_record(text: &str, blocks: &[String], sources: &[(String, String)]) -> Option<String> {
-    let mut out = Vec::new();
-    let mut done = false;
-    let mut in_fm = false;
-    for (i, line) in text.lines().enumerate() {
-        out.push(line.to_string());
-        if i == 0 && line == "---" {
-            in_fm = true;
-            continue;
-        }
-        if in_fm && line == "---" {
-            in_fm = false;
-        }
-        if in_fm && !done && line.starts_with("verified_rev:") {
-            out.push(format!("verified_blocks: [{}]", blocks.join(", ")));
-            if !sources.is_empty() {
-                out.push("verified_sources:".to_string());
-                for (s, h) in sources {
-                    out.push(format!("  - source: \"{s}\""));
-                    out.push(format!("    hash: \"{h}\""));
-                }
-            }
-            done = true;
-        }
-    }
-    let mut s = out.join("\n");
-    if text.ends_with('\n') {
-        s.push('\n');
-    }
-    done.then_some(s)
-}
-
 /// The next move of the tree: a plan, or with `apply` the move itself.
 /// `claude` is the agent layer's directory.
-pub fn run(repo: &Path, root: &Path, claude: &Path, apply: bool) -> Result<Upgrade, String> {
+pub fn run(repo: &Path, root: &Path, claude: &Path, apply: bool) -> Result<Upgrade, Stop> {
     run_with(&MIGRATIONS, implemented(), repo, root, claude, apply)
+}
+
+/// Each inline list that never closes with `]`, in `.docmeta.yml`, a page or
+/// a template: `file: \`field\` on line n`. A step that rewrites such a file
+/// cannot know which lines are the list's (D-002).
+fn unclosed_lists(repo: &Path, tree: &DocTree) -> Vec<String> {
+    let root = tree.root.as_path();
+    let named = |path: &Path, (field, line): &(String, usize)| {
+        format!("{}: `{field}` on line {line}", rel(repo, path))
+    };
+    let mut out: Vec<String> = fs::read_to_string(root.join(".docmeta.yml"))
+        .ok()
+        .and_then(|t| crate::fm::parse_fields(&t).unclosed)
+        .map(|u| named(&root.join(".docmeta.yml"), &u))
+        .into_iter()
+        .collect();
+    for page in &tree.pages {
+        if let Some(u) = page.fm.as_ref().and_then(|f| f.unclosed.as_ref()) {
+            out.push(named(&root.join(&page.rel), u));
+        }
+    }
+    let mut templates: Vec<std::path::PathBuf> = fs::read_dir(root.join("_templates"))
+        .map(|d| d.flatten().map(|e| e.path()).collect())
+        .unwrap_or_default();
+    templates.sort();
+    for path in templates
+        .iter()
+        .filter(|p| p.extension().is_some_and(|e| e == "md"))
+    {
+        let unclosed = fs::read_to_string(path)
+            .ok()
+            .and_then(|t| crate::fm::parse(&t))
+            .and_then(|f| f.unclosed);
+        if let Some(u) = unclosed {
+            out.push(named(path, &u));
+        }
+    }
+    out
 }
 
 /// One move towards `target` through `migrations`, one spec version at a
@@ -288,36 +348,44 @@ pub fn run_with(
     root: &Path,
     claude: &Path,
     apply: bool,
-) -> Result<Upgrade, String> {
-    let tree = DocTree::load(root).map_err(|e| e.to_string())?;
+) -> Result<Upgrade, Stop> {
+    let tree = DocTree::load(root).map_err(|e| Stop::Refused(e.to_string()))?;
     if !tree.docmeta_present {
-        return Err(format!("`{}` has no .docmeta.yml", root.display()));
+        return Err(Stop::Refused(format!(
+            "`{}` has no .docmeta.yml",
+            root.display()
+        )));
     }
     let from = Era::of(&tree).0;
     if from > target {
-        return Err(format!(
+        return Err(Stop::Refused(format!(
             "this tree declares docsys/0.{from}; this docsys implements docsys/0.{target} — install a newer docsys"
-        ));
+        )));
     }
-    let pin = crate::dispatch::read(root)?;
+    let pin = crate::dispatch::read(root).map_err(Stop::Refused)?;
     let own = crate::dispatch::own();
     if let Some(p) = pin.as_deref() {
         if crate::dispatch::parse(p) > crate::dispatch::parse(own) {
-            return Err(format!(
+            return Err(Stop::Refused(format!(
                 "this tree pins docsys {p}, newer than this docsys {own} — any other docsys command here runs {p}, and its own `docsys upgrade` moves the tree"
-            ));
+            )));
         }
     }
-    let next = if from < target {
-        Some(
-            migrations
-                .iter()
-                .find(|m| m.from == from)
-                .ok_or_else(|| format!("no migration declared from docsys/0.{from}"))?,
-        )
-    } else {
-        None
-    };
+    let unclosed = unclosed_lists(repo, &tree);
+    if !unclosed.is_empty() {
+        return Err(Stop::Refused(format!(
+            "an inline list that never closes with `]` — the lines that are the list's are not known, so nothing is written; close each first (D-002):\n  {}",
+            unclosed.join("\n  ")
+        )));
+    }
+    let next =
+        if from < target {
+            Some(migrations.iter().find(|m| m.from == from).ok_or_else(|| {
+                Stop::Refused(format!("no migration declared from docsys/0.{from}"))
+            })?)
+        } else {
+            None
+        };
     let root_rel = match crate::fresh::root_rel(repo, root) {
         r if r.is_empty() => ".".to_string(),
         r => r,
@@ -341,6 +409,7 @@ pub fn run_with(
         from,
         to: next.map_or(from, |m| m.to),
         last: next.is_none_or(|m| m.to == target),
+        applied: apply,
         ..Upgrade::default()
     };
     if let Some(m) = next {
@@ -361,12 +430,69 @@ pub fn run_with(
         .map(|m| m.retired)
         .collect();
     retired_concepts(&ctx, &mut u, &retired);
+    stray_layers(&ctx, &mut u);
     if u.last {
         pin_step(&ctx, &mut u, pin.as_deref(), apply)?;
     }
     u.written.sort();
     u.written.dedup();
     Ok(u)
+}
+
+/// agent-layer: the agent layer lives at the repository's top (D-098). A
+/// `.claude/` directory below it that holds a file docsys writes into a
+/// layer — one of its relays, skills or commands, by its path in the layer —
+/// was written by an earlier docsys run from a subdirectory, or copied there.
+/// A knowledge base's own layer, beside its `.docmeta.yml`, is not stray.
+/// What git tracks or would track is read; an ignored directory is not.
+fn stray_layers(ctx: &Ctx, u: &mut Upgrade) {
+    let own: BTreeSet<&str> = [false, true]
+        .into_iter()
+        .flat_map(crate::agents::owned_assets)
+        .map(|(asset, _, _)| asset)
+        .chain(crate::agents::HOOK_FILES)
+        .collect();
+    let Some(listed) = git_out(
+        ctx.repo,
+        &[
+            "ls-files",
+            "-z",
+            "--cached",
+            "--others",
+            "--exclude-standard",
+        ],
+    ) else {
+        return;
+    };
+    let layer_here = rel(ctx.repo, ctx.claude);
+    let kb_root = |dir: &str| {
+        fs::read_to_string(ctx.repo.join(dir).join(".docmeta.yml")).is_ok_and(|t| {
+            crate::fm::parse_fields(&t)
+                .fields
+                .get("profile")
+                .and_then(Value::as_str)
+                .is_some_and(|p| p.trim() == "knowledge-base")
+        })
+    };
+    let mut layers: std::collections::BTreeMap<String, usize> = std::collections::BTreeMap::new();
+    for path in listed.split('\0') {
+        let Some((dir, inside)) = path.split_once("/.claude/") else {
+            continue;
+        };
+        let layer = format!("{dir}/.claude");
+        if !own.contains(inside) || layer == layer_here || kb_root(dir) {
+            continue;
+        }
+        *layers.entry(format!("{layer}/")).or_default() += 1;
+    }
+    for (layer, n) in layers {
+        u.item(
+            "manual",
+            "agent-layer",
+            &layer,
+            format!("an agent layer below the repository's top, holding {n} file(s) docsys writes — the layer lives at the top (D-098): keep what is yours in `.claude/` there, then remove this one"),
+        );
+    }
 }
 
 /// The files agent-facing text lives in that docsys does not own: the
@@ -585,23 +711,29 @@ fn spec_line(ctx: &Ctx, u: &mut Upgrade, apply: bool) -> Result<(), String> {
     );
     if apply {
         let text = fs::read_to_string(&path).map_err(|e| e.to_string())?;
-        let new: Vec<String> = text
+        let spec = format!("spec: docsys/0.{}", u.to);
+        let mut new: Vec<String> = text
             .lines()
             .map(|l| {
                 if l.trim_start().starts_with("spec:") {
-                    format!("spec: docsys/0.{}", u.to)
+                    spec.clone()
                 } else {
                     l.to_string()
                 }
             })
             .collect();
+        // a file that declares no spec was read as docsys/0.4 (D-118): the
+        // line goes first, where `adopt` writes it
+        if !new.contains(&spec) {
+            new.insert(0, spec);
+        }
         let mut out = new.join("\n");
-        if text.ends_with('\n') {
+        if text.ends_with('\n') || text.is_empty() {
             out.push('\n');
         }
         fs::write(&path, out).map_err(|e| e.to_string())?;
-        u.written.push(file);
     }
+    u.written.push(file);
     Ok(())
 }
 
@@ -625,15 +757,15 @@ fn pin_step(ctx: &Ctx, u: &mut Upgrade, pin: Option<&str>, apply: bool) -> Resul
     );
     if apply {
         crate::dispatch::write(ctx.root)?;
-        u.written.push(file);
     }
+    u.written.push(file);
     Ok(())
 }
 
 /// A file holding exactly the text this version writes is docsys's own: when
 /// nobody committed it yet — `docsys agents` wrote it before the upgrade — the
 /// upgrade commit carries it.
-fn carry_untracked(repo: &Path, u: &mut Upgrade, step: &'static str, file: &str, apply: bool) {
+fn carry_untracked(repo: &Path, u: &mut Upgrade, step: &'static str, file: &str) {
     if git_out(repo, &["ls-files", "--error-unmatch", "--", file]).is_some() {
         return;
     }
@@ -643,9 +775,7 @@ fn carry_untracked(repo: &Path, u: &mut Upgrade, step: &'static str, file: &str,
         file,
         "committed: this version's text, not tracked yet".to_string(),
     );
-    if apply {
-        u.written.push(file.to_string());
-    }
+    u.written.push(file.to_string());
 }
 
 /// The steps every run takes: this binary's relays, gate, workflow, rules
@@ -653,6 +783,9 @@ fn carry_untracked(repo: &Path, u: &mut Upgrade, step: &'static str, file: &str,
 fn common(ctx: &Ctx, u: &mut Upgrade, apply: bool) -> Result<(), String> {
     let (repo, root, claude, kb) = (ctx.repo, ctx.root, ctx.claude, ctx.kb);
     let (root_rel, preamble) = (ctx.root_rel.as_str(), ctx.preamble.as_str());
+    // why the post-edit relay goes, said on the first of its rows
+    let mut post_edit_said = false;
+    let post_edit_gone = "a page's date and its verification are history's, and the relay has nothing left to do (D-126)";
     // hook-wires: settings.json names each relay in the one form (D-099)
     let settings = claude.join("settings.json");
     if let Ok(text) = fs::read_to_string(&settings) {
@@ -667,12 +800,13 @@ fn common(ctx: &Ctx, u: &mut Upgrade, apply: bool) -> Result<(), String> {
                             "auto",
                             "hook-wires",
                             &file,
-                            format!("{n} post-edit wire(s) taken out: a page's date and its verification are history's, and the relay has nothing left to do (D-126)"),
+                            format!("{n} post-edit wire(s) taken out: {post_edit_gone}"),
                         );
+                        post_edit_said = true;
                         if apply {
                             fs::write(&settings, doc.render()).map_err(|e| e.to_string())?;
-                            u.written.push(file.clone());
                         }
+                        u.written.push(file.clone());
                     }
                 }
                 if let Some(n) = crate::agents::canonicalize_wires(&mut doc).filter(|n| *n > 0) {
@@ -684,8 +818,8 @@ fn common(ctx: &Ctx, u: &mut Upgrade, apply: bool) -> Result<(), String> {
                     );
                     if apply {
                         fs::write(&settings, doc.render()).map_err(|e| e.to_string())?;
-                        u.written.push(file);
                     }
+                    u.written.push(file);
                 }
             }
             None => {
@@ -714,19 +848,20 @@ fn common(ctx: &Ctx, u: &mut Upgrade, apply: bool) -> Result<(), String> {
         // goes, an edited one is its owner's to retire (D-126)
         if hook == crate::agents::POST_EDIT && Era(u.to).verification_from_history() {
             if text == fresh || crate::agents::released(hook, &text, "").is_some() {
-                u.item(
-                    "auto",
-                    "hook-scripts",
-                    &file,
-                    "removed: a page's date and its verification are history's, and the relay has nothing left to do (D-126)".to_string(),
-                );
+                let what = if post_edit_said {
+                    "removed, with its wire above".to_string()
+                } else {
+                    format!("removed: {post_edit_gone}")
+                };
+                u.item("auto", "hook-scripts", &file, what);
+                post_edit_said = true;
+                let tracked =
+                    git_out(repo, &["ls-files", "--error-unmatch", "--", &file]).is_some();
                 if apply {
-                    let tracked =
-                        git_out(repo, &["ls-files", "--error-unmatch", "--", &file]).is_some();
                     fs::remove_file(&path).map_err(|e| e.to_string())?;
-                    if tracked {
-                        u.written.push(file);
-                    }
+                }
+                if tracked {
+                    u.written.push(file);
                 }
             } else {
                 u.item(
@@ -739,7 +874,7 @@ fn common(ctx: &Ctx, u: &mut Upgrade, apply: bool) -> Result<(), String> {
             continue;
         }
         if text == fresh {
-            carry_untracked(repo, u, "hook-scripts", &file, apply);
+            carry_untracked(repo, u, "hook-scripts", &file);
             continue;
         }
         // a relay byte for byte as a release wrote it; any touch, a comment
@@ -753,8 +888,8 @@ fn common(ctx: &Ctx, u: &mut Upgrade, apply: bool) -> Result<(), String> {
             );
             if apply {
                 fs::write(&path, &fresh).map_err(|e| e.to_string())?;
-                u.written.push(file);
             }
+            u.written.push(file);
         } else {
             u.item(
                 "manual",
@@ -806,18 +941,15 @@ fn common(ctx: &Ctx, u: &mut Upgrade, apply: bool) -> Result<(), String> {
                 crate::adopt::gate_hooks_dir(repo).unwrap_or_else(|| repo.join(".git/hooks"));
             let file = rel(repo, &hooks.join("pre-commit"));
             let tracked = git_out(repo, &["ls-files", "--error-unmatch", "--", &file]).is_some();
-            // said once, on the gate's last row
-            let clone_only = if tracked { "" } else { crate::say::CLONE_ONLY };
-            let pre_clause = if message { "" } else { clone_only };
             u.item(
                 "auto",
                 "git-gate",
                 &file,
-                format!("the docsys block rewritten for this version, its mode kept{pre_clause}"),
+                "the docsys block rewritten for this version, its mode kept".to_string(),
             );
             // the half that reads the message, which a docsys/0.5 gate adds (D-125)
+            let msg = hooks.join("commit-msg");
             if message {
-                let msg = hooks.join("commit-msg");
                 let verb = if msg.is_file() {
                     "rewritten"
                 } else {
@@ -827,26 +959,29 @@ fn common(ctx: &Ctx, u: &mut Upgrade, apply: bool) -> Result<(), String> {
                     "auto",
                     "git-gate",
                     &rel(repo, &msg),
-                    format!("the docsys block {verb}, its mode kept: it reads the commit message, and under `commit_policy: require` code with no documentation needs `Docs: <why>` (D-125){clone_only}"),
+                    format!("the docsys block {verb}, its mode kept: it reads the commit message, and under `commit_policy: require` code with no documentation needs `Docs: <why>` (D-125)"),
                 );
+            }
+            if tracked {
+                u.written.push(file.clone());
+                if message || msg.is_file() {
+                    u.written.push(rel(repo, &msg));
+                }
             }
             if apply {
                 let done = crate::adopt::ensure_git_gate(repo, root_rel, false, message);
                 if done == "failed" {
                     return Err(format!("{file}: the gate block could not be written"));
                 }
-                if tracked {
-                    u.written.push(file);
-                    let msg = rel(repo, &hooks.join("commit-msg"));
-                    if hooks.join("commit-msg").is_file() {
-                        u.written.push(msg);
-                    }
-                }
             }
         }
     }
 
-    // ci-workflow: regenerated when untouched, a diff when it is the owner's
+    // ci-workflow: regenerated when untouched; of the owner's, only what must
+    // move with the tree is named — never a template's default, never a
+    // sha256 value docsys cannot know
+    let own = crate::dispatch::own();
+    let copied = "copied from the release page — docsys cannot know them";
     match crate::workflow::classify(repo, root_rel) {
         None => {}
         Some(crate::workflow::Existing::Untouched { from, mut params }) => {
@@ -856,23 +991,20 @@ fn common(ctx: &Ctx, u: &mut Upgrade, apply: bool) -> Result<(), String> {
             let current = fs::read_to_string(&path).unwrap_or_default();
             if fresh != current {
                 if matches!(params.ci.install, crate::workflow::Install::Release(_)) {
-                    u.item("manual", "ci-workflow", crate::workflow::PATH, format!("a release install pins the archives of {from}: write this version's sha256 values by hand — the diff is below"));
-                    u.diffs.push((
-                        crate::workflow::PATH.to_string(),
-                        crate::diff::unified(
-                            &current,
-                            &fresh,
-                            crate::workflow::PATH,
-                            crate::workflow::PATH,
-                            3,
+                    u.item(
+                        "manual",
+                        "ci-workflow",
+                        crate::workflow::PATH,
+                        format!(
+                            "a release install of docsys {from}, untouched, and the tree pins {own}: write {own} and its archives' sha256 values, {copied}"
                         ),
-                    ));
+                    );
                 } else {
                     u.item("auto", "ci-workflow", crate::workflow::PATH, format!("regenerated from {from} with its own parameters, pinned to this version{moved}"));
                     if apply {
                         fs::write(&path, fresh).map_err(|e| e.to_string())?;
-                        u.written.push(crate::workflow::PATH.to_string());
                     }
+                    u.written.push(crate::workflow::PATH.to_string());
                 }
             }
         }
@@ -890,22 +1022,33 @@ fn common(ctx: &Ctx, u: &mut Upgrade, apply: bool) -> Result<(), String> {
                     crate::workflow::render(&params),
                 )
                 .map_err(|e| e.to_string())?;
-                u.written.push(crate::workflow::PATH.to_string());
+            }
+            u.written.push(crate::workflow::PATH.to_string());
+        }
+        Some(crate::workflow::Existing::Owned { .. }) => {
+            let text = fs::read_to_string(repo.join(crate::workflow::PATH)).unwrap_or_default();
+            let sums = if release_install(&text) {
+                format!(", and its sha256 values to {own}'s archives', {copied}")
+            } else {
+                String::new()
+            };
+            match installed_version(&text) {
+                Some((v, line)) if v != own => u.item(
+                    "manual",
+                    "ci-workflow",
+                    &format!("{}:{line}", crate::workflow::PATH),
+                    format!("the workflow is yours, never rewritten: it installs docsys {v}, and the tree pins {own} — change this line to {own}{sums}"),
+                ),
+                // a version this file does not name moves with the tree too
+                None if !sums.is_empty() && u.from < u.to => u.item(
+                    "manual",
+                    "ci-workflow",
+                    crate::workflow::PATH,
+                    format!("the workflow is yours, never rewritten: it installs a release archive, and the tree will pin {own} — change the version it installs to {own}{sums}"),
+                ),
+                _ => {}
             }
         }
-        Some(crate::workflow::Existing::Owned { diff }) if !diff.trim().is_empty() => {
-            // the one line of an owner's workflow that must move with the tree:
-            // the docsys it installs
-            let text = fs::read_to_string(repo.join(crate::workflow::PATH)).unwrap_or_default();
-            let own = crate::dispatch::own();
-            let what = match installed_version(&text).filter(|v| v != own) {
-                Some(v) => format!("the workflow is yours: never rewritten — it installs docsys {v} and the tree will pin {own}: CI installs the same version in this change (the diff below reads the pin)"),
-                None => "the workflow is yours: never rewritten — apply what you want of the diff below, the version pin first".to_string(),
-            };
-            u.item("manual", "ci-workflow", crate::workflow::PATH, what);
-            u.diffs.push((crate::workflow::PATH.to_string(), diff));
-        }
-        Some(crate::workflow::Existing::Owned { .. }) => {}
     }
 
     // rules-block: refreshed where its markers are (D-110, D-114)
@@ -938,8 +1081,8 @@ fn common(ctx: &Ctx, u: &mut Upgrade, apply: bool) -> Result<(), String> {
                                 preamble,
                                 Era(u.to).journal_from_history(),
                             )?;
-                            u.written.push(file);
                         }
+                        u.written.push(file);
                     }
                     None => {
                         u.item(
@@ -987,13 +1130,13 @@ fn common(ctx: &Ctx, u: &mut Upgrade, apply: bool) -> Result<(), String> {
                         fs::create_dir_all(parent).map_err(|e| e.to_string())?;
                     }
                     fs::write(&path, &want).map_err(|e| e.to_string())?;
-                    u.written.push(file);
                 }
+                u.written.push(file);
             }
             continue;
         };
         if text == want {
-            carry_untracked(repo, u, "assets", &file, apply);
+            carry_untracked(repo, u, "assets", &file);
             continue;
         }
         if let Some(release) = crate::agents::released(asset, &text, preamble) {
@@ -1005,8 +1148,8 @@ fn common(ctx: &Ctx, u: &mut Upgrade, apply: bool) -> Result<(), String> {
             );
             if apply {
                 fs::write(&path, &want).map_err(|e| e.to_string())?;
-                u.written.push(file);
             }
+            u.written.push(file);
         } else {
             u.item(
                 "manual",
@@ -1027,7 +1170,7 @@ fn common(ctx: &Ctx, u: &mut Upgrade, apply: bool) -> Result<(), String> {
             let want = crate::agents::kb_contract();
             let file = rel(repo, &path);
             if text == want {
-                carry_untracked(repo, u, "kb-contract", &file, apply);
+                carry_untracked(repo, u, "kb-contract", &file);
             } else if let Some(release) = crate::agents::released("AGENTS.md", &text, "") {
                 u.item(
                     "auto",
@@ -1037,8 +1180,8 @@ fn common(ctx: &Ctx, u: &mut Upgrade, apply: bool) -> Result<(), String> {
                 );
                 if apply {
                     fs::write(&path, &want).map_err(|e| e.to_string())?;
-                    u.written.push(file);
                 }
+                u.written.push(file);
             } else {
                 u.item(
                     "manual",
@@ -1083,33 +1226,156 @@ const RECORD_FIELDS: [&str; 5] = [
     "verified_sources",
 ];
 
-/// records: a docsys/0.5 page's verification is read from history (D-126).
-/// A record that still holds — its blocks the body's, its sources as
-/// recorded — stays valid evidence until the body moves; every other one
-/// leaves the page. A page that took part in verification keeps `sources:`.
+/// A page's record from before, read as evidence (D-101, D-126): the body it
+/// vouched for is the body now, and every source the page consumes hashes as
+/// it did then — never recorded blind — and its verifier is a maintainer.
+/// `Ok` names the body it vouched for and the `Approved-by:` value; `Err`
+/// says why it is not carried.
+fn record_holds(ctx: &Ctx, tree: &DocTree, page: &Page) -> Result<(String, String), String> {
+    let fm = page.fm.as_ref().ok_or("no frontmatter")?;
+    let get = |k: &str| fm.fields.get(k).and_then(Value::as_str).map(str::trim);
+    let file = format!("{}{}", ctx.prefix, page.rel);
+    let body = crate::blocks::hashes(&crate::fresh::body_text(&page.text));
+    let again = "a maintainer reads it and verifies it again";
+    let read = if let Some(record) = crate::blocks::record_of(fm) {
+        if record != body {
+            return Err(format!(
+                "the body moved since its block record — never recorded blind; {again}"
+            ));
+        }
+        let recorded: Vec<(String, String)> = fm
+            .fields
+            .get("verified_sources")
+            .and_then(Value::as_maps)
+            .map(|maps| {
+                maps.iter()
+                    .filter_map(|m| Some((m.get("source")?.clone(), m.get("hash")?.clone())))
+                    .collect()
+            })
+            .unwrap_or_default();
+        for s in crate::fresh::consumed_sources(fm) {
+            let now = crate::fresh::source_hash(ctx.root, &s);
+            if !recorded
+                .iter()
+                .any(|(src, then)| *src == s && Some(then) == now.as_ref())
+            {
+                return Err(format!(
+                    "`{s}` moved since its block record — never recorded blind; {again}"
+                ));
+            }
+        }
+        "its block record names".to_string()
+    } else {
+        let Some(rev) = get("verified_rev") else {
+            return Err(format!("verified without a revision — {again}"));
+        };
+        let Some(then) = git_out(ctx.repo, &["show", &format!("{rev}:{file}")]) else {
+            return Err(format!(
+                "`verified_rev: {rev}` does not hold the page in this history — never recorded blind; {again}"
+            ));
+        };
+        if crate::blocks::hashes(&crate::fresh::body_text(&then)) != body {
+            return Err(format!(
+                "the body changed since {rev} — never recorded blind; {again}"
+            ));
+        }
+        for s in crate::fresh::consumed_sources(fm) {
+            let Some((ns, id)) = s.trim_start_matches('@').split_once('/') else {
+                continue;
+            };
+            let now = crate::fresh::source_hash(ctx.root, &s);
+            let at_rev = git_out(
+                ctx.repo,
+                &[
+                    "show",
+                    &format!("{rev}:{}.federation/{ns}/{id}.provenance.yml", ctx.prefix),
+                ],
+            )
+            .and_then(|t| crate::fresh::sidecar_field(&t, "hash"));
+            if now.is_none() || now != at_rev {
+                return Err(format!(
+                    "`{s}` moved since {rev}, or had no committed provenance — {again}"
+                ));
+            }
+        }
+        format!("{rev} holds")
+    };
+    let by = get("verified_by").unwrap_or_default();
+    let maintainers = crate::checks::maintainer_handles(tree);
+    match crate::approval::maintainer_of(&maintainers, by) {
+        Some(handle) => Ok((read, crate::verify::approver_value(tree, &handle))),
+        None => Err(format!(
+            "verified by `{by}`, who is no declared maintainer (R-208) — not carried; {again}"
+        )),
+    }
+}
+
+/// The approval a holding record carries into history (D-126).
+fn carry(u: &mut Upgrade, page: &Page, by: &str) {
+    u.approvals.push(Approval {
+        by: by.to_string(),
+        page: page.rel.clone(),
+        hash: crate::approval::body_hash(&page.text),
+    });
+}
+
+/// records: a docsys/0.5 page's verification is read from history (D-126),
+/// so every field a record took leaves the page. A record that holds leaves
+/// its approval in the commit's message; a page that took part in
+/// verification keeps `sources:`.
 fn records(ctx: &Ctx, u: &mut Upgrade, apply: bool) -> Result<(), String> {
     // the pages as the steps before left them
     let tree = DocTree::load(ctx.root).map_err(|e| e.to_string())?;
     for page in tree.pages.iter().filter(|p| p.kind == Kind::Permanent) {
         let Some(fm) = &page.fm else { continue };
-        let file = format!("{}{}", ctx.prefix, page.rel);
-        // in a plan, a record the verified-record step converts is one that holds
-        let converted = u
-            .items
-            .iter()
-            .any(|i| i.step == "verified-record" && i.strategy == "auto" && i.file == file);
-        if !RECORD_FIELDS.iter().any(|k| fm.fields.contains_key(*k))
-            || converted
-            || crate::approval::holding_record(&tree, page)
-        {
+        if !RECORD_FIELDS.iter().any(|k| fm.fields.contains_key(*k)) {
             continue;
         }
-        u.item(
-            "auto",
-            "records",
-            &file,
-            "the verification record taken out: it no longer holds, and the state is read from history — an `Approved-by:` after the body's last change (D-126)".to_string(),
-        );
+        let file = format!("{}{}", ctx.prefix, page.rel);
+        // the move's verified-record step has judged the page already
+        let judged = u
+            .items
+            .iter()
+            .find(|i| i.step == "verified-record" && i.file == file)
+            .map(|i| i.strategy);
+        let gone = "the state is read from history — an `Approved-by:` after the body's last change (D-126)";
+        match judged {
+            Some("auto") => {}
+            Some(_) => u.item(
+                "auto",
+                "records",
+                &file,
+                format!("the verification record taken out: it no longer holds, and {gone}"),
+            ),
+            None if fm.fields.get("verification").and_then(Value::as_str) == Some("verified") => {
+                match record_holds(ctx, &tree, page) {
+                    Ok((_, by)) => {
+                        carry(u, page, &by);
+                        u.item(
+                            "auto",
+                            "records",
+                            &file,
+                            format!("the record holds: its approval goes into this commit as `Verifies:` and `Approved-by: {by}`, and the record leaves the page (D-126)"),
+                        );
+                    }
+                    Err(_) => u.item(
+                        "auto",
+                        "records",
+                        &file,
+                        format!(
+                            "the verification record taken out: it no longer holds, and {gone}"
+                        ),
+                    ),
+                }
+            }
+            None => u.item(
+                "auto",
+                "records",
+                &file,
+                format!("the verification fields taken out: {gone}"),
+            ),
+        }
+        u.written.push(file.clone());
         if !apply {
             continue;
         }
@@ -1124,7 +1390,6 @@ fn records(ctx: &Ctx, u: &mut Upgrade, apply: bool) -> Result<(), String> {
             }
         }
         fs::write(ctx.root.join(&page.rel), text).map_err(|e| e.to_string())?;
-        u.written.push(file);
     }
     Ok(())
 }
@@ -1169,8 +1434,8 @@ fn journal(ctx: &Ctx, u: &mut Upgrade, apply: bool) -> Result<(), String> {
                     u.carried.extend(late);
                     if apply {
                         fs::write(ctx.root.join(rel), then).map_err(|e| e.to_string())?;
-                        u.written.push(file);
                     }
+                    u.written.push(file);
                 }
             } else {
                 known.push_str(text);
@@ -1189,8 +1454,8 @@ fn journal(ctx: &Ctx, u: &mut Upgrade, apply: bool) -> Result<(), String> {
             u.carried.extend(late);
             if apply {
                 fs::remove_file(ctx.root.join(&rel)).map_err(|e| e.to_string())?;
-                u.written.push(file);
             }
+            u.written.push(file);
         }
         if apply {
             let _ = fs::remove_dir(ctx.root.join("work/journal"));
@@ -1212,16 +1477,22 @@ fn journal(ctx: &Ctx, u: &mut Upgrade, apply: bool) -> Result<(), String> {
         );
         moves.push((rel, to));
     }
-    if !apply || moves.is_empty() {
+    if moves.is_empty() {
         return Ok(());
     }
-    fs::create_dir_all(ctx.root.join("_archive/journal")).map_err(|e| e.to_string())?;
+    if apply {
+        fs::create_dir_all(ctx.root.join("_archive/journal")).map_err(|e| e.to_string())?;
+    }
     for (from, to) in &moves {
-        fs::rename(ctx.root.join(from), ctx.root.join(to)).map_err(|e| e.to_string())?;
+        if apply {
+            fs::rename(ctx.root.join(from), ctx.root.join(to)).map_err(|e| e.to_string())?;
+        }
         u.written.push(format!("{}{from}", ctx.prefix));
         u.written.push(format!("{}{to}", ctx.prefix));
     }
-    let _ = fs::remove_dir(ctx.root.join("work/journal"));
+    if apply {
+        let _ = fs::remove_dir(ctx.root.join("work/journal"));
+    }
     // the links that named the moved files name them where they are now
     for page in &ctx.tree.pages {
         let path = ctx.root.join(&page.rel);
@@ -1236,7 +1507,9 @@ fn journal(ctx: &Ctx, u: &mut Upgrade, apply: bool) -> Result<(), String> {
             }
         }
         if new != text {
-            fs::write(&path, new).map_err(|e| e.to_string())?;
+            if apply {
+                fs::write(&path, new).map_err(|e| e.to_string())?;
+            }
             u.written.push(format!("{}{}", ctx.prefix, page.rel));
         }
     }
@@ -1336,7 +1609,16 @@ fn ledgers(ctx: &Ctx, u: &mut Upgrade, apply: bool) -> Result<(), String> {
                 what.push_str(" — a branch from before the move appended them");
             }
             u.item("auto", "ledgers", &file, format!("{what} (D-124)"));
+            u.written.push(file.clone());
             if !apply {
+                // the files the move writes, where `items::add` writes them
+                for line in &open {
+                    u.written
+                        .push(format!("{}{}", ctx.prefix, topic_file(list, ctx.kb, line)));
+                }
+                if let Some(s) = &slice {
+                    u.written.push(format!("{}{s}", ctx.prefix));
+                }
                 continue;
             }
             // an item already in its file — a merge that kept both sides —
@@ -1362,11 +1644,15 @@ fn ledgers(ctx: &Ctx, u: &mut Upgrade, apply: bool) -> Result<(), String> {
             } else {
                 fs::write(&path, &rest).map_err(|e| e.to_string())?;
             }
-            u.written.push(file);
         }
         misfiled(ctx, u, list, apply)?;
     }
     Ok(())
+}
+
+/// The topic file an open item's line belongs in (D-124).
+fn topic_file(list: crate::items::List, kb: bool, line: &str) -> String {
+    format!("{}/{}.md", list.dir(kb), crate::items::topic_of(line))
 }
 
 /// A tagged item in another topic's file into its own, its line verbatim:
@@ -1402,7 +1688,13 @@ fn misfiled(
                 lines.len()
             ),
         );
+        u.written.push(file.clone());
         if !apply {
+            u.written.extend(
+                lines
+                    .iter()
+                    .map(|l| format!("{}{}", ctx.prefix, topic_file(list, ctx.kb, l))),
+            );
             continue;
         }
         let path = ctx.root.join(&rel);
@@ -1432,7 +1724,6 @@ fn misfiled(
         } else {
             fs::write(&path, &text).map_err(|e| e.to_string())?;
         }
-        u.written.push(file);
     }
     Ok(())
 }
@@ -1487,8 +1778,8 @@ fn routes(ctx: &Ctx, u: &mut Upgrade, apply: bool) -> Result<(), String> {
             })
             .collect();
         fs::write(&path, new).map_err(|e| e.to_string())?;
-        u.written.push(file);
     }
+    u.written.push(file);
     Ok(())
 }
 
@@ -1525,8 +1816,8 @@ fn dates(ctx: &Ctx, u: &mut Upgrade, apply: bool) -> Result<(), String> {
         n += 1;
         if apply {
             fs::write(&path, new).map_err(|e| e.to_string())?;
-            u.written.push(format!("{}{rel}", ctx.prefix));
         }
+        u.written.push(format!("{}{rel}", ctx.prefix));
     }
     if n > 0 {
         u.item(
@@ -1556,157 +1847,250 @@ fn on_description(params: &mut crate::workflow::Workflow, to: u32) -> String {
     String::new()
 }
 
-/// The steps of the move from docsys/0.4 to docsys/0.5 (`migrations/0.4-0.5.tsv`).
-fn move_0_4_to_0_5(ctx: &Ctx, u: &mut Upgrade, apply: bool) -> Result<(), String> {
-    let (repo, root, tree, kb) = (ctx.repo, ctx.root, &ctx.tree, ctx.kb);
-    let prefix = ctx.prefix.as_str();
-    // verified-record: a record proven by history gains its own evidence (D-101)
-    {
-        for page in tree.pages.iter().filter(|p| p.kind == Kind::Permanent) {
-            let Some(fm) = &page.fm else { continue };
-            let get = |k: &str| fm.fields.get(k).and_then(Value::as_str);
-            if get("verification") != Some("verified") || fm.fields.contains_key("verified_blocks")
-            {
-                continue;
-            }
-            let file = format!("{prefix}{}", page.rel);
-            let Some(rev) = get("verified_rev").map(str::trim) else {
-                u.item(
-                    "manual",
-                    "verified-record",
-                    &file,
-                    "verified without a revision — a maintainer reads it and verifies it again"
-                        .to_string(),
-                );
-                u.completed_by(format!("docsys verify {}", page.rel));
-                continue;
-            };
-            let Some(then) = git_out(repo, &["show", &format!("{rev}:{file}")]) else {
-                u.item(
-                    "manual",
-                    "verified-record",
-                    &file,
-                    format!("`verified_rev: {rev}` does not hold the page in this history — never recorded blind; a maintainer reads it and verifies it again"),
-                );
-                u.completed_by(format!("docsys verify {}", page.rel));
-                continue;
-            };
-            let body = crate::fresh::body_text(&page.text);
-            // the blocks the maintainer read are the blocks now, as R-024 reads it
-            let blocks = crate::blocks::hashes(&body);
-            if crate::blocks::hashes(&crate::fresh::body_text(&then)) != blocks {
-                u.item(
-                    "manual",
-                    "verified-record",
-                    &file,
-                    format!("the body changed since {rev} — never recorded blind; a maintainer reads it and verifies it again"),
-                );
-                u.completed_by(format!("docsys verify {}", page.rel));
-                continue;
-            }
-            let mut sources = Vec::new();
-            let mut moved = None;
-            for s in crate::fresh::consumed_sources(fm) {
-                let Some((ns, id)) = s.trim_start_matches('@').split_once('/') else {
-                    continue;
-                };
-                let now = crate::fresh::source_hash(root, &s);
-                let then = git_out(
-                    repo,
-                    &[
-                        "show",
-                        &format!("{rev}:{prefix}.federation/{ns}/{id}.provenance.yml"),
-                    ],
-                )
-                .and_then(|t| crate::fresh::sidecar_field(&t, "hash"));
-                match (now, then) {
-                    (Some(n), Some(t)) if n == t => sources.push((s.clone(), n)),
-                    _ => moved = Some(s.clone()),
-                }
-            }
-            if let Some(s) = moved {
-                u.item(
-                    "manual",
-                    "verified-record",
-                    &file,
-                    format!("`{s}` moved since {rev}, or had no committed provenance — a maintainer reads it and verifies it again"),
-                );
-                u.completed_by(format!("docsys verify {}", page.rel));
-                continue;
-            }
-            u.item(
-                "auto",
-                "verified-record",
-                &file,
-                format!(
-                    "the body {rev} holds is the body now: `verified_blocks` recorded{}",
-                    if sources.is_empty() {
-                        String::new()
-                    } else {
-                        format!(", with {} source hash(es)", sources.len())
-                    }
-                ),
-            );
-            if apply {
-                let path = root.join(&page.rel);
-                let text = fs::read_to_string(&path).map_err(|e| e.to_string())?;
-                if let Some(new) = add_record(&text, &blocks, &sources) {
-                    fs::write(&path, new).map_err(|e| e.to_string())?;
-                    u.written.push(file);
-                }
-            }
-        }
-    }
+/// The 1-based lines `region` takes in `source`: the lines 0.15 extracted, in
+/// a row.
+fn lines_at(source: &str, region: &str) -> Option<(usize, usize)> {
+    let all: Vec<&str> = source.lines().collect();
+    let part: Vec<&str> = region.lines().collect();
+    let first = (0..all.len()).find(|&i| all.get(i..i + part.len()) == Some(&part[..]))?;
+    Some((first + 1, first + part.len().max(1)))
+}
 
-    // pins: a pin's hash becomes its acknowledgement where it still holds and
-    // the declaration reads the same region (D-119); everything else is listed
-    {
-        for c in crate::fresh::convert_legacy(root, repo, apply)? {
-            let file = format!("{prefix}{}", c.page);
-            // with --apply every converted page loses its pin hashes, whatever
-            // the outcome: the commit carries each one
-            if apply && !u.written.contains(&file) {
-                u.written.push(file.clone());
+/// The page with every pin's `hash:` line gone and, for each `(path,
+/// symbol)` in `whole`, that entry's `symbol:` line gone too — the
+/// frontmatter only, each entry's other lines as written. `None` when
+/// nothing changes.
+fn rewrite_pins(text: &str, whole: &[(String, String)]) -> Option<String> {
+    fn flush(entry: &mut Vec<&str>, whole: &[(String, String)], out: &mut String) -> bool {
+        let pair = |l: &str| -> Option<(String, String)> {
+            let (k, v) = l.get(4..)?.split_once(':')?;
+            Some((
+                k.trim().to_string(),
+                v.trim().trim_matches(['"', '\'']).to_string(),
+            ))
+        };
+        let value = |key: &str| {
+            entry
+                .iter()
+                .filter_map(|l| pair(l))
+                .find(|(k, _)| k == key)
+                .map(|(_, v)| v)
+        };
+        let target = (value("path"), value("symbol"));
+        let drop = |l: &str| match pair(l) {
+            Some((k, _)) if k == "hash" => true,
+            Some((k, _)) if k == "symbol" => {
+                matches!(&target, (Some(p), Some(s)) if whole.iter().any(|(wp, ws)| wp == p && ws == s))
             }
-            match c.outcome {
-                crate::fresh::Conversion::Acknowledged => {
+            _ => false,
+        };
+        let kept: Vec<&str> = entry.iter().copied().filter(|l| !drop(l)).collect();
+        let changed = kept.len() != entry.len();
+        for (i, line) in kept.iter().enumerate() {
+            out.push_str(if i == 0 { "  - " } else { "    " });
+            out.push_str(line.get(4..).unwrap_or(""));
+        }
+        entry.clear();
+        changed
+    }
+    let mut lines = text.split_inclusive('\n');
+    let first = lines.next()?;
+    if first.trim_end_matches(['\n', '\r']) != "---" {
+        return None;
+    }
+    let mut out = String::from(first);
+    let (mut frontmatter, mut verifies, mut changed) = (true, false, false);
+    let mut entry: Vec<&str> = Vec::new();
+    for line in lines {
+        let bare = line.trim_end_matches(['\n', '\r']);
+        if frontmatter && verifies && (bare.starts_with("  - ") || bare.starts_with("    ")) {
+            if bare.starts_with("  - ") {
+                changed |= flush(&mut entry, whole, &mut out);
+            }
+            entry.push(line);
+            continue;
+        }
+        changed |= flush(&mut entry, whole, &mut out);
+        verifies = false;
+        if frontmatter && bare == "---" {
+            frontmatter = false;
+        } else if frontmatter && bare.starts_with("verifies:") {
+            verifies = true;
+        }
+        out.push_str(line);
+    }
+    changed |= flush(&mut entry, whole, &mut out);
+    changed.then_some(out)
+}
+
+/// pins: the move keeps 0.15's verdict on each pin that carries a `hash:`
+/// (D-119). One 0.15 read as fresh is acknowledged at the region 0.5 reads —
+/// its declaration, wherever 0.15 had bound the symbol — or, where 0.5 finds
+/// no declaration of the symbol, at the whole file, the entry's `symbol:`
+/// leaving the page's frontmatter. One stale on 0.15 stays stale, listed. No
+/// pin is refreshed: every region acknowledged is one 0.15 called fresh.
+fn pins(ctx: &Ctx, u: &mut Upgrade, apply: bool) -> Result<(), String> {
+    let (repo, root) = (ctx.repo, ctx.root);
+    for page in ctx.tree.pages.iter().filter(|p| p.kind == Kind::Permanent) {
+        let Some(fm) = &page.fm else { continue };
+        let held: Vec<crate::fresh::Pin> = crate::fresh::pins_of(fm)
+            .into_iter()
+            .filter(|p| !p.hash.is_empty())
+            .collect();
+        if held.is_empty() {
+            continue;
+        }
+        let file = format!("{}{}", ctx.prefix, page.rel);
+        let id = fm
+            .fields
+            .get("id")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|s| !s.is_empty());
+        let mut acks: Vec<String> = Vec::new();
+        let mut whole: Vec<(String, String)> = Vec::new();
+        for pin in held {
+            let label = pin.label();
+            let symbol = pin
+                .symbol
+                .as_deref()
+                .map(str::trim)
+                .filter(|s| !s.is_empty());
+            let source = fs::read_to_string(repo.join(&pin.path)).ok();
+            let old = source.as_deref().and_then(|s| {
+                crate::fresh::region(s, &pin.path, symbol)
+                    .ok()
+                    .filter(|o| crate::fresh::content_hash(o) == pin.hash)
+            });
+            let (Some(source), Some(old)) = (source, old) else {
+                u.item(
+                    "manual",
+                    "pins",
+                    &file,
+                    format!("`{label}`: stale before the upgrade, still stale — re-read the page against it"),
+                );
+                u.completed_by(format!("docsys pin --refresh {}", page.rel));
+                continue;
+            };
+            if id.is_none() {
+                u.item(
+                    "manual",
+                    "pins",
+                    &file,
+                    format!("`{label}`: {} has no `id` (R-050) — acknowledgements are kept by page id; give it one", page.rel),
+                );
+                continue;
+            }
+            match (
+                crate::fresh::declared_region(&source, &pin.path, symbol),
+                symbol,
+            ) {
+                (Ok(new), _) if new == old => {
+                    acks.push(crate::ack::region_hash(&new, &pin.path));
                     u.item(
                         "auto",
                         "pins",
                         &file,
-                        format!("`{}`: acknowledged beside the page", c.pin),
+                        format!("`{label}`: acknowledged beside the page"),
                     );
                 }
-                crate::fresh::Conversion::Reresolved { first, last } => {
+                (Ok(new), Some(sym)) => {
+                    acks.push(crate::ack::region_hash(&new, &pin.path));
+                    let span = |r: Option<(usize, usize)>| {
+                        r.map_or("?".to_string(), |(a, b)| format!("L{a}-L{b}"))
+                    };
                     u.item(
-                        "manual",
+                        "auto",
                         "pins",
                         &file,
-                        format!("`{}`: its declaration is L{first}-L{last}, not the region 0.15 read — re-read the page against it", c.pin),
+                        format!(
+                            "`{label}`: fresh as 0.15 read it, {}; acknowledged where 0.5 reads its declaration, {}",
+                            span(lines_at(&source, &old)),
+                            span(crate::symbols::resolve(&source, &pin.path, sym).ok())
+                        ),
                     );
-                    u.completed_by(format!("docsys pin --refresh {}", c.page));
                 }
-                crate::fresh::Conversion::Unresolvable(why) => u.item(
+                (Ok(new), None) => {
+                    acks.push(crate::ack::region_hash(&new, &pin.path));
+                    u.item(
+                        "auto",
+                        "pins",
+                        &file,
+                        format!("`{label}`: acknowledged beside the page"),
+                    );
+                }
+                (Err(_), Some(sym)) => {
+                    acks.push(crate::ack::region_hash(&source, &pin.path));
+                    whole.push((pin.path.clone(), sym.to_string()));
+                    u.item(
+                        "auto",
+                        "pins",
+                        &file,
+                        format!("`{label}`: fresh as 0.15 read it; pinned to the whole file: 0.5 finds no declaration of `{sym}`"),
+                    );
+                }
+                (Err(why), None) => u.item(
                     "manual",
                     "pins",
                     &file,
-                    format!("`{}`: {why} — pin a narrower symbol or the file", c.pin),
+                    format!("`{label}`: {why} — re-read the page against the file"),
                 ),
-                crate::fresh::Conversion::StaleAsRecorded => {
-                    u.item(
-                        "manual",
-                        "pins",
-                        &file,
-                        format!("`{}`: stale before the upgrade, still stale — re-read the page against it", c.pin),
-                    );
-                    u.completed_by(format!("docsys pin --refresh {}", c.page));
-                }
             }
         }
-        if apply && root.join(crate::ack::DIR).is_dir() {
-            u.written.push(format!("{prefix}{}", crate::ack::DIR));
+        // every `hash:` leaves the page, whatever the outcome: the commit
+        // carries each page
+        u.written.push(file);
+        if !acks.is_empty() {
+            u.written.push(format!("{}{}", ctx.prefix, crate::ack::DIR));
+        }
+        if !apply {
+            continue;
+        }
+        if let Some(id) = id {
+            for h in &acks {
+                crate::ack::write(root, id, h).map_err(|e| e.to_string())?;
+            }
+        }
+        let path = root.join(&page.rel);
+        let text = fs::read_to_string(&path).map_err(|e| e.to_string())?;
+        if let Some(new) = rewrite_pins(&text, &whole) {
+            fs::write(&path, new).map_err(|e| e.to_string())?;
         }
     }
+    Ok(())
+}
+
+/// The steps of the move from docsys/0.4 to docsys/0.5 (`migrations/0.4-0.5.tsv`).
+fn move_0_4_to_0_5(ctx: &Ctx, u: &mut Upgrade, apply: bool) -> Result<(), String> {
+    let (repo, root, tree, kb) = (ctx.repo, ctx.root, &ctx.tree, ctx.kb);
+    let prefix = ctx.prefix.as_str();
+    // verified-record: a record that holds leaves its approval in history, as
+    // `Verifies:` and `Approved-by:` in the move's commit; the page keeps no
+    // record (D-126)
+    for page in tree.pages.iter().filter(|p| p.kind == Kind::Permanent) {
+        let Some(fm) = &page.fm else { continue };
+        if fm.fields.get("verification").and_then(Value::as_str) != Some("verified") {
+            continue;
+        }
+        let file = format!("{prefix}{}", page.rel);
+        match record_holds(ctx, tree, page) {
+            Ok((read, by)) => {
+                carry(u, page, &by);
+                u.item(
+                    "auto",
+                    "verified-record",
+                    &file,
+                    format!("the body {read} is the body now: its approval goes into the move's commit as `Verifies:` and `Approved-by: {by}`, and the record leaves the page (D-126)"),
+                );
+            }
+            Err(why) => {
+                u.item("manual", "verified-record", &file, why);
+                u.completed_by(format!("docsys verify {}", page.rel));
+            }
+        }
+    }
+
+    pins(ctx, u, apply)?;
 
     // ledger-separators: the em-dash markers to ASCII (D-108); after the move
     // R-108's message names `docsys ledger fix`
@@ -1724,9 +2108,7 @@ fn move_0_4_to_0_5(ctx: &Ctx, u: &mut Upgrade, apply: bool) -> Result<(), String
             &file,
             line.trim_start_matches("fixed: ").to_string(),
         );
-        if apply {
-            u.written.push(file);
-        }
+        u.written.push(file);
     }
 
     // ledgers: open items into their topics' files, after the separators are
@@ -1793,11 +2175,40 @@ fn move_0_4_to_0_5(ctx: &Ctx, u: &mut Upgrade, apply: bool) -> Result<(), String
     Ok(())
 }
 
-pub use crate::say::TEAMMATES;
+/// The carried approvals by approver, in the order the pages came: one
+/// commit is one approver's act, its `Approved-by:` read for every page its
+/// `Verifies:` names (D-126).
+fn by_approver(u: &Upgrade) -> Vec<(&str, Vec<&Approval>)> {
+    let mut out: Vec<(&str, Vec<&Approval>)> = Vec::new();
+    for a in &u.approvals {
+        match out.iter_mut().find(|(by, _)| *by == a.by) {
+            Some((_, pages)) => pages.push(a),
+            None => out.push((&a.by, vec![a])),
+        }
+    }
+    out
+}
 
-/// The upgrade commit's message: the move, the notes it crosses, and on the
-/// last move the step every other clone takes. It also describes a pull
-/// request.
+/// One approver's carried approvals as a message's trailers.
+fn approval_trailers(by: &str, pages: &[&Approval]) -> String {
+    let mut out =
+        "Approvals the pages' records held before docsys/0.5, carried into history (D-126):\n"
+            .to_string();
+    for a in pages {
+        out.push_str(&format!(
+            "{}: {} {}\n",
+            crate::approval::VERIFIES,
+            a.page,
+            a.hash
+        ));
+    }
+    out.push_str(&format!("{}: {by}", crate::approval::APPROVED_BY));
+    out
+}
+
+/// The upgrade commit's message: the move, the notes it crosses, the journal
+/// lines it carries, and the first approver's carried approvals. It also
+/// describes a pull request.
 pub fn message(u: &Upgrade) -> String {
     let mut out = if u.last {
         format!(
@@ -1814,11 +2225,129 @@ pub fn message(u: &Upgrade) -> String {
         out.push_str("\n\nJournal entries a branch from before the move wrote (D-125):\n");
         out.push_str(&u.carried.join("\n"));
     }
-    if u.last {
+    if let Some((by, pages)) = by_approver(u).first() {
         out.push_str("\n\n");
-        out.push_str(TEAMMATES);
+        out.push_str(&approval_trailers(by, pages));
     }
     out
+}
+
+/// The messages of the empty commits that follow the move's, one for each
+/// approver after the first: each carries that approver's pages alone.
+pub fn approval_messages(u: &Upgrade) -> Vec<String> {
+    by_approver(u)
+        .iter()
+        .skip(1)
+        .map(|(by, pages)| {
+            format!(
+                "docs: the approvals of {by} carried from the records before docsys/0.5\n\n{}",
+                approval_trailers(by, pages)
+            )
+        })
+        .collect()
+}
+
+/// Commit each message as an empty commit of its own, after the move's:
+/// whatever else is staged stays staged.
+pub fn commit_approvals(repo: &Path, messages: &[String]) -> Result<(), String> {
+    for m in messages {
+        let ok = crate::git::cmd(repo)
+            .args(["commit", "-q", "--allow-empty", "--only", "-m"])
+            .arg(m)
+            .status()
+            .is_ok_and(|s| s.success());
+        if !ok {
+            return Err(
+                "git refused a carried approval's commit — git's output above says why".into(),
+            );
+        }
+    }
+    Ok(())
+}
+
+/// What the move left at `file`: the sha256 of its bytes, `-` where it
+/// removed the file.
+fn left_at(repo: &Path, file: &str) -> String {
+    fs::read(repo.join(file)).map_or_else(|_| "-".to_string(), |b| crate::fresh::sha256_hex(&b))
+}
+
+/// The record of a written move, beside the index (R-177): each path the
+/// move wrote and what it left there, one `path<TAB>sha256` line each; a
+/// directory it wrote is recorded file by file.
+pub fn record_text(repo: &Path, files: &[String]) -> String {
+    fn walk(dir: &Path, rel: &str, out: &mut Vec<String>) {
+        let Ok(entries) = fs::read_dir(dir) else {
+            return;
+        };
+        let mut names: Vec<String> = entries
+            .flatten()
+            .filter_map(|e| e.file_name().to_str().map(str::to_string))
+            .collect();
+        names.sort();
+        for n in names {
+            let (path, rel) = (dir.join(&n), format!("{rel}/{n}"));
+            if path.is_dir() {
+                walk(&path, &rel, out);
+            } else {
+                out.push(rel);
+            }
+        }
+    }
+    let mut paths = Vec::new();
+    for f in files {
+        if repo.join(f).is_dir() {
+            walk(&repo.join(f), f, &mut paths);
+        } else {
+            paths.push(f.clone());
+        }
+    }
+    paths.dedup();
+    paths
+        .iter()
+        .map(|p| format!("{p}\t{}\n", left_at(repo, p)))
+        .collect()
+}
+
+/// A record read back: each path, with what the move left there when the
+/// record says it.
+pub fn read_record(text: &str) -> Vec<(String, Option<String>)> {
+    text.lines()
+        .filter(|l| !l.is_empty())
+        .map(|l| match l.split_once('\t') {
+            Some((p, h)) => (p.to_string(), Some(h.to_string())),
+            None => (l.to_string(), None),
+        })
+        .collect()
+}
+
+/// The recorded paths that no longer hold what the move left: each holds an
+/// edit of the person's now.
+pub fn edited_since(repo: &Path, record: &[(String, Option<String>)]) -> Vec<String> {
+    record
+        .iter()
+        .filter(|(p, h)| h.as_ref().is_some_and(|h| *h != left_at(repo, p)))
+        .map(|(p, _)| p.clone())
+        .collect()
+}
+
+/// Whether a path the move writes is `file` or holds it.
+pub fn covers(written: &str, file: &str) -> bool {
+    file == written || file.starts_with(&format!("{}/", written.trim_end_matches('/')))
+}
+
+/// A record of a written move left in the git directory, its move committed
+/// by hand or discarded since: named, as taken out.
+pub fn record_taken_out(u: &mut Upgrade, record: &str) {
+    u.items.insert(
+        0,
+        Item {
+            strategy: "auto",
+            step: "upgrade-record",
+            file: record.to_string(),
+            what: "the record of a move written by `--apply` alone, committed by hand or discarded since — taken out".to_string(),
+            command: None,
+        },
+    );
 }
 
 /// Commit what the upgrade wrote as one commit (R-177), under the current
@@ -1896,17 +2425,17 @@ pub fn commit_files(repo: &Path, files: &[String], message: &str) -> Result<(), 
 mod tests {
     use super::*;
 
+    /// Only a pin's `hash:` leaves, and the `symbol:` of an entry pinned to
+    /// its whole file; an entry's first line hands its marker on.
     #[test]
-    fn the_record_goes_right_after_the_revision() {
-        let text = "---\nid: a\nverification: verified\nverified_by: ayse\nverified_rev: abc\nsources: []\n---\nBody.\n";
-        let out = add_record(
-            text,
-            &["941ba81fbfec".into(), "28949667d156".into()],
-            &[("@up/x".into(), "fnv:1".into())],
-        )
-        .unwrap();
-        assert!(out.contains("verified_rev: abc\nverified_blocks: [941ba81fbfec, 28949667d156]\nverified_sources:\n  - source: \"@up/x\"\n    hash: \"fnv:1\"\nsources: []\n"), "{out}");
-        assert!(add_record("---\nid: a\n---\nBody.\n", &[], &[]).is_none());
+    fn a_rewritten_pin_entry_keeps_its_other_lines() {
+        let page = "---\nid: p\nverifies:\n  - path: a.rs\n    symbol: f\n    hash: \"sha256:x\"\n  - symbol: g\n    path: b.rs\n    block: 1a2b\n    hash: \"sha256:y\"\nsources: []\n---\nbody\n    hash: stays\n";
+        let want = "---\nid: p\nverifies:\n  - path: a.rs\n    symbol: f\n  - path: b.rs\n    block: 1a2b\nsources: []\n---\nbody\n    hash: stays\n";
+        assert_eq!(
+            rewrite_pins(page, &[("b.rs".into(), "g".into())]).as_deref(),
+            Some(want)
+        );
+        assert_eq!(rewrite_pins(want, &[]), None);
     }
 
     #[test]
@@ -1946,9 +2475,10 @@ mod tests {
                 "{}",
                 m.release
             );
+            // the plan's header leaves to the note how the move is applied
             assert!(
-                note(m.release).is_some(),
-                "CHANGELOG [{}] has no Upgrading section",
+                note(m.release).is_some_and(|n| n.contains("`docsys upgrade --apply")),
+                "CHANGELOG [{}] has no Upgrading section naming `docsys upgrade --apply`",
                 m.release
             );
         }

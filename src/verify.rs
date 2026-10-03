@@ -64,6 +64,7 @@ pub(crate) fn find_page<'a>(tree: &'a DocTree, target: &str) -> Option<&'a crate
 /// approver's identity).
 fn who(tree: &DocTree, repo: &Path, by: Option<&str>) -> Result<(String, Option<String>), String> {
     let maintainers = crate::checks::maintainer_handles(tree);
+    maintainers.readable()?;
     let list = || {
         maintainers
             .iter()
@@ -96,7 +97,7 @@ fn who(tree: &DocTree, repo: &Path, by: Option<&str>) -> Result<(String, Option<
                 });
         }
         let h = crate::checks::record_handle(b);
-        if maintainers.is_empty() {
+        if maintainers.anyone() {
             return Ok((b.to_string(), None));
         }
         return maintainers
@@ -110,7 +111,7 @@ fn who(tree: &DocTree, repo: &Path, by: Option<&str>) -> Result<(String, Option<
                 )
             });
     }
-    if maintainers.is_empty() {
+    if maintainers.anyone() {
         return if name.is_empty() {
             Err("no git identity and no `--by <handle>` — say who verifies".into())
         } else {
@@ -275,6 +276,7 @@ pub fn verify_range(
         return Ok(Range::Pages(Vec::new()));
     }
     // the approver first: an unknown one is not a page-by-page skip, it is no run at all
+    crate::checks::maintainer_handles(&tree).readable()?;
     let trailer_by;
     let by = if from_trailers {
         trailer_by = approver_from_trailers(&tree, &repo, range)?;
@@ -446,6 +448,7 @@ pub fn verify(
     if crate::era::Era::of(&tree).verification_from_history() {
         return verify_by_commit(root, &tree, &repo, page, by, revoke);
     }
+    crate::fm::refuse_unclosed_in(&page.rel, &page.text)?;
     let path = root.join(&page.rel);
     // a docsys/0.5 page's date is history's (D-122)
     let today = (!crate::era::Era::at(root).derived_dates()).then(crate::migrate::today);
@@ -597,7 +600,7 @@ pub fn verify(
 
 /// How an approval names the maintainer: `handle <email>` when the entry
 /// carries one, else `@login`, else the handle (R-208).
-fn approver_value(tree: &DocTree, handle: &str) -> String {
+pub(crate) fn approver_value(tree: &DocTree, handle: &str) -> String {
     crate::checks::maintainer_handles(tree)
         .into_iter()
         .find(|m| m.handle == crate::checks::record_handle(handle))
@@ -765,8 +768,9 @@ fn refused(root: &Path, tree: &DocTree, repo: &Path) -> String {
 pub fn approval_line(root: &Path, login: &str) -> Result<Option<String>, String> {
     let tree = DocTree::load(root).map_err(|e| e.to_string())?;
     let maintainers = crate::checks::maintainer_handles(&tree);
+    maintainers.readable()?;
     let login = format!("@{}", login.trim().trim_start_matches('@'));
-    if maintainers.is_empty() {
+    if maintainers.anyone() {
         return Ok(None);
     }
     Ok(crate::approval::maintainer_of(&maintainers, &login)

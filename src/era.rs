@@ -31,16 +31,58 @@ pub fn preview<T>(minor: u32, f: impl FnOnce() -> T) -> T {
     out
 }
 
+/// The minor a `spec:` value names (`docsys/0.<minor>`), quotes aside.
+fn minor(spec: &str) -> Option<u32> {
+    spec.trim()
+        .trim_matches(['"', '\''])
+        .strip_prefix("docsys/0.")
+        .and_then(|m| m.parse().ok())
+}
+
+/// The version notice's words for a tree served by rules older than this
+/// docsys's: what its `spec:` declares, in lint's terms (R-160, R-013), and
+/// whose rules serve it. A tree read as docsys/0.4 for want of a version is
+/// never said to declare one (D-118).
+pub fn served(root: &Path) -> String {
+    match declares(root) {
+        Declares::Version(m) => format!("declares docsys/0.{m} and is served by its rules"),
+        Declares::Other(s) => format!(
+            "declares `{s}`, no `docsys/0.<minor>` version, and is served by docsys/0.{FIRST}'s rules"
+        ),
+        Declares::Nothing => format!("declares no spec and is served by docsys/0.{FIRST}'s rules"),
+    }
+}
+
+/// What a tree's `spec:` declares, in lint's terms: `declares docsys/0.4`,
+/// `declares no spec`, or the value that is no version.
+pub fn declared(root: &Path) -> String {
+    match declares(root) {
+        Declares::Version(m) => format!("declares docsys/0.{m}"),
+        Declares::Other(s) => format!("declares `{s}`, no `docsys/0.<minor>` version"),
+        Declares::Nothing => "declares no spec".to_string(),
+    }
+}
+
+enum Declares {
+    Version(u32),
+    Other(String),
+    Nothing,
+}
+
+fn declares(root: &Path) -> Declares {
+    let spec = crate::tree::docmeta_value(root, "spec");
+    match spec.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+        Some(s) => minor(s).map_or_else(|| Declares::Other(s.to_string()), Declares::Version),
+        None => Declares::Nothing,
+    }
+}
+
 impl Era {
     pub fn of_spec(spec: Option<&str>) -> Era {
         if let Some(m) = PREVIEW.with(std::cell::Cell::get) {
             return Era(m);
         }
-        spec.map(|s| s.trim().trim_matches(['"', '\'']))
-            .and_then(|s| s.strip_prefix("docsys/0."))
-            .and_then(|m| m.parse().ok())
-            .map(Era)
-            .unwrap_or(Era(FIRST))
+        Era(spec.and_then(minor).unwrap_or(FIRST))
     }
 
     pub fn of(tree: &crate::tree::DocTree) -> Era {
@@ -176,6 +218,13 @@ impl Era {
     /// D-116: `lint`, `refs` and `gate` end with a pointer to `docsys feedback`
     /// under a finding of a rule that reads free text. Before: the findings alone.
     pub fn finding_pointers(self) -> bool {
+        self.v05()
+    }
+
+    /// D-040: a call that runs `git add` before its commit is asked about the
+    /// untracked files that `git add` may take too. Before: the tracked
+    /// changes alone.
+    pub fn untracked_in_question(self) -> bool {
         self.v05()
     }
 }

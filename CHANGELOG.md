@@ -9,7 +9,20 @@ by the release workflow — the tag's section becomes the GitHub release body.
 
 Every change below to a finding or a file format applies to a tree that
 declares `spec: docsys/0.5`; a tree that declares `docsys/0.4` is served as
-0.15.1 served it (D-118).
+0.15.1 served it (D-118), but for the values 0.15.1 misread, which one
+reader now reads alike under every spec (D-002). On a 0.4 tree
+`commit_policy: require   # …` is `require` to the gate and the relays, a
+pin's `path:` or `hash:` followed by a comment raises no R-111 or R-113, an
+inline list closed before a comment is read and its entries checked (R-059),
+and an inline list that never closes is named — R-050 in a page, R-161 in
+`.docmeta.yml` — instead of taking the next fields, so a page whose
+`sources:` swallowed `updated:` and `verifies:` loses that R-050 and shows
+the R-111 they hid. While such a list stays open, a writer of that file
+refuses, and an unclosed `maintainers:` names nobody: no approval counts and
+`verify` refuses. Lint's R-160 names a file it cannot read, and `debt add` or
+`question add` refuses a ledger it cannot read instead of writing over it.
+R-059 names the forms a source takes. Exit statuses and messages follow this
+release on every tree.
 
 ### Upgrading from 0.15.x
 
@@ -18,7 +31,9 @@ declares `spec: docsys/0.5`; a tree that declares `docsys/0.4` is served as
 - Every clone must install docsys >= 0.16.0 before pulling this change; a gate
   under .git/hooks cannot warn an old binary.
 - `docsys upgrade` prints the plan; `docsys upgrade --apply --commit` moves the
-  tree in one commit. The items it lists for a person are theirs to finish.
+  tree in one commit, and one empty commit for each further approver whose
+  verifications it carries. The items it lists for a person are theirs to
+  finish.
 - On docsys/0.5 a verified page whose body or consumed source moved is no
   longer a lint error or a gate refusal: it reads `unverified` until a
   maintainer approves it again; drift between code and a page still blocks
@@ -35,6 +50,18 @@ declares `spec: docsys/0.5`; a tree that declares `docsys/0.4` is served as
 
 - `docsys upgrade [--apply] [--commit] [--force]`: a docsys/0.4 tree to
   docsys/0.5 in one commit; what needs a person is listed, never applied (D-117).
+- `docsys upgrade` on a tree already at this version is the leftover check:
+  it lists what an earlier version left, each with its file and its fix — a
+  CI workflow installing another docsys version, the route lines an earlier
+  0.16 build appended, the post-edit relay and its wire, `updated:` lines and
+  verification fields in pages, a journal or ledger a late branch brought
+  back, an agent layer below the repository's top, team text naming a retired
+  concept, and the upgrade's own record left in the git directory — and a
+  tree with none says so in one line (D-117).
+- `upgrade --apply`, with `--commit` or without, ends with the leftover check
+  on the moved tree, and `/docsys-upgrade` ends by walking the person through
+  that list and lint, and names once what only the person decides (D-104,
+  D-117).
 - `/docsys-upgrade` and `docsys upgrade --json`: an agent finishes the items
   the upgrade lists for a person, with the person, and never sets `verified`
   (D-104).
@@ -69,6 +96,21 @@ declares `spec: docsys/0.5`; a tree that declares `docsys/0.4` is served as
 ### Changed
 
 - No native Windows build is released any more, and CI tests Linux and macOS.
+- The move writes no verification record into a page: a record that holds is
+  carried into history as `Verifies:` and `Approved-by:` in the move's commit,
+  with one empty commit after it for each further approver, a record by no
+  declared maintainer is listed for one, and the output says once how to
+  merge so the carried approvals survive (D-117, D-126).
+- A pin 0.15 read as fresh stays fresh after the move, acknowledged at the
+  region 0.5 reads or, where 0.5 finds no declaration of its symbol, pinned to
+  the whole file, so a tree that linted clean lints clean (D-117, D-119).
+- Of an owner's CI workflow the upgrade names only the line installing
+  another docsys version and, for a release install, that its sha256 values
+  come from the release page — never a rendering of the template's defaults
+  (D-111, D-117).
+- The step every clone takes after pulling an upgrade is said by the rules
+  block alone, no longer by the upgrade's output and commit message (D-117,
+  D-129).
 - A page's verification is read from history: verified when a commit
   carrying `Approved-by:` from a maintainer follows its last body change.
   Nothing is written into the page and no follow-up pull request is opened;
@@ -79,7 +121,10 @@ declares `spec: docsys/0.5`; a tree that declares `docsys/0.4` is served as
   post-edit relay with them (R-024, R-208, D-126; R-028 withdrawn).
 - A pin's evidence lives beside the page under `.verifies/`; a refresh never
   writes the page, and pull requests that refresh pins merge cleanly (D-119).
-- A pinned symbol resolves to its declaration, never to a use (D-106).
+- A pinned symbol resolves to its declaration, never to a use (D-106); in
+  TS/JS a function written as a value — a property `name: (…) => …` or
+  `name: function (…) {`, or a member assignment `a.name = function …` —
+  declares its name where nothing else in the file does.
 - The journal is the commit history: `docsys journal` renders every commit
   that changes the docs or carries a `Docs:` line, newest first, and
   `journal add` prints the `Docs:` line the commit ends with — a message of
@@ -147,9 +192,10 @@ declares `spec: docsys/0.5`; a tree that declares `docsys/0.4` is served as
   tree says R-160.
 - An unknown command is named and exits 2, `help` of one too; a flag's value
   is never another flag (D-129).
-- A reader that closes its end early (`| head`) ends the command quietly,
-  with a closed pipe's status (141), never a panic — on standard output and
-  standard error alike.
+- A reader that closes its end early (`| head`) ends a command quietly with a
+  closed pipe's status (141), never a panic; `lint`, `refs`, `gate` and the
+  relays' `hook` keep their verdict as their exit status, whoever runs them —
+  a git hook, a relay, or the same hook run by hand.
 - A command refuses a flag another command owns, with its own entry, instead
   of ignoring it; `help hook stop` answers with the hook's entry (D-129).
 - `upgrade --apply --commit` commits its move before it prints, from any
@@ -185,28 +231,84 @@ declares `spec: docsys/0.5`; a tree that declares `docsys/0.4` is served as
   true for the mode: a re-run once, a `git add` only when the blocked call
   ran one, the commit relay's header says what it does under
   `commit_policy: require`, the commit-msg hook says what its half stops, an
-  applied upgrade prints no forecast of findings and the per-clone step once,
-  and a docsys/0.4 tree's checklist names no 0.5 step (D-129, D-126).
+  applied upgrade prints no forecast of findings, and a docsys/0.4 tree's
+  checklist names no 0.5 step (D-129, D-126).
 - `agents`, `agents --kb` and `assistant` write a layer through one installer:
   `agents --kb --root .` on a project is refused, and an assistant's base
   inside a project's repository leaves the project's git gate as 0.15.1 left
   it (D-098, D-118).
-- Inside a git hook a reader that closed its end of the output never refuses
-  a commit the gate lets through.
+- A skipped commit (`DOCSYS_SKIP=1`) says something only when the debt item
+  `commit_policy: require` asks for cannot be written, and then says why; a
+  lint error the person skipped no longer prints a pointer to a reason nobody
+  sees (R-209).
+- A `git add` in the call the commit relay sees takes untracked files too: a
+  new code file staged and committed in one call is asked about (D-040).
+- On docsys/0.5 the relays name the bypass as the person's —
+  `DOCSYS_SKIP=1 git commit` at their terminal — since they refuse it in the
+  agent's own command (R-209).
 - A page that names a pin takes part in verification, `sources:` or not
   (§3.2, D-126).
 - `migrate inventory --repo .` lists the inbound references from the tree's
   own directory, `migrate apply` from below lints the tree it migrated, and
   `doctor` names a missing agent layer and its relays from the top (D-098).
 - An upgrade commit holds the move's files and no other: a change staged
-  beside a pending move is refused by name, `--force` commits the whole
-  recorded move without it, a move committed by hand leaves no record that a
-  later run would take for its own, and a path git ignores stays out (R-177).
-- A list that never closes with `]` is named by its field and line, never
-  takes the next field's line as an item, and every writer that would
-  replace a field refuses on it and writes nothing (D-002).
-- `debt add` never writes over a topic file it cannot read, and `debt close`
-  closes an item in a file with CRLF line endings.
+  beside a pending move is refused by name, a move committed by hand leaves
+  no record that a later run would take for its own, and a path git ignores
+  stays out; an edit of the person's to a file the move writes — staged,
+  unstaged, or made after a bare `--apply` — is refused, `--force` or not,
+  naming each file and writing nothing (R-177, D-117).
+- The plan and the move refuse a tree whose `.docmeta.yml`, a page or a
+  template holds an inline list that never closes, naming each file, field
+  and line, and write nothing (D-002, D-117).
+- A `.docmeta.yml` with no readable `spec:` line declares the new spec after
+  the move, as the plan says (D-117, D-118).
+- The upgrade says each thing once: the plan leaves to the release note how
+  it is applied, the post-edit relay's reason is said on one row, and a tree
+  with nothing to do is not offered `--apply` (D-129).
+- An `Approved-by:` speaks for the pages its own trailer block names in
+  `Verifies:`, and only a block that names none approves every page its
+  commit changed: a squash message holding several commits' trailers credits
+  each page to its own approver, and a commit that changes pages beside the
+  ones it names approves none of the others (D-126).
+- A list that never closes with `]` is named by its field and its own line,
+  in `.docmeta.yml` too, and never takes the next field's line as an item;
+  every writer of a frontmatter that holds one refuses by file, field and
+  line and writes nothing (`pin`, `pin --refresh`, `pin --gc`, `raw move`,
+  and `verify` on a docsys/0.4 tree), `raw move` and `forget` refuse while a
+  page's `sources:` cannot be read, and `fetch` refuses an unclosed
+  `consume:` (D-002).
+- An unclosed `maintainers:` list names nobody rather than declaring no
+  maintainers: `verify`, `verify --approval` and `graduate apply --confirmed`
+  refuse by its line, and no approval in history counts as a maintainer's
+  until the list closes (R-208, D-002).
+- `debt add` reads `.docmeta.yml` and its own file and no page, so a file it
+  cannot read elsewhere no longer blocks it; a topic file or docsys/0.4
+  ledger `debt add` or `question add` cannot read is refused by name and
+  left as it is; `debt close` and `question close` name a topic file they
+  cannot read instead of saying there is no open item, and close an item in a
+  file with CRLF line endings.
+- Lint's R-160 line names the file the tree could not read.
+- A flag's value is never a single-dash flag either: `-h` after a value flag
+  answers with the entry, `-V` or `-x` there is refused by name, and `-1` and
+  `-` stay values (D-129).
+- A bad invocation exits 2, as the exit table says, never 1, which is
+  blocking findings alone: a missing or wrong argument, or one that names
+  nothing the tree holds, to `backlinks`, `mentions`, `graph`, `debt add`,
+  `debt close`, `question add`, `question close`, `ledger fix`, `journal
+  add`, `page new` or `seed`; `pin` and `backlinks` name themselves once.
+- `docsys hook` without an event names the word it needs and exits 2, and a
+  word after the event is refused alone, never listed among the events to
+  choose from (D-129).
+- The version notice, `doctor` and graduation say what a tree's `spec:`
+  declares: a tree that declares no spec, or a value that is no
+  `docsys/0.<minor>` version, is told it is served by docsys/0.4's rules,
+  never that it declares docsys/0.4 (D-118).
+- `docsys help adopt` names the skills and slash commands adopt writes.
+- Each fact is said once: `docsys --help` lets adopt's row say where a
+  repository starts, the feedback guide leaves the environment to its
+  template's line, and `/docsys-seed`'s overview step points at the evidence
+  step 2 presented (D-129).
+- SPEC's R-076 and R-101 cite R-151, which absorbed the withdrawn R-150.
 - A shell pin's region keeps `$#`, `${#a[@]}` and `v1#x` as code: only a `#`
   where a word starts is a comment (D-119).
 - `impl Trait` in a function's signature is no impl block to a symbol pin.
