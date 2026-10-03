@@ -2027,6 +2027,12 @@ fn the_move_strips_every_verification_and_carries_none() {
             .replace("maintainers: []", "maintainers: [ayse]"),
     )
     .unwrap();
+    // a page outside the type directories carries its fields too
+    fs::write(
+        repo.join("docs/loose.md"),
+        "---\nid: loose\ntype: explanation\nverification: verified\nverified_by: maintainer\nverified_rev: abc1234\nverifies:\n  - path: src/auth.rs\n---\n# Loose\n\nThis page sits beside the index; read it as it is.\n",
+    )
+    .unwrap();
     commit_quietly(&repo, "a maintainer");
     let head = git(&repo, &["rev-parse", "HEAD"]);
     let out = docsys(&repo, &["upgrade", "--apply", "--commit"]);

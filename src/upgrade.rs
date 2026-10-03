@@ -1268,7 +1268,7 @@ fn maintainers(ctx: &Ctx, u: &mut Upgrade, apply: bool) -> Result<(), String> {
 /// acknowledgements under `.pins/` (D-130): no 0.5 name says verify.
 fn pin_names(ctx: &Ctx, u: &mut Upgrade, apply: bool) -> Result<(), String> {
     let tree = DocTree::load(ctx.root).map_err(|e| e.to_string())?;
-    for page in tree.pages.iter().filter(|p| p.kind == Kind::Permanent) {
+    for page in tree.pages.iter().filter(|p| p.kind != Kind::Raw) {
         let Some(fm) = &page.fm else { continue };
         if !fm.fields.contains_key("verifies") {
             continue;
@@ -1358,9 +1358,10 @@ const RECORD_FIELDS: [&str; 5] = [
 /// records: a docsys/0.5 page carries no verification (D-130), so every
 /// field a record took leaves every page, and nothing is carried.
 fn records(ctx: &Ctx, u: &mut Upgrade, apply: bool) -> Result<(), String> {
-    // the pages as the steps before left them
+    // the pages as the steps before left them: every file with a frontmatter
+    // but the records, which are never edited (R-023)
     let tree = DocTree::load(ctx.root).map_err(|e| e.to_string())?;
-    for page in tree.pages.iter().filter(|p| p.kind == Kind::Permanent) {
+    for page in tree.pages.iter().filter(|p| p.kind != Kind::Raw) {
         let Some(fm) = &page.fm else { continue };
         if !RECORD_FIELDS.iter().any(|k| fm.fields.contains_key(*k)) {
             continue;
