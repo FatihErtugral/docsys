@@ -443,18 +443,39 @@ fn retired_concepts(ctx: &Ctx, u: &mut Upgrade, tables: &[&str]) {
                 continue;
             }
             let lower = line.to_lowercase();
+            // one item a line, naming each concept it holds once
+            let mut named: Vec<String> = Vec::new();
+            let mut replaced: Vec<&str> = Vec::new();
             for (literal, replacement) in rows.iter().filter(|(l, _)| lower.contains(l.as_str())) {
-                if listed < 50 {
-                    u.item(
-                        "manual",
-                        "retired-concepts",
-                        &format!("{file}:{}", i + 1),
-                        format!("names `{literal}`, which docsys/0.5 retired — {replacement}"),
-                    );
-                    listed += 1;
+                let shown = if literal.contains('`') {
+                    literal.clone()
                 } else {
-                    more += 1;
+                    format!("`{literal}`")
+                };
+                if !named.contains(&shown) {
+                    named.push(shown);
                 }
+                if !replaced.contains(replacement) {
+                    replaced.push(replacement);
+                }
+            }
+            if named.is_empty() {
+                continue;
+            }
+            if listed < 50 {
+                u.item(
+                    "manual",
+                    "retired-concepts",
+                    &format!("{file}:{}", i + 1),
+                    format!(
+                        "names {}, which docsys/0.5 retired — {}",
+                        named.join(" and "),
+                        replaced.join("; ")
+                    ),
+                );
+                listed += 1;
+            } else {
+                more += 1;
             }
         }
     }

@@ -1268,7 +1268,11 @@ fn text_docsys_did_not_write_is_listed_where_it_names_a_retired_concept() {
     };
     assert!(at(" CLAUDE.md:7 ", "`work/journal`"), "{plan}");
     assert!(at(" CLAUDE.md:7 ", "`journal line`"), "{plan}");
-    assert!(at(" .claude/rules/docs.md:1 ", "``updated:``"), "{plan}");
+    assert!(at(" .claude/rules/docs.md:1 ", "`updated:`"), "{plan}");
+    assert!(
+        !plan.contains("``updated:``"),
+        "a literal is quoted once: {plan}"
+    );
     assert!(
         at(" .claude/commands/ship.md:4 ", "`work/debt.md`"),
         "{plan}"
@@ -1281,7 +1285,8 @@ fn text_docsys_did_not_write_is_listed_where_it_names_a_retired_concept() {
         listed.iter().all(|l| !l.contains("docsys-")),
         "docsys's own assets: {plan}"
     );
-    assert_eq!(listed.len(), 4, "{plan}");
+    // one item per line, whatever it names
+    assert_eq!(listed.len(), 3, "{plan}");
     // the move edits none of it
     let out = docsys(&repo, &["upgrade", "--apply", "--commit"]);
     assert!(out.status.success(), "{out:?}");
