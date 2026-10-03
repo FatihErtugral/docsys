@@ -358,8 +358,10 @@ documentation owns those.
 **R-034** `lint` · MUST — Every permanent page MUST be reachable from the root
 router (`index.md`). A router line that routes a directory makes every page
 under it reachable, and each page's opening (R-032) is its one-sentence hook,
-so a new page under a routed directory needs no line of its own (D-123). An
-unreachable page is an orphan and **is reported**:
+so a new page under a routed directory needs no line of its own. In the
+`project` profile the layout routes the type directories, so a page under one
+needs no line at all and the orphan check has nothing to read there: it reads
+a knowledge base (D-123). An unreachable page is an orphan and **is reported**:
 adding the router line afterwards is routine and reversible, so blocking here
 would be the friction R-151 warns about. The check is applicable (R-011) only
 when at least one permanent page exists.

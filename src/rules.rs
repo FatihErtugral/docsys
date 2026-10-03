@@ -160,7 +160,9 @@ pub fn agents_md() -> String {
          (flowing: features, postmortems, research, debt, questions). The journal is\n\
          the commit history: a commit message says what and why, `Docs: <why>` when\n\
          no page changed (`docsys journal`).\n\
-         `index.md` routes every permanent page.\n\n\
+         A type's folder appears with its first page, through\n\
+         `docsys page new <type> <id>`; the layout reaches every page under it,\n\
+         and `index.md` routes the rest.\n\n\
          Mechanics are the tool's job — run them, never re-derive them:\n\
          - `docsys lint` before every commit\n\
          - `docsys refs --repo .` when code references documentation\n\

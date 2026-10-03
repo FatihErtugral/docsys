@@ -1813,6 +1813,15 @@ fn check_router_and_orphans(tree: &DocTree, r: &mut Report) {
     };
     let mut reachable: BTreeSet<String> = BTreeSet::new();
     let mut queue = links_of(router);
+    // on docsys/0.5 a project's layout routes its type directories: a page
+    // under one is reachable with no line of its own (D-123)
+    if tree.profile == Profile::Project && crate::era::Era::of(tree).directory_routes() {
+        queue.extend(
+            crate::tree::PERMANENT_DIRS
+                .iter()
+                .map(|d| (format!("{d}/"), true)),
+        );
+    }
     while let Some((t, from_router)) = queue.pop() {
         if let Some(dir) = routed_directory(tree, &t).filter(|_| from_router) {
             queue.extend(

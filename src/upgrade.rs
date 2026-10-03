@@ -1455,27 +1455,19 @@ fn free_slice(root: &Path, ledger: &str) -> String {
     name
 }
 
-/// routes: the index routes the type directories, so a new page adds no line
-/// to it (D-123); every existing line stays where it is (R-172).
+/// routes: the layout routes the type directories (D-123), so the route lines
+/// an earlier 0.16 build appended leave the index — exactly those lines;
+/// every other line stays where it is (R-172).
 fn routes(ctx: &Ctx, u: &mut Upgrade, apply: bool) -> Result<(), String> {
     let path = ctx.root.join("index.md");
     let Ok(text) = fs::read_to_string(&path) else {
         return Ok(());
     };
-    let missing: Vec<&str> = crate::migrate::DIRECTORY_ROUTES
-        .iter()
-        .copied()
-        .filter(|line| {
-            // the link itself, `[[reference/|`, never a page under it
-            let link = line
-                .trim_start_matches("- ")
-                .split('|')
-                .next()
-                .unwrap_or("");
-            !text.contains(&format!("{link}|"))
-        })
-        .collect();
-    if missing.is_empty() {
+    let gone = text
+        .lines()
+        .filter(|l| crate::migrate::DIRECTORY_ROUTES.contains(l))
+        .count();
+    if gone == 0 {
         return Ok(());
     }
     let file = format!("{}index.md", ctx.prefix);
@@ -1484,19 +1476,16 @@ fn routes(ctx: &Ctx, u: &mut Upgrade, apply: bool) -> Result<(), String> {
         "routes",
         &file,
         format!(
-            "{} directory route(s) appended: a new page under a routed directory needs no line (D-123)",
-            missing.len()
+            "{gone} type-directory route line(s) docsys wrote taken out: the layout routes those directories (D-123)"
         ),
     );
     if apply {
-        let mut new = text;
-        if !new.ends_with('\n') {
-            new.push('\n');
-        }
-        for line in missing {
-            new.push_str(line);
-            new.push('\n');
-        }
+        let new: String = text
+            .split_inclusive('\n')
+            .filter(|l| {
+                !crate::migrate::DIRECTORY_ROUTES.contains(&l.trim_end_matches(['\n', '\r']))
+            })
+            .collect();
         fs::write(&path, new).map_err(|e| e.to_string())?;
         u.written.push(file);
     }

@@ -5,7 +5,9 @@ Layout: `reference/` · `howto/` · `explanation/` · `tutorial/` · `work/`
 (flowing: features, postmortems, research, debt, questions). The journal is
 the commit history: a commit message says what and why, `Docs: <why>` when
 no page changed (`docsys journal`).
-`index.md` routes every permanent page.
+A type's folder appears with its first page, through
+`docsys page new <type> <id>`; the layout reaches every page under it,
+and `index.md` routes the rest.
 
 Mechanics are the tool's job — run them, never re-derive them:
 - `docsys lint` before every commit

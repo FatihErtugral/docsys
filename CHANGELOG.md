@@ -107,8 +107,8 @@ declares `spec: docsys/0.5`; a tree that declares `docsys/0.4` is served as
   `upgrade` removes no graduated or archived work file (R-049, R-066, R-081,
   R-091, R-093, D-127).
 - A router line may route a directory, and every page under it is reachable;
-  `adopt` routes the four type directories, so a new page adds no line to
-  `index.md`, and `upgrade` appends the routes and keeps every line (R-034,
+  the layout routes the four type directories, so a new page there adds no
+  line to `index.md`, and nothing writes a route to a type directory (R-034,
   R-035, D-123).
 - A page's date is its last content change in history: nothing writes
   `updated:`, a page that still carries it is reported, and `upgrade` removes

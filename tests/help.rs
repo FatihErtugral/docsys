@@ -500,6 +500,10 @@ fn each_fact_is_said_in_one_place() {
         ("a howto's complete steps", &["steps are complete"]),
         ("the plan skeleton", &["plan skeleton"]),
         (
+            "a type's folder appears with its first page",
+            &["appears with its first page"],
+        ),
+        (
             "blocks move as written",
             &["never retype", "byte for byte", "byte-exact"],
         ),
@@ -1008,4 +1012,23 @@ fn help_adopt_says_what_it_writes() {
     for what in ["tree", "rules", "hooks", "git gate", "ADOPTION.md"] {
         assert!(text.contains(what), "{what}: {text}");
     }
+}
+
+/// The always-loaded block names the four types and says, once, that a
+/// type's folder appears with its first page through `docsys page new`
+/// (R-043): an agent on any machine knows a missing folder is not a missing
+/// type.
+#[test]
+fn the_block_says_a_type_folder_appears_with_its_first_page() {
+    let (ok, block) = run(&["rules", "--agents-md"]);
+    assert!(ok, "{block}");
+    let folded = block.split_whitespace().collect::<Vec<_>>().join(" ");
+    for ty in ["`reference/`", "`howto/`", "`explanation/`", "`tutorial/`"] {
+        assert!(folded.contains(ty), "{ty}: {block}");
+    }
+    assert!(
+        folded.contains("appears with its first page")
+            && folded.contains("`docsys page new <type> <id>`"),
+        "{block}"
+    );
 }

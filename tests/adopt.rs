@@ -799,9 +799,9 @@ fn an_ignored_report_is_updated_where_it_is() {
     let _ = fs::remove_dir_all(&repo);
 }
 
-/// D-123: the index `adopt` writes routes the four type directories, so a new
-/// page is reachable without a line of its own, and `page new` stops asking
-/// for one.
+/// D-123: the layout routes the four type directories, so the index `adopt`
+/// writes holds no route to them, a new page is reachable without a line of
+/// its own, and `page new` does not ask for one.
 #[test]
 fn a_new_page_under_a_routed_directory_needs_no_index_line() {
     let repo = tmp("routes");
@@ -810,7 +810,7 @@ fn a_new_page_under_a_routed_directory_needs_no_index_line() {
     docsys::adopt::run(&repo, &docs, "en").unwrap();
     let index = fs::read_to_string(docs.join("index.md")).unwrap();
     for dir in ["reference", "howto", "explanation", "tutorial"] {
-        assert!(index.contains(&format!("- [[{dir}/|")), "{index}");
+        assert!(!index.contains(&format!("- [[{dir}/|")), "{index}");
     }
     let made = docsys::capture::page_new(&docs, "reference", "limits", None, false).unwrap();
     assert!(made.contains("reference/limits.md"), "{made}");

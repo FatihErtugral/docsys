@@ -36,7 +36,6 @@ auto    assets             .claude/commands/docsys-interview.md  refreshed: a te
 auto    assets             .claude/skills/docsys/SKILL.md  refreshed: a text docsys 0.15.0 wrote, untouched
 auto    assets             .claude/skills/docsys-export/SKILL.md  refreshed: a text docsys 0.4.0 wrote, untouched
 auto    dates              docs  `updated:` removed from 6 page(s) and template(s): a page's date is its last content change in history (D-122)
-auto    routes             docs/index.md  4 directory route(s) appended: a new page under a routed directory needs no line (D-123)
 manual  verified-record    docs/reference/expiry.md  the body changed since @REV@ — never recorded blind; a maintainer reads it and verifies it again: `docsys verify reference/expiry.md`
 auto    verified-record    docs/reference/refresh.md  the body @REV@ holds is the body now: `verified_blocks` recorded
 manual  pins               docs/reference/expiry.md  `src/auth.rs#expire`: stale before the upgrade, still stale — re-read the page against it: `docsys pin --refresh reference/expiry.md`
@@ -50,7 +49,7 @@ manual  code-citations     src/auth.rs:8  `doc: expiry` sits mid-comment: from 0
 info    raw-records        docs/raw/  1 record(s): from 0.5 a record layer — their dangling references are reported, an edited record stops the commit (R-023)
 auto    spec-line          docs/.docmeta.yml  `spec: docsys/0.4` → `spec: docsys/0.5`
 auto    pin                docs/.docsys-version  no pin → `0.16.0`: every docsys call here runs it
--- 25 automatic, 5 for a person, 1 for information
+-- 24 automatic, 5 for a person, 1 for information
 judged by docsys/0.5 as the tree is now: 7 new finding(s), 1 gone — the steps above clear their part
 + WARN R-024 reference/expiry.md [record] a verification field in the page — on docsys/0.5 the state is read from history (an `Approved-by:` after the last body change, D-126), and this no longer holds; `docsys upgrade --apply` takes it out
 + WARN R-050 reference/expiry.md [updated] `updated:` is not kept on docsys/0.5 — a page's date is its last content change in history; `docsys upgrade --apply` removes the line

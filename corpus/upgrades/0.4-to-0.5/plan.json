@@ -129,13 +129,6 @@
       "command": null
     },
     {
-      "strategy": "auto",
-      "step": "routes",
-      "file": "docs/index.md",
-      "what": "4 directory route(s) appended: a new page under a routed directory needs no line (D-123)",
-      "command": null
-    },
-    {
       "strategy": "manual",
       "step": "verified-record",
       "file": "docs/reference/expiry.md",

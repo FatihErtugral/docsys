@@ -473,10 +473,8 @@ pub fn page_new(
             (true, false) => "verification: unverified\nsources: []\n",
             (false, _) => "",
         };
-        // a directory the index routes already reaches the page (D-123)
-        let routed = crate::era::Era::at(root).directory_routes()
-            && fs::read_to_string(root.join("index.md"))
-                .is_ok_and(|i| i.contains(&format!("[[{kind}/|")));
+        // on docsys/0.5 the layout routes the type directories (D-123)
+        let routed = crate::era::Era::at(root).directory_routes();
         let route = if routed {
             ""
         } else {
