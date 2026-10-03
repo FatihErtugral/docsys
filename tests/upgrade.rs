@@ -1421,8 +1421,7 @@ fn every_gate_names_the_pin_once_and_a_merge_is_a_gate_too() {
     assert_eq!(said.matches("installing it once").count(), 1, "{said}");
     assert!(
         said.lines()
-            .filter(|l| l.starts_with("docsys:"))
-            .last()
+            .rfind(|l| l.starts_with("docsys:"))
             .is_some_and(|l| l.contains("could not be installed")),
         "{said}"
     );
