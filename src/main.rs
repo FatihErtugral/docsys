@@ -110,20 +110,6 @@ struct Opts {
     positional: Vec<String>,
 }
 
-/// What docsys does not know, named — then the nearest help: the entries of
-/// the command it starts with, else the list (D-129).
-fn unknown(words: &[&str]) -> ExitCode {
-    eprintln!("docsys: `{}` is no docsys command", words.join(" "));
-    eprint!(
-        "{}",
-        words
-            .first()
-            .and_then(|w| docsys::help::of(&[w]))
-            .unwrap_or_else(docsys::help::overview)
-    );
-    ExitCode::from(2)
-}
-
 /// A flag's value: the next argument, never another flag.
 fn value<'a>(it: &mut std::slice::Iter<'a, String>, need: &str) -> Result<&'a String, String> {
     match it.next() {
@@ -207,112 +193,103 @@ fn parse_opts(args: &[String]) -> Result<Opts, String> {
     };
     let mut it = args.iter();
     while let Some(a) = it.next() {
+        // a value flag takes the next argument, never another flag; the table
+        // says which flags take one (D-129)
+        let v = if docsys::help::takes_value(a) {
+            let need = match a.as_str() {
+                "--message" => "--message needs a file".to_string(),
+                "--approval" => "--approval needs a @login".to_string(),
+                "--block" => "--block needs a block number".to_string(),
+                other => format!("{other} needs a value"),
+            };
+            value(&mut it, &need)?.clone()
+        } else {
+            String::new()
+        };
+        let val = || v.clone();
         match a.as_str() {
-            "--root" => o.root = PathBuf::from(value(&mut it, "--root needs a value")?),
+            "--root" => o.root = PathBuf::from(val()),
             "--lang" => {
-                o.lang = value(&mut it, "--lang needs a value")?.clone();
+                o.lang = val();
                 o.lang_explicit = true;
             }
-            "--plan" => o.plan = Some(PathBuf::from(value(&mut it, "--plan needs a value")?)),
-            "--out" => o.out = Some(PathBuf::from(value(&mut it, "--out needs a value")?)),
-            "--title" => o.title = Some(value(&mut it, "--title needs a value")?.clone()),
+            "--plan" => o.plan = Some(PathBuf::from(val())),
+            "--out" => o.out = Some(PathBuf::from(val())),
+            "--title" => o.title = Some(val()),
             "--follow" => o.follow = true,
-            "--audience" => o.audience = Some(value(&mut it, "--audience needs a value")?.clone()),
-            "--profile" => o.profile = Some(value(&mut it, "--profile needs a value")?.clone()),
+            "--audience" => o.audience = Some(val()),
+            "--profile" => o.profile = Some(val()),
             "--kb" => o.kb = true,
-            "--repo" => o.repo = Some(PathBuf::from(value(&mut it, "--repo needs a value")?)),
-            "--dir" => o.dir = PathBuf::from(value(&mut it, "--dir needs a value")?),
+            "--repo" => o.repo = Some(PathBuf::from(val())),
+            "--dir" => o.dir = PathBuf::from(val()),
             "--force" => o.force = true,
             "--unverified" => o.unverified = true,
             "--stdin" => o.stdin = true,
-            "--by" => o.by = Some(value(&mut it, "--by needs a value")?.clone()),
+            "--by" => o.by = Some(val()),
             "--confirmed" => {
-                o.confirmed = Some(value(&mut it, "--confirmed needs a value")?.clone());
+                o.confirmed = Some(val());
             }
             "--commit" => o.commit = true,
             "--revoke" => o.revoke = true,
             "--show" => o.show = true,
             "--from-trailers" => o.from_trailers = true,
             "--skipped" => o.skipped = true,
-            "--target" => o.target = Some(value(&mut it, "--target needs a value")?.clone()),
-            "--since" => o.since = Some(value(&mut it, "--since needs a value")?.clone()),
-            "--memory" => o.memory = Some(PathBuf::from(value(&mut it, "--memory needs a value")?)),
-            "--note" => o.note = Some(value(&mut it, "--note needs a value")?.clone()),
-            "--message" => {
-                o.message = Some(PathBuf::from(value(&mut it, "--message needs a file")?))
-            }
-            "--deferred" => o.deferred = Some(value(&mut it, "--deferred needs a value")?.clone()),
-            "--repay-when" => {
-                o.repay_when = Some(value(&mut it, "--repay-when needs a value")?.clone())
-            }
-            "--answer" => o.answer = Some(value(&mut it, "--answer needs a value")?.clone()),
-            "--approval" => o.approval = Some(value(&mut it, "--approval needs a @login")?.clone()),
-            "--topic" => o.topic = Some(value(&mut it, "--topic needs a value")?.clone()),
-            "--context" => o.context = Some(value(&mut it, "--context needs a value")?.clone()),
-            "--reason" => o.note = Some(value(&mut it, "--reason needs a value")?.clone()),
-            "--date" => o.date = Some(value(&mut it, "--date needs a value")?.clone()),
-            "--link" => o.link = Some(value(&mut it, "--link needs a value")?.clone()),
-            "--format" => o.format = Some(value(&mut it, "--format needs a value")?.clone()),
+            "--target" => o.target = Some(val()),
+            "--since" => o.since = Some(val()),
+            "--memory" => o.memory = Some(PathBuf::from(val())),
+            "--note" => o.note = Some(val()),
+            "--message" => o.message = Some(PathBuf::from(val())),
+            "--deferred" => o.deferred = Some(val()),
+            "--repay-when" => o.repay_when = Some(val()),
+            "--answer" => o.answer = Some(val()),
+            "--approval" => o.approval = Some(val()),
+            "--topic" => o.topic = Some(val()),
+            "--context" => o.context = Some(val()),
+            "--reason" => o.note = Some(val()),
+            "--date" => o.date = Some(val()),
+            "--link" => o.link = Some(val()),
+            "--format" => o.format = Some(val()),
             "--obsidian" => o.obsidian = true,
             "--draft" => o.draft = true,
             "--apply" => o.apply = true,
-            "--type" => o.kind = Some(value(&mut it, "--type needs a value")?.clone()),
-            "--rule" => o.rule = Some(value(&mut it, "--rule needs a value")?.clone()),
-            "--command" => o.command = Some(value(&mut it, "--command needs a value")?.clone()),
+            "--type" => o.kind = Some(val()),
+            "--rule" => o.rule = Some(val()),
+            "--command" => o.command = Some(val()),
             "--agents-md" => o.agents_md = true,
-            "--write" => o.write = Some(PathBuf::from(value(&mut it, "--write needs a value")?)),
+            "--write" => o.write = Some(PathBuf::from(val())),
             "--report" => o.report = true,
             "--procedures" => o.procedures = true,
             "--max-lines" => {
-                o.max_lines = value(&mut it, "--max-lines needs a value")?
+                o.max_lines = val()
                     .parse()
                     .map_err(|_| "--max-lines needs a number".to_string())?;
             }
             "--json" => o.json = true,
-            "--range" => o.range = Some(value(&mut it, "--range needs a value")?.clone()),
+            "--range" => o.range = Some(val()),
             "--refresh" => o.refresh = true,
             "--gc" => o.gc = true,
-            "--symbol" => o.symbol = Some(value(&mut it, "--symbol needs a value")?.clone()),
+            "--symbol" => o.symbol = Some(val()),
             "--block" => {
-                o.block = Some(
-                    value(&mut it, "--block needs a block number")?
-                        .parse()
-                        .map_err(|_| {
-                            "--block needs a block number, as `docsys verify --show <page>` numbers them"
-                                .to_string()
-                        })?,
-                );
+                o.block = Some(val().parse().map_err(|_| {
+                    "--block needs a block number, as `docsys verify --show <page>` numbers them"
+                        .to_string()
+                })?);
             }
-            "--as" => o.as_ns = Some(value(&mut it, "--as needs a value")?.clone()),
-            "--source" => o.source = Some(value(&mut it, "--source needs a value")?.clone()),
-            "--id" => o.source_id = Some(value(&mut it, "--id needs a value")?.clone()),
-            "--url" => o.url = Some(value(&mut it, "--url needs a value")?.clone()),
+            "--as" => o.as_ns = Some(val()),
+            "--source" => o.source = Some(val()),
+            "--id" => o.source_id = Some(val()),
+            "--url" => o.url = Some(val()),
             "--all" => o.all = true,
-            "--rules-file" => {
-                o.rules_file = Some(PathBuf::from(value(&mut it, "--rules-file needs a value")?))
-            }
-            "--report-dir" => {
-                o.report_dir = Some(PathBuf::from(value(&mut it, "--report-dir needs a value")?))
-            }
+            "--rules-file" => o.rules_file = Some(PathBuf::from(val())),
+            "--report-dir" => o.report_dir = Some(PathBuf::from(val())),
             "--no-report" => o.no_report = true,
-            "--ci-runner" => {
-                o.ci_runner = Some(value(&mut it, "--ci-runner needs a value")?.clone())
-            }
-            "--ci-install" => {
-                o.ci_install = Some(value(&mut it, "--ci-install needs a value")?.clone())
-            }
-            "--ci-sha256" => {
-                o.ci_sha256 = Some(value(&mut it, "--ci-sha256 needs a value")?.clone())
-            }
-            "--verify-on-approval" => {
-                o.verify_on_approval =
-                    Some(value(&mut it, "--verify-on-approval needs a value")?.clone())
-            }
-            "--projects" => o
-                .projects
-                .push(PathBuf::from(value(&mut it, "--projects needs a value")?)),
+            "--ci-runner" => o.ci_runner = Some(val()),
+            "--ci-install" => o.ci_install = Some(val()),
+            "--ci-sha256" => o.ci_sha256 = Some(val()),
+            "--verify-on-approval" => o.verify_on_approval = Some(val()),
+            "--projects" => o.projects.push(PathBuf::from(val())),
             "--domains" => {
-                o.domains = value(&mut it, "--domains needs a value")?
+                o.domains = val()
                     .split(',')
                     .map(|d| d.trim().to_string())
                     .filter(|d| !d.is_empty())
@@ -320,7 +297,7 @@ fn parse_opts(args: &[String]) -> Result<Opts, String> {
             }
             "--limit" => {
                 o.limit = Some(
-                    value(&mut it, "--limit needs a value")?
+                    val()
                         .parse()
                         .map_err(|_| "--limit needs a number".to_string())?,
                 );
@@ -475,85 +452,39 @@ fn agents_root(opts: &Opts) -> PathBuf {
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
-    let (cmd, sub, rest): (&str, Option<&str>, &[String]) = match args.split_first() {
-        Some((c, r))
-            if c == "migrate"
-                || c == "graduate"
-                || c == "export"
-                || c == "hook"
-                || c == "seed"
-                || c == "debt"
-                || c == "question"
-                || c == "ledger"
-                || c == "journal"
-                || c == "page"
-                || c == "consume"
-                || c == "inbox"
-                || c == "raw" =>
-        {
-            match r.split_first() {
-                // a flag is no sub-command: `docsys journal --since <d>`
-                Some((s, r2)) if !s.starts_with('-') => (c.as_str(), Some(s.as_str()), r2),
-                _ => (c.as_str(), None, r),
-            }
+    // the command table reads the line: what it names, and what it refuses
+    // (D-129)
+    let (entry, words, from) = match docsys::help::read(&args) {
+        Ok(docsys::help::Read::Run { entry, words, from }) => (entry, words, from),
+        Ok(docsys::help::Read::Help(text)) => {
+            print!("{text}");
+            return ExitCode::SUCCESS;
         }
-        Some((c, r)) => (c.as_str(), None, r),
-        None => ("", None, &[]),
-    };
-    // `docsys <command> [<sub>] --help`: its flags and an example
-    if !matches!(cmd, "--help" | "-h") && rest.iter().any(|a| a == "--help" || a == "-h") {
-        let words: Vec<&str> = std::iter::once(cmd).chain(sub).collect();
-        return match docsys::help::of(&words) {
-            Some(text) => {
-                print!("{text}");
-                ExitCode::SUCCESS
+        Err(r) => {
+            if !r.line.is_empty() {
+                eprintln!("{}", r.line);
             }
-            None => unknown(&words),
-        };
-    }
-    // a command takes the flags its entry names and no other (D-129); a value
-    // is never another flag, so each `--word` here is one
-    let words: Vec<&str> = std::iter::once(cmd).chain(sub).collect();
-    let root_given = rest.iter().any(|a| a == "--root");
-    if let Some(allowed) = docsys::help::flags_of(&words) {
-        if let Some(stray) = rest
-            .iter()
-            .find(|a| a.starts_with("--") && !allowed.contains(&a.as_str()))
-        {
-            let name = docsys::help::entry(&words).map_or(cmd, |c| c.name);
-            // the command it belongs to, where that is one or two
-            let owners: Vec<&str> = docsys::help::COMMANDS
-                .iter()
-                .filter(|c| {
-                    docsys::help::flags_of(&[c.name]).is_some_and(|f| f.contains(&stray.as_str()))
-                })
-                .map(|c| c.name)
-                .collect();
-            let theirs = match owners.as_slice() {
-                [one] => format!(" — `docsys {one} {stray}` takes it"),
-                [a, b] => format!(" — `docsys {a}` and `docsys {b}` take it"),
-                _ => String::new(),
-            };
-            eprintln!("`{stray}` is no flag of {name}{theirs}");
-            eprint!("{}", docsys::help::of(&[name]).unwrap_or_default());
+            eprint!("{}", r.entries);
             return ExitCode::from(2);
         }
-    }
+    };
+    let rest: &[String] = args.get(from..).unwrap_or_default();
+    let (cmd, sub): (&str, Option<&str>) = match entry.name.split_once(' ') {
+        Some((c, s)) => (c, Some(s)),
+        // a hook's event is its sub-command here
+        None if entry.name == "hook" => (entry.name, words.first().map(String::as_str)),
+        None => (entry.name, None),
+    };
+    let root_given = rest.iter().any(|a| a == "--root");
     let mut opts = match parse_opts(rest) {
         Ok(o) => o,
         Err(e) => {
-            // the command's own help, where it has one
-            let words: Vec<&str> = std::iter::once(cmd).chain(sub).collect();
             eprintln!("{e}");
-            eprint!(
-                "{}",
-                docsys::help::of(&words)
-                    .or_else(|| docsys::help::of(&[cmd]).filter(|_| !cmd.is_empty()))
-                    .unwrap_or_else(docsys::help::overview)
-            );
+            eprint!("{}", docsys::help::of(&[entry.name]).unwrap_or_default());
             return ExitCode::from(2);
         }
     };
+    opts.positional.clone_from(&words);
     // `agents` installs into the agent layer at the repository's top, wherever it
     // runs: a relative --dir, given or not, names it there (D-098)
     if cmd == "agents" && opts.dir.is_relative() {
@@ -678,16 +609,11 @@ fn main() -> ExitCode {
         .or_else(|| opts.repo.clone())
         .unwrap_or_else(|| PathBuf::from("."));
     match (cmd, sub) {
-        ("help", _) | ("--help", _) | ("-h", _) => {
-            let words: Vec<&str> = opts.positional.iter().map(String::as_str).collect();
-            match docsys::help::of(&words) {
-                Some(text) if !words.is_empty() => print!("{text}"),
-                _ if !words.is_empty() => return unknown(&words),
-                _ => print!("{}", docsys::help::overview()),
-            }
+        ("help", None) => {
+            print!("{}", docsys::help::overview());
             ExitCode::SUCCESS
         }
-        ("--version", _) | ("-V", _) | ("version", _) => {
+        ("version", None) => {
             // the relays and the git gate ask it; inside a pinned tree it names
             // the pin too (D-120)
             let root = docsys::place::locate(&docsys::place::cwd_anchor(), &opts.root, None).root;
@@ -1109,10 +1035,11 @@ fn main() -> ExitCode {
             }
         }
         ("debt", Some("close")) | ("question", Some("close")) => {
-            let Some(which) = opts.positional.first() else {
-                eprintln!("{cmd} close needs the item: its file name or its number");
+            if opts.positional.is_empty() {
+                eprintln!("{cmd} close needs the item: its number, or words only it holds");
                 return ExitCode::from(2);
-            };
+            }
+            let which = &opts.positional.join(" ");
             let done = if cmd == "debt" {
                 docsys::capture::debt_close(&opts.root, which, opts.note.as_deref())
             } else {
@@ -2330,14 +2257,11 @@ next: review, `git add -A && git commit`, then open an agent session here."
                 }
             }
         }
-        // a group named alone: its own sub-commands, not every command (D-129)
-        (_, None) if cmd.is_empty() || docsys::help::of(&[cmd]).is_some() => {
-            match docsys::help::of(&[cmd]).filter(|_| !cmd.is_empty()) {
-                Some(text) => eprint!("{text}"),
-                None => eprint!("{}", docsys::help::overview()),
-            }
+        _ => {
+            let r = docsys::help::unknown(&std::iter::once(cmd).chain(sub).collect::<Vec<_>>());
+            eprintln!("{}", r.line);
+            eprint!("{}", r.entries);
             ExitCode::from(2)
         }
-        _ => unknown(&std::iter::once(cmd).chain(sub).collect::<Vec<_>>()),
     }
 }

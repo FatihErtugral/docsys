@@ -761,3 +761,145 @@ fn every_command_on_a_tree_takes_root() {
         assert!(flags.contains(&"--root"), "{}: {}", c.name, c.synopsis);
     }
 }
+
+/// Runs `docsys` in `dir`: the exit code, standard output and standard error.
+fn run_at(dir: &std::path::Path, args: &[&str]) -> (Option<i32>, String, String) {
+    let out = Command::new(bin())
+        .args(args)
+        .current_dir(dir)
+        .env("DOCSYS_NO_AUTO_INSTALL", "1")
+        .output()
+        .unwrap();
+    (
+        out.status.code(),
+        String::from_utf8_lossy(&out.stdout).into_owned(),
+        String::from_utf8_lossy(&out.stderr).into_owned(),
+    )
+}
+
+/// The table decides, for every command and each name it goes by: a flag
+/// its entry does not name, a single-dash flag, a word beyond the words it
+/// takes — each is refused with exit 2 and named, before anything runs; so
+/// is the same with `--help` and as `help <command> …` (D-129).
+#[test]
+fn every_command_refuses_what_its_entry_does_not_name() {
+    use docsys::help::{Words, COMMANDS};
+    let dir = std::env::temp_dir().join(format!("docsys-help-table-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    assert!(Command::new(bin())
+        .arg("init")
+        .current_dir(&dir)
+        .output()
+        .unwrap()
+        .status
+        .success());
+    let refused = |args: Vec<&str>, named: &str| {
+        let (code, _, err) = run_at(&dir, &args);
+        assert_eq!(code, Some(2), "{args:?}: {err}");
+        // named alone, or as the end of the command it would make
+        assert!(err.contains(&format!("{named}`")), "{args:?}: {err}");
+    };
+    for c in COMMANDS {
+        let own = docsys::help::flags_of(&[c.name]).unwrap();
+        let foreign = ["--write", "--force", "--kb", "--json", "--zzz"]
+            .into_iter()
+            .find(|f| !own.contains(f))
+            .unwrap();
+        let mut names: Vec<Vec<&str>> = vec![c.name.split(' ').collect()];
+        names.extend(c.aliases.iter().map(|a| vec![*a]));
+        for name in names {
+            fn with<'a>(name: &[&'a str], extra: &[&'a str]) -> Vec<&'a str> {
+                name.iter().chain(extra).copied().collect()
+            }
+            refused(with(&name, &[foreign]), foreign);
+            refused(with(&name, &["-x"]), "-x");
+            let stray: Option<Vec<&str>> = match c.words {
+                Words::None => Some(vec!["stray"]),
+                Words::UpTo(n) => Some([vec!["w"; n], vec!["stray"]].concat()),
+                Words::OneOf(_) => Some(vec!["stray"]),
+                Words::Any => None,
+            };
+            if let Some(words) = stray {
+                refused(with(&name, &words), "stray");
+                refused(with(&name, &[&words[..], &["--help"]].concat()), "stray");
+                if !name.first().is_some_and(|n| n.starts_with('-')) {
+                    let mut help = vec!["help"];
+                    help.extend(with(&name, &words));
+                    refused(help, "stray");
+                }
+            }
+        }
+    }
+    // a flag given to a group of commands is named too
+    let groups: BTreeSet<&str> = COMMANDS
+        .iter()
+        .filter_map(|c| c.name.split_once(' ').map(|(g, _)| g))
+        .collect();
+    for g in groups {
+        refused(vec![g, "--force"], "--force");
+        refused(vec![g, "-x"], "-x");
+    }
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// `help <command> <its words>` and `<command> <its words> --help` are one
+/// question with one answer: the command's entry (D-129).
+#[test]
+fn help_reads_a_command_with_its_words() {
+    let dir = std::env::temp_dir();
+    for words in [
+        &["page", "new", "reference"][..],
+        &["page", "new", "reference", "token-ttl"],
+        &["debt", "add", "retries", "are", "unbounded"],
+        &["journal", "add", "a", "text"],
+        &["graduate", "plan", "work/x.md"],
+        &["consume", "add", "../p"],
+        &["raw", "move", "raw/inbox/a.md", "payments"],
+        &["inbox", "pull", "../api"],
+        &["export", "feature", "token-ttl"],
+        &["question", "close", "1"],
+        &["pin", "reference/a", "src/a.rs"],
+        &["hook", "stop"],
+        &["verify", "reference/auth"],
+    ] {
+        let mut help = vec!["help"];
+        help.extend_from_slice(words);
+        let (code, out, err) = run_at(&dir, &help);
+        assert_eq!(code, Some(0), "{help:?}: {err}");
+        let mut flag = words.to_vec();
+        flag.push("--help");
+        let (code2, out2, err2) = run_at(&dir, &flag);
+        assert_eq!(code2, Some(0), "{flag:?}: {err2}");
+        assert_eq!(out, out2, "{words:?}");
+        assert!(out.starts_with("docsys "), "{words:?}: {out}");
+    }
+}
+
+/// `--root` and `--repo` are explained once, in the list's closing paragraph;
+/// an entry names them in its synopsis only (D-129).
+#[test]
+fn no_entry_explains_root_or_repo_in_a_flag_line() {
+    for c in docsys::help::COMMANDS {
+        for (flag, _) in c.flags {
+            let word = flag.split(' ').next().unwrap_or("");
+            assert!(word != "--root" && word != "--repo", "{}: {flag}", c.name);
+        }
+    }
+}
+
+/// Each flag the parser consumes a value for is a value flag of the table,
+/// and every flag an entry names is one the parser knows.
+#[test]
+fn the_parser_and_the_table_agree_on_every_flag() {
+    let main = include_str!("../src/main.rs");
+    for c in docsys::help::COMMANDS {
+        for f in docsys::help::flags_of(&[c.name]).unwrap() {
+            assert!(
+                main.contains(&format!("\"{f}\" =>")),
+                "{}: {f} unparsed",
+                c.name
+            );
+        }
+    }
+}

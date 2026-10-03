@@ -5,6 +5,7 @@
 use std::fmt::Write as _;
 
 /// One command as a person meets it.
+#[derive(Debug)]
 pub struct Command {
     /// the words that name it: `lint`, `graduate apply`
     pub name: &'static str,
@@ -14,9 +15,90 @@ pub struct Command {
     pub purpose: &'static str,
     /// each flag or argument, and what it does
     pub flags: &'static [(&'static str, &'static str)],
+    /// the words it takes after its name, besides its flags and their values
+    pub words: Words,
+    /// other names a person types for it
+    pub aliases: &'static [&'static str],
     /// one invocation as a person types it
     pub example: &'static str,
 }
+
+/// The words a command takes after its name.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Words {
+    None,
+    /// at most this many
+    UpTo(usize),
+    /// any number
+    Any,
+    /// one of these
+    OneOf(&'static [&'static str]),
+}
+
+/// The flags that take a value; every other flag is a switch. The parser and
+/// the refusals read this one list (D-129).
+pub const VALUE_FLAGS: &[&str] = &[
+    "--root",
+    "--repo",
+    "--dir",
+    "--lang",
+    "--plan",
+    "--out",
+    "--title",
+    "--audience",
+    "--profile",
+    "--by",
+    "--confirmed",
+    "--target",
+    "--since",
+    "--memory",
+    "--note",
+    "--reason",
+    "--message",
+    "--deferred",
+    "--repay-when",
+    "--answer",
+    "--approval",
+    "--topic",
+    "--context",
+    "--date",
+    "--link",
+    "--format",
+    "--type",
+    "--rule",
+    "--command",
+    "--write",
+    "--max-lines",
+    "--range",
+    "--symbol",
+    "--block",
+    "--as",
+    "--source",
+    "--id",
+    "--url",
+    "--rules-file",
+    "--report-dir",
+    "--ci-runner",
+    "--ci-install",
+    "--ci-sha256",
+    "--verify-on-approval",
+    "--projects",
+    "--domains",
+    "--limit",
+];
+
+/// Whether `flag` takes the argument after it as its value.
+pub fn takes_value(flag: &str) -> bool {
+    VALUE_FLAGS.contains(&flag)
+}
+
+/// The events `docsys hook` relays.
+pub const EVENTS: &[&str] = &[
+    "pre-tool-use",
+    "stop",
+    "post-tool-use",
+    "user-prompt-submit",
+];
 
 const JSON: (&str, &str) = (
     "--json",
@@ -39,6 +121,8 @@ pub const COMMANDS: &[Command] = &[
             ("--verify-on-approval <mode>", "how a review's approval is recorded: `description` on a docsys/0.5 tree; on a docsys/0.4 tree `pull-request` (a follow-up pull request) or `direct` (a push); the first is each tree's default, `off` records none, and a mode the tree cannot read is refused"),
             ("--obsidian", "also write .obsidian settings and a stale-work view"),
         ],
+        words: Words::None,
+        aliases: &[],
         example: "docsys adopt --repo . --root docs",
     },
     Command {
@@ -46,10 +130,11 @@ pub const COMMANDS: &[Command] = &[
         synopsis: "[--root <dir>] [--lang <code>] [--profile project|knowledge-base]",
         purpose: "only an empty tree is wanted",
         flags: &[
-            ("--root <dir>", "where the tree is made"),
             ("--lang <code>", "the language the pages are written in"),
             ("--profile project|knowledge-base", "a repository's documentation, or a knowledge base of records and wiki pages"),
         ],
+        words: Words::None,
+        aliases: &[],
         example: "docsys init --root docs --lang en",
     },
     Command {
@@ -63,6 +148,8 @@ pub const COMMANDS: &[Command] = &[
             JSON,
             ("--dir <dir>", "the agent layer's directory, `.claude` by default"),
         ],
+        words: Words::None,
+        aliases: &[],
         example: "docsys upgrade --apply --commit",
     },
     Command {
@@ -70,6 +157,8 @@ pub const COMMANDS: &[Command] = &[
         synopsis: "[--root <dir>] [--repo <dir>] [--json]",
         purpose: "you want to know whether the tree is right: every rule, with pins and history inside a repository",
         flags: &[JSON],
+        words: Words::None,
+        aliases: &[],
         example: "docsys lint",
     },
     Command {
@@ -77,6 +166,8 @@ pub const COMMANDS: &[Command] = &[
         synopsis: "[--repo <dir>] [--root <dir>] [--json]",
         purpose: "the code side is in question: every `doc:` citation in the code resolves to a page",
         flags: &[JSON],
+        words: Words::None,
+        aliases: &[],
         example: "docsys refs",
     },
     Command {
@@ -88,6 +179,8 @@ pub const COMMANDS: &[Command] = &[
             ("--skipped", "record a bypassed gate as a debt item"),
             ("--message <file>", "the commit-msg half on docsys/0.5: the message the commit will carry"),
         ],
+        words: Words::None,
+        aliases: &[],
         example: "docsys gate --range origin/main...HEAD",
     },
     Command {
@@ -95,6 +188,8 @@ pub const COMMANDS: &[Command] = &[
         synopsis: "[--repo .] [--root docs] [--dir .claude]",
         purpose: "the documentation pipeline seems silent: are the hooks, the gate and the relays wired and alive",
         flags: &[("--dir <dir>", "the agent layer's directory")],
+        words: Words::None,
+        aliases: &[],
         example: "docsys doctor",
     },
     Command {
@@ -102,6 +197,8 @@ pub const COMMANDS: &[Command] = &[
         synopsis: "[--root <dir>] [--repo <dir>] [--json]",
         purpose: "the tree's state at a glance: the inbox, pages by state, open items, consumed namespaces, findings",
         flags: &[JSON],
+        words: Words::None,
+        aliases: &[],
         example: "docsys status",
     },
     Command {
@@ -109,6 +206,8 @@ pub const COMMANDS: &[Command] = &[
         synopsis: "<word…> [--root docs] [--json]",
         purpose: "a question names a few words: the pages, local and consumed, that hold them — the first hop before reading",
         flags: &[("<word…>", "the words the question names"), JSON],
+        words: Words::Any,
+        aliases: &[],
         example: "docsys lookup token refresh",
     },
     Command {
@@ -121,6 +220,8 @@ pub const COMMANDS: &[Command] = &[
             ("--title <t>", "the page's title"),
             ("--unverified", "writes an empty `sources:` to fill"),
         ],
+        words: Words::UpTo(2),
+        aliases: &[],
         example: "docsys page new reference token-ttl --title \"Token lifetime\"",
     },
     Command {
@@ -134,6 +235,8 @@ pub const COMMANDS: &[Command] = &[
             ("--refresh <page>", "record the region as it reads now"),
             ("--gc", "remove acknowledgements no current pin needs"),
         ],
+        words: Words::UpTo(2),
+        aliases: &[],
         example: "docsys pin reference/token-ttl src/auth.rs --symbol refresh_token",
     },
     Command {
@@ -150,6 +253,8 @@ pub const COMMANDS: &[Command] = &[
             ("--from-trailers", "with --range: the identity from the `Reviewed-by:` or `Approved-by:` trailer"),
             ("--approval <@login>", "the `Approved-by:` line a declared maintainer's approval adds to a pull request's description"),
         ],
+        words: Words::UpTo(1),
+        aliases: &[],
         example: "docsys verify reference/token-ttl",
     },
     Command {
@@ -161,6 +266,8 @@ pub const COMMANDS: &[Command] = &[
             ("--dir <dir>", "the agent layer's directory"),
             ("--force", "overwrite the skill"),
         ],
+        words: Words::UpTo(1),
+        aliases: &[],
         example: "docsys compile howto/rotate-keys",
     },
     Command {
@@ -168,6 +275,8 @@ pub const COMMANDS: &[Command] = &[
         synopsis: "<work-file> [--root <dir>]",
         purpose: "work is done and its knowledge must reach permanent pages: the work file's blocks, for an agent to map to destinations",
         flags: &[("<work-file>", "the work file, relative to the tree")],
+        words: Words::UpTo(1),
+        aliases: &[],
         example: "docsys graduate plan work/features/cart-key.md > plan.tsv",
     },
     Command {
@@ -179,6 +288,8 @@ pub const COMMANDS: &[Command] = &[
             ("--confirmed <who>", "who confirmed it: the last blocks move and the file is removed"),
             ("--force", "run on a working tree with uncommitted changes"),
         ],
+        words: Words::None,
+        aliases: &[],
         example: "docsys graduate apply --plan plan.tsv --confirmed maintainer",
     },
     Command {
@@ -192,6 +303,8 @@ pub const COMMANDS: &[Command] = &[
             ("--topic <id>", "the page or feature it concerns; `general` without one"),
             ("--date <d>", "the date, today by default"),
         ],
+        words: Words::Any,
+        aliases: &[],
         example: "docsys debt add \"retries are unbounded\" --deferred \"no load yet\" --repay-when \"the next outage\" --topic retry-policy",
     },
     Command {
@@ -202,6 +315,8 @@ pub const COMMANDS: &[Command] = &[
             ("<n|words>", "the item's number in the list, or words only it holds"),
             ("--note <how>", "how it was repaid"),
         ],
+        words: Words::Any,
+        aliases: &[],
         example: "docsys debt close \"retries are unbounded\" --note \"bounded at three\"",
     },
     Command {
@@ -214,6 +329,8 @@ pub const COMMANDS: &[Command] = &[
             ("--context <c>", "where it came up"),
             ("--date <d>", "the date, today by default"),
         ],
+        words: Words::Any,
+        aliases: &[],
         example: "docsys question add \"who owns the cache?\" --topic cache",
     },
     Command {
@@ -224,6 +341,8 @@ pub const COMMANDS: &[Command] = &[
             ("<n|words>", "the item's number in the list, or words only it holds"),
             ("--answer <line>", "the answer"),
         ],
+        words: Words::Any,
+        aliases: &[],
         example: "docsys question close \"who owns the cache\" --answer \"the platform team\"",
     },
     Command {
@@ -231,6 +350,8 @@ pub const COMMANDS: &[Command] = &[
         synopsis: "[--root <dir>]",
         purpose: "a ledger or its archive slice uses em-dash field markers: rewrite them to the ASCII ones, the field text untouched",
         flags: &[],
+        words: Words::None,
+        aliases: &[],
         example: "docsys ledger fix",
     },
     Command {
@@ -238,6 +359,8 @@ pub const COMMANDS: &[Command] = &[
         synopsis: "[--since <date>] [--root docs]",
         purpose: "you want what changed and why: every commit that changed the docs or carries `Docs:`, newest first",
         flags: &[("--since <date>", "only the entries from that day on")],
+        words: Words::None,
+        aliases: &[],
         example: "docsys journal --since 2026-09-01",
     },
     Command {
@@ -250,6 +373,8 @@ pub const COMMANDS: &[Command] = &[
             ("--link <path>", "the page it concerns: the text becomes the subject"),
             ("--date <d>", "the date, on a docsys/0.4 tree"),
         ],
+        words: Words::Any,
+        aliases: &[],
         example: "docsys journal add \"the run page states the timeout\" --link reference/run",
     },
     Command {
@@ -261,6 +386,8 @@ pub const COMMANDS: &[Command] = &[
             ("--since <date>", "only history from that day on"),
             ("--memory <dir>", "an agent's memory directory, each note listed beside the evidence"),
         ],
+        words: Words::None,
+        aliases: &[],
         example: "docsys seed plan --target checkout",
     },
     Command {
@@ -268,6 +395,8 @@ pub const COMMANDS: &[Command] = &[
         synopsis: "[--since <date>] [--repo .] [--root docs]",
         purpose: "an interview is planned: the inventory as JSON, uncovered features first",
         flags: &[("--since <date>", "only history from that day on")],
+        words: Words::None,
+        aliases: &[],
         example: "docsys seed gaps",
     },
     Command {
@@ -278,6 +407,8 @@ pub const COMMANDS: &[Command] = &[
             ("--plan <file>", "the approved rows"),
             ("--force", "run on a working tree with uncommitted changes"),
         ],
+        words: Words::None,
+        aliases: &[],
         example: "docsys seed apply --plan SEED.tsv",
     },
     Command {
@@ -285,6 +416,8 @@ pub const COMMANDS: &[Command] = &[
         synopsis: "<path|id|code-file> [--repo .] [--root docs]",
         purpose: "before changing a page or a code file: what points at it — pages, code, pins",
         flags: &[("<path|id|code-file>", "a page, or a code file")],
+        words: Words::UpTo(1),
+        aliases: &[],
         example: "docsys backlinks reference/token-ttl",
     },
     Command {
@@ -292,6 +425,8 @@ pub const COMMANDS: &[Command] = &[
         synopsis: "[<path|id>] [--root docs]",
         purpose: "prose names a page without linking it: where, so the link can be added",
         flags: &[("<path|id>", "one page; every page by default")],
+        words: Words::UpTo(1),
+        aliases: &[],
         example: "docsys mentions reference/token-ttl",
     },
     Command {
@@ -299,6 +434,8 @@ pub const COMMANDS: &[Command] = &[
         synopsis: "[--format dot|json|jsoncanvas] [--repo .] [--root docs]",
         purpose: "you want to see the tree's links: the graph for a viewer",
         flags: &[("--format dot|json|jsoncanvas", "the output format")],
+        words: Words::None,
+        aliases: &[],
         example: "docsys graph --format dot > docs.dot",
     },
     Command {
@@ -306,6 +443,8 @@ pub const COMMANDS: &[Command] = &[
         synopsis: "[--root <dir>] [--audience <a>]",
         purpose: "an audience needs one document: a draft product map to edit before exporting",
         flags: &[("--audience <a>", "who reads it: end-user, developer, designer, …")],
+        words: Words::None,
+        aliases: &[],
         example: "docsys export plan --audience end-user > map.md",
     },
     Command {
@@ -318,6 +457,8 @@ pub const COMMANDS: &[Command] = &[
             ("--lang <code>", "the language it is wanted in"),
             ("--audience <a>", "who reads it"),
         ],
+        words: Words::UpTo(1),
+        aliases: &[],
         example: "docsys export product map.md --out product.md",
     },
     Command {
@@ -332,6 +473,8 @@ pub const COMMANDS: &[Command] = &[
             ("--lang <code>", "the language it is wanted in"),
             ("--audience <a>", "who reads it"),
         ],
+        words: Words::Any,
+        aliases: &[],
         example: "docsys export feature token-ttl --follow --out tokens.md",
     },
     Command {
@@ -339,6 +482,8 @@ pub const COMMANDS: &[Command] = &[
         synopsis: "[--root <dir>] [--out <file>]",
         purpose: "another tree consumes this one: what this namespace exports",
         flags: &[("--out <file>", "where the manifest goes")],
+        words: Words::None,
+        aliases: &[],
         example: "docsys export manifest --out manifest.yml",
     },
     Command {
@@ -346,6 +491,8 @@ pub const COMMANDS: &[Command] = &[
         synopsis: "[--root <dir>]",
         purpose: "this tree consumes other namespaces: bring their pages into .federation/",
         flags: &[],
+        words: Words::None,
+        aliases: &[],
         example: "docsys fetch",
     },
     Command {
@@ -356,6 +503,8 @@ pub const COMMANDS: &[Command] = &[
             ("<path|git-url>[#subdir]", "the provider"),
             ("--as <ns>", "the namespace it is read under"),
         ],
+        words: Words::UpTo(1),
+        aliases: &[],
         example: "docsys consume add ../platform#docs --as platform",
     },
     Command {
@@ -363,6 +512,8 @@ pub const COMMANDS: &[Command] = &[
         synopsis: "<dir> [--root docs]",
         purpose: "you look for trees to consume: the docsys trees one level under a directory; writes nothing",
         flags: &[("<dir>", "where to look")],
+        words: Words::UpTo(1),
+        aliases: &[],
         example: "docsys consume discover ~/src",
     },
     Command {
@@ -377,6 +528,8 @@ pub const COMMANDS: &[Command] = &[
             ("--date <d>", "its date"),
             ("<file>|-", "its text, from a file or standard input"),
         ],
+        words: Words::UpTo(1),
+        aliases: &[],
         example: "docsys inbox add --source chat --id C123-456 --title \"Cache decision\" note.md",
     },
     Command {
@@ -390,6 +543,8 @@ pub const COMMANDS: &[Command] = &[
             ("--as <ns>", "the source name"),
             ("--all", "bookkeeping commits too"),
         ],
+        words: Words::UpTo(1),
+        aliases: &[],
         example: "docsys inbox pull ../api --since 2026-09-01",
     },
     Command {
@@ -397,6 +552,8 @@ pub const COMMANDS: &[Command] = &[
         synopsis: "<record> <domain> [--root <dir>]",
         purpose: "an inbox record is filed: it moves to raw/<domain>/ through git, bytes untouched, and every citing page follows",
         flags: &[("<record>", "the record in raw/inbox/"), ("<domain>", "where it belongs")],
+        words: Words::UpTo(2),
+        aliases: &[],
         example: "docsys raw move raw/inbox/2026-09-01-call.md payments",
     },
     Command {
@@ -407,6 +564,8 @@ pub const COMMANDS: &[Command] = &[
             ("<page-id|page-path|record-path>", "what leaves"),
             ("--reason <text>", "why"),
         ],
+        words: Words::UpTo(1),
+        aliases: &[],
         example: "docsys forget reference/old-flag --reason \"the flag was removed\"",
     },
     Command {
@@ -414,12 +573,13 @@ pub const COMMANDS: &[Command] = &[
         synopsis: "[--root .] [--projects <dir>]… [--domains a,b] [--since 30.days] [--limit 3]",
         purpose: "an assistant's memory in one step: the base, its agent layer, the projects it consumes, its pages and records",
         flags: &[
-            ("--root <dir>", "the base"),
             ("--projects <dir>", "a directory of projects to consume; may repeat"),
             ("--domains a,b", "the domains the base files its records under"),
             ("--since <span>", "how far back each project's commits come into the inbox"),
             ("--limit <n>", "at most this many commits per project"),
         ],
+        words: Words::None,
+        aliases: &[],
         example: "docsys assistant --root ~/notes --projects ~/src",
     },
     Command {
@@ -427,6 +587,8 @@ pub const COMMANDS: &[Command] = &[
         synopsis: "[--root <dir>] [--repo <dir>]",
         purpose: "a repository has documentation in another shape: the plan skeleton that classifies every file",
         flags: &[],
+        words: Words::None,
+        aliases: &[],
         example: "docsys migrate inventory > plan.tsv",
     },
     Command {
@@ -437,6 +599,8 @@ pub const COMMANDS: &[Command] = &[
             ("--plan <file>", "the approved plan"),
             ("--lang <code>", "the language the pages are written in"),
         ],
+        words: Words::None,
+        aliases: &[],
         example: "docsys migrate apply --plan plan.tsv",
     },
     Command {
@@ -449,6 +613,8 @@ pub const COMMANDS: &[Command] = &[
             ("--max-lines <n>", "a line budget for the text"),
             ("--write <file>", "write it there instead of printing it"),
         ],
+        words: Words::None,
+        aliases: &[],
         example: "docsys rules --agents-md --write AGENTS.md",
     },
     Command {
@@ -461,6 +627,8 @@ pub const COMMANDS: &[Command] = &[
             ("--kb", "the knowledge-base layer"),
             ("--report", "what agent layer exists and which shell commands it runs; writes nothing"),
         ],
+        words: Words::None,
+        aliases: &[],
         example: "docsys agents --dir .claude",
     },
     Command {
@@ -471,6 +639,8 @@ pub const COMMANDS: &[Command] = &[
             ("<event>", "the agent event the relay forwards"),
             ("--stdin", "the event's payload, read from standard input"),
         ],
+        words: Words::OneOf(EVENTS),
+        aliases: &[],
         example: "docsys hook stop",
     },
     Command {
@@ -484,13 +654,17 @@ pub const COMMANDS: &[Command] = &[
             ("--command \"docsys …\"", "the command that misbehaved"),
             ("--out <file>", "where the draft goes"),
         ],
+        words: Words::None,
+        aliases: &[],
         example: "docsys feedback --draft --type false-positive --rule R-071",
     },
     Command {
         name: "version",
-        synopsis: "(also --version, -V)",
+        synopsis: "",
         purpose: "which docsys this is, the spec it implements, and the version this tree pins",
         flags: &[],
+        words: Words::None,
+        aliases: &["--version", "-V"],
         example: "docsys --version",
     },
     Command {
@@ -498,6 +672,8 @@ pub const COMMANDS: &[Command] = &[
         synopsis: "[<command> [<subcommand>]]",
         purpose: "this list; with a command — or `docsys <command> --help` — its flags and an example",
         flags: &[("<command>", "the command to explain")],
+        words: Words::Any,
+        aliases: &["--help", "-h"],
         example: "docsys help graduate apply",
     },
 ];
@@ -543,7 +719,7 @@ pub fn entry(words: &[&str]) -> Option<&'static Command> {
     let name = words.join(" ");
     COMMANDS
         .iter()
-        .find(|c| c.name == name)
+        .find(|c| c.name == name || c.aliases.contains(&name.as_str()))
         .or_else(|| match words {
             [first, _]
                 if !COMMANDS
@@ -609,7 +785,15 @@ pub fn of(words: &[&str]) -> Option<String> {
         if i > 0 {
             out.push('\n');
         }
-        let _ = writeln!(out, "docsys {} {}\n\n{}", c.name, c.synopsis, c.purpose);
+        let mut head = format!("docsys {}", c.name);
+        if !c.synopsis.is_empty() {
+            head.push(' ');
+            head.push_str(c.synopsis);
+        }
+        if !c.aliases.is_empty() {
+            let _ = write!(head, " (also {})", c.aliases.join(", "));
+        }
+        let _ = writeln!(out, "{head}\n\n{}", c.purpose);
         if !c.flags.is_empty() {
             out.push('\n');
             let width = c.flags.iter().map(|(f, _)| f.len()).max().unwrap_or(0);
@@ -620,4 +804,181 @@ pub fn of(words: &[&str]) -> Option<String> {
         let _ = writeln!(out, "\nExample:\n  {}", c.example);
     }
     Some(out)
+}
+
+/// What a command line asks, as the table reads it (D-129).
+#[derive(Debug)]
+pub enum Read {
+    /// run `entry` with its words; its own arguments start at `from`
+    Run {
+        entry: &'static Command,
+        words: Vec<String>,
+        from: usize,
+    },
+    /// print this and succeed
+    Help(String),
+}
+
+/// What the table refuses: the line naming it — empty when the entries say
+/// it all — then the nearest entries.
+#[derive(Debug)]
+pub struct Refusal {
+    pub line: String,
+    pub entries: String,
+}
+
+fn find(name: &str) -> Option<&'static Command> {
+    COMMANDS
+        .iter()
+        .find(|c| c.name == name || c.aliases.contains(&name))
+}
+
+fn is_group(name: &str) -> bool {
+    COMMANDS
+        .iter()
+        .any(|c| c.name.starts_with(&format!("{name} ")))
+}
+
+/// A command docsys does not know, named, with the nearest entries.
+pub fn unknown(words: &[&str]) -> Refusal {
+    Refusal {
+        line: format!("docsys: `{}` is no docsys command", words.join(" ")),
+        entries: words
+            .first()
+            .and_then(|w| of(&[w]))
+            .unwrap_or_else(overview),
+    }
+}
+
+/// A flag `name` does not take, and the commands that take it, where one or
+/// two do.
+fn not_a_flag(name: &str, flag: &str) -> String {
+    let owners: Vec<&str> = COMMANDS
+        .iter()
+        .filter(|c| flags_of(&[c.name]).is_some_and(|f| f.contains(&flag)))
+        .map(|c| c.name)
+        .collect();
+    let theirs = match owners.as_slice() {
+        [one] => format!(" — `docsys {one} {flag}` takes it"),
+        [a, b] => format!(" — `docsys {a}` and `docsys {b}` take it"),
+        _ => String::new(),
+    };
+    format!("`{flag}` is no flag of {name}{theirs}")
+}
+
+/// Read a command line: the command it names, then each argument against
+/// that command's entry — a flag it does not name, a single-dash flag and a
+/// word beyond the words it takes are refused, named; `--help`, `-h` and
+/// `help <command> <words>` answer with the entry.
+pub fn read(args: &[String]) -> Result<Read, Refusal> {
+    let Some(first) = args.first().map(String::as_str) else {
+        return Err(Refusal {
+            line: String::new(),
+            entries: overview(),
+        });
+    };
+    let (entry, from) = if is_group(first) {
+        match args.get(1).map(String::as_str) {
+            Some(w) if !w.starts_with('-') => match find(&format!("{first} {w}")) {
+                Some(c) => (c, 2),
+                None => return Err(unknown(&[first, w])),
+            },
+            _ => match find(first) {
+                Some(c) => (c, 1),
+                None => {
+                    // a group named alone: its commands
+                    let entries = of(&[first]).unwrap_or_default();
+                    let rest = args.get(1..).unwrap_or_default();
+                    return match rest.iter().find(|a| *a != "--help" && *a != "-h") {
+                        Some(stray) => Err(Refusal {
+                            line: format!(
+                                "`{stray}` is no flag of {first} — name one of its commands first"
+                            ),
+                            entries,
+                        }),
+                        None if rest.is_empty() => Err(Refusal {
+                            line: String::new(),
+                            entries,
+                        }),
+                        None => Ok(Read::Help(entries)),
+                    };
+                }
+            },
+        }
+    } else {
+        match find(first) {
+            Some(c) => (c, 1),
+            None => return Err(unknown(&[first])),
+        }
+    };
+    let (words, help) = check(entry, args.get(from..).unwrap_or_default())?;
+    if entry.name == "help" {
+        // `help <command> <words>` is `<command> <words> --help`
+        if words.is_empty() {
+            return Ok(Read::Help(if help {
+                of(&[entry.name]).unwrap_or_default()
+            } else {
+                overview()
+            }));
+        }
+        let mut asked = words;
+        asked.push("--help".to_string());
+        return read(&asked);
+    }
+    if help {
+        return Ok(Read::Help(of(&[entry.name]).unwrap_or_default()));
+    }
+    Ok(Read::Run { entry, words, from })
+}
+
+/// The arguments after a command's name, against its entry: its words, and
+/// whether help was asked.
+fn check(entry: &'static Command, rest: &[String]) -> Result<(Vec<String>, bool), Refusal> {
+    let own = flags_of(&[entry.name]).unwrap_or_default();
+    let refuse = |line: String| Refusal {
+        line,
+        entries: of(&[entry.name]).unwrap_or_default(),
+    };
+    let mut words = Vec::new();
+    let mut help = false;
+    let mut it = rest.iter().peekable();
+    while let Some(a) = it.next() {
+        let a = a.as_str();
+        if a == "--help" || a == "-h" {
+            help = true;
+        } else if a.starts_with("--") {
+            if !own.contains(&a) {
+                return Err(refuse(not_a_flag(entry.name, a)));
+            }
+            // a value is never another flag: the parser says so
+            if takes_value(a) && it.peek().is_some_and(|v| !v.starts_with("--")) {
+                it.next();
+            }
+        } else if a.starts_with('-') && a.len() > 1 {
+            return Err(refuse(format!("`{a}` is no flag of {}", entry.name)));
+        } else {
+            words.push(a.to_string());
+        }
+    }
+    let stray = match entry.words {
+        Words::None => words.first(),
+        Words::UpTo(n) => words.get(n),
+        Words::OneOf(set) => words
+            .first()
+            .filter(|w| !set.contains(&w.as_str()))
+            .or_else(|| words.get(1)),
+        Words::Any => None,
+    };
+    if let Some(w) = stray {
+        let line = match entry.words {
+            Words::OneOf(set) if words.first() == Some(w) => format!(
+                "`{w}` is no argument of {} — one of: {}",
+                entry.name,
+                set.join(", ")
+            ),
+            _ => format!("`{w}` is no argument of {}", entry.name),
+        };
+        return Err(refuse(line));
+    }
+    Ok((words, help))
 }
