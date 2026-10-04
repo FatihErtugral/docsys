@@ -2,7 +2,7 @@
 set -uo pipefail
 
 # --- docsys documentation gate ---------------------------------------------
-# docsys-template: 0.16.1
+# docsys-template: 0.17.0
 # Warn-mode until the adoption debt is triaged; `docsys adopt` hardens it once lint is clean.
 # One-off skip: DOCSYS_SKIP=1 git commit ... (under commit_policy: require it leaves a debt item)
 docsys_gate_exit=0

@@ -1,4 +1,4 @@
-# docsys-template: 0.16.1 sha256:178fd09327eba9cd2165123c3b73c4ec8cf9ce01b414c1669d793e2415d51956 branch=main runner=ubuntu-latest install=cargo root=docs
+# docsys-template: 0.17.0 sha256:2a185ed2d8be3f68b9616e344ff5e55b83ee0890eeafe1cc8d14a39d9f7c0832 branch=main runner=ubuntu-latest install=cargo root=docs
 # docsys documentation workflow, written by `docsys adopt` (D-111). Line 1 records how
 # it was rendered and a hash of everything else in this file: while the hash holds,
 # docsys may regenerate it; once the file is edited, it is yours.
@@ -29,7 +29,7 @@ jobs:
         shell: bash
         run: |
           v=$(head -n 1 "docs/.docsys-version" 2>/dev/null || true)
-          echo "version=${v:-0.16.1}" >> "$GITHUB_OUTPUT"
+          echo "version=${v:-0.17.0}" >> "$GITHUB_OUTPUT"
       - uses: actions/cache@v4
         id: docsys-bin
         with:

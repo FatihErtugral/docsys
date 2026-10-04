@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# docsys-template: 0.16.1
+# docsys-template: 0.17.0
 # session-intent.sh — UserPromptSubmit hook; the routing text once per
 # session, from `docsys hook user-prompt-submit` (work types for a project,
 # the four organs for a knowledge base — the root's profile decides).

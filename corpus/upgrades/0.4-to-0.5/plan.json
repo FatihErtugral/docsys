@@ -4,7 +4,7 @@
   "last": true,
   "notes": [
     {
-      "release": "0.16.1",
+      "release": "0.17.0",
       "text": "- Nothing has to move on the day this docsys is installed: a docsys/0.4 tree\n  keeps its findings, its file formats and its hooks.\n- Every clone must install docsys >= 0.16.0 before pulling this change; a gate\n  under .git/hooks cannot warn an old binary.\n- `docsys upgrade` prints the plan; `docsys upgrade --apply --commit` moves the\n  tree in one commit. The items it lists for a person are theirs to finish.\n- docsys/0.5 keeps no page verification: the move takes every verification\n  field out of every page and carries none, `.docmeta.yml` names no\n  maintainer, and `verify`, `page new --unverified` and an approval job are\n  refused there. To have pages checked against their sources and code, a\n  person runs `/docsys-crosscheck`; drift between code and a page still\n  blocks through its pins (R-111, D-130, D-131).\n- CI installs the docsys version the upgrade pins: `docsys upgrade` replaces\n  what installs docsys in your workflow — the `env:` lines with the version\n  and the archives' sha256 values, and the install step — with a step that\n  holds this version and each archive's sha256, read from the release when\n  the upgrade runs, and that refuses a `.docsys-version` naming another\n  version. The plan shows the diff; runners, triggers and every other step\n  stay as you wrote them, and a later upgrade changes that step alone.\n- A branch opened before the move runs the same `docsys upgrade --apply\n  --commit` once before it merges: it converts the branch's own additions the\n  same way, and only a topic both sides added to can conflict. Merged without\n  it, git stops on the old ledger (modify/delete) or carries its lines into\n  the frozen slice and journal: keep the branch's ledger and commit, lint names\n  the upgrade, and a re-run moves each item once and carries the branch's\n  journal entries into its commit's message."
     }
   ],
@@ -237,7 +237,7 @@
       "strategy": "auto",
       "step": "pin",
       "file": "docs/.docsys-version",
-      "what": "no pin → `0.16.1`: every docsys call here runs it",
+      "what": "no pin → `0.17.0`: every docsys call here runs it",
       "command": null
     }
   ],
@@ -254,7 +254,7 @@
   "diffs": [
     {
       "file": ".claude/hooks/stop-docs-reminder.sh",
-      "diff": "--- .claude/hooks/stop-docs-reminder.sh\n+++ .claude/hooks/stop-docs-reminder.sh\n@@ -1,8 +1,13 @@\n #!/usr/bin/env bash\n-# docsys-template: 0.15.1\n-# stop-docs-reminder.sh — end-of-turn nudge; warns, never blocks (R-150).\n+# docsys-template: 0.16.1\n+# stop-docs-reminder.sh — end-of-turn reminder; it warns, and under\n+# `commit_policy: require` it holds the turn once (R-209).\n # Reads the working tree and the commits not yet pushed (`docsys hook stop`).\n command -v docsys >/dev/null || exit 0\n-# no nudge on the release branch\n-[ \"$(git branch --show-current)\" = release ] && exit 0\n+cd \"${CLAUDE_PROJECT_DIR:-.}\" || exit 0\n+docsys_pin=$(head -n 1 \"${DOCS_ROOT:-docs}/.docsys-version\" 2>/dev/null)\n+if [ -n \"$docsys_pin\" ] && ! docsys --version >/dev/null 2>&1; then\n+  echo \"docsys: this tree pins docsys $docsys_pin; install: cargo install docsys --version $docsys_pin --locked\" >&2\n+  exit 1\n+fi\n exec docsys hook stop --root \"${DOCS_ROOT:-docs}\" --stdin\n"
+      "diff": "--- .claude/hooks/stop-docs-reminder.sh\n+++ .claude/hooks/stop-docs-reminder.sh\n@@ -1,8 +1,13 @@\n #!/usr/bin/env bash\n-# docsys-template: 0.15.1\n-# stop-docs-reminder.sh — end-of-turn nudge; warns, never blocks (R-150).\n+# docsys-template: 0.17.0\n+# stop-docs-reminder.sh — end-of-turn reminder; it warns, and under\n+# `commit_policy: require` it holds the turn once (R-209).\n # Reads the working tree and the commits not yet pushed (`docsys hook stop`).\n command -v docsys >/dev/null || exit 0\n-# no nudge on the release branch\n-[ \"$(git branch --show-current)\" = release ] && exit 0\n+cd \"${CLAUDE_PROJECT_DIR:-.}\" || exit 0\n+docsys_pin=$(head -n 1 \"${DOCS_ROOT:-docs}/.docsys-version\" 2>/dev/null)\n+if [ -n \"$docsys_pin\" ] && ! docsys --version >/dev/null 2>&1; then\n+  echo \"docsys: this tree pins docsys $docsys_pin; install: cargo install docsys --version $docsys_pin --locked\" >&2\n+  exit 1\n+fi\n exec docsys hook stop --root \"${DOCS_ROOT:-docs}\" --stdin\n"
     },
     {
       "file": ".claude/commands/docsys-sync.md",
