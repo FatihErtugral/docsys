@@ -1,9 +1,11 @@
 //! `docsys assistant` — an assistant's memory from one command (D-081): the
 //! knowledge base, its agent layer, the projects it learns from, their pages,
-//! their recent history as records, and the digest. Nothing here is new
-//! mechanics; it is the order in which the existing commands are run, so a
-//! person who wants "my own assistant" types one line and reads what it did.
-//! Idempotent: run again to pick up new projects and new commits.
+//! and the digest. Nothing here is new mechanics; it is the order in which the
+//! existing commands are run, so a person who wants "my own assistant" types
+//! one line and reads what it did. A project's commits are events, not how
+//! work is done: they come in only on the person's word, through
+//! `docsys inbox pull` (D-133). Idempotent: run again to pick up new projects
+//! and their pages.
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -14,7 +16,6 @@ use crate::consume;
 pub struct Outcome {
     pub steps: Vec<String>,
     pub consumed: Vec<String>,
-    pub records: usize,
 }
 
 fn set_domains(root: &Path, domains: &[String]) -> Result<Option<String>, String> {
@@ -64,27 +65,11 @@ fn set_domains(root: &Path, domains: &[String]) -> Result<Option<String>, String
     Ok(Some(list.join(", ")))
 }
 
-/// The local checkout a consume entry names, if it names one.
-fn local_path_of(entry: &str) -> Option<PathBuf> {
-    let (_, loc) = entry.split_once('=')?;
-    let loc = loc.split('#').next().unwrap_or(loc).trim();
-    if crate::export::is_git_url(loc) {
-        return None;
-    }
-    Some(PathBuf::from(loc))
-}
-
-/// One command: the base, the layer, the domains, the projects, their pages,
-/// their recent commits. `projects` are directories holding docsys trees one
+/// One command: the base, the layer, the domains, the projects, their pages.
+/// `projects` are directories holding docsys trees one
 /// level down; another knowledge base found there is skipped — a base learns
 /// from projects, not from another memory.
-pub fn run(
-    root: &Path,
-    projects: &[PathBuf],
-    domains: &[String],
-    since: &str,
-    limit: Option<usize>,
-) -> Result<Outcome, String> {
+pub fn run(root: &Path, projects: &[PathBuf], domains: &[String]) -> Result<Outcome, String> {
     let mut out = Outcome::default();
     fs::create_dir_all(root).map_err(|e| e.to_string())?;
     // 1 · a repository: the gate and the record layer's immutability need one
@@ -180,35 +165,15 @@ pub fn run(
             }
         }
     }
-    // 5 · their pages, then their recent history
+    // 5 · their pages
     let tree = crate::tree::DocTree::load(root).map_err(|e| e.to_string())?;
-    let entries: Vec<String> = tree.docmeta_list("consume").to_vec();
-    if entries.is_empty() {
+    if tree.docmeta_list("consume").is_empty() {
         out.steps.push(
             "consume: nothing yet — `docsys consume add <path|git-url>` names a project".into(),
         );
     } else {
         for line in crate::export::fetch(root)? {
             out.steps.push(format!("fetch: {line}"));
-        }
-        for entry in &entries {
-            let ns = entry.split('=').next().unwrap_or(entry).trim().to_string();
-            let path = local_path_of(entry)
-                .unwrap_or_else(|| root.join(".federation").join(".checkouts").join(&ns));
-            if !path.is_dir() {
-                continue;
-            }
-            match crate::inbox::pull_git(root, &path, since, Some(&ns), limit, false) {
-                Ok(lines) => {
-                    let new = lines.iter().filter(|l| l.starts_with("captured:")).count();
-                    out.records += new;
-                    out.steps.push(format!(
-                        "records: {ns} — {new} new commit record(s), {} already there",
-                        lines.len() - new
-                    ));
-                }
-                Err(e) => out.steps.push(format!("records: {ns} skipped — {e}")),
-            }
         }
     }
     Ok(out)

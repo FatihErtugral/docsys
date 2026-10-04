@@ -894,6 +894,106 @@ fn every_text_this_version_writes_is_a_released_one() {
     );
 }
 
+/// The project profile is the one 0.16.1 wrote: every text its layer writes
+/// is a text a release up to 0.16.1 wrote, so a team tree pinned there reads
+/// the same layer from this version (D-132).
+#[test]
+fn the_project_layer_is_the_one_0_16_1_wrote() {
+    use docsys::agents::{owned_assets, relay_for, relays, released};
+    let frozen = |release: &str| {
+        let v: Vec<u32> = release.split('.').map(|n| n.parse().unwrap()).collect();
+        v <= vec![0, 16, 1]
+    };
+    let mut moved = Vec::new();
+    for (asset, text, _) in owned_assets(false) {
+        if !released(asset, text, "").is_some_and(frozen) {
+            moved.push(asset.to_string());
+        }
+    }
+    for hook in relays(false) {
+        for root in ["docs", "."] {
+            let text = relay_for(hook, root).unwrap();
+            if !released(hook, &text, "").is_some_and(frozen) {
+                moved.push(format!("{hook} (root {root})"));
+            }
+        }
+    }
+    assert!(
+        moved.is_empty(),
+        "project-layer texts that differ from 0.16.1's: {moved:#?}"
+    );
+}
+
+/// A docsys/0.4 knowledge base moves to 0.5 with every `raw/` byte where it
+/// was and lints clean (R-023, D-130).
+#[test]
+fn a_knowledge_base_moves_with_every_record_byte_held() {
+    let kb = tmp("kb-raw-held");
+    git(&kb, &["init", "-q", "-b", "main"]);
+    git(&kb, &["config", "user.email", "t@example.invalid"]);
+    git(&kb, &["config", "user.name", "t"]);
+    let out = docsys(&kb, &["init", "--profile", "knowledge-base", "--root", "."]);
+    assert!(out.status.success(), "{out:?}");
+    let dm = kb.join(".docmeta.yml");
+    let text = fs::read_to_string(&dm)
+        .unwrap()
+        .replace(
+            &format!("spec: docsys/{}", docsys::rules::spec_version()),
+            "spec: docsys/0.4",
+        )
+        .replace("domains: []", "domains: [ops]");
+    fs::write(&dm, text).unwrap();
+    fs::remove_file(kb.join(".docsys-version")).unwrap();
+    let out = docsys(&kb, &["agents", "--kb", "--root", "."]);
+    assert!(out.status.success(), "{out:?}");
+    let records = [
+        ("raw/inbox/2026-09-01-waiting.md", "Rotate the keys monthly.\n"),
+        (
+            "raw/ops/2026-08-30-backups.md",
+            "---\nsource: chat\nsource_id: c-1\ntitle: backups\ncaptured: 2026-08-30\n---\nBackups run at 02:00.\r\n",
+        ),
+    ];
+    for (rel, bytes) in records {
+        let p = kb.join(rel);
+        fs::create_dir_all(p.parent().unwrap()).unwrap();
+        fs::write(&p, bytes).unwrap();
+    }
+    let page = "---\nid: backups\ntype: reference\ndomain: ops\nverification: unverified\n\
+                updated: 2026-08-30\nsources: [raw/ops/2026-08-30-backups.md]\n---\n# Backups\n\n\
+                This page states when backups run; read it before moving them.\n\nThey run at 02:00.\n";
+    for (rel, text) in [
+        ("wiki/ops/reference/backups.md", page),
+        (
+            "wiki/ops/index.md",
+            "# ops\n\n- [[ops/reference/backups|Backups]] -- when they run.\n",
+        ),
+        (
+            "wiki/index.md",
+            "# Knowledge base\n\n- [[ops/index|Ops]] -- operations.\n",
+        ),
+    ] {
+        let p = kb.join(rel);
+        fs::create_dir_all(p.parent().unwrap()).unwrap();
+        fs::write(&p, text).unwrap();
+    }
+    commit_quietly(&kb, "the base as 0.15 left it");
+    let out = docsys(&kb, &["upgrade", "--apply", "--commit", "--root", "."]);
+    assert!(out.status.success(), "{out:?}");
+    for (rel, bytes) in records {
+        assert_eq!(
+            fs::read(kb.join(rel)).unwrap(),
+            bytes.as_bytes(),
+            "{rel} changed in the move"
+        );
+    }
+    let lint = docsys(&kb, &["lint", "--root", "."]);
+    assert!(lint.status.success(), "{lint:?}");
+    assert!(fs::read_to_string(kb.join("wiki/ops/reference/backups.md"))
+        .unwrap()
+        .contains("sources: [raw/ops/2026-08-30-backups.md]"));
+    let _ = fs::remove_dir_all(&kb);
+}
+
 /// A clone whose git runs no hooks (`core.hooksPath` is `/dev/null`) gets no
 /// gate, and that is said once: the rest of the upgrade applies (D-117).
 #[test]

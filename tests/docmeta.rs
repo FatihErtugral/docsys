@@ -218,7 +218,7 @@ fn a_profile_reads_as_its_value_and_never_as_its_comment() {
     let text = fs::read_to_string(&meta).unwrap();
     fs::write(&meta, commented(&text, "profile", "the assistant's memory")).unwrap();
     assert!(docsys::hook::is_knowledge_base(&base));
-    let done = docsys::assistant::run(&base, &[], &[], "30.days", None);
+    let done = docsys::assistant::run(&base, &[], &[]);
     assert!(done.is_ok(), "{:?}", done.err());
 }
 
@@ -263,7 +263,7 @@ fn an_empty_domains_list_with_a_comment_is_empty() {
         .join("\n")
         + "\n";
     fs::write(&meta, text).unwrap();
-    docsys::assistant::run(&base, &[], &["ops".into()], "30.days", None).unwrap();
+    docsys::assistant::run(&base, &[], &["ops".into()]).unwrap();
     let tree = docsys::tree::DocTree::load(&base).unwrap();
     assert_eq!(tree.docmeta_list("domains"), ["ops"]);
 }
@@ -297,7 +297,7 @@ fn an_unclosed_list_is_refused_and_nothing_is_written() {
     let text = fs::read_to_string(&bmeta).unwrap();
     let text = text.replace("domains: []", "domains: [ops,");
     fs::write(&bmeta, &text).unwrap();
-    let done = docsys::assistant::run(&base, &[], &["ops".into()], "30.days", None);
+    let done = docsys::assistant::run(&base, &[], &["ops".into()]);
     let err = done.expect_err("an unclosed list is refused");
     assert!(err.contains("`domains`") && err.contains("line"), "{err}");
     assert_eq!(fs::read_to_string(&bmeta).unwrap(), text);

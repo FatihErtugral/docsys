@@ -825,13 +825,7 @@ pub fn stop(repo: &Path, root: &Path, payload: &str) -> Reply {
 /// nudge names what waits: notes in the inbox, errors the gate will stop.
 /// Warns, never blocks (R-150).
 fn stop_kb(repo: &Path, root: &Path) -> Reply {
-    let notes = fs::read_dir(root.join("raw/inbox"))
-        .map(|it| {
-            it.filter_map(Result::ok)
-                .filter(|e| e.path().extension().is_some_and(|x| x == "md"))
-                .count()
-        })
-        .unwrap_or(0);
+    let notes = inbox_notes(root);
     let (report, _) = crate::lint_in(root, Some(repo));
     let errors = report
         .findings
@@ -843,6 +837,17 @@ fn stop_kb(repo: &Path, root: &Path) -> Reply {
         stderr: crate::say::stop_kb(notes, errors),
         stdout: String::new(),
     }
+}
+
+/// The notes waiting in a knowledge base's inbox.
+fn inbox_notes(root: &Path) -> usize {
+    fs::read_dir(root.join("raw/inbox"))
+        .map(|it| {
+            it.filter_map(Result::ok)
+                .filter(|e| e.path().extension().is_some_and(|x| x == "md"))
+                .count()
+        })
+        .unwrap_or(0)
 }
 
 /// The page the tool just wrote, if it is a live docs page: under the root,
@@ -949,12 +954,26 @@ First turn, knowledge base. Name the organ before anything else — capture,
 ingest or lookup; the skill of that name carries the discipline.
 
 capture → ONE new file in raw/inbox/, the note in the user's own words plus
-one line on why it is worth keeping; never classify, never touch wiki/.
+one line on why it is worth keeping; never classify; commit it alone, and
+ingest it in this same turn when its page is clear.
 ingest → one wiki page per note (id, type, domain,
-sources), routed from the domain index; the note moves to raw/<domain>/ with
-`docsys raw move <record> <domain>` (bytes untouched, citing pages' sources
+sources), in the closest declared domain, or a new one added to .docmeta.yml
+and named to the person in one line; a claim that contradicts a page goes to
+the person with both sources, never over the page; the note moves to
+raw/<domain>/ with `docsys raw move <record> <domain>` (bytes untouched,
+citing pages' sources
 rewritten by the tool). lookup → `docsys
-lookup <words>` first, then the page; \"not in the base\" is a complete answer.
+lookup <words>` first; a source (a consumed @namespace/id page, or a record
+the person gave as one) answers before a wiki page, each labelled; with
+neither, \"not in the base\" is a complete answer.
+Before any task, `docsys lookup` its words: a rule or a howto the base holds
+is followed.
+Learn how the work is done without being asked (AGENTS.md → The loop): a
+correction or an \"always\"/\"never\" → a rule at once; a job finished → a
+record of its steps, archived with no page, and a second record of the same job
+→ a howto with each step's why; a costly failure → its root cause, asking why
+until the work can change it. Events, task state and one-off measurements are
+not recorded. Doubts: one question at the end of the task.
 
 raw/ is content-immutable: an existing record is never edited or deleted, and
 the hook blocks the attempt. Gate: docsys lint (inside the repository).
@@ -1031,10 +1050,11 @@ pub fn user_prompt_submit(payload: &str, root: &Path) -> Reply {
         // a base without a character runs the survey first (D-083)
         let unset = fs::read_to_string(root.join("AGENTS.md"))
             .is_ok_and(|t| t.contains(crate::agents::CHARACTER_UNSET));
+        let waiting = crate::say::inbox_waiting(inbox_notes(root));
         if unset {
-            era_text(root, &format!("{FIRST_RUN}{KB_ROUTING}"))
+            era_text(root, &format!("{FIRST_RUN}{KB_ROUTING}{waiting}"))
         } else {
-            era_text(root, KB_ROUTING)
+            era_text(root, &format!("{KB_ROUTING}{waiting}"))
         }
     } else {
         era_text(root, &format!("{ROUTING}{}", tree_digest(root)))

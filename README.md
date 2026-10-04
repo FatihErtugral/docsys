@@ -370,8 +370,10 @@ flowchart LR
   as `@namespace/id`; lint resolves the citation against the materialization
   and refuses an unfetched one (D-078).
 - **Staying current.** The base pulls, nothing pushes (R-205): re-running
-  `docsys assistant` (or `fetch` and `inbox pull` on a schedule) brings each
-  project's new pages and commits; `docsys status` says what waits — inbox,
+  `docsys assistant` (or `fetch` on a schedule) brings each project's changed
+  pages, read from its default branch, and leaves unchanged ones as they are;
+  its commits come in on the person's word, through `inbox pull` (D-133);
+  `docsys status` says what waits — inbox,
   stale skills — and the assistant's morning words are the model's, from
   that (D-080). `docsys crosscheck --since <ref>` names the pages whose
   consumed sources moved since then, and a cross-check reads them against
@@ -620,10 +622,11 @@ docsys assistant --root ~/jarvis --projects ~/code --domains coding,ops
 
 It creates the base (a git repository, `raw/inbox/`, `wiki/`), installs the
 three organs and the relays, consumes every docsys project one level
-under `~/code` (another knowledge base is skipped), materializes their pages,
-lands their recent commits as records through the git connector, and prints
-the digest. Run it again any time: new projects and new commits are picked
-up, nothing is duplicated. The same thing by hand, when you want to see the
+under `~/code` (another knowledge base is skipped), materializes their pages
+from each project's default branch, and prints the digest. A project's
+commits are events, not how work is done: they come in only on your word,
+through `docsys inbox pull` (D-133). Run it again any time: new projects and
+changed pages are picked up, nothing is duplicated. The same thing by hand, when you want to see the
 parts:
 
 ```sh
@@ -645,8 +648,11 @@ speaking your language turn by turn; the pages keep the base's declared one.
 
 Then, in an agent session in that directory: *"study what my projects say
 about failure handling and write it up"* — a wiki page whose `sources:` are
-`@relay/retry-policy` and friends; *"process my inbox"* distils the commits;
-a howto that matured compiles into a skill (`docsys compile`). What the
+`@relay/retry-policy` and friends; *"note this: …"* lands a note and files it
+in the same turn. The assistant learns how your work is done without being
+asked: a correction becomes a rule, a job done a second time becomes a howto
+with each step's why, and a howto followed again compiles into a skill
+(`docsys compile`) (D-132). What the
 assistant may never do is also mechanical: no record is edited (the hook
 blocks it), and no answer is given from memory when the base does not have
 it. Connectors beyond git — calendar, mail, tickets, clips — call the same
@@ -654,8 +660,7 @@ gate: `docsys inbox add --source <name> --id <item>` (§20, experimental).
 
 Staying current is a schedule, not a hope: run `docsys assistant` again (a
 nightly job is enough — the tree holds records, never timers, R-205), and
-`fetch` brings every project's changed pages while `inbox pull` lands its new
-commits; `docsys crosscheck --since <ref>` names the pages whose consumed
+`fetch` brings every project's changed pages from its default branch; `docsys crosscheck --since <ref>` names the pages whose consumed
 sources moved, and a cross-check reads them against the new text (D-131).
 
 ## What keeps it honest

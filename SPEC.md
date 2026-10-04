@@ -240,9 +240,8 @@ on is read when a person asks for a cross-check (§3.2).
 **R-028** WITHDRAWN — the record is gone with page verification (D-130).
 
 **R-026** `lint` · MUST — `domain` values are declared in `.docmeta.yml`. A page
-whose domain is not declared **is reported**; content that fits no declared
-domain stays in `raw/inbox/` rather than being forced into the nearest one. What
-the base cannot settle by itself — a domain proposal, a discrepancy an audit
+whose domain is not declared **is reported**. What
+the base cannot settle by itself — a discrepancy an audit
 found, a note left in the inbox with its reason — is one dated item under
 `wiki/open-questions/`, an item file under R-108's grammar (`- [ ] YYYY-MM-DD …`)
 and, like every file under `wiki/`, in the base's declared language (D-090).
@@ -2051,7 +2050,7 @@ the assistant says in the morning is the model's, from that.
 ### 20.3 The built-in connector and the write gate
 
 `docsys inbox pull <repo> --since <date>` is the git connector: one record per
-commit — `source: git`, `source_id: <namespace>@<short sha>`, the subject as
+commit of the repository's default branch — `source: git`, `source_id: <namespace>@<short sha>`, the subject as
 title, the body, the files touched, the day of the commit. It exists because
 docsys already reads git, and because a project's history is the source a base
 most often learns from. `docsys inbox add --source <name> --id <item>` is the

@@ -51,6 +51,26 @@ pub fn foreign(dir: Option<&Path>) -> Command {
     c
 }
 
+/// The ref a project another tree learns from is read at (D-133): its
+/// default branch as the checkout last fetched it, `origin/HEAD`; without
+/// one, the commit HEAD names. Never the working tree.
+pub fn default_ref(repo: &Path) -> &'static str {
+    let remote = foreign(Some(repo))
+        .args([
+            "rev-parse",
+            "--verify",
+            "-q",
+            "refs/remotes/origin/HEAD^{commit}",
+        ])
+        .output()
+        .is_ok_and(|o| o.status.success());
+    if remote {
+        "refs/remotes/origin/HEAD"
+    } else {
+        "HEAD"
+    }
+}
+
 /// The top level of the repository `dir` lives in; `None` outside any
 /// repository (or when `dir` does not exist).
 pub fn toplevel(dir: &Path) -> Option<PathBuf> {

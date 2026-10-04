@@ -32,7 +32,7 @@ use crate::migrate::today;
 use crate::tree::{DocTree, Kind, Page};
 use std::collections::BTreeMap;
 use std::fmt::Write as _;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 #[derive(Debug)]
 pub struct ProductOutcome {
@@ -440,6 +440,63 @@ fn git_sync(url: &str, cache: &Path) -> Result<(), String> {
     }
 }
 
+/// A local provider inside a git repository of its own is read at that
+/// repository's default branch (D-133), through a clone beside the git
+/// remotes' — local, so its objects are hard links and its history is whole,
+/// and a page's derived date is the one the provider's own tree derives.
+fn local_sync(repo: &Path, cache: &Path) -> Result<(), String> {
+    let run = |args: &[&str], cwd: Option<&Path>| -> Result<(), String> {
+        let out = crate::git::foreign(cwd)
+            .args(args)
+            .output()
+            .map_err(|e| e.to_string())?;
+        if out.status.success() {
+            Ok(())
+        } else {
+            Err(format!(
+                "git {} failed for `{}`: {}",
+                args.first().unwrap_or(&"?"),
+                repo.display(),
+                String::from_utf8_lossy(&out.stderr).trim()
+            ))
+        }
+    };
+    let from = repo.to_string_lossy();
+    if !cache.join(".git").is_dir() {
+        if let Some(parent) = cache.parent() {
+            std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+        }
+        run(
+            &[
+                "clone",
+                "-q",
+                "--no-checkout",
+                &from,
+                &cache.to_string_lossy(),
+            ],
+            None,
+        )?;
+    }
+    let refspec = format!("+{}:refs/docsys/source", crate::git::default_ref(repo));
+    run(&["fetch", "-q", &from, &refspec], Some(cache))?;
+    run(
+        &["checkout", "-q", "-f", "--detach", "refs/docsys/source"],
+        Some(cache),
+    )
+}
+
+/// The provider checkouts are a cache, never the base's content: one ignore
+/// file inside keeps them out of its history.
+fn ignore_checkouts(root: &Path) -> Result<(), String> {
+    let dir = root.join(".federation").join(".checkouts");
+    let file = dir.join(".gitignore");
+    if std::fs::read_to_string(&file).is_ok_and(|t| t == "*\n") {
+        return Ok(());
+    }
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    std::fs::write(&file, "*\n").map_err(|e| e.to_string())
+}
+
 /// Materialize every consumed namespace under `.federation/` (filesystem
 /// transport, R-145's simplest conformant channel). The provider tree is read
 /// directly; each exported page lands as reconstructed frontmatter (R-136) +
@@ -483,6 +540,7 @@ pub fn fetch(root: &Path) -> Result<Vec<String>, String> {
             // The checkout cache lives under a dot-directory: the tree walk
             // never reads it, only fetch does.
             let cache = root.join(".federation").join(".checkouts").join(ns);
+            ignore_checkouts(root)?;
             git_sync(&loc, &cache)?;
             cache.join(if sub.is_empty() { "docs" } else { sub.as_str() })
         } else {
@@ -492,10 +550,33 @@ pub fn fetch(root: &Path) -> Result<Vec<String>, String> {
             } else {
                 root.join(p)
             };
-            if sub.is_empty() {
+            let local = if sub.is_empty() {
                 base_dir
             } else {
                 base_dir.join(&sub)
+            };
+            // a provider in the consumer's own repository changes with it, so
+            // its working tree is read; any other repository's default branch
+            let top = |d: &Path| {
+                crate::git::foreign(Some(d))
+                    .args(["rev-parse", "--show-toplevel"])
+                    .output()
+                    .ok()
+                    .filter(|o| o.status.success())
+                    .map(|o| PathBuf::from(String::from_utf8_lossy(&o.stdout).trim()))
+            };
+            match (top(&local), local.canonicalize()) {
+                (Some(repo), Ok(at)) if top(root).as_ref() != Some(&repo) => {
+                    let rel = at
+                        .strip_prefix(&repo)
+                        .unwrap_or(Path::new(""))
+                        .to_path_buf();
+                    let cache = root.join(".federation").join(".checkouts").join(ns);
+                    ignore_checkouts(root)?;
+                    local_sync(&repo, &cache)?;
+                    cache.join(rel)
+                }
+                _ => local,
             }
         };
         let provider = DocTree::load(&provider_root)
@@ -571,8 +652,18 @@ pub fn fetch(root: &Path) -> Result<Vec<String>, String> {
                 }
             }
             head.push_str("---\n\n");
-            std::fs::write(dir.join(format!("{id}.md")), format!("{head}{body}\n"))
-                .map_err(|e| e.to_string())?;
+            // with or without a manifest, a page whose bytes we already hold
+            // keeps them and its fetch date (D-133)
+            let text = format!("{head}{body}\n");
+            let md = dir.join(format!("{id}.md"));
+            if held.as_deref() == Some(current.as_str())
+                && std::fs::read_to_string(&md).is_ok_and(|t| t == text)
+            {
+                unchanged += 1;
+                count += 1;
+                continue;
+            }
+            std::fs::write(&md, text).map_err(|e| e.to_string())?;
             let sidecar = format!(
                 "namespace: {ns}\nid: {id}\nhash: fnv:{:016x}\nfetched: {}\n",
                 fnv(body.as_bytes()),
@@ -582,7 +673,9 @@ pub fn fetch(root: &Path) -> Result<Vec<String>, String> {
                 .map_err(|e| e.to_string())?;
             count += 1;
         }
-        let note = if published.is_empty() {
+        let note = if published.is_empty() && unchanged > 0 {
+            format!(" (no manifest published — read from the tree; {unchanged} unchanged, skipped)")
+        } else if published.is_empty() {
             " (no manifest published — read from the tree)".to_string()
         } else if unchanged > 0 {
             format!(" ({unchanged} unchanged, skipped)")

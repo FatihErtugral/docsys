@@ -552,7 +552,7 @@ pub const COMMANDS: &[Command] = &[
     Command {
         name: "inbox pull",
         synopsis: "<repo> [--since <date>] [--limit <n>] [--as <ns>] [--all] [--root <dir>]",
-        purpose: "a knowledge base follows a repository: one record per commit since a date, newest first",
+        purpose: "a knowledge base follows a repository: one record per commit of its default branch since a date, newest first",
         flags: &[
             ("<repo>", "the repository"),
             ("--since <date>", "the first day"),
@@ -587,13 +587,11 @@ pub const COMMANDS: &[Command] = &[
     },
     Command {
         name: "assistant",
-        synopsis: "[--root .] [--projects <dir>]… [--domains a,b] [--since 30.days] [--limit 3]",
-        purpose: "an assistant's memory in one step: the base, its agent layer, the projects it consumes, its pages and records",
+        synopsis: "[--root .] [--projects <dir>]… [--domains a,b]",
+        purpose: "an assistant's memory in one step: the base, its agent layer, the projects it consumes and their pages",
         flags: &[
             ("--projects <dir>", "a directory of projects to consume; may repeat"),
             ("--domains a,b", "the domains the base files its records under"),
-            ("--since <span>", "how far back each project's commits come into the inbox"),
-            ("--limit <n>", "at most this many commits per project"),
         ],
         words: Words::None,
         aliases: &[],

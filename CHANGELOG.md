@@ -5,6 +5,49 @@ All notable changes to docsys are documented here. The format follows
 [SemVer](https://semver.org/). Release notes are extracted from this file
 by the release workflow — the tag's section becomes the GitHub release body.
 
+## [0.17.0] - 2026-10-05
+
+### Upgrading from 0.16.1
+
+- A project tree: nothing to do. The project layer — templates, relays,
+  the CI step, the rules block and every finding — is the one 0.16.1
+  wrote; a tree pinned to 0.16.1 stays there.
+- A knowledge base: `docsys upgrade --apply` refreshes the kb-capture,
+  kb-ingest and kb-lookup skills and the contract (`AGENTS.md`) while they
+  are a text a release wrote; a contract whose character is filled in is
+  its owner's, and the plan shows the new text as a diff to apply by hand.
+
+### Changed
+
+- A knowledge base learns how its person's work is done (D-132): a
+  correction, or an "always" or a "never", becomes a rule at once; a job
+  done a second time becomes a howto with its steps, its pitfalls and each
+  step's why; the root cause of a costly failure becomes a rule or a
+  pitfall. Events, task state and one-off measurements are not recorded.
+  The agent judges all of it; the tool decides no meaning.
+- The inbox does not wait: a captured note is committed and ingested in the
+  same turn when its page is clear, and the first turn of a session names
+  the notes an earlier session left, to be ingested first.
+- An answer comes from a source first — a consumed `@namespace/id` page, or a
+  record the person gave as a source — then from the base's own page, each
+  labelled. A claim that contradicts a page goes to the person instead of
+  over the page.
+- Domains are open: a note that fits no declared domain adds its domain, and
+  the person is told in one line (R-026's inbox clause deleted).
+- A local project the base consumes is read at its default branch, never
+  from its working tree or the branch checked out, by `fetch` and by
+  `inbox pull` alike (D-133).
+- `assistant` lands no commit records; `docsys inbox pull` does, on the
+  person's word. `assistant --since` and `--limit` are refused by name.
+
+### Fixed
+
+- `fetch` rewrote every page of a provider that publishes no manifest, with
+  today's date, on every run; a page whose bytes are unchanged now keeps
+  them and its fetch date.
+- `assistant` told a docsys/0.5 base to "audit the wiki"; it names
+  `/docsys-crosscheck` there.
+
 ## [0.16.1] - 2026-10-04
 
 ### Upgrading from 0.16.0

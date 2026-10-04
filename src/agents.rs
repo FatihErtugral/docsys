@@ -299,19 +299,23 @@ did, so only those sections needed the work.
 
 const KB_CAPTURE: &str = r#"---
 name: kb-capture
-description: Save something into the knowledge base — "note this", "remember this", "add to my brain", "log this lesson". Writes to raw/inbox/ with zero classification; sorting is ingest's job.
+description: Save something into the knowledge base — "note this", "remember this", "add to my brain", "log this lesson". Writes one note to raw/inbox/ with zero classification, commits it, and files it in the same turn when its page is clear.
 ---
 
 # kb-capture — the write gate
 
-Capture costs nothing or it does not happen. Never classify here, never ask
-where it belongs, never open a wiki page.
+Capture costs nothing or it does not happen. Never ask where it belongs.
 
 1. Write ONE file to `raw/inbox/<YYYY-MM-DD>-<short-kebab-slug>.md`.
 2. Content: the note in the user's own words, plus one line naming **why it is
-   worth keeping** — that line is what makes it distillable later. Add a
-   `suggested-domain:` line only if it is obvious; ingest decides.
-3. Confirm in one sentence. Do not run lint, do not touch `wiki/`.
+   worth keeping** — that line is what makes it distillable later. A note
+   taken from a source the person gave — a document, a page, a link — names
+   it; `docsys inbox add --source <name> --id <item> --url <link>` writes
+   such a record with its provenance.
+3. Commit the note alone, staged by its path.
+4. When the page it belongs on is clear, run kb-ingest on it in this same
+   turn; when it is not, leave it — the next session ingests it first.
+5. Confirm in one sentence.
 
 Never paraphrase away a specific: a number, a version, an error string, a
 command is the part that will be worth having.
@@ -319,7 +323,7 @@ command is the part that will be worth having.
 
 const KB_INGEST: &str = r#"---
 name: kb-ingest
-description: Process the knowledge-base inbox — "process my inbox", "empty the inbox", "file these notes". Distils raw notes into wiki pages, archives the source, runs the gate.
+description: Process the knowledge-base inbox — "process my inbox", "empty the inbox", "file these notes", or the note just captured. Distils raw notes into wiki pages, archives the source, runs the gate.
 ---
 
 # kb-ingest — raw becomes knowledge
@@ -328,35 +332,47 @@ Distillation, not movement (R-092): the raw note is evidence and stays; the
 wiki page is authored. Full discipline is applied HERE, so capture can stay
 free.
 
-For each file in `raw/inbox/`:
+For each file in `raw/inbox/`, or the one note just captured:
 
-1. **Classify the domain** against `domains:` in `.docmeta.yml`. Fits none?
-   Leave the note in the inbox and record the proposal as an open question
-   (`docsys question add`) — never force a note into the nearest domain, and
-   never invent a domain for a single note. A note that holds nothing to
-   keep (noise) stays too, with one open question naming it, so the inbox
-   never grows in silence; deleting is never yours. The question is written
-   in the base's language.
-2. **Pick the type** — `reference` (facts, values), `howto` (steps),
+1. **Classify the domain** against `domains:` in `.docmeta.yml`, the closest
+   declared domain first. Fits none? Add the domain to `domains:`, create
+   `wiki/<domain>/` with this note's page, and tell the person in one line.
+   A note that holds nothing to keep (noise) stays in the inbox with one open
+   question naming it (`docsys question add`), so the inbox never grows in
+   silence; deleting is never yours. The question is written in the base's
+   language.
+2. **A job done once?** A note that records a job finished for the first
+   time is archived to its domain (step 8) with no page. When a second
+   record of the same job arrives, the two become a `howto`: its steps, its
+   pitfalls, and each step's why in one clause — a longer why is an
+   `explanation` page the howto links. Both records go in its `sources:`.
+3. **Pick the type** — `reference` (facts, values), `howto` (steps),
    `explanation` (why), `tutorial` (guided first run). Never mix types on one
-   page (R-031); if a page starts holding steps AND concepts, split it.
-3. **Author or update** `wiki/<domain>/<type>/<slug>.md` with frontmatter:
+   page (R-031); if a page starts holding steps AND concepts, split it. A
+   rule — a correction, an "always" or a "never" from the person — is one
+   line with its why in the domain's `reference` page of rules.
+4. **A contradiction?** When the note says otherwise than a page, never write
+   over the page: show the person both, each with its source, and let them
+   decide; then update the one page that holds it. With the person away,
+   leave the page and record an open question.
+5. **Author or update** `wiki/<domain>/<type>/<slug>.md` with frontmatter:
    `id` (stable, kebab-case, never renamed), `type`, `domain`,
    `sources: [raw/…]`. A claim that
    rests on a consumed project's own page cites it as `@namespace/id`
    (materialized under `.federation/`; AGENTS.md → Sources beyond the inbox);
    a claim that rests on a connector record cites the record's path like any
    note.
-4. Open with one or two sentences that stand alone (R-032): a reader arrives
+6. Open with one or two sentences that stand alone (R-032): a reader arrives
    here from a search, not from the top of a chain.
-5. **Route it**: add the page to `wiki/<domain>/index.md`, and the domain to
+7. **Route it**: add the page to `wiki/<domain>/index.md`, and the domain to
    `wiki/index.md` if new (R-035 grammar).
-6. **Archive the source**: `docsys raw move raw/inbox/<note> <domain>
+8. **Archive the source**: `docsys raw move raw/inbox/<note> <domain>
    --root <base>` — the note lands in `raw/<domain>/` with the same filename
    and the same bytes (R-023), and every `sources:` entry that pointed at the
    old path is rewritten by the tool (R-027). Never `git mv` and edit
    `sources:` by hand: the hand edit is where evidence trails were severed.
-7. Gate: `docsys lint --root <base>` — finish clean or report what blocks.
+9. Gate: `docsys lint --root <base>` — finish clean or report what blocks;
+   then commit what this ingest wrote, staged by path.
 "#;
 
 /// The knowledge base's audit organ: a docsys/0.4 base's, as 0.15.1 wrote it,
@@ -397,7 +413,7 @@ Report page by page: verified, or demoted with the reason.
 
 const KB_LOOKUP: &str = r#"---
 name: kb-lookup
-description: Answer from the knowledge base — "what do my notes say about X", "check my brain for X", "did I write anything about X". Read-only; answers with sources or says it is not there.
+description: Answer from the knowledge base — "what do my notes say about X", "check my brain for X", "did I write anything about X". Read-only; answers source first, then the base's own record, each labelled, or says it does not know.
 ---
 
 # kb-lookup — the read gate
@@ -410,12 +426,16 @@ Read-only. Never write, never fix what you find; report gaps instead.
    is another tree's contract and is cited as `@namespace/id`.
 2. Nothing? `wiki/index.md` → the domain → `wiki/<domain>/index.md` → the
    page; then grep `wiki/` for tags and headings.
-3. Still nothing → **say it is not in the base.** Never answer from your own
-   knowledge while implying the base said it; offer to capture the question.
-4. Answer WITH the page path.
+3. **Source first.** A consumed page, or a record the person gave as a
+   source, answers first, labelled as the source; a wiki page answers after
+   it, labelled as the base's own record. Say which one each part of the
+   answer rests on, with its path.
+4. Neither → **say you do not know: it is not in the base.** Never answer
+   from your own knowledge while implying the base said it; offer to capture
+   the question.
 
-`raw/` is evidence, not an answer: quote it only to show where a page came
-from.
+Any other `raw/` record is evidence, not an answer: quote it only to show
+where a page came from.
 "#;
 
 /// The knowledge base's constitution: the always-loaded contract, the part
@@ -455,12 +475,38 @@ A personal knowledge base: plain markdown and git, no database, no lock-in.
 
 ## The loop
 
-capture → `raw/inbox/` · ingest → a wiki page + archived source · lookup →
-an answer with its source.
+capture → `raw/inbox/`, committed · ingest → a wiki page + archived source,
+in the same turn when the page is clear · lookup → an answer from a source
+first, then from the base's own record, each labelled. Before a task, the
+base is looked up: a rule or a howto it holds is followed. A note waiting from
+an earlier session is ingested before anything else.
+
+What the base learns without being asked — how the work is done:
+- A correction, or an "always" or a "never" from the person → a rule at once,
+  one line with its why in the domain's `reference` page of rules.
+- A job finished once → one record naming it and its steps, archived to its
+  domain with no page; a second record of the same job → a `howto` with its
+  steps, its pitfalls, and each step's why in one clause.
+- A failure that cost real time → its root cause, found by asking why until
+  the answer is a cause the work can change (five times, as a rule of thumb)
+  → a rule, or a pitfall on the howto.
+- Not recorded: events, the state of a task, a one-off measurement, and what
+  a source the base already cites says.
+- In doubt: one question at the end of the task, every doubt in it.
+
+What it learns on the person's word: "learn X from <source>" → the source
+captured as a record that names it, then ingested; every page it yields
+cites it.
 
 Rules that are not mechanical:
-- A note that fits no domain stays in the inbox; a domain is proposed as an
-  open question and earns its place only after several notes.
+- Domains are open: the closest declared domain first; when none fits, add
+  the domain to `domains:` in `.docmeta.yml`, create its folder with the
+  note's page, and tell the person in one line.
+- A claim that contradicts a page never overwrites it: the person sees both,
+  each with its source, decides, and the one page that holds it is updated.
+  With the person away, it is an open question.
+- A howto followed again after it was written → `docsys compile <howto>`
+  makes it a skill; from then on, run the skill.
 - An open question is a line in `wiki/open-questions/<topic>.md`, written by
   `docsys question add --topic <domain>`; `status` counts them, and an
   answered one leaves with its commit's `Answered:` line (R-108).
@@ -474,16 +520,16 @@ Rules that are not mechanical:
   exported pages under `.federation/<namespace>/`, committed as the baseline.
   A wiki page that rests on such a page cites it as `@namespace/id` in
   `sources:`.
-- **The git connector** — `docsys inbox pull <repo> [--since <date>]
-  [--limit <n>]` lands one record per commit worth reading (bookkeeping
-  commits — no body, docs only — are skipped unless `--all`) through the
-  same write gate as any note; a second pull lands nothing twice. Choose the
-  span and say why; then ingest the records like notes: what the project
-  decided, not what it did.
+- **The git connector** — on the person's word, `docsys inbox pull <repo>
+  [--since <date>] [--limit <n>]` lands one record per commit of the
+  project's default branch worth reading (bookkeeping commits — no body,
+  docs only — are skipped unless `--all`) through the same write gate as any
+  note; a second pull lands nothing twice. Choose the span and say why; then
+  ingest the records like notes: what the project decided, not what it did.
 - **The digest** — `docsys status` first: the inbox, the pages, open
   items, consumed namespaces, findings. `docsys assistant --root .
-  --projects <dir>` stood this base up and keeps its consumed projects
-  current, in one command.
+  --projects <dir>` stood this base up and keeps its consumed projects'
+  pages current, read from their default branches, in one command.
 
 ## Hooks
 

@@ -23,20 +23,22 @@ docsys consume discover "$E" --root "$WORK/probe" > "$O/discover.out" 2>&1 || tr
 expect_in $F discover-count "-- 4 candidate(s); nothing written" "$O/discover.out"
 for p in relay ledger gateway; do expect_in $F "discover-$p" "$p" "$O/discover.out"; done
 expect_re $F discover-names-profile "^notebook[[:space:]]+knowledge-base[[:space:]]" "$O/discover.out"
-docsys assistant --root "$WORK/hub" --projects "$E" --domains coding --since 2026-01-01 > "$O/assistant.out" 2>&1 || check $F assistant FAIL "$(cat "$O/assistant.out")"
+docsys assistant --root "$WORK/hub" --projects "$E" --domains coding > "$O/assistant.out" 2>&1 || check $F assistant FAIL "$(cat "$O/assistant.out")"
 expect_in $F assistant-created "base: created" "$O/assistant.out"
 for p in relay ledger gateway; do expect_in $F "assistant-consume-$p" "consume: $p" "$O/assistant.out"; done
 expect_in $F assistant-skips-base "skipped notebook" "$O/assistant.out"
-expect_in $F assistant-records-relay "records: relay — 2 new commit record(s), 0 already there" "$O/assistant.out"
-expect_in $F assistant-records-ledger "records: ledger — 1 new commit record(s), 0 already there" "$O/assistant.out"
-expect_in $F assistant-records-gateway "records: gateway — 2 new commit record(s), 0 already there" "$O/assistant.out"
+# a project's commits come in on the person's word, not with assistant (D-133)
+expect_absent $F assistant-lands-no-records "records:" "$O/assistant.out"
+for p in relay ledger gateway; do docsys inbox pull "$E/$p" --since 2026-01-01 --root "$WORK/hub" >> "$O/pull-hub.out" 2>&1 || true; done
+expect_true $F pull-hub-records "the three projects' five commit records" test "$(grep -c '^captured: raw/inbox/' "$O/pull-hub.out")" = 5
 cd "$WORK/hub"
 expect_true $F hub-layer "hooks installed" test -x .claude/hooks/pre-commit-docs.sh
 expect_true $F hub-agents-md "AGENTS.md names the sources beyond the inbox" grep -q 'Sources beyond the inbox' AGENTS.md
 expect_clean $F hub-clean .
-docsys assistant --root "$WORK/hub" --projects "$E" --since 2026-01-01 > "$O/assistant2.out" 2>&1 || true
+docsys assistant --root "$WORK/hub" --projects "$E" > "$O/assistant2.out" 2>&1 || true
 expect_in $F assistant-idempotent-base "base: kept" "$O/assistant2.out"
-expect_in $F assistant-idempotent-records "records: relay — 0 new commit record(s), 2 already there" "$O/assistant2.out"
+docsys assistant --root "$WORK/hub" --projects "$E" --since 2026-01-01 > "$O/assistant3.out" 2>&1 || true
+expect_in $F assistant-refuses-since "it lands no commit records (D-133)" "$O/assistant3.out"
 docsys status --root . > "$O/status.out"
 expect_in $F status-inbox "inbox: 5 note(s)" "$O/status.out"
 expect_in $F status-consumed "consumed: gateway 2 page(s) fetched $TODAY · ledger 2 page(s) fetched $TODAY · relay 2 page(s) fetched $TODAY" "$O/status.out"

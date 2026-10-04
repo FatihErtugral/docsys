@@ -272,8 +272,6 @@ fn an_assistants_memory_stands_up_in_one_command_and_again() {
         &b,
         std::slice::from_ref(&hub),
         &["coding".into(), "ops".into()],
-        "30.days",
-        Some(3),
     )
     .unwrap();
     assert!(
@@ -296,7 +294,12 @@ fn an_assistants_memory_stands_up_in_one_command_and_again() {
     let mut consumed = done.consumed.clone();
     consumed.sort();
     assert_eq!(consumed, vec!["ledger", "relay"]);
-    assert_eq!(done.records, 2, "{:?}", done.steps);
+    // a project's commits are events: none lands without the person's word (D-133)
+    assert!(
+        !done.steps.iter().any(|s| s.starts_with("records:")),
+        "{:?}",
+        done.steps
+    );
     assert!(
         b.join(".git").exists(),
         "a repository, for the gate and the record layer"
@@ -304,12 +307,11 @@ fn an_assistants_memory_stands_up_in_one_command_and_again() {
     assert!(b.join(".claude/hooks/pre-commit-docs.sh").is_file());
     assert!(b.join(".federation/relay/retry-policy.md").is_file());
     let s = status::status(&b, Some(&b)).unwrap();
-    assert_eq!(s.inbox, 2);
+    assert_eq!(s.inbox, 0);
     assert_eq!(s.consumed.len(), 2);
     assert!(errors(&b).is_empty(), "{:?}", errors(&b));
     // again: nothing duplicated, nothing rewritten
-    let again =
-        docsys::assistant::run(&b, std::slice::from_ref(&hub), &[], "30.days", Some(3)).unwrap();
+    let again = docsys::assistant::run(&b, std::slice::from_ref(&hub), &[]).unwrap();
     assert!(
         again
             .steps
@@ -323,12 +325,10 @@ fn an_assistants_memory_stands_up_in_one_command_and_again() {
         "{:?}",
         again.steps
     );
-    assert_eq!(again.records, 0, "{:?}", again.steps);
     let s = status::status(&b, Some(&b)).unwrap();
-    assert_eq!(s.inbox, 2);
+    assert_eq!(s.inbox, 0);
     // a project tree is refused as the memory
-    let err = docsys::assistant::run(&hub.join("relay").join("docs"), &[], &[], "30.days", None)
-        .unwrap_err();
+    let err = docsys::assistant::run(&hub.join("relay").join("docs"), &[], &[]).unwrap_err();
     assert!(err.contains("knowledge base"), "{err}");
 }
 
@@ -380,8 +380,7 @@ fn a_base_inside_another_repository_is_told_whose_history_it_shares() {
     );
     // a base under the provider's own repository: no `git init`, but a clear word
     let nested = relay.join("memory");
-    let done =
-        docsys::assistant::run(&nested, &[], &["coding".to_string()], "30.days", None).unwrap();
+    let done = docsys::assistant::run(&nested, &[], &["coding".to_string()]).unwrap();
     assert!(
         done.steps
             .iter()
@@ -480,4 +479,118 @@ fn the_limit_counts_commits_worth_reading_and_a_namespace_override_names_the_rec
     assert!(text.contains("source_id: rl@"), "{text}");
     assert!(text.contains("title: \"rl: "), "{text}");
     let _ = fs::remove_dir_all(&hub);
+}
+
+/// A page whose bytes the base already holds keeps them and its fetch date,
+/// with or without a manifest; a changed page is written, dated (D-133).
+#[test]
+fn an_unchanged_page_keeps_its_bytes_and_its_fetch_date() {
+    let hub = tmp("unchanged");
+    let relay = provider(
+        &hub,
+        "relay",
+        "retry-policy",
+        "Retry policy",
+        "Four attempts.",
+    );
+    let b = base(&hub);
+    consume::add(&b, relay.to_str().unwrap(), None).unwrap();
+    export::fetch(&b).unwrap();
+    let side = b.join(".federation/relay/retry-policy.provenance.yml");
+    let page = b.join(".federation/relay/retry-policy.md");
+    let earlier: String = fs::read_to_string(&side)
+        .unwrap()
+        .lines()
+        .map(|l| {
+            if l.starts_with("fetched:") {
+                "fetched: 2000-01-01\n".to_string()
+            } else {
+                format!("{l}\n")
+            }
+        })
+        .collect();
+    fs::write(&side, &earlier).unwrap();
+    let held = fs::read_to_string(&page).unwrap();
+    let said = export::fetch(&b).unwrap();
+    assert_eq!(fs::read_to_string(&side).unwrap(), earlier, "{said:?}");
+    assert_eq!(fs::read_to_string(&page).unwrap(), held);
+    assert!(
+        said.iter().any(|l| l.contains("1 unchanged, skipped")),
+        "{said:?}"
+    );
+    write(
+        &relay,
+        "docs/reference/retry-policy.md",
+        "---\nid: retry-policy\ntype: reference\nupdated: 2026-09-02\n---\n# Retry policy\n\n\
+         This page states Retry policy; read it before changing it.\n\nFive attempts.\n",
+    );
+    git(&relay, &["commit", "-qam", "five attempts"]);
+    export::fetch(&b).unwrap();
+    assert!(fs::read_to_string(&page)
+        .unwrap()
+        .contains("Five attempts."));
+    assert!(!fs::read_to_string(&side)
+        .unwrap()
+        .contains("fetched: 2000-01-01"));
+}
+
+/// A project the base learns from is read at its default branch — never the
+/// branch checked out in the person's checkout, nor its edits in progress —
+/// by fetch and by the git connector alike; the checkout they read through
+/// stays out of the base's history (D-133).
+#[test]
+fn a_local_provider_is_read_at_its_default_branch() {
+    let hub = tmp("default-branch");
+    let upstream = provider(
+        &hub,
+        "relay",
+        "retry-policy",
+        "Retry policy",
+        "Four attempts.",
+    );
+    let work = hub.join("work");
+    assert!(Command::new("git")
+        .args(["clone", "-q"])
+        .arg(&upstream)
+        .arg(&work)
+        .status()
+        .unwrap()
+        .success());
+    git(&work, &["config", "user.email", "t@example.invalid"]);
+    git(&work, &["config", "user.name", "t"]);
+    git(&work, &["checkout", "-q", "-b", "feature"]);
+    let page = |n: &str| {
+        format!(
+            "---\nid: retry-policy\ntype: reference\nupdated: 2026-09-02\n---\n# Retry policy\n\n\
+             This page states Retry policy; read it before changing it.\n\n{n} attempts.\n"
+        )
+    };
+    write(&work, "docs/reference/retry-policy.md", &page("Six"));
+    git(&work, &["commit", "-qam", "six on the branch\n\nWhy."]);
+    write(&work, "docs/reference/retry-policy.md", &page("Seven"));
+    let b = base(&hub);
+    consume::add(&b, work.to_str().unwrap(), Some("relay")).unwrap();
+    export::fetch(&b).unwrap();
+    let held = fs::read_to_string(b.join(".federation/relay/retry-policy.md")).unwrap();
+    assert!(held.contains("Four attempts."), "{held}");
+    assert!(
+        fs::read_to_string(work.join("docs/reference/retry-policy.md"))
+            .unwrap()
+            .contains("Seven attempts."),
+        "the person's checkout is as they left it"
+    );
+    let landed = inbox::pull_git(&b, &work, "2000-01-01", Some("relay"), None, true).unwrap();
+    assert_eq!(landed.len(), 1, "{landed:?}");
+    git(&b, &["add", "-A"]);
+    let staged = Command::new("git")
+        .args(["diff", "--cached", "--name-only"])
+        .current_dir(&b)
+        .output()
+        .unwrap();
+    let staged = String::from_utf8_lossy(&staged.stdout);
+    assert!(!staged.contains(".checkouts"), "{staged}");
+    assert!(
+        staged.contains(".federation/relay/retry-policy.md"),
+        "{staged}"
+    );
 }

@@ -155,8 +155,9 @@ pub struct Commit {
     pub files: Vec<String>,
 }
 
-/// The commits of `repo` since `since` (inclusive), newest first; merges and
-/// empty subjects skipped.
+/// The commits of `repo`'s default branch since `since` (inclusive), newest
+/// first; merges and empty subjects skipped. The branch checked out is a
+/// person's work in progress, not what the project decided (D-133).
 pub fn commits_since(repo: &Path, since: &str) -> Result<Vec<Commit>, String> {
     let out = crate::git::foreign(Some(repo))
         .args([
@@ -165,6 +166,8 @@ pub fn commits_since(repo: &Path, since: &str) -> Result<Vec<Commit>, String> {
             "--name-only",
             &format!("--since={}", since_bound(since)),
             "--format=%x1e%H%x1f%cs%x1f%s%x1f%b%x1f",
+            crate::git::default_ref(repo),
+            "--",
         ])
         .output()
         .map_err(|e| e.to_string())?;

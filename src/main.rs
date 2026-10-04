@@ -1550,10 +1550,14 @@ fn main() -> ExitCode {
                 }
             }
         }
+        ("assistant", None) if opts.since.is_some() || opts.limit.is_some() => {
+            eprintln!(
+                "assistant: it lands no commit records (D-133) — `docsys inbox pull <repo> --since <span> --limit <n>` does, on your word"
+            );
+            ExitCode::from(2)
+        }
         ("assistant", None) => {
-            let since = opts.since.clone().unwrap_or_else(|| "30.days".to_string());
-            let limit = Some(opts.limit.unwrap_or(3));
-            match docsys::assistant::run(&opts.root, &opts.projects, &opts.domains, &since, limit) {
+            match docsys::assistant::run(&opts.root, &opts.projects, &opts.domains) {
                 Ok(done) => {
                     for s in &done.steps {
                         println!("{s}");
@@ -1573,8 +1577,12 @@ next: review, `git add -A && git commit`, then open an agent session here."
                     println!("  then try:");
                     println!("  \"how does <project> handle <thing>?\"      lookup — cites @namespace/id");
                     println!("  \"study what my projects say about X and write it up\"   a page whose sources are theirs");
-                    println!("  \"process my inbox\"   the commit records, distilled or left with a reason");
-                    println!("  \"audit the wiki\"     in another session");
+                    println!("  \"note this: …\"   captured, then filed in the same turn when its page is clear");
+                    if docsys::era::Era::at(&opts.root).page_verification() {
+                        println!("  \"audit the wiki\"     in another session");
+                    } else {
+                        println!("  \"cross-check what moved\"   /docsys-crosscheck");
+                    }
                     println!("  \"my morning briefing\"   from `docsys status`");
                     ExitCode::SUCCESS
                 }

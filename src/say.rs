@@ -113,7 +113,7 @@ pub fn stop_kb(notes: usize, errors: usize) -> String {
     let mut msg = String::new();
     if notes > 0 {
         msg.push_str(&format!(
-            "base: {notes} note(s) waiting in raw/inbox — `process my inbox` distils them when you are ready.\n"
+            "base: {notes} note(s) waiting in raw/inbox — ingest each whose page is clear now; the next session ingests the rest first.\n"
         ));
     }
     if errors > 0 {
@@ -122,6 +122,18 @@ pub fn stop_kb(notes: usize, errors: usize) -> String {
         ));
     }
     msg
+}
+
+/// A knowledge base's first turn, when notes wait from an earlier session:
+/// they are ingested before the person's request (D-132).
+pub fn inbox_waiting(notes: usize) -> String {
+    if notes == 0 {
+        return String::new();
+    }
+    format!(
+        "<inbox-waiting>\n{notes} note(s) wait in raw/inbox/ from an earlier session: ingest them \
+         first, before what the person asks.\n</inbox-waiting>\n"
+    )
 }
 
 /// The git gate's line naming a change set with code and no documentation.
@@ -300,6 +312,7 @@ pub fn catalog() -> Vec<String> {
     out.push(raw_record("raw/inbox/a.md"));
     out.push(format!("{}{HELD}", stop_undocumented("this session")));
     out.push(stop_kb(2, 1));
+    out.push(inbox_waiting(2));
     out.push(gate_seed_plan(&plans));
     out.push(gate_bypassed("work/debt/general.md"));
     out.push(message_refusal(&["src/x.rs"]));

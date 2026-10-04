@@ -237,10 +237,10 @@ docsys assistant --root memory --projects "$WORK" --domains coding > /tmp/assist
 grep -q 'base: created' /tmp/assistant.out || fail "assistant did not create the base"
 grep -q 'consume: auth' /tmp/assistant.out && grep -q 'consume: billing' /tmp/assistant.out || fail "assistant did not consume the providers: $(cat /tmp/assistant.out)"
 grep -q 'skipped brain' /tmp/assistant.out || fail "assistant consumed another knowledge base"
-grep -q 'records: auth — 1 new' /tmp/assistant.out || fail "the git connector did not run: $(cat /tmp/assistant.out)"
+! grep -q '^records:' /tmp/assistant.out || fail "assistant landed commit records (D-133): $(cat /tmp/assistant.out)"
 test -x memory/.claude/hooks/pre-commit-docs.sh || fail "assistant left no hook layer"
 docsys assistant --root memory --projects "$WORK" > /tmp/assistant2.out || fail "assistant is not idempotent: $(cat /tmp/assistant2.out)"
-grep -q 'base: kept' /tmp/assistant2.out && grep -q 'records: auth — 0 new' /tmp/assistant2.out || fail "assistant duplicated work: $(cat /tmp/assistant2.out)"
+grep -q 'base: kept' /tmp/assistant2.out || fail "assistant duplicated work: $(cat /tmp/assistant2.out)"
 (cd memory && docsys lint --root . | grep -- '-- 0 error(s)' >/dev/null) || fail "the one-command base does not lint clean"
 cd "$WORK"
 

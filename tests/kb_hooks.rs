@@ -236,6 +236,24 @@ fn the_first_turn_names_the_organs_once() {
     assert!(later.contains("knowledge base"), "{later}");
 }
 
+/// A note left in the inbox by an earlier session is ingested before the
+/// person's request (D-132); an empty inbox adds nothing to the first turn.
+#[test]
+fn a_note_waiting_from_an_earlier_session_is_ingested_first() {
+    let base = build_base("waiting");
+    let payload =
+        r#"{"session_id":"SESSION","hook_event_name":"UserPromptSubmit","prompt":"hello"}"#;
+    let (_, out, _) = run_relay(&base, "session-intent.sh", payload, "s5");
+    assert!(
+        out.contains("<inbox-waiting>\n1 note(s) wait in raw/inbox/ from an earlier session: ingest them first"),
+        "{out}"
+    );
+    fs::remove_file(base.join("raw/inbox/2026-09-02-note.md")).unwrap();
+    let (_, out, _) = run_relay(&base, "session-intent.sh", payload, "s5b");
+    assert!(out.contains("knowledge base"), "{out}");
+    assert!(!out.contains("inbox-waiting"), "{out}");
+}
+
 #[test]
 fn the_end_of_a_turn_names_the_inbox_and_the_gate() {
     let base = build_base("stop");
@@ -355,7 +373,7 @@ fn the_installed_layer_names_the_sources_beyond_the_inbox() {
         "docsys raw move",
         "@namespace/id",
         "R-027",
-        "(noise) stays too, with one open question",
+        "(noise) stays in the inbox with one open\n   question",
         "`docsys question add`",
     ] {
         assert!(ingest.contains(needle), "kb-ingest lacks `{needle}`");
