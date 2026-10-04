@@ -49,6 +49,10 @@ by the release workflow — the tag's section becomes the GitHub release body.
   them and its fetch date.
 - `assistant` told a docsys/0.5 base to "audit the wiki"; it names
   `/docsys-crosscheck` there.
+- `page new <type> <id>` in a knowledge base wrote `<type>/<id>.md` at the
+  base's top. It takes `--domain <d>` and writes `wiki/<d>/<type>/<id>.md`;
+  a missing or undeclared domain is refused in one line that says how a
+  domain is added.
 
 ## [0.16.1] - 2026-10-04
 

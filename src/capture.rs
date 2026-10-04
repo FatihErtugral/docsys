@@ -416,8 +416,13 @@ pub fn page_new(
     kind: &str,
     id: &str,
     title: Option<&str>,
+    domain: Option<&str>,
     unverified: bool,
 ) -> Result<String, String> {
+    let kb = crate::tree::docmeta_value(root, "profile").as_deref() == Some("knowledge-base");
+    if domain.is_some() && !kb {
+        return Err("a project page has no domain: `--domain` is a knowledge base's".to_string());
+    }
     if !crate::model::is_local_id(id) {
         return Err(format!(
             "`{id}` is not a local-id (lowercase, digits, single hyphens)"
@@ -478,6 +483,50 @@ pub fn page_new(
         } else {
             ""
         };
+        // a knowledge base files a page under its declared domain (R-026,
+        // D-132); a domain no page has yet is added to `domains:` first
+        if kb {
+            let meta = crate::tree::docmeta_at(root);
+            let declared: Vec<String> = meta
+                .as_ref()
+                .and_then(|f| f.fields.get("domains").and_then(crate::fm::Value::as_list))
+                .map(<[String]>::to_vec)
+                .unwrap_or_default();
+            let add = "a note no declared domain fits adds its domain to `domains:` in .docmeta.yml first, the closest declared one coming first (D-132)";
+            let d = match domain {
+                None => {
+                    return Err(format!(
+                    "a knowledge base's page names its domain: `--domain <d>`, one of [{}]; {add}",
+                    declared.join(", ")
+                ))
+                }
+                Some(d) if !declared.iter().any(|x| x == d) => {
+                    return Err(format!(
+                        "`{d}` is no declared domain (one of [{}]); {add}",
+                        declared.join(", ")
+                    ))
+                }
+                Some(d) => d,
+            };
+            let rel = format!("wiki/{d}/{kind}/{id}.md");
+            let verification = if unverified {
+                "verification: unverified\n"
+            } else {
+                ""
+            };
+            let text = format!(
+                "---\nid: {id}\ntype: {kind}\ndomain: {d}\n{verification}sources: []\n{date}---\n# {title}\n\n<!-- opening: one or two sentences that establish this page's own context — what it describes, when to read it (R-032). Then route it from wiki/{d}/index.md. -->\n"
+            );
+            let path = root.join(&rel);
+            if path.exists() {
+                return Err(format!("{rel} already exists"));
+            }
+            if let Some(parent) = path.parent() {
+                fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+            }
+            fs::write(&path, text).map_err(|e| e.to_string())?;
+            return Ok(format!("created: {rel}"));
+        }
         // on docsys/0.5 the layout routes the type directories (D-123)
         let routed = crate::era::Era::at(root).directory_routes();
         let route = if routed {
@@ -719,7 +768,7 @@ mod tests {
     #[test]
     fn page_new_opens_from_the_template_or_with_a_permanent_skeleton() {
         let root = tree("page");
-        let out = page_new(&root, "feature", "dark-mode", None, false).unwrap();
+        let out = page_new(&root, "feature", "dark-mode", None, None, false).unwrap();
         assert_eq!(out, "created: work/features/dark-mode.md");
         // a docsys/0.5 page's date is history's (D-122)
         let f = fs::read_to_string(root.join("work/features/dark-mode.md")).unwrap();
@@ -732,20 +781,28 @@ mod tests {
             "{f}"
         );
         assert!(!f.contains("copy to work/"), "{f}");
-        let out = page_new(&root, "reference", "token-ttl", Some("Token TTL"), false).unwrap();
+        let out = page_new(
+            &root,
+            "reference",
+            "token-ttl",
+            Some("Token TTL"),
+            None,
+            false,
+        )
+        .unwrap();
         assert_eq!(out, "created: reference/token-ttl.md");
         let p = fs::read_to_string(root.join("reference/token-ttl.md")).unwrap();
         assert!(
             p.contains("type: reference") && p.contains("# Token TTL") && p.contains("R-032"),
             "{p}"
         );
-        assert!(page_new(&root, "reference", "token-ttl", None, false)
+        assert!(page_new(&root, "reference", "token-ttl", None, None, false)
             .unwrap_err()
             .contains("already exists"));
-        assert!(page_new(&root, "novel", "x", None, false)
+        assert!(page_new(&root, "novel", "x", None, None, false)
             .unwrap_err()
             .contains("not a category"));
-        assert!(page_new(&root, "feature", "Bad Id", None, false)
+        assert!(page_new(&root, "feature", "Bad Id", None, None, false)
             .unwrap_err()
             .contains("local-id"));
         let _ = fs::remove_dir_all(&root);
@@ -759,7 +816,7 @@ mod tests {
         let meta = root.join(".docmeta.yml");
         let text = fs::read_to_string(&meta).unwrap();
         fs::write(&meta, text.replace("spec: docsys/0.5", "spec: docsys/0.4")).unwrap();
-        page_new(&root, "reference", "a", None, false).unwrap();
+        page_new(&root, "reference", "a", None, None, false).unwrap();
         let p = fs::read_to_string(root.join("reference/a.md")).unwrap();
         assert!(p.contains(&format!("\nupdated: {}\n", today())), "{p}");
         let _ = fs::remove_dir_all(&root);

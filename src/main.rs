@@ -92,6 +92,7 @@ struct Opts {
     all: bool,
     projects: Vec<PathBuf>,
     domains: Vec<String>,
+    domain: Option<String>,
     rules_file: Option<PathBuf>,
     report_dir: Option<PathBuf>,
     no_report: bool,
@@ -231,6 +232,7 @@ fn parse_opts(args: &[String]) -> Result<Opts, String> {
         all: false,
         projects: Vec::new(),
         domains: Vec::new(),
+        domain: None,
         rules_file: None,
         report_dir: None,
         no_report: false,
@@ -332,6 +334,7 @@ fn parse_opts(args: &[String]) -> Result<Opts, String> {
             "--ci-sha256" => o.ci_sha256 = Some(val()),
             "--verify-on-approval" => o.verify_on_approval = Some(val()),
             "--projects" => o.projects.push(PathBuf::from(val())),
+            "--domain" => o.domain = Some(val()),
             "--domains" => {
                 o.domains = val()
                     .split(',')
@@ -1247,6 +1250,7 @@ fn main() -> ExitCode {
                 kind,
                 id,
                 opts.title.as_deref(),
+                opts.domain.as_deref(),
                 opts.unverified,
             ) {
                 Ok(msg) => {

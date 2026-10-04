@@ -145,7 +145,7 @@ fn a_new_page_under_a_type_directory_is_not_told_to_route_itself() {
     let root = tmp("page-new").join("docs");
     docsys::migrate::init_profile(&root, "en", "project").unwrap();
     fs::write(root.join("index.md"), "# Documentation\n").unwrap();
-    docsys::capture::page_new(&root, "howto", "release", None, false).unwrap();
+    docsys::capture::page_new(&root, "howto", "release", None, None, false).unwrap();
     let page = fs::read_to_string(root.join("howto/release.md")).unwrap();
     assert!(!page.contains("route it"), "{page}");
 }
@@ -157,7 +157,7 @@ fn a_type_folder_appears_with_its_first_page() {
     let root = tmp("first-page").join("docs");
     docsys::migrate::init_profile(&root, "en", "project").unwrap();
     assert!(!root.join("howto").exists());
-    docsys::capture::page_new(&root, "howto", "rotate-keys", None, false).unwrap();
+    docsys::capture::page_new(&root, "howto", "rotate-keys", None, None, false).unwrap();
     assert!(root.join("howto/rotate-keys.md").is_file());
     let page = root.join("howto/rotate-keys.md");
     let text = fs::read_to_string(&page).unwrap();

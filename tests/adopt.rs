@@ -809,7 +809,7 @@ fn a_new_page_under_a_routed_directory_needs_no_index_line() {
     for dir in ["reference", "howto", "explanation", "tutorial"] {
         assert!(!index.contains(&format!("- [[{dir}/|")), "{index}");
     }
-    let made = docsys::capture::page_new(&docs, "reference", "limits", None, false).unwrap();
+    let made = docsys::capture::page_new(&docs, "reference", "limits", None, None, false).unwrap();
     assert!(made.contains("reference/limits.md"), "{made}");
     let page = docs.join("reference/limits.md");
     let text = fs::read_to_string(&page).unwrap();

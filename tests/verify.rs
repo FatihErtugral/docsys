@@ -79,8 +79,15 @@ fn a_page_from_evidence_is_unverified_and_a_maintainer_verifies_it_in_their_own_
     let (repo, root) = project("vouch");
     let today = docsys::migrate::today();
     // the session that did the work writes the page: unverified, with sources
-    let made = docsys::capture::page_new(&root, "reference", "token-ttl", Some("Token TTL"), true)
-        .unwrap();
+    let made = docsys::capture::page_new(
+        &root,
+        "reference",
+        "token-ttl",
+        Some("Token TTL"),
+        None,
+        true,
+    )
+    .unwrap();
     assert!(made.contains("created: reference/token-ttl.md"), "{made}");
     let page = root.join("reference/token-ttl.md");
     let text = fs::read_to_string(&page).unwrap();

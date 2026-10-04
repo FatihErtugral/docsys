@@ -45,6 +45,7 @@ pub const VALUE_FLAGS: &[&str] = &[
     "--plan",
     "--out",
     "--title",
+    "--domain",
     "--audience",
     "--profile",
     "--by",
@@ -219,12 +220,13 @@ pub const COMMANDS: &[Command] = &[
     },
     Command {
         name: "page new",
-        synopsis: "<category|type> <id> [--title <t>] [--unverified] [--root docs]",
+        synopsis: "<category|type> <id> [--title <t>] [--domain <d>] [--unverified] [--root docs]",
         purpose: "a new page or work file is needed: from its template, or a permanent page's skeleton",
         flags: &[
             ("<category|type>", "a work category (feature, postmortem, research) or a page type (reference, explanation, howto, tutorial)"),
             ("<id>", "the page's identifier, which is also its file name"),
             ("--title <t>", "the page's title"),
+            ("--domain <d>", "a knowledge base's page: its declared domain, under wiki/<d>/"),
             ("--unverified", "a docsys/0.4 tree's page from evidence: `verification: unverified` and an empty `sources:`"),
         ],
         words: Words::UpTo(2),

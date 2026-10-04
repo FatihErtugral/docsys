@@ -115,9 +115,6 @@ causes a merge conflict, so none is urgent:
     it as `cd "$CLAUDE_PROJECT_DIR" && .claude/hooks/<relay>.sh`; and the
     `assistant` closing hint says `git add -A`, where a base whose sessions
     share one checkout stages by path.
-20. **`page new` in a knowledge base** — `docsys page new howto <slug>` writes
-    `howto/<slug>.md` at the base's top instead of `wiki/<domain>/howto/`;
-    found by a stranger test of 0.17.0, present in 0.16.1.
 
 ## What will not be built here
 

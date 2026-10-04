@@ -443,3 +443,56 @@ fn open_questions_is_the_bases_questions_ledger_under_r108() {
     assert_eq!(s.questions_open, 1);
     let _ = fs::remove_dir_all(&repo);
 }
+
+/// In a knowledge base a page belongs to a domain: `page new <type> <id>
+/// --domain <d>` writes `wiki/<d>/<type>/<id>.md`; with no domain, or one
+/// `.docmeta.yml` does not declare, it refuses in one line naming how a
+/// domain is added (D-132).
+#[test]
+fn a_new_page_in_a_knowledge_base_lands_in_its_domain() {
+    let base = tmp("page-new");
+    docsys::migrate::init_profile(&base, "en", "knowledge-base").unwrap();
+    let dm = base.join(".docmeta.yml");
+    let text = fs::read_to_string(&dm)
+        .unwrap()
+        .replace("domains: []", "domains: [ops]");
+    fs::write(&dm, text).unwrap();
+    let run = |args: &[&str]| {
+        std::process::Command::new(env!("CARGO_BIN_EXE_docsys"))
+            .args(args)
+            .arg("--root")
+            .arg(&base)
+            .env("DOCSYS_NO_AUTO_INSTALL", "1")
+            .output()
+            .unwrap()
+    };
+    let out = run(&["page", "new", "howto", "monthly-export", "--domain", "ops"]);
+    assert!(out.status.success(), "{out:?}");
+    assert_eq!(
+        String::from_utf8_lossy(&out.stdout),
+        "created: wiki/ops/howto/monthly-export.md\n"
+    );
+    let page = fs::read_to_string(base.join("wiki/ops/howto/monthly-export.md")).unwrap();
+    assert!(
+        page.starts_with("---\nid: monthly-export\ntype: howto\ndomain: ops\nsources: []\n---\n"),
+        "{page}"
+    );
+    for (args, says) in [
+        (
+            &["page", "new", "howto", "no-domain"][..],
+            "names its domain",
+        ),
+        (
+            &["page", "new", "howto", "odd-domain", "--domain", "family"][..],
+            "`family` is no declared domain",
+        ),
+    ] {
+        let out = run(args);
+        assert_eq!(out.status.code(), Some(2), "{out:?}");
+        let err = String::from_utf8_lossy(&out.stderr);
+        assert!(err.contains(says) && err.contains("`domains:`"), "{err}");
+        assert_eq!(err.lines().count(), 1, "{err}");
+    }
+    assert!(!base.join("howto").exists());
+    assert!(!base.join("wiki/family").exists());
+}
