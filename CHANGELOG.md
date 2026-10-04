@@ -5,7 +5,7 @@ All notable changes to docsys are documented here. The format follows
 [SemVer](https://semver.org/). Release notes are extracted from this file
 by the release workflow — the tag's section becomes the GitHub release body.
 
-## [0.16.1] - unreleased
+## [0.16.1] - 2026-10-04
 
 ### Upgrading from 0.16.0
 
