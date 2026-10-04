@@ -40,6 +40,11 @@ by the release workflow — the tag's section becomes the GitHub release body.
 - `upgrade --apply` in a clone whose git runs no hooks (`core.hooksPath`
   naming no directory) says so once and applies the rest of the move; it
   stopped the whole move before (D-117).
+- The upgrade knows the relays, commands, skills and knowledge-base contract
+  0.16.0 wrote: untouched, they are refreshed, where they read as their
+  owner's before; a relay that differs in its template line alone says so.
+  A test holds every text a version writes in the registry of released
+  texts, so a release cannot ship without it (D-117).
 
 ## [0.16.0] - 2026-10-04
 

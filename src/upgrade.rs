@@ -821,11 +821,17 @@ fn common(ctx: &Ctx, u: &mut Upgrade, apply: bool) -> Result<(), String> {
         // a relay byte for byte as a release wrote it; any touch, a comment
         // included, makes it its owner's (D-117)
         if let Some(release) = crate::agents::released(hook, &text, "") {
+            // the same relay but for its template line: only that line moves
+            let what = if crate::agents::released(hook, &fresh, "") == Some(release) {
+                "only its template line names this version".to_string()
+            } else {
+                "it now starts in the project directory, names the tree's root, and names the pinned docsys to a binary from before pins".to_string()
+            };
             u.item(
                 "auto",
                 "hook-scripts",
                 &file,
-                format!("refreshed: a text docsys {release} wrote, untouched — it now starts in the project directory, names the tree's root, and names the pinned docsys to a binary from before pins"),
+                format!("refreshed: a text docsys {release} wrote, untouched — {what}"),
             );
             if apply {
                 fs::write(&path, &fresh).map_err(|e| e.to_string())?;

@@ -817,6 +817,59 @@ fn the_per_clone_step_writes_a_missing_gate() {
     let _ = fs::remove_dir_all(&repo);
 }
 
+/// A relay an earlier release wrote and nobody touched, the same but for its
+/// template line: refreshed, and the row says that line alone moves.
+#[test]
+fn a_relay_that_differs_in_its_template_line_alone_says_so() {
+    let (repo, _) = build("relay-line");
+    let out = docsys(&repo, &["upgrade", "--apply", "--commit"]);
+    assert!(out.status.success(), "{out:?}");
+    let relay = repo.join(".claude/hooks/session-intent.sh");
+    let text = fs::read_to_string(&relay).unwrap();
+    let stamp = format!("# docsys-template: {}", env!("CARGO_PKG_VERSION"));
+    assert!(text.contains(&stamp), "{text}");
+    fs::write(&relay, text.replace(&stamp, "# docsys-template: 0.16.0")).unwrap();
+    commit_quietly(&repo, "a relay 0.16.0 wrote");
+    let idle = docsys(&repo, &["upgrade"]);
+    let said = String::from_utf8_lossy(&idle.stdout);
+    assert!(
+        said.contains("auto    hook-scripts       .claude/hooks/session-intent.sh  refreshed: a text docsys 0.16.0 wrote, untouched — only its template line names this version"),
+        "{said}"
+    );
+    let _ = fs::remove_dir_all(&repo);
+}
+
+/// Every text this version writes for an asset it owns is in the registry
+/// of released texts, so the next version refreshes it as untouched instead
+/// of reading it as its owner's: a release adds its texts before it ships.
+#[test]
+fn every_text_this_version_writes_is_a_released_one() {
+    use docsys::agents::{kb_contract, owned_assets, relay_for, relays, released};
+    let mut missing = Vec::new();
+    for kb in [false, true] {
+        for (asset, text, _) in owned_assets(kb) {
+            if released(asset, text, "").is_none() {
+                missing.push(asset.to_string());
+            }
+        }
+    }
+    for hook in relays(false) {
+        for root in ["docs", "."] {
+            let text = relay_for(hook, root).unwrap();
+            if released(hook, &text, "").is_none() {
+                missing.push(format!("{hook} (root {root})"));
+            }
+        }
+    }
+    if released("AGENTS.md", &kb_contract(), "").is_none() {
+        missing.push("AGENTS.md (the knowledge base's contract)".to_string());
+    }
+    assert!(
+        missing.is_empty(),
+        "texts this version writes that migrations/assets-released.tsv does not list: {missing:#?}"
+    );
+}
+
 /// A clone whose git runs no hooks (`core.hooksPath` is `/dev/null`) gets no
 /// gate, and that is said once: the rest of the upgrade applies (D-117).
 #[test]
