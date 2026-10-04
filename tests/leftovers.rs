@@ -61,10 +61,47 @@ fn commit_all(dir: &Path, message: &str) {
     );
 }
 
+/// The sha256 values the stand-in release publishes for this version.
+fn release_sums() -> Vec<(String, String)> {
+    [
+        "x86_64-unknown-linux-musl",
+        "aarch64-unknown-linux-musl",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin",
+    ]
+    .iter()
+    .zip(["a", "b", "c", "d"])
+    .map(|(t, hex)| (t.to_string(), hex.repeat(64)))
+    .collect()
+}
+
+/// This version's release as a `file://` directory: each archive's
+/// `.sha256` file — what `docsys upgrade` reads, never the network.
+fn release() -> &'static str {
+    static AT: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    AT.get_or_init(|| {
+        let own = env!("CARGO_PKG_VERSION");
+        let dir =
+            std::env::temp_dir().join(format!("docsys-leftovers-release-{}", std::process::id()));
+        let at = dir.join(format!("v{own}"));
+        fs::create_dir_all(&at).unwrap();
+        for (target, hex) in release_sums() {
+            let name = format!("docsys-v{own}-{target}.tar.gz");
+            fs::write(
+                at.join(format!("{name}.sha256")),
+                format!("{hex}  {name}\n"),
+            )
+            .unwrap();
+        }
+        format!("file://{}", dir.display())
+    })
+}
+
 fn docsys(dir: &Path, args: &[&str]) -> Output {
     Command::new(bin())
         .args(args)
         .env("PATH", path())
+        .env("DOCSYS_RELEASES", release())
         .current_dir(dir)
         .output()
         .unwrap()
@@ -235,12 +272,12 @@ fn owned_workflow(version: &str) -> String {
 
 /// What an owner's release-install workflow changes with the tree, and
 /// nothing else (D-111, D-120): its version and sha256 lines go, its install
-/// step becomes this version's, which reads the pin and checks the release's
-/// SHA256SUMS — never a template default, never a value docsys made up.
+/// step becomes this version's, pinned to it and to the sha256 values read
+/// from the release — never a template default, never a value made up.
 fn assert_only_what_moves(out: &str) {
     let wf = ".github/workflows/docsys.yml";
     let line = row(out, "auto", "ci-workflow", wf).unwrap_or_else(|| panic!("{out}"));
-    assert!(line.contains("SHA256SUMS"), "{line}");
+    assert!(line.contains("read from the release"), "{line}");
     let diff = out
         .split_once(&format!("\n# {wf}\n"))
         .map(|(_, d)| d)
@@ -253,25 +290,30 @@ fn assert_only_what_moves(out: &str) {
                 && !l.starts_with("+++")
         })
         .collect();
-    let sums = format!(
-        "+          curl -fsSL -o SHA256SUMS \"{}/v$v/SHA256SUMS\"",
-        docsys::workflow::RELEASES
+    let x86 = format!(
+        "+            Linux-x86_64) target=x86_64-unknown-linux-musl sum={} ;;",
+        "a".repeat(64)
     );
     assert!(
-        changed.contains(&"-      DOCSYS_VERSION: v0.15.1") && changed.contains(&sums.as_str()),
+        changed.contains(&"-      DOCSYS_VERSION: v0.15.1") && changed.contains(&x86.as_str()),
         "{diff}"
     );
+    let released: Vec<String> = release_sums().into_iter().map(|(_, h)| h).collect();
     for l in &changed {
         assert!(
             !l.contains("runs-on") && !l.contains("branches"),
             "`{l}` in {diff}"
         );
         if l.starts_with('+') {
-            assert!(
-                !l.split(|c: char| !c.is_ascii_hexdigit())
-                    .any(|t| t.len() == 64),
-                "a sha256 written: `{l}`"
-            );
+            for t in l
+                .split(|c: char| !c.is_ascii_hexdigit())
+                .filter(|t| t.len() == 64)
+            {
+                assert!(
+                    released.iter().any(|h| h == t),
+                    "a sha256 not the release's: `{l}`"
+                );
+            }
         }
     }
     for default in ["ubuntu-latest", "branches: [main]", "install=cargo"] {
@@ -356,11 +398,20 @@ fn a_workflow_that_installs_another_version_is_a_leftover() {
     let out = idle(&repo);
     let line = row(&out, "auto", "ci-workflow", wf).unwrap_or_else(|| panic!("{out}"));
     assert!(
-        line.contains("regenerated from 0.15.9") && line.contains("SHA256SUMS"),
+        line.contains("regenerated from 0.15.9")
+            && line.contains(
+                "pins this version and its archives' sha256 values, read from the release"
+            ),
         "{line}"
     );
-    assert!(!out.contains(&sum), "never a value made up: {out}");
-    assert!(!out.contains("\n# .github/workflows/docsys.yml\n"), "{out}");
+    // the diff shows the old value leaving and the release's coming in
+    assert!(out.contains("\n# .github/workflows/docsys.yml\n"), "{out}");
+    assert!(
+        out.lines()
+            .all(|l| !(l.starts_with('+') && l.contains(&sum))),
+        "never a value made up: {out}"
+    );
+    assert!(out.contains(&format!("sum={} ;;", "a".repeat(64))), "{out}");
     // a rendering from before the stamp: regenerated
     let legacy = fs::read_to_string(
         Path::new(env!("CARGO_MANIFEST_DIR")).join("migrations/workflow-0.15.yml"),

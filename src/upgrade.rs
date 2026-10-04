@@ -850,6 +850,20 @@ fn common(ctx: &Ctx, u: &mut Upgrade, apply: bool) -> Result<(), String> {
     match crate::adopt::gate_current(repo, root_rel, message) {
         // a clone with no gate gets the one adopt writes: `docsys upgrade
         // --apply` is the step every clone takes after pulling a move
+        // git that runs no hooks here (`core.hooksPath` names no directory):
+        // no gate can be written, and the rest of the upgrade applies
+        None if crate::adopt::gate_hooks_dir(repo).is_some_and(|h| h.exists() && !h.is_dir()) => {
+            let hooks = crate::adopt::gate_hooks_dir(repo).unwrap_or_default();
+            u.item(
+                "info",
+                "git-gate",
+                "pre-commit",
+                format!(
+                    "git runs no hooks in this clone (core.hooksPath is {}), so no gate is written",
+                    hooks.display()
+                ),
+            );
+        }
         None => {
             let hard = crate::adopt::gate_clean(root, repo);
             let hooks =
@@ -946,18 +960,49 @@ fn common(ctx: &Ctx, u: &mut Upgrade, apply: bool) -> Result<(), String> {
     }
 
     // ci-workflow: regenerated when untouched; of the owner's, only what
-    // installs docsys is replaced, so it reads the pin — never a template's
-    // default, never a sha256 value docsys cannot know
+    // installs docsys is replaced — a release install pinned to this version
+    // and its archives' sha256 values, read from the release now, never a
+    // template's default, never a value docsys made up
     let own = crate::dispatch::own();
     let copied = "copied from the release page — docsys cannot know them";
     let pinned = Era(u.to).pinned_ci_install();
+    // the release's values, read once and only when a release step is written
+    let mut release: Option<Result<Vec<(String, String)>, String>> = None;
+    let mut read_release = || {
+        release
+            .get_or_insert_with(|| crate::workflow::release_sums_of(own))
+            .clone()
+    };
+    let unread = |u: &mut Upgrade, why: &str| {
+        u.item(
+            "manual",
+            "ci-workflow",
+            crate::workflow::PATH,
+            format!("the release could not be read — {why} — so the workflow stays as it is: run `docsys upgrade --apply` again once it can be, and it writes {own} and its archives' sha256 values into the install step"),
+        );
+    };
     match crate::workflow::classify(repo, root_rel) {
         None => {}
-        Some(crate::workflow::Existing::Untouched { from, mut params }) => {
+        Some(crate::workflow::Existing::Untouched { from, mut params }) => 'ci: {
             let mut moved = without_approval_job(&mut params, u.to);
-            if pinned && matches!(params.ci.install, crate::workflow::Install::Release(_)) {
-                params.ci.install = crate::workflow::Install::ReleaseSums;
-                moved.push_str("; its release install reads the version the tree pins and checks the archive against its release's SHA256SUMS, so it holds no sha256 value");
+            let release_install = match &params.ci.install {
+                crate::workflow::Install::Release(_) => pinned,
+                crate::workflow::Install::ReleasePinned(sums) => from != own || sums.is_empty(),
+                crate::workflow::Install::Cargo => false,
+            };
+            if release_install {
+                match read_release() {
+                    Ok(sums) => {
+                        if matches!(params.ci.install, crate::workflow::Install::Release(_)) {
+                            moved.push_str("; its release install pins this version and its archives' sha256 values, read from the release");
+                        }
+                        params.ci.install = crate::workflow::Install::ReleasePinned(sums);
+                    }
+                    Err(why) => {
+                        unread(u, &why);
+                        break 'ci;
+                    }
+                }
             }
             let path = repo.join(crate::workflow::PATH);
             let fresh = crate::workflow::render(&params);
@@ -973,7 +1018,17 @@ fn common(ctx: &Ctx, u: &mut Upgrade, apply: bool) -> Result<(), String> {
                         ),
                     );
                 } else {
-                    u.item("auto", "ci-workflow", crate::workflow::PATH, format!("regenerated from {from} with its own parameters, pinned to this version{moved}"));
+                    u.item("auto", "ci-workflow", crate::workflow::PATH, format!("regenerated from {from} with its own parameters, pinned to this version{moved} — the diff is below"));
+                    u.diffs.push((
+                        crate::workflow::PATH.to_string(),
+                        crate::diff::unified(
+                            &current,
+                            &fresh,
+                            crate::workflow::PATH,
+                            crate::workflow::PATH,
+                            3,
+                        ),
+                    ));
                     if apply {
                         fs::write(&path, fresh).map_err(|e| e.to_string())?;
                     }
@@ -998,11 +1053,23 @@ fn common(ctx: &Ctx, u: &mut Upgrade, apply: bool) -> Result<(), String> {
             }
             u.written.push(crate::workflow::PATH.to_string());
         }
-        Some(crate::workflow::Existing::Owned { .. }) if pinned => {
+        Some(crate::workflow::Existing::Owned { .. }) if pinned => 'ci: {
             let path = repo.join(crate::workflow::PATH);
             let text = fs::read_to_string(&path).unwrap_or_default();
-            match crate::workflow::reinstall(&text, root_rel, own) {
-                crate::workflow::Reinstall::Pinned => {}
+            let mut done = crate::workflow::reinstall(&text, root_rel, own, None);
+            if done == crate::workflow::Reinstall::NeedsRelease {
+                match read_release() {
+                    Ok(sums) => {
+                        done = crate::workflow::reinstall(&text, root_rel, own, Some(&sums));
+                    }
+                    Err(why) => {
+                        unread(u, &why);
+                        break 'ci;
+                    }
+                }
+            }
+            match done {
+                crate::workflow::Reinstall::Pinned | crate::workflow::Reinstall::NeedsRelease => {}
                 crate::workflow::Reinstall::Rewritten { text: new, what } => {
                     u.item(
                         "auto",

@@ -1,8 +1,9 @@
 #![allow(clippy::panic, clippy::unwrap_used, clippy::expect_used)]
-// D-111, D-120: on a docsys/0.5 tree the CI workflow names no docsys version
-// and no sha256 — it installs the version the pin names and checks the
-// archive against the SHA256SUMS the release publishes, so an upgrade never
-// needs a hand edit to CI.
+// D-111, D-120: on a docsys/0.5 tree the CI workflow installs the version
+// `docsys upgrade` pinned in it, the archive checked against the sha256
+// values the upgrade read from the release: an owner's install becomes that
+// one, with no hand edit to CI. The release is a `file://` directory here;
+// tests/ci_pins.rs runs the step itself.
 
 use docsys::workflow::{self, Ci, Existing, Install, Reinstall, Verify, Workflow};
 use std::fs;
@@ -10,6 +11,36 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
 const FILE: &str = ".github/workflows/docsys.yml";
+const OWN: &str = env!("CARGO_PKG_VERSION");
+
+/// The sha256 values the stand-in release publishes for this version.
+fn stub_sums() -> Vec<(String, String)> {
+    TARGETS
+        .iter()
+        .zip(["a", "b", "c", "d"])
+        .map(|(t, hex)| (t.to_string(), hex.repeat(64)))
+        .collect()
+}
+
+/// This version's release as a `file://` directory: each archive's
+/// `.sha256` file, the values `stub_sums` gives.
+fn stub_release() -> &'static str {
+    static AT: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    AT.get_or_init(|| {
+        let dir = std::env::temp_dir().join(format!("docsys-ci-release-{}", std::process::id()));
+        let at = dir.join(format!("v{OWN}"));
+        fs::create_dir_all(&at).unwrap();
+        for (target, hex) in stub_sums() {
+            let name = format!("docsys-v{OWN}-{target}.tar.gz");
+            fs::write(
+                at.join(format!("{name}.sha256")),
+                format!("{hex}  {name}\n"),
+            )
+            .unwrap();
+        }
+        format!("file://{}", dir.display())
+    })
+}
 const TARGETS: [&str; 4] = [
     "x86_64-unknown-linux-musl",
     "aarch64-unknown-linux-musl",
@@ -64,6 +95,7 @@ fn docsys(dir: &Path, args: &[&str]) -> Output {
     run(Command::new(&bin)
         .args(args)
         .env("PATH", path)
+        .env("DOCSYS_RELEASES", stub_release())
         .current_dir(dir))
 }
 
@@ -71,39 +103,6 @@ fn write(dir: &Path, rel: &str, text: &str) {
     let p = dir.join(rel);
     fs::create_dir_all(p.parent().unwrap()).unwrap();
     fs::write(p, text).unwrap();
-}
-
-/// The lines of the `run: |` block of the first step whose script holds
-/// `marker`, de-indented: the shell a runner executes.
-fn script_of(yaml: &str, marker: &str) -> String {
-    let lines: Vec<&str> = yaml.lines().collect();
-    for (i, l) in lines.iter().enumerate() {
-        if l.trim() != "run: |" {
-            continue;
-        }
-        let key = l.len() - l.trim_start().len();
-        let body: Vec<&str> = lines
-            .get(i + 1..)
-            .unwrap_or_default()
-            .iter()
-            .take_while(|b| b.trim().is_empty() || b.len() - b.trim_start().len() > key)
-            .copied()
-            .collect();
-        let cut = body
-            .iter()
-            .filter(|b| !b.trim().is_empty())
-            .map(|b| b.len() - b.trim_start().len())
-            .min()
-            .unwrap_or(0);
-        let text: String = body
-            .iter()
-            .map(|b| format!("{}\n", b.get(cut..).unwrap_or("")))
-            .collect();
-        if text.contains(marker) {
-            return text;
-        }
-    }
-    panic!("no `run: |` block holds `{marker}` in:\n{yaml}");
 }
 
 fn params(install: Install) -> Workflow {
@@ -119,14 +118,13 @@ fn params(install: Install) -> Workflow {
     }
 }
 
-/// A docsys/0.5 release install: the version comes from the pin at run time,
-/// the check from the release's SHA256SUMS — line 1's stamp and hash work as
-/// for every rendering, and the file reads back as itself (D-111).
+/// A docsys/0.5 release install: the version and each archive's sha256 the
+/// upgrade read from the release, in the step — line 1's stamp and hash work
+/// as for every rendering, and the file reads back as itself (D-111).
 #[test]
-fn a_05_release_install_names_no_version_and_no_sha256() {
-    let w = params(Install::ReleaseSums);
+fn a_05_release_install_pins_its_version_and_sha256_values() {
+    let w = params(Install::ReleasePinned(stub_sums()));
     let text = workflow::render(&w);
-    let golden = include_str!("golden/workflow-release-sums.yml");
     let first = text.lines().next().unwrap();
     let hex = first
         .split_once("sha256:")
@@ -140,21 +138,24 @@ fn a_05_release_install_names_no_version_and_no_sha256() {
     let shown = text
         .replacen(hex, "@HASH@", 1)
         .replace(workflow::RELEASES, "@RELEASES@");
+    let golden_path =
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/golden/workflow-release-pinned.yml");
+    if std::env::var_os("DOCSYS_BLESS").is_some() {
+        fs::write(&golden_path, &shown).unwrap();
+    }
+    let golden = fs::read_to_string(&golden_path).unwrap();
     assert!(
         shown == golden,
         "the 0.5 release install differs from the golden file:\n{}",
-        docsys::diff::unified(golden, &shown, "golden", "rendered", 2)
+        docsys::diff::unified(&golden, &shown, "golden", "rendered", 2)
     );
-    // below line 1 nothing names a version or a sha256 value
-    for line in text.lines().skip(1) {
-        assert!(!line.contains("9.9.9"), "a version in `{line}`");
+    for (target, sum) in stub_sums() {
         assert!(
-            !line
-                .split(|c: char| !c.is_ascii_hexdigit())
-                .any(|t| t.len() == 64),
-            "a sha256 in `{line}`"
+            text.contains(&format!(" target={target} sum={sum} ;;\n")),
+            "{text}"
         );
     }
+    assert!(!text.contains("SHA256SUMS"), "{text}");
     assert_eq!(
         workflow::classify_text(&text, &params(Install::Cargo)),
         Existing::Untouched {
@@ -167,251 +168,6 @@ fn a_05_release_install_names_no_version_and_no_sha256() {
     );
 }
 
-/// The release archives, as the release workflow's build legs upload them.
-fn archives(dir: &Path, version: &str) {
-    fs::create_dir_all(dir).unwrap();
-    for target in TARGETS {
-        let name = format!("docsys-v{version}-{target}");
-        let pkg = dir.join(&name);
-        fs::create_dir_all(&pkg).unwrap();
-        fs::write(
-            pkg.join("docsys"),
-            format!("#!/bin/sh\necho docsys {version} {target}\n"),
-        )
-        .unwrap();
-        use std::os::unix::fs::PermissionsExt;
-        fs::set_permissions(pkg.join("docsys"), fs::Permissions::from_mode(0o755)).unwrap();
-        ok(&run(Command::new("tar")
-            .args(["czf", &format!("{name}.tar.gz"), &name])
-            .current_dir(dir)));
-        fs::remove_dir_all(&pkg).unwrap();
-        fs::write(
-            dir.join(format!("{name}.tar.gz.sha256")),
-            "not what SHA256SUMS lists\n",
-        )
-        .unwrap();
-    }
-}
-
-/// A `gh` that serves `release download` from `$FAKE_RELEASE` and records
-/// `release upload` into `$FAKE_UPLOADED`.
-fn fake_gh(bin: &Path) {
-    use std::os::unix::fs::PermissionsExt;
-    fs::create_dir_all(bin).unwrap();
-    let gh = bin.join("gh");
-    fs::write(
-        &gh,
-        r#"#!/bin/sh
-set -e
-verb="$1 $2"
-shift 2
-tag="$1"
-shift
-case "$verb" in
-  "release download")
-    dir=. pat='*'
-    while [ $# -gt 0 ]; do
-      case "$1" in
-        --dir) dir="$2"; shift 2 ;;
-        --pattern) pat="$2"; shift 2 ;;
-        *) shift ;;
-      esac
-    done
-    mkdir -p "$dir"
-    for f in "$FAKE_RELEASE"/$pat; do cp "$f" "$dir/"; done ;;
-  "release upload")
-    echo "$tag" > "$FAKE_UPLOADED/tag"
-    for f in "$@"; do
-      case "$f" in --*) ;; *) cp "$f" "$FAKE_UPLOADED/" ;; esac
-    done ;;
-  *) echo "gh: not faked: $verb" >&2; exit 1 ;;
-esac
-"#,
-    )
-    .unwrap();
-    fs::set_permissions(&gh, fs::Permissions::from_mode(0o755)).unwrap();
-}
-
-/// Where `tool` is on this machine's PATH.
-fn which(tool: &str) -> Option<String> {
-    let found = run(Command::new("sh").args(["-c", &format!("command -v {tool}")]));
-    let path = String::from_utf8_lossy(&found.stdout).trim().to_string();
-    (found.status.success() && path.starts_with('/')).then_some(path)
-}
-
-/// `script` as a runner's `shell: bash` step runs it.
-fn bash(script: &str, dir: &Path, envs: &[(&str, &str)]) -> Output {
-    let mut c = Command::new(which("bash").unwrap());
-    c.args(["--noprofile", "--norc", "-eo", "pipefail", "-c", script])
-        .current_dir(dir);
-    for (k, v) in envs {
-        c.env(k, v);
-    }
-    run(&mut c)
-}
-
-/// A directory of links to the tools the install step runs, `sha256sum`
-/// left out: a runner where only `shasum` checks.
-fn without_sha256sum(dir: &Path) -> String {
-    fs::create_dir_all(dir).unwrap();
-    for tool in [
-        "head", "tr", "uname", "curl", "awk", "tar", "gzip", "shasum", "cat",
-    ] {
-        if let Some(path) = which(tool) {
-            std::os::unix::fs::symlink(path, dir.join(tool)).unwrap();
-        }
-    }
-    assert!(dir.join("shasum").exists(), "the fallback needs shasum");
-    dir.display().to_string()
-}
-
-/// The release publishes SHA256SUMS beside its archives with no hand step,
-/// and the 0.5 install step takes the archive of the version the tree pins
-/// only when SHA256SUMS lists its hash — `sha256sum -c`, or `shasum -a 256 -c`
-/// on a runner without it.
-#[test]
-fn the_release_publishes_sha256sums_and_the_install_checks_the_pinned_archive_against_it() {
-    let base = tmp("sums");
-    // the release workflow's SHA256SUMS step, run against a release that
-    // holds the four archives
-    let release_yml = fs::read_to_string(
-        Path::new(env!("CARGO_MANIFEST_DIR")).join(".github/workflows/release.yml"),
-    )
-    .unwrap();
-    assert!(
-        release_yml.contains("SHA256SUMS"),
-        "the release workflow publishes no SHA256SUMS:\n{release_yml}"
-    );
-    let sums_step = script_of(&release_yml, "SHA256SUMS");
-    let published = base.join("published");
-    archives(&published, "1.2.3");
-    let uploaded = base.join("uploaded");
-    fs::create_dir_all(&uploaded).unwrap();
-    let bin = base.join("bin");
-    fake_gh(&bin);
-    let work = base.join("work");
-    fs::create_dir_all(&work).unwrap();
-    let path = format!(
-        "{}:{}",
-        bin.display(),
-        std::env::var("PATH").unwrap_or_default()
-    );
-    ok(&bash(
-        &sums_step,
-        &work,
-        &[
-            ("PATH", &path),
-            ("GITHUB_REF_NAME", "v1.2.3"),
-            ("FAKE_RELEASE", &published.display().to_string()),
-            ("FAKE_UPLOADED", &uploaded.display().to_string()),
-            ("GH_TOKEN", "unused"),
-        ],
-    ));
-    assert_eq!(
-        fs::read_to_string(uploaded.join("tag")).unwrap().trim(),
-        "v1.2.3"
-    );
-    let sums = fs::read_to_string(uploaded.join("SHA256SUMS")).unwrap();
-    let mut want: Vec<String> = TARGETS
-        .iter()
-        .map(|t| {
-            let name = format!("docsys-v1.2.3-{t}.tar.gz");
-            let bytes = fs::read(published.join(&name)).unwrap();
-            format!("{}  {name}", docsys::fresh::sha256_hex(&bytes))
-        })
-        .collect();
-    want.sort();
-    let mut got: Vec<String> = sums.lines().map(str::to_string).collect();
-    got.sort();
-    assert_eq!(got, want, "one sha256sum line per archive:\n{sums}");
-
-    // the release as a runner downloads it
-    let releases = base.join("releases");
-    let at = releases.join("v1.2.3");
-    fs::create_dir_all(&at).unwrap();
-    for t in TARGETS {
-        let name = format!("docsys-v1.2.3-{t}.tar.gz");
-        fs::copy(published.join(&name), at.join(&name)).unwrap();
-    }
-    fs::write(at.join("SHA256SUMS"), &sums).unwrap();
-    let install = script_of(
-        &workflow::render(&params(Install::ReleaseSums)),
-        "SHA256SUMS",
-    )
-    .replace(
-        workflow::RELEASES,
-        &format!("file://{}", releases.display()),
-    );
-    let repo = base.join("repo");
-    write(&repo, "docs/.docsys-version", "1.2.3\n");
-    let attempt = |name: &str, path: &str| {
-        let runner = base.join(name);
-        fs::create_dir_all(&runner).unwrap();
-        let gh_path = runner.join("path");
-        let out = bash(
-            &install,
-            &repo,
-            &[
-                ("PATH", path),
-                ("RUNNER_TEMP", &runner.display().to_string()),
-                ("GITHUB_PATH", &gh_path.display().to_string()),
-            ],
-        );
-        (out, fs::read_to_string(gh_path).unwrap_or_default())
-    };
-    let path = std::env::var("PATH").unwrap_or_default();
-    let (out, added) = attempt("runner-ok", &path);
-    ok(&out);
-    let dir = added.trim().to_string();
-    assert!(dir.contains("docsys-v1.2.3-"), "{added}");
-    let said = ok(&run(&mut Command::new(Path::new(&dir).join("docsys"))));
-    assert!(said.starts_with("docsys 1.2.3 "), "{said}");
-    // a runner without sha256sum checks with shasum
-    let (out, added) = attempt(
-        "runner-shasum",
-        &without_sha256sum(&base.join("no-sha256sum")),
-    );
-    ok(&out);
-    assert!(added.contains("docsys-v1.2.3-"), "{added}");
-    // no pin: one line, nothing installed
-    fs::remove_file(repo.join("docs/.docsys-version")).unwrap();
-    let (out, added) = attempt("runner-unpinned", &path);
-    assert_eq!(out.status.code(), Some(1), "{out:?}");
-    assert_eq!(
-        String::from_utf8_lossy(&out.stderr),
-        "docsys: docs/.docsys-version names no docsys version to install\n"
-    );
-    assert_eq!(added, "");
-    write(&repo, "docs/.docsys-version", "1.2.3\n");
-    // an archive SHA256SUMS does not list: refused
-    fs::write(at.join("SHA256SUMS"), "").unwrap();
-    let (out, added) = attempt("runner-unlisted", &path);
-    assert_eq!(out.status.code(), Some(1), "{out:?}");
-    assert!(
-        String::from_utf8_lossy(&out.stderr)
-            .contains("the SHA256SUMS of docsys 1.2.3 lists no docsys-v1.2.3-"),
-        "{out:?}"
-    );
-    assert_eq!(added, "");
-    // an archive replaced after SHA256SUMS was published: refused
-    fs::write(at.join("SHA256SUMS"), &sums).unwrap();
-    archives(&base.join("other"), "1.2.3");
-    for t in TARGETS {
-        let name = format!("docsys-v1.2.3-{t}.tar.gz");
-        let mut bytes = fs::read(base.join("other").join(&name)).unwrap();
-        bytes.extend_from_slice(b"tampered");
-        fs::write(at.join(&name), bytes).unwrap();
-    }
-    let (out, added) = attempt("runner-tampered", &path);
-    assert!(!out.status.success(), "{out:?}");
-    assert!(
-        String::from_utf8_lossy(&out.stdout).contains(": FAILED"),
-        "the check refused it: {out:?}"
-    );
-    assert_eq!(added, "");
-    let _ = fs::remove_dir_all(&base);
-}
-
 /// `--ci-install release` on a docsys/0.5 tree needs no `--ci-sha256` and
 /// refuses one by name; a docsys/0.4 tree keeps 0.15.1's flags and refusals
 /// (D-118).
@@ -422,8 +178,8 @@ fn a_05_tree_takes_a_release_install_without_sha256_and_refuses_the_flag() {
     let ci = Ci::from_flags(None, Some("release"), None, None, v05);
     assert_eq!(
         ci.map(|c| c.map(|c| c.install)),
-        Ok(Some(Install::ReleaseSums)),
-        "a 0.5 release install takes no sha256"
+        Ok(Some(Install::ReleasePinned(Vec::new()))),
+        "a 0.5 release install takes no sha256: the upgrade reads them"
     );
     let sum = "a".repeat(64);
     for install in [Some("release"), None, Some("cargo")] {
@@ -436,7 +192,7 @@ fn a_05_tree_takes_a_release_install_without_sha256_and_refuses_the_flag() {
         )
         .unwrap_err();
         assert!(
-            err.starts_with("--ci-sha256") && err.contains("SHA256SUMS"),
+            err.starts_with("--ci-sha256") && err.contains("from the release"),
             "{err}"
         );
     }
@@ -466,7 +222,16 @@ fn a_05_tree_takes_a_release_install_without_sha256_and_refuses_the_flag() {
     ok(&out);
     let text = fs::read_to_string(repo.join(FILE)).unwrap();
     assert!(text.lines().next().unwrap().contains(" install=release "));
-    assert!(text.contains("checked against its SHA256SUMS"), "{text}");
+    assert!(
+        text.contains("the release the tree pins, checked against the sha256 its upgrade wrote"),
+        "{text}"
+    );
+    for (target, sum) in stub_sums() {
+        assert!(
+            text.contains(&format!(" target={target} sum={sum} ;;\n")),
+            "{text}"
+        );
+    }
     let refused = tmp("adopt-release-sha");
     git(&refused, &["init", "-q", "-b", "main"]);
     fs::create_dir_all(refused.join(".github")).unwrap();
@@ -482,7 +247,7 @@ fn a_05_tree_takes_a_release_install_without_sha256_and_refuses_the_flag() {
     );
     assert_eq!(out.status.code(), Some(2), "{out:?}");
     assert!(
-        String::from_utf8_lossy(&out.stderr).contains("SHA256SUMS"),
+        String::from_utf8_lossy(&out.stderr).contains("--ci-sha256"),
         "{out:?}"
     );
     assert!(!refused.join(FILE).exists() && !refused.join("docs").exists());
@@ -565,11 +330,14 @@ fn owner_listed_runners() -> String {
 /// This version's 0.5 release install step for a tree at `docs`, as `adopt`
 /// renders it.
 fn release_step() -> String {
-    let text = workflow::render(&params(Install::ReleaseSums));
+    let text = workflow::render(&Workflow {
+        version: OWN.to_string(),
+        ..params(Install::ReleasePinned(stub_sums()))
+    });
     let mut out = String::new();
     let mut on = false;
     for l in text.lines() {
-        if l.starts_with("      - name: docsys, the release the tree pins") {
+        if l.starts_with("      - name: docsys ") && l.contains("the release the tree pins") {
             on = true;
         } else if on && l.starts_with("      - ") {
             break;
@@ -579,7 +347,7 @@ fn release_step() -> String {
             out.push('\n');
         }
     }
-    assert!(out.contains("SHA256SUMS"), "{text}");
+    assert!(out.contains("the release the tree pins"), "{text}");
     out
 }
 
@@ -616,9 +384,13 @@ fn owner_moved(owner: &str) -> String {
 #[test]
 fn an_owners_install_is_replaced_and_every_other_line_kept() {
     for owner in [OWNER.to_string(), owner_listed_runners()] {
-        let Reinstall::Rewritten { text, what } = workflow::reinstall(&owner, "docs", "0.16.0")
+        let Reinstall::Rewritten { text, what } =
+            workflow::reinstall(&owner, "docs", OWN, Some(&stub_sums()))
         else {
-            panic!("{:?}", workflow::reinstall(&owner, "docs", "0.16.0"));
+            panic!(
+                "{:?}",
+                workflow::reinstall(&owner, "docs", OWN, Some(&stub_sums()))
+            );
         };
         let want = owner_moved(&owner);
         assert!(
@@ -630,11 +402,19 @@ fn an_owners_install_is_replaced_and_every_other_line_kept() {
             !text.contains("DOCSYS_") && !text.contains("0.15.1"),
             "{text}"
         );
-        assert!(what.contains("SHA256SUMS"), "{what}");
+        assert!(
+            what.contains(&format!("installs docsys {OWN} and checks its archive against the sha256 values this upgrade read from the release")),
+            "{what}"
+        );
         // the rewritten file is left alone by the next run
         assert_eq!(
-            workflow::reinstall(&text, "docs", "0.16.0"),
+            workflow::reinstall(&text, "docs", OWN, None),
             Reinstall::Pinned
+        );
+        // and a release install still to be written asks for the values
+        assert_eq!(
+            workflow::reinstall(&owner, "docs", OWN, None),
+            Reinstall::NeedsRelease
         );
     }
     // an `env:` that holds more than docsys keeps the rest, a value on more
@@ -643,8 +423,13 @@ fn an_owners_install_is_replaced_and_every_other_line_kept() {
         "  DOCSYS_SHA256_AARCH64: 2222222222222222222222222222222222222222222222222222222222222222\n",
         "  DOCSYS_SHA256_AARCH64: 2222222222222222222222222222222222222222222222222222222222222222\n  RELEASE_NOTES: |\n    kept as the owner wrote it\n",
     );
-    let Reinstall::Rewritten { text, .. } = workflow::reinstall(&more, "docs", "0.16.0") else {
-        panic!("{:?}", workflow::reinstall(&more, "docs", "0.16.0"));
+    let Reinstall::Rewritten { text, .. } =
+        workflow::reinstall(&more, "docs", OWN, Some(&stub_sums()))
+    else {
+        panic!(
+            "{:?}",
+            workflow::reinstall(&more, "docs", OWN, Some(&stub_sums()))
+        );
     };
     assert!(
         text.contains("\nenv:\n  RELEASE_NOTES: |\n    kept as the owner wrote it\n\njobs:\n"),
@@ -653,14 +438,23 @@ fn an_owners_install_is_replaced_and_every_other_line_kept() {
     assert!(!text.contains("DOCSYS_"), "{text}");
     // a file with CRLF line ends keeps them
     let crlf = OWNER.replace('\n', "\r\n");
-    let Reinstall::Rewritten { text, .. } = workflow::reinstall(&crlf, "docs", "0.16.0") else {
-        panic!("{:?}", workflow::reinstall(&crlf, "docs", "0.16.0"));
+    let Reinstall::Rewritten { text, .. } =
+        workflow::reinstall(&crlf, "docs", OWN, Some(&stub_sums()))
+    else {
+        panic!(
+            "{:?}",
+            workflow::reinstall(&crlf, "docs", OWN, Some(&stub_sums()))
+        );
     };
     assert_eq!(text, owner_moved(OWNER).replace('\n', "\r\n"));
-    // what this version renders installs from the pin already
-    for install in [Install::Cargo, Install::ReleaseSums] {
+    // what this version renders for this version is current already
+    for install in [Install::Cargo, Install::ReleasePinned(stub_sums())] {
+        let rendered = workflow::render(&Workflow {
+            version: OWN.to_string(),
+            ..params(install)
+        });
         assert_eq!(
-            workflow::reinstall(&workflow::render(&params(install)), "docs", "0.16.0"),
+            workflow::reinstall(&rendered, "docs", OWN, None),
             Reinstall::Pinned
         );
     }
@@ -674,8 +468,13 @@ fn an_owners_install_is_replaced_and_every_other_line_kept() {
         "runs-on: [self-hosted, linux]",
         "runs-on: [self-hosted, linux, x64]",
     );
-    let Reinstall::Rewritten { text, .. } = workflow::reinstall(&old, "docs", "0.16.0") else {
-        panic!("{:?}", workflow::reinstall(&old, "docs", "0.16.0"));
+    let Reinstall::Rewritten { text, .. } =
+        workflow::reinstall(&old, "docs", OWN, Some(&stub_sums()))
+    else {
+        panic!(
+            "{:?}",
+            workflow::reinstall(&old, "docs", OWN, Some(&stub_sums()))
+        );
     };
     assert!(text.contains(&release_step()), "{text}");
     assert!(
@@ -693,11 +492,11 @@ fn an_owners_install_is_replaced_and_every_other_line_kept() {
         "      - name: Install docsys\n        run: cargo install docsys --version \"${DOCSYS_VERSION#v}\" --locked\n",
         1,
     );
-    let Reinstall::Rewritten { text, .. } = workflow::reinstall(&cargo, "docs", "0.16.0") else {
-        panic!("{:?}", workflow::reinstall(&cargo, "docs", "0.16.0"));
+    let Reinstall::Rewritten { text, .. } = workflow::reinstall(&cargo, "docs", OWN, None) else {
+        panic!("{:?}", workflow::reinstall(&cargo, "docs", OWN, None));
     };
     let rendered = workflow::render(&Workflow {
-        version: "0.16.0".to_string(),
+        version: OWN.to_string(),
         ..params(Install::Cargo)
     });
     let cargo_steps = rendered
@@ -722,7 +521,7 @@ fn an_install_that_cannot_be_told_apart_is_named_never_rewritten() {
             .map(|i| i + 1)
             .unwrap()
     };
-    let unclear = |text: &str| match workflow::reinstall(text, "docs", "0.16.0") {
+    let unclear = |text: &str| match workflow::reinstall(text, "docs", OWN, None) {
         Reinstall::Unclear { line, what } => (line, what),
         other => panic!("{other:?} for:\n{text}"),
     };
@@ -736,7 +535,9 @@ fn an_install_that_cannot_be_told_apart_is_named_never_rewritten() {
     let (line, what) = unclear(&script);
     assert_eq!(line, line_of(&script, "install-docsys.sh"), "{what}");
     assert!(
-        what.contains("it installs docsys 0.15.1, and the tree pins 0.16.0"),
+        what.contains(&format!(
+            "it installs docsys 0.15.1, and docs/.docsys-version pins {OWN}"
+        )),
         "{what}"
     );
     assert!(what.contains("docs/.docsys-version"), "{what}");
@@ -826,7 +627,7 @@ fn the_move_replaces_an_owners_install_and_leaves_nothing_for_ci() {
     for line in [
         "-  DOCSYS_VERSION: v0.15.1\n",
         "-      - name: Install docsys\n",
-        "+      - name: docsys, the release the tree pins, checked against its SHA256SUMS\n",
+        &format!("+      - name: docsys {OWN}, the release the tree pins, checked against the sha256 its upgrade wrote\n"),
     ] {
         assert!(diff.contains(line), "`{line}` not in:\n{diff}");
     }
@@ -903,7 +704,9 @@ fn an_untouched_04_release_install_is_regenerated_without_sha256() {
         rows.first()
             .unwrap()
             .starts_with(&format!("auto    ci-workflow        {FILE}  "))
-            && rows.first().unwrap().contains("SHA256SUMS"),
+            && rows.first().unwrap().contains(
+                "pins this version and its archives' sha256 values, read from the release"
+            ),
         "{out}"
     );
     let text = fs::read_to_string(repo.join(FILE)).unwrap();
@@ -912,7 +715,7 @@ fn an_untouched_04_release_install_is_regenerated_without_sha256() {
         workflow::render(&Workflow {
             version: docsys::agents::TEMPLATE_VERSION.to_string(),
             ci: Ci {
-                install: Install::ReleaseSums,
+                install: Install::ReleasePinned(stub_sums()),
                 ..old.ci.clone()
             },
             ..old.clone()

@@ -237,7 +237,7 @@
       "strategy": "auto",
       "step": "pin",
       "file": "docs/.docsys-version",
-      "what": "no pin → `0.16.0`: every docsys call here runs it",
+      "what": "no pin → `0.16.1`: every docsys call here runs it",
       "command": null
     }
   ],
@@ -254,7 +254,7 @@
   "diffs": [
     {
       "file": ".claude/hooks/stop-docs-reminder.sh",
-      "diff": "--- .claude/hooks/stop-docs-reminder.sh\n+++ .claude/hooks/stop-docs-reminder.sh\n@@ -1,8 +1,13 @@\n #!/usr/bin/env bash\n-# docsys-template: 0.15.1\n-# stop-docs-reminder.sh — end-of-turn nudge; warns, never blocks (R-150).\n+# docsys-template: 0.16.0\n+# stop-docs-reminder.sh — end-of-turn reminder; it warns, and under\n+# `commit_policy: require` it holds the turn once (R-209).\n # Reads the working tree and the commits not yet pushed (`docsys hook stop`).\n command -v docsys >/dev/null || exit 0\n-# no nudge on the release branch\n-[ \"$(git branch --show-current)\" = release ] && exit 0\n+cd \"${CLAUDE_PROJECT_DIR:-.}\" || exit 0\n+docsys_pin=$(head -n 1 \"${DOCS_ROOT:-docs}/.docsys-version\" 2>/dev/null)\n+if [ -n \"$docsys_pin\" ] && ! docsys --version >/dev/null 2>&1; then\n+  echo \"docsys: this tree pins docsys $docsys_pin; install: cargo install docsys --version $docsys_pin --locked\" >&2\n+  exit 1\n+fi\n exec docsys hook stop --root \"${DOCS_ROOT:-docs}\" --stdin\n"
+      "diff": "--- .claude/hooks/stop-docs-reminder.sh\n+++ .claude/hooks/stop-docs-reminder.sh\n@@ -1,8 +1,13 @@\n #!/usr/bin/env bash\n-# docsys-template: 0.15.1\n-# stop-docs-reminder.sh — end-of-turn nudge; warns, never blocks (R-150).\n+# docsys-template: 0.16.1\n+# stop-docs-reminder.sh — end-of-turn reminder; it warns, and under\n+# `commit_policy: require` it holds the turn once (R-209).\n # Reads the working tree and the commits not yet pushed (`docsys hook stop`).\n command -v docsys >/dev/null || exit 0\n-# no nudge on the release branch\n-[ \"$(git branch --show-current)\" = release ] && exit 0\n+cd \"${CLAUDE_PROJECT_DIR:-.}\" || exit 0\n+docsys_pin=$(head -n 1 \"${DOCS_ROOT:-docs}/.docsys-version\" 2>/dev/null)\n+if [ -n \"$docsys_pin\" ] && ! docsys --version >/dev/null 2>&1; then\n+  echo \"docsys: this tree pins docsys $docsys_pin; install: cargo install docsys --version $docsys_pin --locked\" >&2\n+  exit 1\n+fi\n exec docsys hook stop --root \"${DOCS_ROOT:-docs}\" --stdin\n"
     },
     {
       "file": ".claude/commands/docsys-sync.md",

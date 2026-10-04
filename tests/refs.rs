@@ -153,8 +153,8 @@ fn agents_install_writes_assets_and_respects_existing() {
     for must in [
         "docsys upgrade --json",
         "re-read it as the rules block says",
-        "A sha256 value is never written",
-        "`SHA256SUMS`",
+        "A sha256 value is never written by hand",
+        "reads each\n   archive's from the release",
         "git log -1 --format=%B",
     ] {
         assert!(upgrade.contains(must), "{must}");

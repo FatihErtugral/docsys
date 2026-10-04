@@ -255,10 +255,10 @@ flowchart LR
   (`.docsys-version`): `cargo install docsys --version <v> --locked`, cached,
   on `ubuntu-latest`. `--ci-runner <label>[,<label>…]` names other runners,
   and `--ci-install release` installs the release archive instead — for
-  runners without a Rust toolchain: the version the tree pins, checked
-  against the `SHA256SUMS` its release publishes, so no version and no sha256
-  is written into the workflow and an upgrade never needs a CI edit. Line 1
-  records these
+  runners without a Rust toolchain: the version and each archive's sha256,
+  which `docsys upgrade` reads from the release and writes into the step,
+  reviewed with the upgrade; a pull request that moves `.docsys-version`
+  alone installs nothing. Line 1 records these
   parameters and a hash of the file: a file nobody edited can be regenerated
   with them, and an edited one is yours (D-111).
 

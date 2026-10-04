@@ -278,13 +278,16 @@ fn a_0_4_tree_moves_to_the_expected_0_5_tree_and_a_second_run_changes_nothing() 
     );
     // what a person pulling it reads: the release's note byte for byte (D-120)
     let body = git(&repo, &["log", "-1", "--format=%B"]);
-    let note = changelog_note(env!("CARGO_PKG_VERSION"));
+    // the move's own release: the one whose section names it
+    let release = docsys::upgrade::MIGRATIONS
+        .iter()
+        .find(|m| m.to == 5)
+        .map(|m| m.release)
+        .unwrap();
+    let note = changelog_note(release);
     assert!(note.contains("before pulling this change"), "{note}");
     assert!(
-        body.contains(&format!(
-            "Upgrading to docsys {}:\n{note}",
-            env!("CARGO_PKG_VERSION")
-        )),
+        body.contains(&format!("Upgrading to docsys {release}:\n{note}")),
         "{body}"
     );
     let moved_at = git(&repo, &["rev-parse", "--short=7", "HEAD"]);
@@ -392,7 +395,7 @@ fn an_owners_workflow_is_never_rewritten_and_its_install_line_is_named() {
     // the one line that must move with the tree is named
     assert!(
         stdout.contains(&format!(
-            "it installs docsys 0.15.1, and the tree pins {}",
+            "it installs docsys 0.15.1, and docs/.docsys-version pins {}",
             env!("CARGO_PKG_VERSION")
         )),
         "{stdout}"
@@ -811,6 +814,29 @@ fn the_per_clone_step_writes_a_missing_gate() {
     let idle = String::from_utf8_lossy(&idle.stdout);
     assert!(!idle.contains("git-gate"), "{idle}");
     assert_eq!(git(&repo, &["status", "--porcelain"]), "");
+    let _ = fs::remove_dir_all(&repo);
+}
+
+/// A clone whose git runs no hooks (`core.hooksPath` is `/dev/null`) gets no
+/// gate, and that is said once: the rest of the upgrade applies (D-117).
+#[test]
+fn a_clone_whose_git_runs_no_hooks_is_upgraded_without_a_gate() {
+    let (repo, _) = build("hooks-off");
+    fs::remove_file(repo.join(".git/hooks/pre-commit")).unwrap();
+    git(&repo, &["config", "core.hooksPath", "/dev/null"]);
+    let out = docsys(&repo, &["upgrade", "--apply", "--commit"]);
+    assert!(out.status.success(), "{out:?}");
+    let said = String::from_utf8_lossy(&out.stdout);
+    assert!(
+        said.contains("info    git-gate           pre-commit  git runs no hooks in this clone (core.hooksPath is /dev/null), so no gate is written"),
+        "{said}"
+    );
+    assert!(
+        fs::read_to_string(repo.join("docs/.docmeta.yml"))
+            .unwrap()
+            .contains("spec: docsys/0.5"),
+        "the move applied"
+    );
     let _ = fs::remove_dir_all(&repo);
 }
 

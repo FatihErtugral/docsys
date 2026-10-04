@@ -60,7 +60,7 @@ auto    maintainers        docs/.docmeta.yml  `maintainers:` taken out: a docsys
 manual  code-citations     src/auth.rs:8  `doc: expiry` sits mid-comment: from 0.5 it is prose (R-072) — move it to the start of its comment, or leave it as prose
 info    raw-records        docs/raw/  1 record(s): from 0.5 a record layer — their dangling references are reported, an edited record stops the commit (R-023)
 auto    spec-line          docs/.docmeta.yml  `spec: docsys/0.4` → `spec: docsys/0.5`
-auto    pin                docs/.docsys-version  no pin → `0.16.0`: every docsys call here runs it
+auto    pin                docs/.docsys-version  no pin → `0.16.1`: every docsys call here runs it
 -- 28 automatic, 4 for a person, 1 for information
 judged by docsys/0.5 as the tree is now: 6 new finding(s), 1 gone — the steps above clear their part
 + WARN R-050 reference/expiry.md [updated] `updated:` is not kept on docsys/0.5 — a page's date is its last content change in history; `docsys upgrade --apply` removes the line
@@ -78,7 +78,7 @@ judged by docsys/0.5 as the tree is now: 6 new finding(s), 1 gone — the steps 
  #!/usr/bin/env bash
 -# docsys-template: 0.15.1
 -# stop-docs-reminder.sh — end-of-turn nudge; warns, never blocks (R-150).
-+# docsys-template: 0.16.0
++# docsys-template: 0.16.1
 +# stop-docs-reminder.sh — end-of-turn reminder; it warns, and under
 +# `commit_policy: require` it holds the turn once (R-209).
  # Reads the working tree and the commits not yet pushed (`docsys hook stop`).

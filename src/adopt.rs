@@ -197,10 +197,24 @@ fn ensure_ci_workflow(repo: &Path, root_rel: &str, ci: Option<&Ci>) -> CiOutcome
             opens_pull_requests: existing.contains("gh pr create"),
         };
     }
-    let ci = ci.cloned().unwrap_or_else(|| Ci {
+    let mut ci = ci.cloned().unwrap_or_else(|| Ci {
         verify: Verify::of_era(crate::era::Era::at(&repo.join(root_rel))),
         ..Ci::default()
     });
+    // a docsys/0.5 release install pins this version and its archives'
+    // sha256 values, read from the release; nothing is written without them
+    if matches!(&ci.install, workflow::Install::ReleasePinned(sums) if sums.is_empty()) {
+        match workflow::release_sums_of(agents::TEMPLATE_VERSION) {
+            Ok(sums) => ci.install = workflow::Install::ReleasePinned(sums),
+            Err(why) => {
+                return CiOutcome {
+                    summary: format!("not written — the release could not be read ({why}); run `docsys adopt --ci-install release` again once it can be"),
+                    verify_job: false,
+                    opens_pull_requests: false,
+                };
+            }
+        }
+    }
     let verify = ci.verify;
     let text = workflow::render(&workflow::Workflow {
         version: agents::TEMPLATE_VERSION.to_string(),

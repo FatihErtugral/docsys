@@ -37,6 +37,7 @@ jobs:
           cp "target/${{ matrix.target }}/release/docsys" "$name/"
           cp README.md SPEC.md LICENSE-MIT LICENSE-APACHE "$name/"
           tar czf "$name.tar.gz" "$name"
+          # what `docsys upgrade` reads and writes into a workflow's install step
           shasum -a 256 "$name.tar.gz" > "$name.tar.gz.sha256"
 
       - name: upload to the release
@@ -53,23 +54,3 @@ jobs:
           shopt -s nullglob
           assets=(docsys-*.tar.gz docsys-*.tar.gz.sha256)
           gh release upload "$GITHUB_REF_NAME" "${assets[@]}" --clobber
-
-  # SHA256SUMS: a sha256sum line for every archive the release holds, so a
-  # workflow checks the archive of the version its tree pins with no value
-  # copied by hand. Read back from the release, it hashes what was published.
-  sums:
-    needs: build
-    if: ${{ !cancelled() }}
-    runs-on: ubuntu-latest
-    steps:
-      - name: SHA256SUMS
-        env:
-          GH_TOKEN: ${{ github.token }}
-          GH_REPO: ${{ github.repository }}
-        shell: bash
-        run: |
-          gh release download "$GITHUB_REF_NAME" --pattern 'docsys-*.tar.gz' --dir dist
-          cd dist
-          sha256sum docsys-*.tar.gz > SHA256SUMS
-          cat SHA256SUMS
-          gh release upload "$GITHUB_REF_NAME" SHA256SUMS --clobber

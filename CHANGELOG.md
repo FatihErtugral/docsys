@@ -5,6 +5,42 @@ All notable changes to docsys are documented here. The format follows
 [SemVer](https://semver.org/). Release notes are extracted from this file
 by the release workflow — the tag's section becomes the GitHub release body.
 
+## [0.16.1] - unreleased
+
+### Upgrading from 0.16.0
+
+- On a docsys/0.5 tree whose CI installs the release archive, run
+  `docsys upgrade --apply --commit` once: it reads the four archives' sha256
+  values from the 0.16.1 release and writes them, with the version, into the
+  workflow's install step — that step alone, shown as a diff in the plan — so
+  the pull request that carries the upgrade carries the values for review.
+  Without network it leaves the workflow as it is, applies the rest and names
+  the command to run again.
+
+### Changed
+
+- A docsys/0.5 release install holds the version `docsys upgrade` pinned and
+  the sha256 values it read from that release, and checks the archive
+  against them; nothing is read from the release when CI runs. A
+  `.docsys-version` that names another version — a pull request that moves
+  the pin alone — installs nothing, and the step says so in one line (D-111,
+  D-120).
+- `adopt --ci-install release` reads this version's values from the release
+  the same way; without network it writes no workflow and says why.
+- The release publishes each archive's `.sha256` file, which the upgrade
+  reads, and no `SHA256SUMS` any more (D-111).
+
+### Added
+
+- `DOCSYS_RELEASES` names where `adopt` and `upgrade` read a release's
+  `.sha256` files: a mirror, or a `file://` directory.
+
+### Fixed
+
+- `upgrade --apply` in a clone whose git runs no hooks (`core.hooksPath`
+  naming no directory) says so once and applies the rest of the move; it
+  stopped the whole move before (D-117).
+
 ## [0.16.0] - 2026-10-04
 
 Every change below to a finding or a file format applies to a tree that

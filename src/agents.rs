@@ -191,8 +191,9 @@ Nothing is committed before they said yes.
 5. A line of the team's own text that names a retired concept
    (`retired-concepts`, at `file:line`): propose that line rewritten with the
    item's replacement, keeping the owner's other words.
-6. A sha256 value is never written: a docsys/0.5 workflow checks the
-   archive against its release's `SHA256SUMS`.
+6. A sha256 value is never written by hand: `docsys upgrade` reads each
+   archive's from the release into the install step. When it could not read
+   the release it says so; run it again once it can.
 7. The follow-ups are described by the upgrade commit's message
    (`git log -1 --format=%B`).
 8. Last, the audit: the move ended with the leftover list — what an earlier

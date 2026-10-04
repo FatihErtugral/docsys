@@ -124,7 +124,7 @@ pub const COMMANDS: &[Command] = &[
             ("--no-report", "write no ADOPTION.md"),
             ("--ci-runner <label>,…", "the runner labels of the CI workflow written when .github/ exists"),
             ("--ci-install cargo|release", "how the workflow installs docsys"),
-            ("--ci-sha256 <target>=<hex>,…", "the release archives' checksums, with --ci-install release on a docsys/0.4 tree; a docsys/0.5 workflow checks the archive against its release's SHA256SUMS and refuses the flag"),
+            ("--ci-sha256 <target>=<hex>,…", "the release archives' checksums, with --ci-install release on a docsys/0.4 tree; on a docsys/0.5 tree docsys reads them from the release, writes them with the version, and refuses the flag"),
             ("--verify-on-approval <mode>", "a docsys/0.4 tree's approval job: `pull-request` (a follow-up pull request, the default), `direct` (a push) or `off`"),
             ("--obsidian", "also write .obsidian settings and a stale-work view"),
         ],

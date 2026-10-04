@@ -248,27 +248,27 @@ fn a_pulled_pin_change_installs_the_new_version_once() {
     stub_cargo(&stubs, &log);
     let path = path_with(&stubs);
     let r = repo("pull");
-    pin(&r, "0.16.1");
+    pin(&r, "0.17.3");
 
     let first = run(&r, &path, &home, &[], &["lint"]);
     assert_eq!(first.code, 0, "{}{}", first.out, first.err);
-    assert_eq!(first.out, "docsys 0.16.1 ran: lint\n");
+    assert_eq!(first.out, "docsys 0.17.3 ran: lint\n");
     assert!(
         first
             .err
-            .contains("docsys: this tree pins docsys 0.16.1; installing it once…"),
+            .contains("docsys: this tree pins docsys 0.17.3; installing it once…"),
         "{}",
         first.err
     );
     assert_eq!(
         fs::read_to_string(&log).unwrap(),
         format!(
-            "install docsys --version 0.16.1 --locked --root {}\n",
-            home.join("versions/0.16.1").display()
+            "install docsys --version 0.17.3 --locked --root {}\n",
+            home.join("versions/0.17.3").display()
         )
     );
     let again = run(&r, &path, &home, &[], &["lint"]);
-    assert_eq!(again.out, "docsys 0.16.1 ran: lint\n");
+    assert_eq!(again.out, "docsys 0.17.3 ran: lint\n");
     assert!(again.err.is_empty(), "{}", again.err);
     assert_eq!(fs::read_to_string(&log).unwrap().lines().count(), 1);
     for d in [r, home, stubs] {
@@ -282,10 +282,10 @@ fn a_pulled_pin_change_installs_the_new_version_once() {
 fn without_cargo_or_offline_the_command_is_named_and_nothing_runs() {
     let home = tmp("off-home");
     let r = repo("off");
-    pin(&r, "0.16.1");
+    pin(&r, "0.17.3");
     let command = format!(
-        "cargo install docsys --version 0.16.1 --locked --root {}",
-        home.join("versions/0.16.1").display()
+        "cargo install docsys --version 0.17.3 --locked --root {}",
+        home.join("versions/0.17.3").display()
     );
 
     let none = path_with(&tmp("off-none"));
@@ -293,7 +293,7 @@ fn without_cargo_or_offline_the_command_is_named_and_nothing_runs() {
     assert_eq!(x.code, 1, "{}{}", x.out, x.err);
     assert_eq!(
         x.err,
-        format!("docsys: this tree pins docsys 0.16.1; install it: {command}\n")
+        format!("docsys: this tree pins docsys 0.17.3; install it: {command}\n")
     );
     assert!(x.out.is_empty(), "{}", x.out);
 
@@ -304,13 +304,13 @@ fn without_cargo_or_offline_the_command_is_named_and_nothing_runs() {
     assert_eq!(
         x.err.lines().last(),
         Some(
-            format!("docsys: version 0.16.1 could not be installed; install it: {command}")
+            format!("docsys: version 0.17.3 could not be installed; install it: {command}")
                 .as_str()
         ),
         "{}",
         x.err
     );
-    assert!(!home.join("versions/0.16.1/bin/docsys").exists());
+    assert!(!home.join("versions/0.17.3/bin/docsys").exists());
 
     // a tree 0.15 wrote has no pin: this build serves it, cargo or not
     let old = repo("off-old");
@@ -332,10 +332,10 @@ fn the_opt_out_and_a_hook_name_the_command_and_install_nothing() {
     stub_cargo(&stubs, &log);
     let path = path_with(&stubs);
     let r = repo("opt");
-    pin(&r, "0.16.1");
+    pin(&r, "0.17.3");
     let line = format!(
-        "docsys: this tree pins docsys 0.16.1; install it: cargo install docsys --version 0.16.1 --locked --root {}\n",
-        home.join("versions/0.16.1").display()
+        "docsys: this tree pins docsys 0.17.3; install it: cargo install docsys --version 0.17.3 --locked --root {}\n",
+        home.join("versions/0.17.3").display()
     );
 
     let x = run(
@@ -383,12 +383,12 @@ fn a_pinned_binary_that_dispatches_too_does_not_loop() {
 fn version_names_the_running_docsys_and_the_pin() {
     let home = tmp("ver-home");
     let r = repo("ver");
-    pin(&r, "0.16.1");
+    pin(&r, "0.17.3");
     let x = run(&r, &path_with(&tmp("ver-path")), &home, &[], &["--version"]);
     assert_eq!(
         x.out,
         format!(
-            "docsys {} (spec docsys/{}); this tree pins docsys 0.16.1\n",
+            "docsys {} (spec docsys/{}); this tree pins docsys 0.17.3\n",
             env!("CARGO_PKG_VERSION"),
             docsys::rules::spec_version()
         )

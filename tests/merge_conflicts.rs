@@ -9,7 +9,10 @@
 //! under merge, squash and rebase. On a docsys/0.5 tree no file under the
 //! documentation root conflicts but a topic file of debt or questions — a
 //! risk the owner accepted (D-124), counted apart — and no page carries a
-//! verification, so no approval job runs (D-130). The same branches on a
+//! verification, so no approval job runs (D-130). Two of the branches move
+//! the tree to this docsys version from the one it pinned: the pin and the
+//! CI install step they write are the same lines, so no file conflicts,
+//! `.github/` included (D-111, D-120). The same branches on a
 //! docsys/0.4 tree, under the same binary, are the control: there the shared
 //! files conflict and approvals need follow-up pull requests, so a harness
 //! that saw nothing would fail.
@@ -26,11 +29,68 @@ fn bin_dir() -> PathBuf {
         .to_path_buf()
 }
 
+/// The version the docsys/0.5 base pins before two branches move it here.
+const EARLIER: &str = "0.15.9";
+
+/// A docsys home where the earlier version is this build, so a branch of a
+/// tree pinned to it runs, and this version's release as a `file://`
+/// directory, read by the upgrade: `(home, releases)`.
+fn stand_ins() -> &'static (PathBuf, String) {
+    static AT: std::sync::OnceLock<(PathBuf, String)> = std::sync::OnceLock::new();
+    AT.get_or_init(|| {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = std::env::temp_dir().join(format!("docsys-n3-stand-ins-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        let bin = dir.join(format!("home/versions/{EARLIER}/bin/docsys"));
+        fs::create_dir_all(bin.parent().unwrap()).unwrap();
+        fs::write(
+            &bin,
+            format!(
+                "#!/bin/sh\nexec '{}' \"$@\"\n",
+                bin_dir().join("docsys").display()
+            ),
+        )
+        .unwrap();
+        fs::set_permissions(&bin, fs::Permissions::from_mode(0o755)).unwrap();
+        let own = env!("CARGO_PKG_VERSION");
+        let at = dir.join(format!("releases/v{own}"));
+        fs::create_dir_all(&at).unwrap();
+        for (target, hex) in sums("e") {
+            let name = format!("docsys-v{own}-{target}.tar.gz");
+            fs::write(
+                at.join(format!("{name}.sha256")),
+                format!("{hex}  {name}\n"),
+            )
+            .unwrap();
+        }
+        (
+            dir.join("home"),
+            format!("file://{}", dir.join("releases").display()),
+        )
+    })
+}
+
+/// Four targets' sha256 values, each `digit` repeated.
+fn sums(digit: &str) -> Vec<(String, String)> {
+    [
+        "x86_64-unknown-linux-musl",
+        "aarch64-unknown-linux-musl",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin",
+    ]
+    .iter()
+    .map(|t| (t.to_string(), digit.repeat(64)))
+    .collect()
+}
+
 fn run(dir: &Path, program: &str, args: &[&str], day: &str) -> Output {
     let at = format!("{day}T12:00:00+00:00");
+    let (home, releases) = stand_ins();
     Command::new(program)
         .args(args)
         .current_dir(dir)
+        .env("DOCSYS_HOME", home)
+        .env("DOCSYS_RELEASES", releases)
         .env(
             "PATH",
             format!(
@@ -185,6 +245,23 @@ fn base(name: &str, spec: &str) -> PathBuf {
     for k in 1..=2 {
         docsys(&repo, &["question", "add", &format!("question {k}?")], DAY0);
     }
+    // a docsys/0.5 base on the earlier version, its CI installing that
+    // release, pinned with that release's sha256 values
+    if !v04 {
+        fs::write(repo.join("docs/.docsys-version"), format!("{EARLIER}\n")).unwrap();
+        let workflow = docsys::workflow::render(&docsys::workflow::Workflow {
+            version: EARLIER.to_string(),
+            branch: "main".to_string(),
+            root: "docs".to_string(),
+            ci: docsys::workflow::Ci {
+                runner: vec!["ubuntu-latest".to_string()],
+                install: docsys::workflow::Install::ReleasePinned(sums("7")),
+                verify: docsys::workflow::Verify::Off,
+            },
+        });
+        fs::create_dir_all(repo.join(".github/workflows")).unwrap();
+        fs::write(repo.join(docsys::workflow::PATH), workflow).unwrap();
+    }
     commit(&repo, "pages, pins, debt, questions", DAY0);
     ok(git(&repo, &["tag", "base"], DAY0), "tag");
     repo
@@ -193,7 +270,7 @@ fn base(name: &str, spec: &str) -> PathBuf {
 const ACTIONS: [&str; 20] = [
     "add-page:0",
     "add-page:1",
-    "add-page:2",
+    "upgrade:0",
     "edit-body:alpha:1",
     "edit-body:alpha:3",
     "edit-body:beta:2",
@@ -203,7 +280,7 @@ const ACTIONS: [&str; 20] = [
     "close-debt:debt 1:1",
     "close-debt:debt 2:2",
     "add-question:0:alpha",
-    "add-question:1:",
+    "upgrade:1",
     "close-question:question 1:1",
     "journal:0:f7",
     "journal:1:f8",
@@ -352,6 +429,19 @@ fn branch(repo: &Path, n: usize, action: &str, v04: bool) -> String {
                 repo,
                 &["pin", "--refresh", &format!("reference/{}", parts[1])],
                 day,
+            );
+        }
+        // the move to this version: the pin and the CI install step it
+        // pins, the same lines on every branch that makes it (0.5 only)
+        "upgrade" if v04 => {}
+        "upgrade" => {
+            docsys(repo, &["upgrade", "--apply"], day);
+            let pin = fs::read_to_string(repo.join("docs/.docsys-version")).unwrap();
+            assert_eq!(pin.trim(), env!("CARGO_PKG_VERSION"));
+            let workflow = fs::read_to_string(repo.join(docsys::workflow::PATH)).unwrap();
+            assert!(
+                workflow.contains(&format!("sum={} ;;", "e".repeat(64))),
+                "{workflow}"
             );
         }
         // a docsys/0.4 maintainer verifies the page; on 0.5 a cross-check
@@ -564,6 +654,11 @@ fn twenty_branches_merge_with_no_documentation_conflict() {
         now.docs.is_empty(),
         "documentation files conflicted on a docsys/0.5 tree: {:?}",
         now.docs
+    );
+    assert!(
+        now.other.is_empty(),
+        "files outside the documentation root conflicted, the CI workflow among them: {:?}",
+        now.other
     );
 
     // the control: the same branches on a docsys/0.4 tree conflict where many

@@ -213,10 +213,10 @@ impl Era {
         self.v05()
     }
 
-    /// D-111, D-120: the CI workflow names no docsys version and no sha256 —
-    /// its release install reads the pin and checks the archive against that
-    /// release's SHA256SUMS, and an upgrade replaces an owner's install that
-    /// names either. Before: a release install holds the sha256 values the
+    /// D-111, D-120: a release install holds the version `docsys upgrade`
+    /// pinned and the sha256 values it read from that release, and refuses a
+    /// `.docsys-version` naming another; the upgrade replaces an owner's
+    /// install with it. Before: a release install holds the sha256 values the
     /// person copied, and an owner's workflow is named, never rewritten.
     pub fn pinned_ci_install(self) -> bool {
         self.v05()

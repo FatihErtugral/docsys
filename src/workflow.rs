@@ -10,6 +10,43 @@ use std::path::Path;
 /// Where a release's archives are downloaded from.
 pub const RELEASES: &str = concat!(env!("CARGO_PKG_REPOSITORY"), "/releases/download");
 
+/// Each target's archive sha256 for `version`, read from the `.sha256` file
+/// the release publishes beside each archive (`DOCSYS_RELEASES` names another
+/// place than `RELEASES`, a mirror or a `file://` directory), in `TARGETS`
+/// order. Every target or nothing: a value never read is never written.
+pub fn release_sums_of(version: &str) -> Result<Vec<(String, String)>, String> {
+    let base = std::env::var("DOCSYS_RELEASES")
+        .ok()
+        .filter(|b| !b.is_empty())
+        .unwrap_or_else(|| RELEASES.to_string());
+    let mut out = Vec::new();
+    for (target, _) in TARGETS {
+        let archive = format!("docsys-v{version}-{target}.tar.gz");
+        let url = format!("{base}/v{version}/{archive}.sha256");
+        let got = std::process::Command::new("curl")
+            .args(["-fsSL", "--connect-timeout", "10", "--max-time", "60", &url])
+            .output()
+            .map_err(|e| format!("curl could not run ({e})"))?;
+        if !got.status.success() {
+            let why = String::from_utf8_lossy(&got.stderr);
+            return Err(format!("{url} could not be read: {}", why.trim()));
+        }
+        let text = String::from_utf8_lossy(&got.stdout);
+        let mut words = text.split_whitespace();
+        match (words.next(), words.next()) {
+            (Some(hex), Some(name))
+                if hex.len() == 64
+                    && hex.bytes().all(|b| b.is_ascii_hexdigit())
+                    && name.trim_start_matches('*') == archive =>
+            {
+                out.push((target.to_string(), hex.to_ascii_lowercase()));
+            }
+            _ => return Err(format!("{url} holds no sha256 line for {archive}")),
+        }
+    }
+    Ok(out)
+}
+
 /// How the runners get docsys.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Install {
@@ -18,9 +55,10 @@ pub enum Install {
     /// the release archive for the runner's target, checked against the
     /// sha256 the person supplied: `(target, hex)` — a docsys/0.4 tree's
     Release(Vec<(String, String)>),
-    /// the release archive of the version the tree pins, checked against
-    /// that release's SHA256SUMS: the workflow names neither (docsys/0.5)
-    ReleaseSums,
+    /// docsys/0.5: the release archive of the version `docsys upgrade` pinned,
+    /// checked against the sha256 values it wrote from that release:
+    /// `(target, hex)`, empty while they are still to be read
+    ReleasePinned(Vec<(String, String)>),
 }
 
 /// What a docsys/0.4 tree's verify-on-approval job does with the records
@@ -142,13 +180,13 @@ impl Ci {
                 .collect::<Vec<_>>()
                 .join(", ")
         };
-        // docsys/0.5: the release's own SHA256SUMS, nothing written by hand
+        // docsys/0.5: the values read from the release, nothing written by hand
         if era.pinned_ci_install() {
             if sha256.is_some() {
-                return Err("--ci-sha256: a docsys/0.5 workflow checks the release archive against the SHA256SUMS that release publishes, so it holds no sha256 value — leave the flag out".to_string());
+                return Err("--ci-sha256: on a docsys/0.5 tree docsys reads the release archives' sha256 values from the release and writes them itself — leave the flag out".to_string());
             }
             if install == Some("release") {
-                ci.install = Install::ReleaseSums;
+                ci.install = Install::ReleasePinned(Vec::new());
                 return Ok(Some(ci));
             }
         }
@@ -277,47 +315,59 @@ const INSTALL_RELEASE: &str = r#"      - name: docsys @VERSION@, the release arc
           echo "$RUNNER_TEMP/$name" >> "$GITHUB_PATH"
 "#;
 
-const INSTALL_RELEASE_SUMS: &str = r#"      - name: docsys, the release the tree pins, checked against its SHA256SUMS
+/// The marker of a docsys/0.5 release install, in its step's name.
+const PINNED_MARK: &str = "the release the tree pins";
+
+const INSTALL_RELEASE_PINNED: &str = r#"      - name: docsys @VERSION@, the release the tree pins, checked against the sha256 its upgrade wrote
         shell: bash
         run: |
+          # `docsys upgrade` wrote this version and its archives' sha256 values from
+          # the release, reviewed with it: a pin moved alone installs nothing.
           v=$(head -n 1 "@ROOT@/.docsys-version" 2>/dev/null | tr -d '[:space:]' || true)
-          if [ -z "$v" ]; then
-            echo "docsys: @ROOT@/.docsys-version names no docsys version to install" >&2
+          if [ "$v" != "@VERSION@" ]; then
+            echo "docsys: @ROOT@/.docsys-version names ${v:-no version}, and this workflow installs @VERSION@ — run docsys upgrade --apply, which pins both" >&2
             exit 1
           fi
           case "$(uname -s)-$(uname -m)" in
 @ARMS@            *) echo "docsys: no release archive for a $(uname -s)-$(uname -m) runner" >&2; exit 1 ;;
           esac
-          name="docsys-v$v-$target"
-          cd "$RUNNER_TEMP"
-          curl -fsSL -o "$name.tar.gz" "@RELEASES@/v$v/$name.tar.gz"
-          curl -fsSL -o SHA256SUMS "@RELEASES@/v$v/SHA256SUMS"
-          awk -v f="$name.tar.gz" '$2 == f' SHA256SUMS > "$name.tar.gz.sha256"
-          if [ ! -s "$name.tar.gz.sha256" ]; then
-            echo "docsys: the SHA256SUMS of docsys $v lists no $name.tar.gz" >&2
+          name="docsys-v@VERSION@-$target"
+          curl -fsSL -o "$RUNNER_TEMP/$name.tar.gz" "@RELEASES@/v@VERSION@/$name.tar.gz"
+          got=$(cd "$RUNNER_TEMP" && { sha256sum "$name.tar.gz" 2>/dev/null || shasum -a 256 "$name.tar.gz"; } | cut -d ' ' -f 1)
+          if [ "$got" != "$sum" ]; then
+            echo "docsys: $name.tar.gz hashes to $got, not the $sum this workflow pins" >&2
             exit 1
           fi
-          if command -v sha256sum >/dev/null; then
-            sha256sum -c "$name.tar.gz.sha256"
-          else
-            shasum -a 256 -c "$name.tar.gz.sha256"
-          fi
-          tar -xzf "$name.tar.gz"
+          tar -xzf "$RUNNER_TEMP/$name.tar.gz" -C "$RUNNER_TEMP"
           echo "$RUNNER_TEMP/$name" >> "$GITHUB_PATH"
 "#;
 
 const ARM_PREFIX: &str = "            ";
 
-/// The docsys/0.5 release install: every archive the release publishes, the
-/// version read from the pin when the job runs.
-fn release_sums_step(root: &str) -> String {
-    let arms: String = TARGETS
-        .iter()
-        .map(|(target, uname)| format!("{ARM_PREFIX}{uname}) target={target} ;;\n"))
-        .collect();
+/// The `case` arms of a release install: each target's runner and sha256.
+fn sum_arms(sums: &[(String, String)]) -> String {
+    sums.iter()
+        .map(|(target, hex)| {
+            let uname = TARGETS
+                .iter()
+                .find(|(t, _)| t == target)
+                .map_or("", |(_, u)| *u);
+            format!("{ARM_PREFIX}{uname}) target={target} sum={hex} ;;\n")
+        })
+        .collect()
+}
+
+/// The docsys/0.5 release install of `version`, its archives' sha256 values
+/// `sums`, as `docsys upgrade` read them from the release.
+fn release_pinned_step(version: &str, root: &str, sums: &[(String, String)]) -> String {
     fill(
-        INSTALL_RELEASE_SUMS,
-        &[("ARMS", &arms), ("RELEASES", RELEASES), ("ROOT", root)],
+        INSTALL_RELEASE_PINNED,
+        &[
+            ("VERSION", version),
+            ("ARMS", &sum_arms(sums)),
+            ("RELEASES", RELEASES),
+            ("ROOT", root),
+        ],
     )
 }
 
@@ -432,7 +482,7 @@ fn params_line(w: &Workflow) -> String {
         w.ci.runner.join(","),
         match w.ci.install {
             Install::Cargo => "cargo",
-            Install::Release(_) | Install::ReleaseSums => "release",
+            Install::Release(_) | Install::ReleasePinned(_) => "release",
         },
         root_of(&w.root)
     )
@@ -453,28 +503,16 @@ pub fn render(w: &Workflow) -> String {
     let root = root_of(&w.root);
     let install = match &w.ci.install {
         Install::Cargo => fill(INSTALL_CARGO, &[("VERSION", &w.version), ("ROOT", root)]),
-        Install::Release(sums) => {
-            let arms: String = sums
-                .iter()
-                .map(|(target, hex)| {
-                    let uname = TARGETS
-                        .iter()
-                        .find(|(t, _)| t == target)
-                        .map_or("", |(_, u)| *u);
-                    format!("{ARM_PREFIX}{uname}) target={target} sum={hex} ;;\n")
-                })
-                .collect();
-            fill(
-                INSTALL_RELEASE,
-                &[
-                    ("VERSION", &w.version),
-                    ("ARMS", &arms),
-                    ("RELEASES", RELEASES),
-                    ("ROOT", root),
-                ],
-            )
-        }
-        Install::ReleaseSums => release_sums_step(root),
+        Install::Release(sums) => fill(
+            INSTALL_RELEASE,
+            &[
+                ("VERSION", &w.version),
+                ("ARMS", &sum_arms(sums)),
+                ("RELEASES", RELEASES),
+                ("ROOT", root),
+            ],
+        ),
+        Install::ReleasePinned(sums) => release_pinned_step(&w.version, root, sums),
     };
     let job = |head_where: &str, pr: &str, steps: &str| {
         let head = fill(
@@ -616,8 +654,11 @@ fn stamped(text: &str) -> Option<(String, Workflow)> {
     };
     let install = match field("install")? {
         "cargo" => Install::Cargo,
+        // a docsys/0.5 release install names the tree's pin in its step;
+        // 0.16.0's read the release's SHA256SUMS and pinned no value
+        "release" if body.contains(PINNED_MARK) => Install::ReleasePinned(release_sums(body)),
         "release" => match release_sums(body) {
-            sums if sums.is_empty() => Install::ReleaseSums,
+            sums if sums.is_empty() => Install::ReleasePinned(sums),
             sums => Install::Release(sums),
         },
         _ => return None,
@@ -743,6 +784,9 @@ pub enum Reinstall {
     /// what installs docsys is not found unambiguously: nothing is written,
     /// the 1-based line is named with what to change there
     Unclear { line: usize, what: String },
+    /// a release install is to be written, and its sha256 values are still
+    /// to be read from the release: call again with them
+    NeedsRelease,
 }
 
 /// How a step installs docsys.
@@ -1003,10 +1047,17 @@ fn at_column(step: &str, col: usize) -> String {
 
 /// `text`, an owner's workflow, with what installs docsys replaced by this
 /// version's install step for the tree at `root`: the install steps that name
-/// a version or a sha256 or read an `env:` entry that does, and those
+/// another version or a sha256 of no version, read an `env:` entry that pins,
+/// or read the release's SHA256SUMS when CI runs (0.16.0's), and those
 /// entries, each with the comment block above it. Every other line stays.
-/// `version` is the one the tree pins.
-pub fn reinstall(text: &str, root: &str, version: &str) -> Reinstall {
+/// `version` is the one the upgrade pins; `release`, its archives' sha256
+/// values, once read — a release step asks for them (`NeedsRelease`).
+pub fn reinstall(
+    text: &str,
+    root: &str,
+    version: &str,
+    release: Option<&[(String, String)]>,
+) -> Reinstall {
     let crlf = text.contains("\r\n");
     let text = text.replace("\r\n", "\n");
     let root = root_of(root);
@@ -1031,12 +1082,19 @@ pub fn reinstall(text: &str, root: &str, version: &str) -> Reinstall {
         .flat_map(|e| &e.entries)
         .filter(|e| e.single && !in_steps(e.line, &installs) && pins(&e.value))
         .collect();
+    // an install that holds the version the upgrade pins with its sha256
+    // values is current; one that names another version, a sha256 of no
+    // version, or the release's SHA256SUMS read when CI runs, is not
     let stale: Vec<(Step, Kind)> = installs
         .iter()
         .filter(|(s, _)| {
             let b = body(s);
-            b.lines().any(|l| version_in(l).is_some() || hash_in(l))
-                || pinning.iter().any(|e| names(&b, &e.key))
+            let own = b.lines().any(|l| version_in(l) == Some(version));
+            b.lines().any(|l| {
+                version_in(l).is_some_and(|v| v != version)
+                    || (hash_in(l) && !own)
+                    || l.contains("SHA256SUMS")
+            }) || pinning.iter().any(|e| names(&b, &e.key))
         })
         .copied()
         .collect();
@@ -1078,7 +1136,7 @@ pub fn reinstall(text: &str, root: &str, version: &str) -> Reinstall {
     let then = "and `docsys upgrade` replaces the install";
     for (s, kind) in &stale {
         if *kind == Kind::Other {
-            unclear.push((s.first, format!("this step installs docsys in a way this upgrade cannot replace — make it install the version {pin} names, the archive checked against its release's SHA256SUMS, as this version's install step does")));
+            unclear.push((s.first, format!("this step installs docsys in a way this upgrade cannot replace — make it install the version {pin} names, the archive checked against the sha256 values `docsys upgrade` writes from the release, as this version's install step does")));
         }
         for i in s.first..=s.last {
             if let Some((_, sub)) = code(i).and_then(runs_docsys) {
@@ -1120,10 +1178,10 @@ pub fn reinstall(text: &str, root: &str, version: &str) -> Reinstall {
         let Some(l) = code(i).filter(|l| l.to_ascii_lowercase().contains("docsys")) else {
             continue;
         };
-        if let Some(v) = version_in(l) {
-            unclear.push((i, format!("it installs docsys {v}, and the tree pins {version} — make it install the version {pin} names, as this version's install step does, and no upgrade edits this file again")));
-        } else if hash_in(l) {
-            unclear.push((i, "it holds a sha256 value for docsys — the archive is checked against its release's SHA256SUMS instead; take the value out, with what reads it".to_string()));
+        if let Some(v) = version_in(l).filter(|v| *v != version) {
+            unclear.push((i, format!("it installs docsys {v}, and {pin} pins {version} — make it install the version {pin} names, as this version's install step does")));
+        } else if hash_in(l) && version_in(l).is_none() && !stale.is_empty() {
+            unclear.push((i, "it holds a sha256 value for docsys outside its install step — the install step holds the values the upgrade writes; take this one out, with what reads it".to_string()));
         }
     }
     if let Some((i, what)) = unclear.into_iter().min_by_key(|(i, _)| *i) {
@@ -1132,6 +1190,13 @@ pub fn reinstall(text: &str, root: &str, version: &str) -> Reinstall {
     if stale.is_empty() && gone.is_empty() {
         return Reinstall::Pinned;
     }
+    let sums = match release {
+        Some(sums) => sums,
+        None if stale.iter().any(|(_, k)| *k != Kind::Cargo) => {
+            return Reinstall::NeedsRelease;
+        }
+        None => &[],
+    };
 
     let mut out: Vec<String> = Vec::new();
     let mut skipped = false;
@@ -1140,7 +1205,7 @@ pub fn reinstall(text: &str, root: &str, version: &str) -> Reinstall {
         if let Some((_, s, kind)) = replaced.iter().find(|(a, _, _)| *a == i) {
             let step = match kind {
                 Kind::Cargo => fill(INSTALL_CARGO, &[("VERSION", version), ("ROOT", root)]),
-                _ => release_sums_step(root),
+                _ => release_pinned_step(version, root, sums),
             };
             out.extend(at_column(&step, s.col).lines().map(str::to_string));
             i = s.last + 1;
@@ -1175,7 +1240,7 @@ pub fn reinstall(text: &str, root: &str, version: &str) -> Reinstall {
     let how = if stale.iter().all(|(_, k)| *k == Kind::Cargo) {
         format!("installs the version {pin} names with cargo")
     } else {
-        format!("installs the version {pin} names and checks the archive against its release's SHA256SUMS")
+        format!("installs docsys {version} and checks its archive against the sha256 values this upgrade read from the release")
     };
     let steps = match stale.len() {
         0 => String::new(),
@@ -1184,6 +1249,6 @@ pub fn reinstall(text: &str, root: &str, version: &str) -> Reinstall {
     };
     Reinstall::Rewritten {
         text: new,
-        what: format!("{entries}{steps}every other line stays as you wrote it, and no upgrade edits the file again — the diff is below"),
+        what: format!("{entries}{steps}every other line stays as you wrote it — the diff is below"),
     }
 }
