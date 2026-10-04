@@ -37,6 +37,8 @@ by the release workflow — the tag's section becomes the GitHub release body.
 - A local project the base consumes is read at its default branch, never
   from its working tree or the branch checked out, by `fetch` and by
   `inbox pull` alike (D-133).
+- A local project with nothing committed has decided nothing yet: `fetch`
+  names it and reads the other projects.
 - `assistant` lands no commit records; `docsys inbox pull` does, on the
   person's word. `assistant --since` and `--limit` are refused by name.
 

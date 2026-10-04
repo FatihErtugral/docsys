@@ -594,3 +594,35 @@ fn a_local_provider_is_read_at_its_default_branch() {
         "{staged}"
     );
 }
+
+/// A project with nothing committed has decided nothing yet: fetch names it
+/// and reads every other project, instead of stopping (D-133).
+#[test]
+fn a_project_with_nothing_committed_is_named_and_the_rest_is_read() {
+    let hub = tmp("uncommitted");
+    let relay = provider(
+        &hub,
+        "relay",
+        "retry-policy",
+        "Retry policy",
+        "Four attempts.",
+    );
+    let fresh = hub.join("fresh");
+    fs::create_dir_all(&fresh).unwrap();
+    git(&fresh, &["init", "-q"]);
+    write(
+        &fresh,
+        "docs/.docmeta.yml",
+        "spec: docsys/0.5\nprofile: project\ndefault_content_language: en\nnamespace: fresh\n",
+    );
+    let b = base(&hub);
+    consume::add(&b, relay.to_str().unwrap(), None).unwrap();
+    consume::add(&b, fresh.to_str().unwrap(), None).unwrap();
+    let said = export::fetch(&b).unwrap();
+    assert!(
+        said.iter()
+            .any(|l| l.starts_with("fresh: nothing committed yet")),
+        "{said:?}"
+    );
+    assert!(b.join(".federation/relay/retry-policy.md").is_file());
+}

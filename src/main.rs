@@ -1550,12 +1550,6 @@ fn main() -> ExitCode {
                 }
             }
         }
-        ("assistant", None) if opts.since.is_some() || opts.limit.is_some() => {
-            eprintln!(
-                "assistant: it lands no commit records (D-133) — `docsys inbox pull <repo> --since <span> --limit <n>` does, on your word"
-            );
-            ExitCode::from(2)
-        }
         ("assistant", None) => {
             match docsys::assistant::run(&opts.root, &opts.projects, &opts.domains) {
                 Ok(done) => {

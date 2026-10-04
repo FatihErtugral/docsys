@@ -444,7 +444,7 @@ fn git_sync(url: &str, cache: &Path) -> Result<(), String> {
 /// repository's default branch (D-133), through a clone beside the git
 /// remotes' — local, so its objects are hard links and its history is whole,
 /// and a page's derived date is the one the provider's own tree derives.
-fn local_sync(repo: &Path, cache: &Path) -> Result<(), String> {
+fn local_sync(repo: &Path, rev: &str, cache: &Path) -> Result<(), String> {
     let run = |args: &[&str], cwd: Option<&Path>| -> Result<(), String> {
         let out = crate::git::foreign(cwd)
             .args(args)
@@ -477,7 +477,7 @@ fn local_sync(repo: &Path, cache: &Path) -> Result<(), String> {
             None,
         )?;
     }
-    let refspec = format!("+{}:refs/docsys/source", crate::git::default_ref(repo));
+    let refspec = format!("+{rev}:refs/docsys/source");
     run(&["fetch", "-q", &from, &refspec], Some(cache))?;
     run(
         &["checkout", "-q", "-f", "--detach", "refs/docsys/source"],
@@ -567,13 +567,20 @@ pub fn fetch(root: &Path) -> Result<Vec<String>, String> {
             };
             match (top(&local), local.canonicalize()) {
                 (Some(repo), Ok(at)) if top(root).as_ref() != Some(&repo) => {
+                    let Some(rev) = crate::git::default_ref(&repo) else {
+                        summary.push(format!(
+                            "{ns}: nothing committed yet in `{}` — its pages are read once its default branch has a commit",
+                            repo.display()
+                        ));
+                        continue;
+                    };
                     let rel = at
                         .strip_prefix(&repo)
                         .unwrap_or(Path::new(""))
                         .to_path_buf();
                     let cache = root.join(".federation").join(".checkouts").join(ns);
                     ignore_checkouts(root)?;
-                    local_sync(&repo, &cache)?;
+                    local_sync(&repo, rev, &cache)?;
                     cache.join(rel)
                 }
                 _ => local,

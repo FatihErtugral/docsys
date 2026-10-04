@@ -53,22 +53,17 @@ pub fn foreign(dir: Option<&Path>) -> Command {
 
 /// The ref a project another tree learns from is read at (D-133): its
 /// default branch as the checkout last fetched it, `origin/HEAD`; without
-/// one, the commit HEAD names. Never the working tree.
-pub fn default_ref(repo: &Path) -> &'static str {
-    let remote = foreign(Some(repo))
-        .args([
-            "rev-parse",
-            "--verify",
-            "-q",
-            "refs/remotes/origin/HEAD^{commit}",
-        ])
-        .output()
-        .is_ok_and(|o| o.status.success());
-    if remote {
-        "refs/remotes/origin/HEAD"
-    } else {
-        "HEAD"
-    }
+/// one, the commit HEAD names. Never the working tree. `None` while the
+/// repository has no commit: it has decided nothing yet.
+pub fn default_ref(repo: &Path) -> Option<&'static str> {
+    ["refs/remotes/origin/HEAD", "HEAD"]
+        .into_iter()
+        .find(|rev| {
+            foreign(Some(repo))
+                .args(["rev-parse", "--verify", "-q", &format!("{rev}^{{commit}}")])
+                .output()
+                .is_ok_and(|o| o.status.success())
+        })
 }
 
 /// The top level of the repository `dir` lives in; `None` outside any

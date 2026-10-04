@@ -159,6 +159,12 @@ pub struct Commit {
 /// first; merges and empty subjects skipped. The branch checked out is a
 /// person's work in progress, not what the project decided (D-133).
 pub fn commits_since(repo: &Path, since: &str) -> Result<Vec<Commit>, String> {
+    let Some(rev) = crate::git::default_ref(repo) else {
+        return Err(format!(
+            "`{}` is not a git repository, or has no commit yet",
+            repo.display()
+        ));
+    };
     let out = crate::git::foreign(Some(repo))
         .args([
             "log",
@@ -166,7 +172,7 @@ pub fn commits_since(repo: &Path, since: &str) -> Result<Vec<Commit>, String> {
             "--name-only",
             &format!("--since={}", since_bound(since)),
             "--format=%x1e%H%x1f%cs%x1f%s%x1f%b%x1f",
-            crate::git::default_ref(repo),
+            rev,
             "--",
         ])
         .output()

@@ -38,7 +38,7 @@ expect_clean $F hub-clean .
 docsys assistant --root "$WORK/hub" --projects "$E" > "$O/assistant2.out" 2>&1 || true
 expect_in $F assistant-idempotent-base "base: kept" "$O/assistant2.out"
 docsys assistant --root "$WORK/hub" --projects "$E" --since 2026-01-01 > "$O/assistant3.out" 2>&1 || true
-expect_in $F assistant-refuses-since "it lands no commit records (D-133)" "$O/assistant3.out"
+expect_in $F assistant-refuses-since "\`--since\` is no flag of assistant" "$O/assistant3.out"
 docsys status --root . > "$O/status.out"
 expect_in $F status-inbox "inbox: 5 note(s)" "$O/status.out"
 expect_in $F status-consumed "consumed: gateway 2 page(s) fetched $TODAY · ledger 2 page(s) fetched $TODAY · relay 2 page(s) fetched $TODAY" "$O/status.out"
