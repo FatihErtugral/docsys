@@ -1,8 +1,8 @@
 docsys upgrade: docsys/0.4 → docsys/0.5 — the plan
 
-Upgrading to docsys 0.16.0:
-- Nothing has to move on the day 0.16.0 is installed: a docsys/0.4 tree keeps
-  its findings, its file formats and its hooks.
+Upgrading to docsys 0.16.1:
+- Nothing has to move on the day this docsys is installed: a docsys/0.4 tree
+  keeps its findings, its file formats and its hooks.
 - Every clone must install docsys >= 0.16.0 before pulling this change; a gate
   under .git/hooks cannot warn an old binary.
 - `docsys upgrade` prints the plan; `docsys upgrade --apply --commit` moves the
@@ -13,13 +13,13 @@ Upgrading to docsys 0.16.0:
   refused there. To have pages checked against their sources and code, a
   person runs `/docsys-crosscheck`; drift between code and a page still
   blocks through its pins (R-111, D-130, D-131).
-- CI stops naming a docsys version or a sha256: `docsys upgrade` replaces
+- CI installs the docsys version the upgrade pins: `docsys upgrade` replaces
   what installs docsys in your workflow — the `env:` lines with the version
-  and the archives' sha256 values, and the install step — with an install
-  that reads `.docsys-version` and checks the archive against the
-  `SHA256SUMS` its release publishes. The plan shows the diff; runners,
-  triggers and every other step stay as you wrote them, and no later upgrade
-  edits CI again.
+  and the archives' sha256 values, and the install step — with a step that
+  holds this version and each archive's sha256, read from the release when
+  the upgrade runs, and that refuses a `.docsys-version` naming another
+  version. The plan shows the diff; runners, triggers and every other step
+  stay as you wrote them, and a later upgrade changes that step alone.
 - A branch opened before the move runs the same `docsys upgrade --apply
   --commit` once before it merges: it converts the branch's own additions the
   same way, and only a topic both sides added to can conflict. Merged without

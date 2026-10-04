@@ -17,28 +17,6 @@ const CASE: &str = "corpus/upgrades/0.4-to-0.5";
 /// The knowledge-base contract as docsys 0.15 wrote it.
 const KB_CONTRACT_0_15: &str = include_str!("golden/kb-contract-0.15.md");
 
-/// The release's upgrade note, read from the CHANGELOG as a person reads it:
-/// the lines under `### Upgrading` in the release's section.
-fn changelog_note(release: &str) -> String {
-    let text =
-        fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("CHANGELOG.md")).unwrap();
-    let section = text
-        .split(&format!("## [{release}]"))
-        .nth(1)
-        .unwrap()
-        .split("\n## ")
-        .next()
-        .unwrap();
-    let note = section
-        .split("### Upgrading")
-        .nth(1)
-        .unwrap()
-        .split_once('\n')
-        .unwrap()
-        .1;
-    note.split("\n### ").next().unwrap().trim().to_string()
-}
-
 fn tmp(name: &str) -> PathBuf {
     let dir = std::env::temp_dir().join(format!("docsys-upgrade-{name}-{}", std::process::id()));
     let _ = fs::remove_dir_all(&dir);
@@ -278,16 +256,14 @@ fn a_0_4_tree_moves_to_the_expected_0_5_tree_and_a_second_run_changes_nothing() 
     );
     // what a person pulling it reads: the release's note byte for byte (D-120)
     let body = git(&repo, &["log", "-1", "--format=%B"]);
-    // the move's own release: the one whose section names it
-    let release = docsys::upgrade::MIGRATIONS
-        .iter()
-        .find(|m| m.to == 5)
-        .map(|m| m.release)
-        .unwrap();
-    let note = changelog_note(release);
+    // the move's note, as this version says it, under this version
+    let note = docsys::upgrade::NOTE.trim();
     assert!(note.contains("before pulling this change"), "{note}");
     assert!(
-        body.contains(&format!("Upgrading to docsys {release}:\n{note}")),
+        body.contains(&format!(
+            "Upgrading to docsys {}:\n{note}",
+            env!("CARGO_PKG_VERSION")
+        )),
         "{body}"
     );
     let moved_at = git(&repo, &["rev-parse", "--short=7", "HEAD"]);
@@ -633,7 +609,7 @@ fn a_tree_two_specs_behind_moves_one_commit_per_spec() {
         Migration {
             from: real.from,
             to: real.to,
-            release: real.release,
+            note: real.note,
             steps: real.steps,
             retired: real.retired,
             apply: real.apply,
@@ -641,7 +617,7 @@ fn a_tree_two_specs_behind_moves_one_commit_per_spec() {
         Migration {
             from: 5,
             to: 6,
-            release: "9.9.9",
+            note: "",
             steps: "spec-line\tauto\ttracked\t-\n",
             retired: "",
             apply: to_0_6,
@@ -663,8 +639,10 @@ fn a_tree_two_specs_behind_moves_one_commit_per_spec() {
         panic!("{messages:?}");
     };
     assert!(
-        first
-            .starts_with("docsys: upgrade the tree to docsys/0.5\n\nUpgrading to docsys 0.16.0:\n"),
+        first.starts_with(&format!(
+            "docsys: upgrade the tree to docsys/0.5\n\nUpgrading to docsys {}:\n",
+            env!("CARGO_PKG_VERSION")
+        )),
         "{first}"
     );
     assert_eq!(
@@ -814,6 +792,52 @@ fn the_per_clone_step_writes_a_missing_gate() {
     let idle = String::from_utf8_lossy(&idle.stdout);
     assert!(!idle.contains("git-gate"), "{idle}");
     assert_eq!(git(&repo, &["status", "--porcelain"]), "");
+    let _ = fs::remove_dir_all(&repo);
+}
+
+/// The note a move prints is the running version's: its heading names this
+/// version, and it names nothing this version no longer does — no release
+/// asset the release workflow does not upload, and no promise the CI install
+/// this version writes breaks (D-120).
+#[test]
+fn the_note_a_move_prints_describes_this_version() {
+    let (repo, _) = build("note-now");
+    let out = docsys(&repo, &["upgrade"]);
+    assert!(out.status.success(), "{out:?}");
+    let said = String::from_utf8_lossy(&out.stdout);
+    let own = env!("CARGO_PKG_VERSION");
+    let head = format!("\nUpgrading to docsys {own}:\n");
+    let note = said
+        .split_once(&head)
+        .and_then(|(_, rest)| rest.split("\n\n").next())
+        .unwrap_or_else(|| panic!("no note for {own}:\n{said}"));
+    let release_yml = include_str!("../.github/workflows/release.yml");
+    for word in note
+        .split(|c: char| c.is_whitespace() || "`,.;:()".contains(c))
+        .filter(|w| w.contains("SHA256SUMS") || w.ends_with(".sha256"))
+    {
+        assert!(
+            release_yml.contains(word),
+            "`{word}` is no asset the release uploads:\n{note}"
+        );
+    }
+    // this version's release install names its version, so each upgrade
+    // that moves the version edits CI: the note promises nothing else
+    let step = docsys::workflow::render(&docsys::workflow::Workflow {
+        version: own.to_string(),
+        branch: "main".to_string(),
+        root: "docs".to_string(),
+        ci: docsys::workflow::Ci {
+            runner: vec!["ubuntu-latest".to_string()],
+            install: docsys::workflow::Install::ReleasePinned(Vec::new()),
+            verify: docsys::workflow::Verify::Off,
+        },
+    });
+    assert!(step.contains(&format!("docsys {own}, the release the tree pins")));
+    assert!(
+        !note.contains("no later upgrade"),
+        "the note promises what this version's install breaks:\n{note}"
+    );
     let _ = fs::remove_dir_all(&repo);
 }
 

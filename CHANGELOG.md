@@ -45,6 +45,10 @@ by the release workflow — the tag's section becomes the GitHub release body.
   owner's before; a relay that differs in its template line alone says so.
   A test holds every text a version writes in the registry of released
   texts, so a release cannot ship without it (D-117).
+- The note a 0.4 tree's move prints describes the version that prints it,
+  under its number: it is data beside the move's steps, where 0.16.0's
+  CHANGELOG entry, kept as history, still promised a SHA256SUMS check and no
+  later edit to CI (D-120).
 
 ## [0.16.0] - 2026-10-04
 

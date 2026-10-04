@@ -22,17 +22,18 @@ pub const STEPS: &str = include_str!("../migrations/0.4-0.5.tsv");
 /// `concept <TAB> literal <TAB> what replaces it`.
 pub const RETIRED: &str = include_str!("../migrations/0.4-0.5-retired.tsv");
 
-/// Where a release's upgrade note lives: its CHANGELOG section's
-/// `### Upgrading` part, embedded so `upgrade` prints the note it ships with.
-const CHANGELOG: &str = include_str!("../CHANGELOG.md");
+/// What a person reads about the move, printed with the plan and carried in
+/// the commit message: data beside the steps, true for the version that
+/// prints it (a release's CHANGELOG `### Upgrading` part records what its
+/// note said then).
+pub const NOTE: &str = include_str!("../migrations/0.4-0.5-note.md");
 
 /// One spec version's move.
 pub struct Migration {
     pub from: u32,
     pub to: u32,
-    /// the release that brings `to`; its CHANGELOG `### Upgrading` part is
-    /// the note
-    pub release: &'static str,
+    /// what a person reads about the move, as this version says it
+    pub note: &'static str,
     /// the steps as data (R-173)
     pub steps: &'static str,
     /// the concepts it retires, as data
@@ -44,7 +45,7 @@ pub struct Migration {
 pub const MIGRATIONS: [Migration; 1] = [Migration {
     from: 4,
     to: 5,
-    release: "0.16.0",
+    note: NOTE,
     steps: STEPS,
     retired: RETIRED,
     apply: move_0_4_to_0_5,
@@ -60,24 +61,6 @@ pub struct Ctx<'a> {
     pub root_rel: String,
     pub prefix: String,
     pub preamble: String,
-}
-
-/// A release's upgrade note: the lines under `### Upgrading` in its
-/// CHANGELOG section, verbatim.
-pub fn note(release: &str) -> Option<String> {
-    let head = format!("## [{release}]");
-    let section = CHANGELOG
-        .lines()
-        .skip_while(|l| !l.starts_with(&head))
-        .skip(1)
-        .take_while(|l| !l.starts_with("## "));
-    let lines: Vec<&str> = section
-        .skip_while(|l| !l.starts_with("### Upgrading"))
-        .skip(1)
-        .take_while(|l| !l.starts_with("### "))
-        .collect();
-    let text = lines.join("\n").trim().to_string();
-    (!text.is_empty()).then_some(text)
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -378,8 +361,11 @@ pub fn run_with(
         (m.apply)(&ctx, &mut u, apply)?;
         spec_line(&ctx, &mut u, apply)?;
         render_preview(&mut u);
-        if let Some(text) = note(m.release) {
-            u.notes.push((m.release.to_string(), text));
+        if !m.note.trim().is_empty() {
+            u.notes.push((
+                crate::dispatch::own().to_string(),
+                m.note.trim().to_string(),
+            ));
         }
     } else {
         common(&ctx, &mut u, apply)?;
@@ -2473,14 +2459,16 @@ mod tests {
         for m in &MIGRATIONS {
             assert!(
                 m.steps.lines().any(|l| l.starts_with("spec-line\t")),
-                "{}",
-                m.release
+                "0.{} → 0.{}",
+                m.from,
+                m.to
             );
             // the plan's header leaves to the note how the move is applied
             assert!(
-                note(m.release).is_some_and(|n| n.contains("`docsys upgrade --apply")),
-                "CHANGELOG [{}] has no Upgrading section naming `docsys upgrade --apply`",
-                m.release
+                m.note.contains("`docsys upgrade --apply"),
+                "the note of 0.{} → 0.{} names no `docsys upgrade --apply`",
+                m.from,
+                m.to
             );
         }
     }
