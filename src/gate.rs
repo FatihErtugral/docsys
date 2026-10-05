@@ -108,8 +108,19 @@ fn run_scoped(
     let mut code = Vec::new();
     let mut docs = 0usize;
     let plan_files: Vec<String> = files.iter().filter(|f| is_plan_file(f)).cloned().collect();
+    // a knowledge base that is its own repository: its layers are the docs,
+    // and what else the repository holds is still code (D-132)
+    let base_at_top = prefix.is_empty()
+        && crate::tree::docmeta_value(root, "profile").as_deref() == Some("knowledge-base");
+    let base_layer = |f: &str| {
+        ["wiki/", "raw/", ".federation/"]
+            .iter()
+            .any(|d| f.starts_with(d))
+            || [".docmeta.yml", ".docsys-version", "AGENTS.md"].contains(&f)
+    };
     for f in &files {
-        let inside = !prefix.is_empty() && (f == &prefix || f.starts_with(&format!("{prefix}/")));
+        let inside = (!prefix.is_empty() && (f == &prefix || f.starts_with(&format!("{prefix}/"))))
+            || (base_at_top && base_layer(f));
         if inside {
             docs += 1;
         } else {

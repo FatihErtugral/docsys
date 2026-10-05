@@ -153,6 +153,16 @@ pub struct Clash {
     pub theirs: Vec<String>,
 }
 
+/// A line as a merge compares it: a numbered item without its number, since
+/// a merged list is renumbered after and a number alone is no change.
+pub fn item_key(l: &str) -> String {
+    let digits = l.chars().take_while(char::is_ascii_digit).count();
+    match l.get(digits..) {
+        Some(rest) if digits > 0 && rest.starts_with(". ") => format!("#{rest}"),
+        _ => l.to_string(),
+    }
+}
+
 /// Three texts merged by their lines: what changed from `base` to `theirs`
 /// (a template between two versions) applied to `ours` (the owner's file).
 /// Where both changed the same lines, `ours` stays and the template's
@@ -161,15 +171,7 @@ pub fn merge3(base: &str, ours: &str, theirs: &str) -> (String, Vec<Clash>) {
     let b: Vec<&str> = base.lines().collect();
     let o: Vec<&str> = ours.lines().collect();
     let t: Vec<&str> = theirs.lines().collect();
-    // a numbered item is compared without its number: a merged list is
-    // renumbered after, so a number alone is no change to place
-    let key = |l: &str| {
-        let digits = l.chars().take_while(char::is_ascii_digit).count();
-        match l.get(digits..) {
-            Some(rest) if digits > 0 && rest.starts_with(". ") => format!("#{rest}"),
-            _ => l.to_string(),
-        }
-    };
+    let key = item_key;
     let (kb, ko, kt): (Vec<String>, Vec<String>, Vec<String>) = (
         b.iter().map(|l| key(l)).collect(),
         o.iter().map(|l| key(l)).collect(),

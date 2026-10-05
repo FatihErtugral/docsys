@@ -1831,9 +1831,15 @@ pub fn merged(asset: &str, owner: &str, want: &str) -> Option<Merged> {
     if earlier.is_empty() {
         return None;
     }
-    let now: std::collections::HashSet<&str> = want.lines().collect();
-    let before: std::collections::HashSet<&str> = earlier.iter().flat_map(|t| t.lines()).collect();
-    let is_retired = |l: &str| !l.trim().is_empty() && before.contains(l) && !now.contains(l);
+    // a numbered item is the same line under another number (D-134)
+    let key = crate::diff::item_key;
+    let now: std::collections::HashSet<String> = want.lines().map(key).collect();
+    let before: std::collections::HashSet<String> =
+        earlier.iter().flat_map(|t| t.lines()).map(key).collect();
+    let is_retired = |l: &str| {
+        let k = key(l);
+        !l.trim().is_empty() && before.contains(&k) && !now.contains(&k)
+    };
     let retired_in = |text: &str| {
         let lines: Vec<&str> = text.lines().collect();
         let mut runs: Vec<Vec<String>> = Vec::new();

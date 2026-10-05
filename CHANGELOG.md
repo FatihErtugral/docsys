@@ -58,6 +58,10 @@ by the release workflow — the tag's section becomes the GitHub release body.
   wrote and this version no longer does, the leftover check keeps naming it
   for a person, after the diff is applied too; a merged numbered list counts
   on (D-134).
+- In a knowledge base that is its own repository, a commit that staged only
+  a wiki page, a raw record or `.docmeta.yml` was held as "changes with no
+  docs change"; the base's own layers are its docs, and code staged beside
+  them is still asked about.
 - `page new <type> <id>` in a knowledge base wrote `<type>/<id>.md` at the
   base's top. It takes `--domain <d>` and writes `wiki/<d>/<type>/<id>.md`;
   a missing or undeclared domain is refused in one line that says how a

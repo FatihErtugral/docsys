@@ -496,3 +496,40 @@ fn a_new_page_in_a_knowledge_base_lands_in_its_domain() {
     assert!(!base.join("howto").exists());
     assert!(!base.join("wiki/family").exists());
 }
+
+/// A knowledge base that is its own repository (`--root .`): a commit that
+/// stages only its own layers — a wiki page, a raw record, `.docmeta.yml` —
+/// is a docs change, and the gate does not ask; code staged in the same
+/// repository is still asked about.
+#[test]
+fn a_base_at_its_repositorys_root_commits_its_own_layers_without_a_question() {
+    let base = tmp("root-gate");
+    git(&base, &["init", "-q"]);
+    git(&base, &["config", "user.email", "t@example.invalid"]);
+    git(&base, &["config", "user.name", "t"]);
+    git(&base, &["config", "commit.gpgsign", "false"]);
+    docsys::migrate::init_profile(&base, "en", "knowledge-base").unwrap();
+    git(&base, &["add", "-A"]);
+    git(&base, &["commit", "-qm", "base"]);
+    fs::create_dir_all(base.join("wiki/ops/reference")).unwrap();
+    fs::write(
+        base.join("wiki/ops/reference/backups.md"),
+        "---\nid: backups\ntype: reference\ndomain: ops\nsources: []\n---\n# Backups\n",
+    )
+    .unwrap();
+    fs::write(base.join("raw/inbox/2026-10-05-note.md"), "A note.\n").unwrap();
+    let dm = base.join(".docmeta.yml");
+    let text = fs::read_to_string(&dm)
+        .unwrap()
+        .replace("domains: []", "domains: [ops]");
+    fs::write(&dm, text).unwrap();
+    git(&base, &["add", "wiki", "raw", ".docmeta.yml"]);
+    let (g, _) = docsys::gate::run(&base, &base).unwrap();
+    assert!(g.code.is_empty(), "{:?}", g.code);
+    assert_eq!(g.docs, 3);
+    fs::create_dir_all(base.join("scripts")).unwrap();
+    fs::write(base.join("scripts/sync.py"), "print(1)\n").unwrap();
+    git(&base, &["add", "scripts/sync.py"]);
+    let (g, _) = docsys::gate::run(&base, &base).unwrap();
+    assert_eq!(g.code, vec!["scripts/sync.py".to_string()]);
+}

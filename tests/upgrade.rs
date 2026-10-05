@@ -1194,6 +1194,24 @@ fn what_the_merge_could_not_place_stays_named_until_it_is_resolved() {
     let _ = fs::remove_dir_all(&kb);
 }
 
+/// A numbered item is the same line under another number: the leftover
+/// check never names it as what an earlier docsys wrote (D-134).
+#[test]
+fn a_renumbered_step_is_no_stale_line() {
+    let want = docsys::agents::owned_assets(true)
+        .into_iter()
+        .find(|(a, _, _)| *a == "skills/kb-ingest/SKILL.md")
+        .unwrap()
+        .1;
+    // the owner dropped the step a job done once; the steps after it count on
+    // under smaller numbers
+    let from = want.find("2. **A job done once?**").unwrap();
+    let to = want.find("3. **Pick the type**").unwrap();
+    let owner = format!("{}{}\nOur own closing line.\n", &want[..from], &want[to..]);
+    let m = docsys::agents::merged("skills/kb-ingest/SKILL.md", &owner, want).unwrap();
+    assert!(m.retired.is_empty(), "{:?}", m.retired);
+}
+
 /// A clone whose git runs no hooks (`core.hooksPath` is `/dev/null`) gets no
 /// gate, and that is said once: the rest of the upgrade applies (D-117).
 #[test]
