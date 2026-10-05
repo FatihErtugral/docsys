@@ -49,6 +49,12 @@ by the release workflow — the tag's section becomes the GitHub release body.
   them and its fetch date.
 - `assistant` told a docsys/0.5 base to "audit the wiki"; it names
   `/docsys-crosscheck` there.
+- The upgrade's diff for a knowledge base's skill or contract its owner edited
+  replaced the owner's text with the template's — a filled Character came back
+  as `(unset …)` placeholders, an added passage was removed. The diff is now a
+  three-way merge: only what the template changed is in it, every line the
+  owner wrote stays, and a template change on the owner's own lines is shown
+  apart and not applied (D-134).
 - `page new <type> <id>` in a knowledge base wrote `<type>/<id>.md` at the
   base's top. It takes `--domain <d>` and writes `wiki/<d>/<type>/<id>.md`;
   a missing or undeclared domain is refused in one line that says how a

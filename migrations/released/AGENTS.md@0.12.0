@@ -1,0 +1,41 @@
+# Knowledge base — the contract
+
+A personal knowledge base: plain markdown and git, no database, no lock-in.
+`docsys` enforces the mechanics; this file carries what only people decide.
+
+## Layers
+
+- `raw/` — the record. `raw/inbox/` is where notes land; `raw/<domain>/` is
+  where processed sources are archived. **Content-immutable**: bytes are never
+  edited and nothing is deleted; relocation is the expected flow.
+- `wiki/` — distilled knowledge, `wiki/<domain>/<type>/`. The single source of
+  truth. Only ingest writes here.
+
+## The loop
+
+capture → `raw/inbox/` · ingest → a wiki page + archived source · audit →
+`verified` with a record · lookup → an answer with its source.
+
+Rules that are not mechanical:
+- Nothing is verified by the session that wrote it.
+- A changed page is `unverified` again.
+- A note that fits no domain stays in the inbox; a domain is proposed in
+  `wiki/open-questions.md` and earns its place only after several notes.
+- Never invent. "Not in the base" is a complete answer.
+
+## Hooks
+
+`docsys agents --kb` wires four relays into `.claude/settings.json`: the
+first message of a session gets the organ routing; a `Write`/`Edit` on an
+existing `raw/` record is blocked (R-023) — new knowledge is a new file in
+`raw/inbox/`, relocation is `git mv`; an edited wiki page gets its
+`updated:` bumped; `git commit` runs the gate; the end of a turn names what
+waits in the inbox. Everything warns and nothing blocks, except the two
+guards on the irreversible: the record and the commit.
+
+## Gate
+
+`docsys lint --root .` — before any commit, after any change. Inside the
+repository it also checks that a `verified` page still holds the body that
+was verified (R-024): a changed body is an error until the page is
+`unverified` again.

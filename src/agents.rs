@@ -1739,6 +1739,103 @@ fn relay_norm(text: &str) -> String {
     out
 }
 
+/// The knowledge base's texts earlier releases wrote, as data: what a
+/// three-way merge reads an owner's file against (D-134). Each one's sha256
+/// is its row in `assets-released.tsv`, and a test holds them together.
+pub const EARLIER_KB_TEXTS: [(&str, &str, &str); 12] = [
+    (
+        "AGENTS.md",
+        "0.4.0",
+        include_str!("../migrations/released/AGENTS.md@0.4.0"),
+    ),
+    (
+        "AGENTS.md",
+        "0.12.0",
+        include_str!("../migrations/released/AGENTS.md@0.12.0"),
+    ),
+    (
+        "AGENTS.md",
+        "0.14.0",
+        include_str!("../migrations/released/AGENTS.md@0.14.0"),
+    ),
+    (
+        "AGENTS.md",
+        "0.15.0",
+        include_str!("../migrations/released/AGENTS.md@0.15.0"),
+    ),
+    (
+        "AGENTS.md",
+        "0.16.0",
+        include_str!("../migrations/released/AGENTS.md@0.16.0"),
+    ),
+    (
+        "skills/kb-capture/SKILL.md",
+        "0.4.0",
+        include_str!("../migrations/released/skills__kb-capture__SKILL.md@0.4.0"),
+    ),
+    (
+        "skills/kb-ingest/SKILL.md",
+        "0.4.0",
+        include_str!("../migrations/released/skills__kb-ingest__SKILL.md@0.4.0"),
+    ),
+    (
+        "skills/kb-ingest/SKILL.md",
+        "0.15.0",
+        include_str!("../migrations/released/skills__kb-ingest__SKILL.md@0.15.0"),
+    ),
+    (
+        "skills/kb-ingest/SKILL.md",
+        "0.16.0",
+        include_str!("../migrations/released/skills__kb-ingest__SKILL.md@0.16.0"),
+    ),
+    (
+        "skills/kb-lookup/SKILL.md",
+        "0.4.0",
+        include_str!("../migrations/released/skills__kb-lookup__SKILL.md@0.4.0"),
+    ),
+    (
+        "skills/kb-lookup/SKILL.md",
+        "0.12.0",
+        include_str!("../migrations/released/skills__kb-lookup__SKILL.md@0.12.0"),
+    ),
+    (
+        "skills/kb-lookup/SKILL.md",
+        "0.16.0",
+        include_str!("../migrations/released/skills__kb-lookup__SKILL.md@0.16.0"),
+    ),
+];
+
+/// An owner-edited knowledge-base asset brought to this version's text by a
+/// three-way merge (D-134): the base is the released text the owner's file
+/// keeps the most lines of — an earlier one, or this version's own — so the
+/// merge carries only what the template changed since, and every line the
+/// owner wrote stays. `None` for an asset with no earlier text.
+pub fn merged(asset: &str, owner: &str, want: &str) -> Option<(String, Vec<crate::diff::Clash>)> {
+    let lines = |t: &str| t.lines().map(str::to_string).collect::<Vec<_>>();
+    let mine = lines(owner);
+    let shared = |base: &str| {
+        crate::diff::edits(&lines(base), &mine)
+            .iter()
+            .filter(|e| matches!(e, crate::diff::Edit::Keep(..)))
+            .count()
+    };
+    let base = EARLIER_KB_TEXTS
+        .iter()
+        .filter(|(a, _, _)| *a == asset)
+        .map(|(_, _, text)| *text)
+        .chain(std::iter::once(want))
+        .fold(None::<(usize, &str)>, |best, text| {
+            let n = shared(text);
+            match best {
+                Some((m, _)) if m > n => best,
+                _ => Some((n, text)),
+            }
+        })
+        .filter(|_| EARLIER_KB_TEXTS.iter().any(|(a, _, _)| *a == asset))?
+        .1;
+    Some(crate::diff::merge3(base, owner, want))
+}
+
 /// The texts docsys releases wrote for the assets it owns, as data (R-173):
 /// `asset <TAB> sha256 <TAB> release`.
 const RELEASED: &str = include_str!("../migrations/assets-released.tsv");

@@ -1,0 +1,40 @@
+---
+name: kb-ingest
+description: Process the knowledge-base inbox — "process my inbox", "empty the inbox", "file these notes". Distils raw notes into wiki pages, archives the source, runs the gate.
+---
+
+# kb-ingest — raw becomes knowledge
+
+Distillation, not movement (R-092): the raw note is evidence and stays; the
+wiki page is authored. Full discipline is applied HERE, so capture can stay
+free.
+
+For each file in `raw/inbox/`:
+
+1. **Classify the domain** against `domains:` in `.docmeta.yml`. Fits none?
+   Leave the note in the inbox and record the proposal as an open question
+   (`docsys question add`) — never force a note into the nearest domain, and
+   never invent a domain for a single note. A note that holds nothing to
+   keep (noise) stays too, with one open question naming it, so the inbox
+   never grows in silence; deleting is never yours. The question is written
+   in the base's language.
+2. **Pick the type** — `reference` (facts, values), `howto` (steps),
+   `explanation` (why), `tutorial` (guided first run). Never mix types on one
+   page (R-031); if a page starts holding steps AND concepts, split it.
+3. **Author or update** `wiki/<domain>/<type>/<slug>.md` with frontmatter:
+   `id` (stable, kebab-case, never renamed), `type`, `domain`,
+   `sources: [raw/…]`. A claim that
+   rests on a consumed project's own page cites it as `@namespace/id`
+   (materialized under `.federation/`; AGENTS.md → Sources beyond the inbox);
+   a claim that rests on a connector record cites the record's path like any
+   note.
+4. Open with one or two sentences that stand alone (R-032): a reader arrives
+   here from a search, not from the top of a chain.
+5. **Route it**: add the page to `wiki/<domain>/index.md`, and the domain to
+   `wiki/index.md` if new (R-035 grammar).
+6. **Archive the source**: `docsys raw move raw/inbox/<note> <domain>
+   --root <base>` — the note lands in `raw/<domain>/` with the same filename
+   and the same bytes (R-023), and every `sources:` entry that pointed at the
+   old path is rewritten by the tool (R-027). Never `git mv` and edit
+   `sources:` by hand: the hand edit is where evidence trails were severed.
+7. Gate: `docsys lint --root <base>` — finish clean or report what blocks.

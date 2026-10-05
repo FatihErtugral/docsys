@@ -692,6 +692,60 @@ fn pin_step(ctx: &Ctx, u: &mut Upgrade, pin: Option<&str>, apply: bool) -> Resul
 /// A file holding exactly the text this version writes is docsys's own: when
 /// nobody committed it yet — `docsys agents` wrote it before the upgrade — the
 /// upgrade commit carries it.
+/// An owner-edited asset's rows. A knowledge-base asset whose earlier texts
+/// docsys holds gets a three-way merge (D-134): the diff carries only what the
+/// template changed, every line its owner wrote stays, and a template change
+/// on lines the owner changed too is shown apart, never applied; with nothing
+/// left to bring, no row. Any other asset gets the diff to this version's text.
+fn owner_edited(
+    u: &mut Upgrade,
+    step: &'static str,
+    asset: &str,
+    file: &str,
+    text: &str,
+    want: &str,
+    whole: &str,
+) {
+    let Some((merged, clashes)) = crate::agents::merged(asset, text, want) else {
+        u.item("manual", step, file, whole.to_string());
+        u.diffs.push((
+            file.to_string(),
+            crate::diff::unified(text, want, file, file, 3),
+        ));
+        return;
+    };
+    if merged == text && clashes.is_empty() {
+        return;
+    }
+    let mut what = "edited by its owner — the diff below brings this version's template changes and keeps every line its owner wrote".to_string();
+    if !clashes.is_empty() {
+        what.push_str(&format!(
+            "; {} template change(s) touch lines its owner changed — shown apart, not applied",
+            clashes.len()
+        ));
+    }
+    u.item("manual", step, file, what);
+    if merged != text {
+        u.diffs.push((
+            file.to_string(),
+            crate::diff::unified(text, &merged, file, file, 3),
+        ));
+    }
+    for c in clashes {
+        let block = |lines: &[String]| lines.iter().map(|l| format!("{l}\n")).collect::<String>();
+        u.diffs.push((
+            format!("{file} — a template change on lines its owner changed, not applied"),
+            crate::diff::unified(
+                &block(&c.ours),
+                &block(&c.theirs),
+                "the owner's lines",
+                "this version's template",
+                0,
+            ),
+        ));
+    }
+}
+
 fn carry_untracked(repo: &Path, u: &mut Upgrade, step: &'static str, file: &str) {
     if git_out(repo, &["ls-files", "--error-unmatch", "--", file]).is_some() {
         return;
@@ -1225,16 +1279,15 @@ fn common(ctx: &Ctx, u: &mut Upgrade, apply: bool) -> Result<(), String> {
             }
             u.written.push(file);
         } else {
-            u.item(
-                "manual",
+            owner_edited(
+                u,
                 "assets",
+                asset,
                 &file,
-                "edited by its owner — the diff to this version's text is below".to_string(),
+                &text,
+                &want,
+                "edited by its owner — the diff to this version's text is below",
             );
-            u.diffs.push((
-                file.clone(),
-                crate::diff::unified(&text, &want, &file, &file, 3),
-            ));
         }
     }
     // kb-contract: the knowledge base's contract, while it is a text a release wrote
@@ -1257,17 +1310,15 @@ fn common(ctx: &Ctx, u: &mut Upgrade, apply: bool) -> Result<(), String> {
                 }
                 u.written.push(file);
             } else {
-                u.item(
-                    "manual",
+                owner_edited(
+                    u,
                     "kb-contract",
+                    "AGENTS.md",
                     &file,
-                    "the contract is its owner's — the diff to this version's text is below"
-                        .to_string(),
+                    &text,
+                    &want,
+                    "the contract is its owner's — the diff to this version's text is below",
                 );
-                u.diffs.push((
-                    file.clone(),
-                    crate::diff::unified(&text, &want, &file, &file, 3),
-                ));
             }
         }
     }

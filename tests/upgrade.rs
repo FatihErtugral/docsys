@@ -994,6 +994,128 @@ fn a_knowledge_base_moves_with_every_record_byte_held() {
     let _ = fs::remove_dir_all(&kb);
 }
 
+/// The earlier knowledge-base texts a three-way merge reads are the texts
+/// those releases wrote: each hashes to its row in `assets-released.tsv`, and
+/// every earlier row of these assets has its text (D-134).
+#[test]
+fn the_earlier_knowledge_base_texts_are_the_released_ones() {
+    use docsys::agents::{released, EARLIER_KB_TEXTS};
+    for (asset, version, text) in EARLIER_KB_TEXTS {
+        assert_eq!(
+            released(asset, text, ""),
+            Some(version),
+            "{asset} {version}"
+        );
+    }
+    let rows = include_str!("../migrations/assets-released.tsv");
+    let own = env!("CARGO_PKG_VERSION");
+    for line in rows.lines().filter(|l| !l.starts_with('#')) {
+        let mut cells = line.split('\t');
+        let (Some(asset), Some(_), Some(version)) = (cells.next(), cells.next(), cells.next())
+        else {
+            continue;
+        };
+        let held = EARLIER_KB_TEXTS.iter().any(|(a, _, _)| *a == asset);
+        if held && version != own {
+            assert!(
+                EARLIER_KB_TEXTS
+                    .iter()
+                    .any(|(a, v, _)| *a == asset && *v == version),
+                "{asset} {version} has no earlier text"
+            );
+        }
+    }
+}
+
+/// An owner's knowledge-base files keep every line their owner wrote
+/// through the move: each diff the plan shows, applied whole, brings this
+/// version's template changes and drops none of them — a filled Character, a
+/// section of the owner's own, a passage added to a skill (D-134).
+#[test]
+fn an_owners_knowledge_base_files_keep_every_line_through_the_move() {
+    let kb = tmp("kb-owner-lines");
+    git(&kb, &["init", "-q", "-b", "main"]);
+    git(&kb, &["config", "user.email", "t@example.invalid"]);
+    git(&kb, &["config", "user.name", "t"]);
+    let out = docsys(&kb, &["init", "--profile", "knowledge-base", "--root", "."]);
+    assert!(out.status.success(), "{out:?}");
+    let dm = kb.join(".docmeta.yml");
+    let text = fs::read_to_string(&dm).unwrap().replace(
+        &format!("spec: docsys/{}", docsys::rules::spec_version()),
+        "spec: docsys/0.4",
+    );
+    fs::write(&dm, text).unwrap();
+    fs::remove_file(kb.join(".docsys-version")).unwrap();
+    let out = docsys(&kb, &["agents", "--kb", "--root", "."]);
+    assert!(out.status.success(), "{out:?}");
+    let earlier = |asset: &str| {
+        docsys::agents::EARLIER_KB_TEXTS
+            .iter()
+            .find(|(a, v, _)| *a == asset && *v == "0.15.0")
+            .unwrap()
+            .2
+    };
+    let character = "- Name: Ada\n- Address: by first name, informal\n- Tone: plain and brief\n\
+                     - Languages: the person's language in conversation; pages in English\n\
+                     - Never: push without asking\n";
+    let house = "## Our house rules\n\nCommit after every ingest, staged by path.\n\n";
+    let contract = earlier("AGENTS.md");
+    let start = contract.find("<!-- character: unset").unwrap();
+    let end = start + contract[start..].find("\n## The loop").unwrap();
+    let gate = contract.find("## Gate").unwrap();
+    let owned = format!(
+        "{}{character}{}{house}{}",
+        &contract[..start],
+        &contract[end..gate],
+        &contract[gate..]
+    );
+    fs::write(kb.join("AGENTS.md"), &owned).unwrap();
+    let passage =
+        "What to keep: only what a later session needs; a page holds the rule, not its story.\n";
+    let ingest = earlier("skills/kb-ingest/SKILL.md");
+    let at = ingest.find("For each file in").unwrap();
+    let skill = format!("{}{passage}\n{}", &ingest[..at], &ingest[at..]);
+    let skill_path = kb.join(".claude/skills/kb-ingest/SKILL.md");
+    fs::write(&skill_path, &skill).unwrap();
+    commit_quietly(&kb, "the base as its owner keeps it");
+    let u = docsys::upgrade::run(&kb, &kb, &kb.join(".claude"), false).unwrap();
+    for (file, text, owners) in [
+        ("AGENTS.md", owned.as_str(), format!("{character}{house}")),
+        (
+            ".claude/skills/kb-ingest/SKILL.md",
+            skill.as_str(),
+            passage.to_string(),
+        ),
+    ] {
+        let row = u.items.iter().find(|i| i.file == file).expect(file);
+        assert_eq!(row.strategy, "manual", "{row:?}");
+        let diff = u
+            .diffs
+            .iter()
+            .find(|(f, _)| f == file)
+            .map(|(_, d)| d.clone())
+            .expect(file);
+        let scratch = kb.join(".git/owner-check");
+        fs::write(&scratch, text).unwrap();
+        let patch_file = kb.join(".git/owner-check.diff");
+        fs::write(&patch_file, &diff).unwrap();
+        let applied = Command::new("patch")
+            .args(["-s", "-o"])
+            .arg(kb.join(".git/owner-check.out"))
+            .arg(&scratch)
+            .arg(&patch_file)
+            .output()
+            .unwrap();
+        assert!(applied.status.success(), "{applied:?}\n{diff}");
+        let after = fs::read_to_string(kb.join(".git/owner-check.out")).unwrap();
+        for line in owners.lines().filter(|l| !l.trim().is_empty()) {
+            assert!(after.contains(line), "{file} lost `{line}`:\n{diff}");
+        }
+        assert_ne!(after, text, "{file}: the template's changes came in");
+    }
+    let _ = fs::remove_dir_all(&kb);
+}
+
 /// A clone whose git runs no hooks (`core.hooksPath` is `/dev/null`) gets no
 /// gate, and that is said once: the rest of the upgrade applies (D-117).
 #[test]

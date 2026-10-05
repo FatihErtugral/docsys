@@ -1,0 +1,36 @@
+---
+name: kb-ingest
+description: Process the knowledge-base inbox — "process my inbox", "empty the inbox", "file these notes". Distils raw notes into wiki pages, archives the source, runs the gate.
+---
+
+# kb-ingest — raw becomes knowledge
+
+Distillation, not movement (R-092): the raw note is evidence and stays; the
+wiki page is authored. Full discipline is applied HERE, so capture can stay
+free.
+
+For each file in `raw/inbox/`:
+
+1. **Classify the domain** against `domains:` in `.docmeta.yml`. Fits none?
+   Leave the note in the inbox and record the proposal in
+   `wiki/open-questions.md` — never force a note into the nearest domain, and
+   never invent a domain for a single note.
+2. **Pick the type** — `reference` (facts, values), `howto` (steps),
+   `explanation` (why), `tutorial` (guided first run). Never mix types on one
+   page (R-031); if a page starts holding steps AND concepts, split it.
+3. **Author or update** `wiki/<domain>/<type>/<slug>.md` with frontmatter:
+   `id` (stable, kebab-case, never renamed), `type`, `domain`,
+   `verification: unverified`, `updated`, `sources: [raw/…]`. A page that
+   changes drops back to `unverified` — a verification describes content that
+   no longer exists otherwise.
+4. Open with one or two sentences that stand alone (R-032): a reader arrives
+   here from a search, not from the top of a chain.
+5. **Route it**: add the page to `wiki/<domain>/index.md`, and the domain to
+   `wiki/index.md` if new (R-035 grammar).
+6. **Archive the source**: move the note from `raw/inbox/` to
+   `raw/<domain>/` — same filename, bytes untouched (R-023), and every
+   `sources:` entry that pointed at the old path is rewritten (R-027).
+7. Gate: `docsys lint --root <base>` — finish clean or report what blocks.
+
+Never verify your own work (R-025) — that is kb-audit's job, in another
+session.

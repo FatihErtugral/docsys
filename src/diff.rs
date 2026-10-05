@@ -145,6 +145,69 @@ pub fn unified(old: &str, new: &str, old_name: &str, new_name: &str, context: us
     out
 }
 
+/// A template change that touches lines its owner changed too: the owner's
+/// lines, which the merge keeps, and the template's, which it does not apply.
+#[derive(Debug, PartialEq, Eq)]
+pub struct Clash {
+    pub ours: Vec<String>,
+    pub theirs: Vec<String>,
+}
+
+/// Three texts merged by their lines: what changed from `base` to `theirs`
+/// (a template between two versions) applied to `ours` (the owner's file).
+/// Where both changed the same lines, `ours` stays and the template's
+/// change is returned apart — nothing the owner wrote is dropped.
+pub fn merge3(base: &str, ours: &str, theirs: &str) -> (String, Vec<Clash>) {
+    let b: Vec<&str> = base.lines().collect();
+    let o: Vec<&str> = ours.lines().collect();
+    let t: Vec<&str> = theirs.lines().collect();
+    let kept = |other: &[&str]| {
+        let mut at = vec![None; b.len()];
+        for e in edits(&b, other) {
+            if let Edit::Keep(i, j) = e {
+                if let Some(slot) = at.get_mut(i) {
+                    *slot = Some(j);
+                }
+            }
+        }
+        at
+    };
+    let (in_o, in_t) = (kept(&o), kept(&t));
+    let mut stable: Vec<(usize, usize, usize)> = (0..b.len())
+        .filter_map(|i| Some((i, (*in_o.get(i)?)?, (*in_t.get(i)?)?)))
+        .collect();
+    stable.push((b.len(), o.len(), t.len()));
+    fn chunk<'a>(v: &[&'a str], from: usize, to: usize) -> Vec<&'a str> {
+        v.get(from..to).unwrap_or(&[]).to_vec()
+    }
+    let mut out: Vec<&str> = Vec::new();
+    let mut clashes = Vec::new();
+    let (mut bi, mut oi, mut ti) = (0, 0, 0);
+    for (bs, os, ts) in stable {
+        let (cb, co, ct) = (chunk(&b, bi, bs), chunk(&o, oi, os), chunk(&t, ti, ts));
+        if co == cb {
+            out.extend(ct);
+        } else if ct == cb || co == ct {
+            out.extend(co);
+        } else {
+            clashes.push(Clash {
+                ours: co.iter().map(|l| l.to_string()).collect(),
+                theirs: ct.iter().map(|l| l.to_string()).collect(),
+            });
+            out.extend(co);
+        }
+        if let Some(line) = b.get(bs) {
+            out.push(line);
+        }
+        (bi, oi, ti) = (bs + 1, os + 1, ts + 1);
+    }
+    let mut text = out.join("\n");
+    if !text.is_empty() && (ours.ends_with('\n') || ours.is_empty()) {
+        text.push('\n');
+    }
+    (text, clashes)
+}
+
 #[cfg(test)]
 #[allow(
     clippy::unwrap_used,
@@ -266,5 +329,32 @@ mod tests {
         let d = unified(&old, &near, "a", "b", 2);
         assert_eq!(d.matches("@@ ").count(), 1, "{d}");
         assert!(d.contains("@@ -3,9 +3,9 @@\n"), "{d}");
+    }
+
+    #[test]
+    fn a_three_way_merge_keeps_the_owners_lines_and_applies_the_template() {
+        let base = "# T\nname: (unset)\n## Rules\nrule one\nrule two\nend\n";
+        let ours = "# T\nname: Ada\n## Rules\nrule one\nrule two\nmy own line\nend\n";
+        let theirs = "# T\nname: (unset)\n## Rules\nrule one, sharper\nrule two\nend\n";
+        let (text, clashes) = super::merge3(base, ours, theirs);
+        assert_eq!(
+            text,
+            "# T\nname: Ada\n## Rules\nrule one, sharper\nrule two\nmy own line\nend\n"
+        );
+        assert!(clashes.is_empty(), "{clashes:?}");
+        // both changed the same line: the owner's stays, the template's is apart
+        let ours = "# T\nname: (unset)\n## Rules\nrule one, mine\nrule two\nend\n";
+        let (text, clashes) = super::merge3(base, ours, theirs);
+        assert_eq!(
+            text,
+            "# T\nname: (unset)\n## Rules\nrule one, mine\nrule two\nend\n"
+        );
+        assert_eq!(
+            clashes,
+            vec![super::Clash {
+                ours: vec!["rule one, mine".to_string()],
+                theirs: vec!["rule one, sharper".to_string()],
+            }]
+        );
     }
 }
