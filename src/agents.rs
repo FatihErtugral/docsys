@@ -1805,12 +1805,54 @@ pub const EARLIER_KB_TEXTS: [(&str, &str, &str); 12] = [
     ),
 ];
 
+/// An owner-edited knowledge-base asset, merged with this version's text.
+pub struct Merged {
+    /// the owner's file with this version's template changes in it
+    pub text: String,
+    /// template changes on lines the owner changed too, not applied
+    pub clashes: Vec<crate::diff::Clash>,
+    /// runs of the owner's lines an earlier release wrote and this version
+    /// no longer has: what is still to resolve with the person
+    pub retired: Vec<Vec<String>>,
+}
+
 /// An owner-edited knowledge-base asset brought to this version's text by a
-/// three-way merge (D-134): the base is the released text the owner's file
-/// keeps the most lines of — an earlier one, or this version's own — so the
-/// merge carries only what the template changed since, and every line the
-/// owner wrote stays. `None` for an asset with no earlier text.
-pub fn merged(asset: &str, owner: &str, want: &str) -> Option<(String, Vec<crate::diff::Clash>)> {
+/// three-way merge (D-134). The base is the released text the owner's file
+/// keeps the most lines of; while the file still holds a line an earlier
+/// release wrote and this version no longer has, only the earlier texts are
+/// candidates, so what the merge could not place stays named until it is
+/// resolved. `None` for an asset with no earlier text.
+pub fn merged(asset: &str, owner: &str, want: &str) -> Option<Merged> {
+    let earlier: Vec<&str> = EARLIER_KB_TEXTS
+        .iter()
+        .filter(|(a, _, _)| *a == asset)
+        .map(|(_, _, text)| *text)
+        .collect();
+    if earlier.is_empty() {
+        return None;
+    }
+    let now: std::collections::HashSet<&str> = want.lines().collect();
+    let before: std::collections::HashSet<&str> = earlier.iter().flat_map(|t| t.lines()).collect();
+    let is_retired = |l: &str| !l.trim().is_empty() && before.contains(l) && !now.contains(l);
+    let retired_in = |text: &str| {
+        let lines: Vec<&str> = text.lines().collect();
+        let mut runs: Vec<Vec<String>> = Vec::new();
+        let mut run: Vec<String> = Vec::new();
+        for (k, l) in lines.iter().enumerate() {
+            let blank_inside = l.trim().is_empty()
+                && !run.is_empty()
+                && lines.get(k + 1).is_some_and(|n| is_retired(n));
+            if is_retired(l) || blank_inside {
+                run.push(l.to_string());
+            } else if !run.is_empty() {
+                runs.push(std::mem::take(&mut run));
+            }
+        }
+        if !run.is_empty() {
+            runs.push(run);
+        }
+        runs
+    };
     let lines = |t: &str| t.lines().map(str::to_string).collect::<Vec<_>>();
     let mine = lines(owner);
     let shared = |base: &str| {
@@ -1819,21 +1861,27 @@ pub fn merged(asset: &str, owner: &str, want: &str) -> Option<(String, Vec<crate
             .filter(|e| matches!(e, crate::diff::Edit::Keep(..)))
             .count()
     };
-    let base = EARLIER_KB_TEXTS
+    let current = retired_in(owner).is_empty().then_some(want);
+    let base = earlier
         .iter()
-        .filter(|(a, _, _)| *a == asset)
-        .map(|(_, _, text)| *text)
-        .chain(std::iter::once(want))
+        .copied()
+        .chain(current)
         .fold(None::<(usize, &str)>, |best, text| {
             let n = shared(text);
             match best {
                 Some((m, _)) if m > n => best,
                 _ => Some((n, text)),
             }
-        })
-        .filter(|_| EARLIER_KB_TEXTS.iter().any(|(a, _, _)| *a == asset))?
+        })?
         .1;
-    Some(crate::diff::merge3(base, owner, want))
+    let (text, clashes) = crate::diff::merge3(base, owner, want);
+    let text = crate::diff::renumbered(&text);
+    let retired = retired_in(&text);
+    Some(Merged {
+        text,
+        clashes,
+        retired,
+    })
 }
 
 /// The texts docsys releases wrote for the assets it owns, as data (R-173):

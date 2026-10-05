@@ -1116,6 +1116,84 @@ fn an_owners_knowledge_base_files_keep_every_line_through_the_move() {
     let _ = fs::remove_dir_all(&kb);
 }
 
+/// What the merge could not place stays named after its diff is applied:
+/// while an owner-edited skill still says what an earlier docsys wrote and
+/// this version no longer does, the leftover check keeps a row for a person;
+/// a merged numbered list counts on; once the owner's words sit in this
+/// version's instructions, the row is gone (D-134).
+#[test]
+fn what_the_merge_could_not_place_stays_named_until_it_is_resolved() {
+    let kb = tmp("kb-pending");
+    git(&kb, &["init", "-q", "-b", "main"]);
+    git(&kb, &["config", "user.email", "t@example.invalid"]);
+    git(&kb, &["config", "user.name", "t"]);
+    let out = docsys(&kb, &["init", "--profile", "knowledge-base", "--root", "."]);
+    assert!(out.status.success(), "{out:?}");
+    let dm = kb.join(".docmeta.yml");
+    let text = fs::read_to_string(&dm).unwrap().replace(
+        &format!("spec: docsys/{}", docsys::rules::spec_version()),
+        "spec: docsys/0.4",
+    );
+    fs::write(&dm, text).unwrap();
+    fs::remove_file(kb.join(".docsys-version")).unwrap();
+    let out = docsys(&kb, &["agents", "--kb", "--root", "."]);
+    assert!(out.status.success(), "{out:?}");
+    let ingest = docsys::agents::EARLIER_KB_TEXTS
+        .iter()
+        .find(|(a, v, _)| *a == "skills/kb-ingest/SKILL.md" && *v == "0.16.0")
+        .unwrap()
+        .2;
+    let passage = "What to keep: only what a later session needs.\n";
+    let at = ingest.find("1. **Classify the domain**").unwrap();
+    let skill = format!("{}{passage}{}", &ingest[..at], &ingest[at..]);
+    let path = kb.join(".claude/skills/kb-ingest/SKILL.md");
+    fs::write(&path, &skill).unwrap();
+    commit_quietly(&kb, "the base as its owner keeps it");
+    let file = ".claude/skills/kb-ingest/SKILL.md";
+    let plan = |kb: &Path| docsys::upgrade::run(kb, kb, &kb.join(".claude"), false).unwrap();
+    let u = plan(&kb);
+    let diff = u.diffs.iter().find(|(f, _)| f == file).unwrap().1.clone();
+    let patch_file = kb.join(".git/pending.diff");
+    fs::write(&patch_file, &diff).unwrap();
+    let applied = Command::new("patch")
+        .args(["-s"])
+        .arg(&path)
+        .arg(&patch_file)
+        .output()
+        .unwrap();
+    assert!(applied.status.success(), "{applied:?}");
+    let after = fs::read_to_string(&path).unwrap();
+    let numbers: Vec<usize> = after
+        .lines()
+        .filter_map(|l| l.split_once(". ").and_then(|(n, _)| n.parse().ok()))
+        .collect();
+    assert_eq!(numbers, (1..=numbers.len()).collect::<Vec<_>>(), "{after}");
+    // applied whole, the skill still says what 0.16.0 said about a note no
+    // domain fits: the row stays, for a person
+    let u = plan(&kb);
+    let row = u
+        .items
+        .iter()
+        .find(|i| i.file == file)
+        .expect("a row stays");
+    assert_eq!(row.strategy, "manual", "{row:?}");
+    assert!(
+        row.what.contains("still say what an earlier docsys wrote"),
+        "{row:?}"
+    );
+    // the owner's words written into this version's instructions: resolved
+    let want = docsys::agents::owned_assets(true)
+        .into_iter()
+        .find(|(a, _, _)| *a == "skills/kb-ingest/SKILL.md")
+        .unwrap()
+        .1;
+    let at = want.find("1. **Classify the domain**").unwrap();
+    fs::write(&path, format!("{}{passage}{}", &want[..at], &want[at..])).unwrap();
+    let u = plan(&kb);
+    assert!(u.items.iter().all(|i| i.file != file), "{:?}", u.items);
+    let _ = fs::remove_dir_all(&kb);
+}
+
 /// A clone whose git runs no hooks (`core.hooksPath` is `/dev/null`) gets no
 /// gate, and that is said once: the rest of the upgrade applies (D-117).
 #[test]

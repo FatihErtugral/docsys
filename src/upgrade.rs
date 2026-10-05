@@ -706,7 +706,7 @@ fn owner_edited(
     want: &str,
     whole: &str,
 ) {
-    let Some((merged, clashes)) = crate::agents::merged(asset, text, want) else {
+    let Some(m) = crate::agents::merged(asset, text, want) else {
         u.item("manual", step, file, whole.to_string());
         u.diffs.push((
             file.to_string(),
@@ -714,25 +714,39 @@ fn owner_edited(
         ));
         return;
     };
-    if merged == text && clashes.is_empty() {
+    if m.text == text && m.retired.is_empty() {
         return;
     }
-    let mut what = "edited by its owner — the diff below brings this version's template changes and keeps every line its owner wrote".to_string();
-    if !clashes.is_empty() {
-        what.push_str(&format!(
-            "; {} template change(s) touch lines its owner changed — shown apart, not applied",
-            clashes.len()
+    let mut parts = Vec::new();
+    if m.text != text {
+        parts.push("the diff below brings this version's template changes and keeps every line its owner wrote".to_string());
+    }
+    if !m.clashes.is_empty() {
+        parts.push(format!(
+            "{} template change(s) touch lines its owner changed — shown apart, not applied",
+            m.clashes.len()
         ));
     }
-    u.item("manual", step, file, what);
-    if merged != text {
+    if !m.retired.is_empty() {
+        parts.push(format!(
+            "{} passage(s) still say what an earlier docsys wrote and this version no longer does — resolve each with the person: write the owner's words into this version's instruction, show before and after, and apply it on their word",
+            m.retired.len()
+        ));
+    }
+    u.item(
+        "manual",
+        step,
+        file,
+        format!("edited by its owner — {}", parts.join("; ")),
+    );
+    if m.text != text {
         u.diffs.push((
             file.to_string(),
-            crate::diff::unified(text, &merged, file, file, 3),
+            crate::diff::unified(text, &m.text, file, file, 3),
         ));
     }
-    for c in clashes {
-        let block = |lines: &[String]| lines.iter().map(|l| format!("{l}\n")).collect::<String>();
+    let block = |lines: &[String]| lines.iter().map(|l| format!("{l}\n")).collect::<String>();
+    for c in &m.clashes {
         u.diffs.push((
             format!("{file} — a template change on lines its owner changed, not applied"),
             crate::diff::unified(
@@ -743,6 +757,18 @@ fn owner_edited(
                 0,
             ),
         ));
+    }
+    for run in &m.retired {
+        let shown = m.clashes.iter().any(|c| {
+            run.iter()
+                .all(|l| l.trim().is_empty() || c.ours.contains(l))
+        });
+        if !shown {
+            u.diffs.push((
+                format!("{file} — still says what an earlier docsys wrote; this version no longer has it"),
+                crate::diff::unified(&block(run), "", "the owner's lines", "this version's template", 0),
+            ));
+        }
     }
 }
 

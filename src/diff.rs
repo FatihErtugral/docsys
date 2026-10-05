@@ -161,9 +161,23 @@ pub fn merge3(base: &str, ours: &str, theirs: &str) -> (String, Vec<Clash>) {
     let b: Vec<&str> = base.lines().collect();
     let o: Vec<&str> = ours.lines().collect();
     let t: Vec<&str> = theirs.lines().collect();
-    let kept = |other: &[&str]| {
-        let mut at = vec![None; b.len()];
-        for e in edits(&b, other) {
+    // a numbered item is compared without its number: a merged list is
+    // renumbered after, so a number alone is no change to place
+    let key = |l: &str| {
+        let digits = l.chars().take_while(char::is_ascii_digit).count();
+        match l.get(digits..) {
+            Some(rest) if digits > 0 && rest.starts_with(". ") => format!("#{rest}"),
+            _ => l.to_string(),
+        }
+    };
+    let (kb, ko, kt): (Vec<String>, Vec<String>, Vec<String>) = (
+        b.iter().map(|l| key(l)).collect(),
+        o.iter().map(|l| key(l)).collect(),
+        t.iter().map(|l| key(l)).collect(),
+    );
+    let kept = |other: &[String]| {
+        let mut at = vec![None; kb.len()];
+        for e in edits(&kb, other) {
             if let Edit::Keep(i, j) = e {
                 if let Some(slot) = at.get_mut(i) {
                     *slot = Some(j);
@@ -172,31 +186,32 @@ pub fn merge3(base: &str, ours: &str, theirs: &str) -> (String, Vec<Clash>) {
         }
         at
     };
-    let (in_o, in_t) = (kept(&o), kept(&t));
-    let mut stable: Vec<(usize, usize, usize)> = (0..b.len())
+    let (in_o, in_t) = (kept(&ko), kept(&kt));
+    let mut stable: Vec<(usize, usize, usize)> = (0..kb.len())
         .filter_map(|i| Some((i, (*in_o.get(i)?)?, (*in_t.get(i)?)?)))
         .collect();
-    stable.push((b.len(), o.len(), t.len()));
-    fn chunk<'a>(v: &[&'a str], from: usize, to: usize) -> Vec<&'a str> {
-        v.get(from..to).unwrap_or(&[]).to_vec()
+    stable.push((kb.len(), o.len(), t.len()));
+    fn chunk<T>(v: &[T], from: usize, to: usize) -> &[T] {
+        v.get(from..to).unwrap_or(&[])
     }
     let mut out: Vec<&str> = Vec::new();
     let mut clashes = Vec::new();
     let (mut bi, mut oi, mut ti) = (0, 0, 0);
     for (bs, os, ts) in stable {
-        let (cb, co, ct) = (chunk(&b, bi, bs), chunk(&o, oi, os), chunk(&t, ti, ts));
+        let (cb, co, ct) = (chunk(&kb, bi, bs), chunk(&ko, oi, os), chunk(&kt, ti, ts));
+        let (lo, lt) = (chunk(&o, oi, os), chunk(&t, ti, ts));
         if co == cb {
-            out.extend(ct);
+            out.extend(lt);
         } else if ct == cb || co == ct {
-            out.extend(co);
+            out.extend(lo);
         } else {
             clashes.push(Clash {
-                ours: co.iter().map(|l| l.to_string()).collect(),
-                theirs: ct.iter().map(|l| l.to_string()).collect(),
+                ours: lo.iter().map(|l| l.to_string()).collect(),
+                theirs: lt.iter().map(|l| l.to_string()).collect(),
             });
-            out.extend(co);
+            out.extend(lo);
         }
-        if let Some(line) = b.get(bs) {
+        if let Some(line) = o.get(os) {
             out.push(line);
         }
         (bi, oi, ti) = (bs + 1, os + 1, ts + 1);
@@ -206,6 +221,79 @@ pub fn merge3(base: &str, ours: &str, theirs: &str) -> (String, Vec<Clash>) {
         text.push('\n');
     }
     (text, clashes)
+}
+
+/// A markdown text whose numbered lists count on: a list a merge left out of
+/// order (1, 2, 4, 5, 4) is renumbered from its first item, one by one. A
+/// list is items at the line's start (`<digits>. `) with their indented or
+/// blank continuation lines; fenced code is left as it is.
+pub fn renumbered(text: &str) -> String {
+    let lines: Vec<&str> = text.lines().collect();
+    let item = |l: &str| {
+        let digits = l.chars().take_while(char::is_ascii_digit).count();
+        (digits > 0 && l.get(digits..).is_some_and(|r| r.starts_with(". ")))
+            .then(|| l.get(..digits).and_then(|d| d.parse::<usize>().ok()))
+            .flatten()
+            .map(|n| (n, digits))
+    };
+    let indented = |l: &str| l.starts_with(' ') || l.starts_with('\t');
+    let mut out: Vec<String> = lines.iter().map(|l| l.to_string()).collect();
+    let (mut i, mut fenced) = (0, false);
+    while i < lines.len() {
+        let line = lines.get(i).copied().unwrap_or("");
+        if line.starts_with("```") {
+            fenced = !fenced;
+        }
+        if fenced || item(line).is_none() {
+            i += 1;
+            continue;
+        }
+        let mut items = vec![i];
+        let mut j = i + 1;
+        while let Some(l) = lines.get(j) {
+            if item(l).is_some() {
+                items.push(j);
+                j += 1;
+            } else if indented(l) {
+                j += 1;
+            } else if l.trim().is_empty() {
+                let next =
+                    (j..lines.len()).find(|&k| lines.get(k).is_some_and(|x| !x.trim().is_empty()));
+                match next {
+                    Some(k)
+                        if lines
+                            .get(k)
+                            .is_some_and(|x| item(x).is_some() || indented(x)) =>
+                    {
+                        j = k
+                    }
+                    _ => break,
+                }
+            } else {
+                break;
+            }
+        }
+        let first = item(line).map_or(1, |(n, _)| n);
+        let counted = items
+            .iter()
+            .enumerate()
+            .all(|(k, &at)| lines.get(at).and_then(|l| item(l)).map(|(n, _)| n) == Some(first + k));
+        if !counted {
+            for (k, &at) in items.iter().enumerate() {
+                if let (Some(l), Some(slot)) = (lines.get(at), out.get_mut(at)) {
+                    if let Some((_, digits)) = item(l) {
+                        *slot = format!("{}{}", first + k, l.get(digits..).unwrap_or(""));
+                    }
+                }
+            }
+        }
+        i = j;
+    }
+    let mut joined = out.join("\n");
+    if text.ends_with('\n') {
+        joined.push('\n');
+    }
+    joined
 }
 
 #[cfg(test)]
@@ -356,5 +444,16 @@ mod tests {
                 theirs: vec!["rule one, sharper".to_string()],
             }]
         );
+    }
+
+    #[test]
+    fn a_merged_numbered_list_counts_on() {
+        let text = "Steps:\n\n1. a\n2. b\n4. c\n   more of c\n4. d\n\n5. e\n\nAfter.\n\n```\n1. x\n3. y\n```\n";
+        assert_eq!(
+            super::renumbered(text),
+            "Steps:\n\n1. a\n2. b\n3. c\n   more of c\n4. d\n\n5. e\n\nAfter.\n\n```\n1. x\n3. y\n```\n"
+        );
+        let counted = "1. a\n2. b\n";
+        assert_eq!(super::renumbered(counted), counted);
     }
 }

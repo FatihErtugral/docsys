@@ -54,7 +54,10 @@ by the release workflow — the tag's section becomes the GitHub release body.
   as `(unset …)` placeholders, an added passage was removed. The diff is now a
   three-way merge: only what the template changed is in it, every line the
   owner wrote stays, and a template change on the owner's own lines is shown
-  apart and not applied (D-134).
+  apart and not applied. While a passage still says what an earlier docsys
+  wrote and this version no longer does, the leftover check keeps naming it
+  for a person, after the diff is applied too; a merged numbered list counts
+  on (D-134).
 - `page new <type> <id>` in a knowledge base wrote `<type>/<id>.md` at the
   base's top. It takes `--domain <d>` and writes `wiki/<d>/<type>/<id>.md`;
   a missing or undeclared domain is refused in one line that says how a
