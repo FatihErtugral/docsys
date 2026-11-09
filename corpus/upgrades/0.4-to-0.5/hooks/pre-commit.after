@@ -6,19 +6,36 @@ set -uo pipefail
 # Hard gate: the lint errors and dangling references a commit adds stop it; those it inherits are named.
 # One-off skip: DOCSYS_SKIP=1 git commit ... (under commit_policy: require it leaves a debt item)
 docsys_gate_exit=1
-# a branch whose tree declares an older spec is not scoped: it only warns (D-136)
-case "$(sed -n 's/^spec:[[:space:]]*//p' "docs/.docmeta.yml" 2>/dev/null | tr -d "\"'[:space:]")" in
-  docsys/0.[0-5]) docsys_gate_exit=0 ;;
+docsys_scoped=1
+# a branch whose tree is read below docsys/0.6 is not scoped: its gate keeps the mode this clone had before the move, and runs refs (D-136)
+case "$(sed -n 's/^spec:[[:space:]]*//p' "docs/.docmeta.yml" 2>/dev/null | sed -e 's/[[:space:]]#.*//' -e "s/[\"'[:space:]]//g")" in
+  docsys/0.[6-9]|docsys/0.[1-9][0-9]) ;;
+  *) docsys_gate_exit=0; docsys_scoped=0 ;;
 esac
+docsys_pin=$(head -n 1 "docs/.docsys-version" 2>/dev/null || :)
 docsys_install="bash docs/.docsys-install"
-[ -f "docs/.docsys-install" ] || docsys_install="cargo install docsys --version $(head -n 1 "docs/.docsys-version" 2>/dev/null) --locked"
+[ -f "docs/.docsys-install" ] || docsys_install="cargo install docsys --version $docsys_pin --locked"
+# the pinned version, where every docsys looks for it, runs on a machine with no docsys on its PATH (D-138)
+docsys_pinned="${DOCSYS_HOME:-${HOME:-}/.docsys}/versions/$docsys_pin/bin"
+command -v docsys >/dev/null || [ ! -x "$docsys_pinned/docsys" ] || PATH="$docsys_pinned:$PATH"
+# a missing pinned version: a docsys that pins installs it with cargo; with no cargo, or a docsys from before pins, this names the install (D-120)
+docsys_runs=1
+if [ -n "$docsys_pin" ] && [ ! -x "$docsys_pinned/docsys" ]; then
+  case "$(docsys --version 2>/dev/null || :)" in
+    "docsys $docsys_pin "*) ;;
+    "docsys "[0-9]*) { command -v cargo >/dev/null && [ -z "${DOCSYS_NO_AUTO_INSTALL:-}" ]; } || docsys_runs= ;;
+    *) docsys_runs= ;;
+  esac
+fi
 if [ -z "${DOCSYS_SKIP:-}" ] && command -v docsys >/dev/null; then
-  docsys_pin=$(head -n 1 "docs/.docsys-version" 2>/dev/null)
-  if [ -n "$docsys_pin" ] && ! docsys --version >/dev/null 2>&1; then
+  if [ -z "$docsys_runs" ]; then
     echo "docsys: this tree pins docsys $docsys_pin; install: $docsys_install" >&2
     [ "$docsys_gate_exit" -eq 0 ] || exit 1
-  elif ! docsys gate --repo . --root docs && [ "$docsys_gate_exit" -ne 0 ]; then
-    exit 1
+  else
+    docsys_gate_status=0
+    docsys gate --repo . --root docs || docsys_gate_status=1
+    [ "$docsys_scoped" -eq 1 ] || docsys refs --repo . --root docs || docsys_gate_status=1
+    [ "$docsys_gate_status" -eq 0 ] || [ "$docsys_gate_exit" -eq 0 ] || exit 1
   fi
 elif [ -n "${DOCSYS_SKIP:-}" ] && command -v docsys >/dev/null; then
   docsys gate --repo . --root docs --skipped >/dev/null || echo "docsys: this skipped commit is not recorded — the line above says why" >&2

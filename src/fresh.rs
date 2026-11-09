@@ -929,18 +929,29 @@ impl Trace {
         let Ok(now) = region_hash_now(&self.repo, pin, era) else {
             return Verdict::Cannot("the region cannot be read".to_string());
         };
+        // a change that edits the page of a region merged changes combine
+        // re-reads the combination; one that moves the region is named by
+        // its history, as every change is (D-135)
+        let mut edits_page = false;
         if let Some(base) = scope_base().filter(|_| era.combined_rereads()) {
             let at_base = self.hash_at(&format!("{base}:{}", pin.path), pin, era);
             let page = self.in_repo(page_rel);
             let page_base = self.read(&format!("{base}:{page}"));
             let page_now = fs::read_to_string(self.root.join(page_rel)).ok();
-            if at_base.as_deref() != Some(now.as_str()) || page_base != page_now {
-                return Verdict::Cannot(
-                    "this change moves the region or its page, so it re-reads the combination"
-                        .to_string(),
-                );
-            }
+            edits_page = at_base.as_deref() == Some(now.as_str()) && page_base != page_now;
         }
+        match self.history(id, pin, era, now) {
+            Verdict::Combined(names) if edits_page => Verdict::Cannot(format!(
+                "it combines {}, each re-read on its own, and this change edits the page, so it re-reads the combination",
+                names.join(" and ")
+            )),
+            v => v,
+        }
+    }
+
+    /// The verdict history gives a region `now` no acknowledgement matches:
+    /// the change that moved it without a re-read, or the changes it combines.
+    fn history(&mut self, id: &str, pin: &Pin, era: Era, now: String) -> Verdict {
         if self
             .hash_at(&format!("HEAD:{}", pin.path), pin, era)
             .as_deref()

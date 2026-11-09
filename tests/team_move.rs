@@ -258,8 +258,12 @@ fn a_teams_0_5_tree_moves_to_0_6_with_no_hand_edit() {
         "{installer}"
     );
     let gate = fs::read_to_string(repo.join(".githooks/pre-commit")).unwrap();
+    // hard on the moved tree; a branch at docsys/0.5 keeps the warn mode
+    // this clone had, and runs refs there (D-136)
     assert!(
-        gate.contains("docsys_gate_exit=1") && !gate.contains("docsys refs"),
+        gate.contains("\ndocsys_gate_exit=1\n")
+            && gate.contains("*) docsys_gate_exit=0; docsys_scoped=0 ;;")
+            && gate.contains("[ \"$docsys_scoped\" -eq 1 ] || docsys refs"),
         "{gate}"
     );
 

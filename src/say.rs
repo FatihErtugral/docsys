@@ -176,6 +176,23 @@ pub fn gate_summary(errors: usize, inherited: usize, warnings: usize) -> String 
 /// Why a scoped gate could not compare with its base: every error blocks.
 pub const GATE_SHALLOW: &str = "docsys: history is shallow here, so this check cannot tell the errors this change adds from those its base carries — every error blocks; check out with fetch-depth: 0";
 
+/// The commit gate in a clone whose git hook is older than the tree's
+/// docsys: the command that rewrites it, by this binary's path when another
+/// docsys is the one on the PATH.
+pub fn gate_hook_behind(own: &str, command: &str) -> String {
+    format!(
+        "docsys: this clone's git hook is older than the tree's docsys {own} — run `{command} upgrade --apply` once in this clone, which rewrites it"
+    )
+}
+
+/// A pull request's range that git cannot list: its changes are not seen,
+/// so the check fails (R-011).
+pub fn gate_unread_range(range: &str, why: &str) -> String {
+    format!(
+        "docsys: the range `{range}` cannot be read here ({why}), so this check cannot see what the change holds — it fails; check out with fetch-depth: 0, with the base branch fetched"
+    )
+}
+
 /// The base a scoped gate needs is not in this checkout.
 pub fn gate_no_base(rev: &str) -> String {
     format!(

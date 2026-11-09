@@ -648,6 +648,13 @@ jobs:
 "#;
 
 pub fn render(w: &Workflow) -> String {
+    render_in(w, matches!(w.ci.install, Install::Tree))
+}
+
+/// The workflow file for a tree whose gate is `scoped` (docsys/0.6) or not:
+/// a scoped tree's workflow checks a pull request with `gate --range` alone,
+/// whichever way it installs docsys (D-136, D-138).
+pub fn render_in(w: &Workflow, scoped: bool) -> String {
     let runner = match w.ci.runner.as_slice() {
         [one] => one.clone(),
         many => format!("[{}]", many.join(", ")),
@@ -667,7 +674,7 @@ pub fn render(w: &Workflow) -> String {
         Install::ReleasePinned(sums) => release_pinned_step(&w.version, root, sums),
         Install::Tree => fill(INSTALL_TREE, &[("ROOT", root)]),
     };
-    if matches!(w.ci.install, Install::Tree) {
+    if scoped {
         let body = fill(
             BODY_06,
             &[
@@ -1395,7 +1402,7 @@ fn reinstall_with(
     while let Some(l) = lines.get(i) {
         if let Some((_, s, kind)) = replaced.iter().find(|(a, _, _)| *a == i) {
             let step = match kind {
-                _ if tree => fill(INSTALL_TREE, &[("ROOT", root)]),
+                Kind::Release if tree => fill(INSTALL_TREE, &[("ROOT", root)]),
                 Kind::Cargo => fill(INSTALL_CARGO, &[("VERSION", version), ("ROOT", root)]),
                 _ => release_pinned_step(version, root, sums),
             };
@@ -1429,7 +1436,7 @@ fn reinstall_with(
         1 => "the `env:` line that names its version or a sha256 goes, with the comment right above it; ".to_string(),
         n => format!("the {n} `env:` lines that name its version or sha256 values go, with the comments right above them; "),
     };
-    let how = if tree {
+    let how = if tree && stale.iter().all(|(_, k)| *k == Kind::Release) {
         format!("runs the tree's installer, `{root}/{INSTALLER}`, which installs the version {pin} names")
     } else if stale.iter().all(|(_, k)| *k == Kind::Cargo) {
         format!("installs the version {pin} names with cargo")
@@ -1477,7 +1484,8 @@ pub fn scope_owner(text: &str, root: &str, branch: &str) -> Scoped {
         return Ok(None);
     };
     let line = |i: usize| lines.get(i).copied().unwrap_or("");
-    if line(on).split(" #").next().unwrap_or("").trim_end() != "on:" {
+    let head = line(on).split(" #").next().unwrap_or("").trim_end();
+    if !(head == "on:" || head == "\"on\":" || head == "'on':") {
         return Err((on + 1, "the triggers are written on one line — write them as a block (`on:`, then one trigger per line), and `docsys upgrade` narrows `push:` to the default branch and adds `merge_group:`".to_string()));
     }
     // the `on:` block: its lines, the column of its keys
@@ -1502,20 +1510,27 @@ pub fn scope_owner(text: &str, root: &str, branch: &str) -> Scoped {
     let Some(col) = col else {
         return Ok(None);
     };
+    if keys.iter().any(|(_, k)| k.starts_with('-')) {
+        return Err((on + 1, "the triggers are written as a list — write them as a mapping (one `trigger:` a line), and `docsys upgrade` narrows `push:` to the default branch and adds `merge_group:`".to_string()));
+    }
     let mut after: BTreeMap<usize, Vec<String>> = BTreeMap::new();
     let mut replace: BTreeMap<usize, Vec<String>> = BTreeMap::new();
     let mut what: Vec<String> = Vec::new();
 
-    // push: with no filter → the default branch
+    // push: with no filter → the default branch; a filter of the owner's
+    // that names no branch and no tag runs on every branch, and keeps
+    let mut every_branch = false;
     if let Some((i, _)) = keys.iter().find(|(_, k)| k == "push") {
         let value = line(*i).split_once(':').map_or("", |(_, v)| v);
         let value = value.split(" #").next().unwrap_or("").trim();
-        let filtered = lines
+        let filter: Vec<&str> = lines
             .iter()
             .skip(i + 1)
             .take_while(|l| l.trim().is_empty() || is_comment(l) || indent_of(l) > col)
-            .any(|l| !l.trim().is_empty() && !is_comment(l));
-        if value.is_empty() && !filtered {
+            .filter(|l| !l.trim().is_empty() && !is_comment(l))
+            .map(|l| l.trim())
+            .collect();
+        if value.is_empty() && filter.is_empty() {
             after
                 .entry(*i)
                 .or_default()
@@ -1523,8 +1538,16 @@ pub fn scope_owner(text: &str, root: &str, branch: &str) -> Scoped {
             what.push(format!(
                 "`push:` runs on {branch} only, so a branch with a pull request is checked once"
             ));
+        } else {
+            let names = |t: &str| t.contains("branches:") || t.contains("tags:");
+            every_branch = !names(value) && !filter.iter().any(|l| names(l));
         }
     }
+    let on_push = if every_branch {
+        format!("github.event_name == 'push' && github.ref_name == '{branch}'")
+    } else {
+        "github.event_name == 'push'".to_string()
+    };
 
     // the steps: lint and refs on push, a merge queue's group by the gate
     let steps = steps_of(&lines);
@@ -1549,7 +1572,7 @@ pub fn scope_owner(text: &str, root: &str, branch: &str) -> Scoped {
                 replace.insert(
                     s.first,
                     vec![
-                        format!("{}- if: github.event_name == 'push'", " ".repeat(s.col)),
+                        format!("{}- if: {on_push}", " ".repeat(s.col)),
                         format!("{pad}run: {run}"),
                     ],
                 );
@@ -1557,11 +1580,15 @@ pub fn scope_owner(text: &str, root: &str, branch: &str) -> Scoped {
                 after
                     .entry(s.first)
                     .or_default()
-                    .push(format!("{pad}if: github.event_name == 'push'"));
+                    .push(format!("{pad}if: {on_push}"));
             }
         }
         if !replace.is_empty() || after.keys().any(|k| *k > end) {
-            what.push("`lint` and `refs` check the whole tree on push; the pull request is checked by `gate --range` alone, which reads both".to_string());
+            what.push(if every_branch {
+                format!("`lint` and `refs` check the whole tree on a push to {branch} only: your `push:` filter also runs on other branches, and there an error that {branch} carries would fail each push; the pull request is checked by `gate --range` alone, which reads both")
+            } else {
+                "`lint` and `refs` check the whole tree on push; the pull request is checked by `gate --range` alone, which reads both".to_string()
+            });
         }
         if !text.contains("merge_group") {
             after.entry(gate.last).or_default().extend([

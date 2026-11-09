@@ -11,19 +11,32 @@ by the release workflow — the tag's section becomes the GitHub release body.
 
 - Spec docsys/0.6. A docsys/0.5 tree keeps today's findings and its gate
   until `docsys upgrade --apply --commit` moves it, one commit: nothing is
-  edited by hand. Every clone runs `docsys upgrade --apply` once after
+  edited by hand but what the plan lists for a person. Every clone runs `docsys upgrade --apply` once after
   pulling the move, as before; a clone whose gate is tracked in `.githooks/`
-  gets it with the pull.
+  gets it with the pull. That run writes only the clone's git hooks, so an
+  uncommitted edit is no obstacle, and until it runs the commit gate names
+  the command, by the pinned binary's path where an older docsys is on the
+  PATH (an older `upgrade` cannot move the clone). A hook in `.git/hooks`
+  stays the old one until that run, and with no docsys on the machine the old
+  hook says nothing: install the pinned version first, `bash
+  docs/.docsys-install`.
+- A tree two specs behind moves with the same one command, one commit per
+  spec; its plan shows each move.
 - The move hardens the git gate — it blocks only on what a commit adds — and,
   where CI installs docsys from its release, writes `.docsys-install` beside
   `.docsys-version` and makes the workflow's install step run it. In a
   workflow you edited, only the install step, an unfiltered `push:`, the
   `lint` and `refs` steps beside a `gate --range` step, and a merge queue's
-  step change; the plan shows the diff.
+  step change; the plan shows the diff. A `push:` your filter runs on every
+  branch keeps the filter, and `lint` and `refs` run on a push to the
+  default branch only. Triggers written as a list are named for a person.
 - A script of your own that reads the sha256 values out of the workflow's
   install step finds none after the move: they are in `.docsys-install`.
 - The plan lists each code citation 0.6 reads as prose (`doc:` that only
-  opens its line): put it after a comment leader or in inline code.
+  opens its line): put it after a comment leader or in inline code. It also
+  lists each `doc:` that 0.6 starts to read and that names no page, such as
+  one in inline code in a README: the move's commit would add the error, so
+  `--apply` writes nothing until it is fixed.
 
 ### Changed
 
@@ -32,17 +45,19 @@ by the release workflow — the tag's section becomes the GitHub release body.
   with `HEAD`. An error the base already carries is named "inherited from
   <base>, not this change's", and the summary reads `N error(s) (M
   inherited, not blocking)`. A shallow checkout says so in one line, and
-  every error blocks. `refs` runs inside the gate.
+  every error blocks; a range the checkout cannot read fails, in one line
+  that says why. `refs` runs inside the gate.
 - The git gate of a docsys/0.6 tree is hard from adoption on: warn mode had
   one reason, inherited debt, and the debt no longer blocks (D-136). On a
-  branch whose tree still declares an older spec it warns.
+  branch whose tree is read below docsys/0.6 the gate is not scoped: there
+  it keeps the mode this clone's hook had before the move, and runs `refs`.
 - A merge of changes that each re-read a pinned region is reported, not an
   error: the warning names the changes until a re-read acknowledges the
   combination, and a pull request that moves the region or edits its page
   must re-read it (R-111, D-135). History is read along the first parent; a
   squash is checked against the pull request's own text.
 - A stale pin names the change that moved its region: its pull request,
-  title, author, day and commit (R-111).
+  title, author, day and commit, in `lint` and in the gate alike (R-111).
 - A code-side `doc:` is a citation after a comment leader or opening inline
   code, `` `doc: id` ``; opening a line's text is code, so an object key or a
   typed field is no citation (R-072, D-137). A Markdown file outside the tree
@@ -55,10 +70,14 @@ by the release workflow — the tag's section becomes the GitHub release body.
   values; CI and a clone with no docsys run it, with no credential (D-138).
   The docsys/0.6 workflow checks the pull request with `gate --range` alone,
   pushes on the default branch only, drops the `closed` run and checks a
-  merge queue's group.
+  merge queue's group, whichever way it installs docsys.
 - With no docsys on the machine, the git gate says how to install the pinned
   version and lets the commit go on; the prompt relay and the rules block
-  tell the agent to install it without asking (D-138).
+  tell the agent to install it without asking (D-138). The gate and the
+  relays run the pinned version where every docsys looks for it
+  (`~/.docsys/versions/`), with no docsys on the PATH and no profile edit;
+  where a docsys cannot install the pin, they and `docsys` itself name the
+  tree's installer.
 - A `git:` source a shallow clone lacks is reported as "history is shallow
   here", never as a severed trail, in a knowledge base too; in a full clone
   the message names the squash or rebase cause; `gate --range` warns about a

@@ -106,6 +106,9 @@ pub struct Upgrade {
     pub carried: Vec<String>,
     /// whether the steps wrote; a plan lists in `written` what they would
     pub applied: bool,
+    /// the items the move cannot pass: `--apply` writes nothing while one
+    /// stands, for the gate would refuse the move's commit
+    pub stops: Vec<String>,
     /// the findings the next version adds and removes, before the steps
     added: Vec<String>,
     removed: Vec<String>,
@@ -253,6 +256,95 @@ pub fn run(repo: &Path, root: &Path, claude: &Path, apply: bool) -> Result<Upgra
     run_with(&MIGRATIONS, implemented(), repo, root, claude, apply)
 }
 
+/// The plans of the moves that follow the next one (R-176): `--apply
+/// --commit` makes every move, one commit each, so its plan shows each. A
+/// later move reads what the moves before it wrote, so each is planned on a
+/// scratch clone of `HEAD` where the moves before it are made and committed;
+/// the repository is not touched.
+pub fn plan_ahead(repo: &Path, root: &Path, claude: &Path) -> Result<Vec<Upgrade>, String> {
+    let abs = |p: &Path| {
+        let p = if p.is_relative() {
+            std::env::current_dir().unwrap_or_default().join(p)
+        } else {
+            p.to_path_buf()
+        };
+        p.canonicalize().unwrap_or(p)
+    };
+    let top = crate::git::toplevel(repo).ok_or("no git repository")?;
+    let top = abs(&top);
+    let below = |p: &Path| abs(p).strip_prefix(&top).map(Path::to_path_buf).ok();
+    let (Some(root_rel), Some(claude_rel)) = (below(root), below(claude)) else {
+        return Err("the tree or its agent layer lies outside the repository".to_string());
+    };
+    let scratch = std::env::temp_dir().join(format!("docsys-upgrade-plan-{}", std::process::id()));
+    let _ = fs::remove_dir_all(&scratch);
+    let git = |dir: Option<&Path>, args: &[&str]| -> Result<String, String> {
+        let out = crate::git::foreign(dir)
+            .args(args)
+            .env("GIT_LFS_SKIP_SMUDGE", "1")
+            .output()
+            .map_err(|e| e.to_string())?;
+        if out.status.success() {
+            Ok(String::from_utf8_lossy(&out.stdout).trim().to_string())
+        } else {
+            Err(String::from_utf8_lossy(&out.stderr).trim().to_string())
+        }
+    };
+    let plans = (|| {
+        let head = git(Some(&top), &["rev-parse", "HEAD"])?;
+        let (t, s) = (top.to_string_lossy(), scratch.to_string_lossy());
+        git(None, &["clone", "-q", "--shared", "--no-checkout", &t, &s])?;
+        git(Some(&scratch), &["checkout", "-q", "--detach", &head])?;
+        // the gate step reads the clone's hooks: the repository's own
+        if let Ok(path) = git(Some(&top), &["config", "--get", "core.hooksPath"]) {
+            git(Some(&scratch), &["config", "core.hooksPath", &path])?;
+        } else if let Some(hooks) = crate::git::hooks_dir(&top) {
+            let into = scratch.join(".git").join("hooks");
+            for name in ["pre-commit", "commit-msg"] {
+                if hooks.join(name).is_file() {
+                    fs::copy(hooks.join(name), into.join(name)).map_err(|e| e.to_string())?;
+                }
+            }
+        }
+        let (root, claude) = (scratch.join(&root_rel), scratch.join(&claude_rel));
+        let stop = |e: Stop| match e {
+            Stop::Refused(e) | Stop::Failed(e) => e,
+        };
+        let mut plans = Vec::new();
+        let mut made = run(&scratch, &root, &claude, true).map_err(stop)?;
+        while !made.last {
+            git(Some(&scratch), &["add", "-A"])?;
+            git(
+                Some(&scratch),
+                &[
+                    "-c",
+                    "core.hooksPath=/dev/null",
+                    "-c",
+                    "commit.gpgsign=false",
+                    "-c",
+                    "user.name=docsys",
+                    "-c",
+                    "user.email=docsys@example.invalid",
+                    "commit",
+                    "-q",
+                    "-m",
+                    "docsys upgrade: a planned move",
+                ],
+            )?;
+            let plan = run(&scratch, &root, &claude, false).map_err(stop)?;
+            let last = plan.last;
+            plans.push(plan);
+            if last {
+                break;
+            }
+            made = run(&scratch, &root, &claude, true).map_err(stop)?;
+        }
+        Ok(plans)
+    })();
+    let _ = fs::remove_dir_all(&scratch);
+    plans
+}
+
 /// Each inline list that never closes with `]`, in `.docmeta.yml`, a page or
 /// a template: `file: \`field\` on line n`. A step that rewrites such a file
 /// cannot know which lines are the list's (D-002).
@@ -366,6 +458,18 @@ pub fn run_with(
         ..Upgrade::default()
     };
     if let Some(m) = next {
+        if apply {
+            let mut probe = Upgrade::default();
+            (m.apply)(&ctx, &mut probe, false)?;
+            if !probe.stops.is_empty() {
+                return Err(Stop::Refused(format!(
+                    "the move to docsys/0.{} reads {} line(s) as a citation of no page, and the gate would refuse its commit, so nothing is written — `docsys upgrade` lists each; fix them, commit that, and run it again:\n  {}",
+                    m.to,
+                    probe.stops.len(),
+                    probe.stops.join("\n  ")
+                )));
+            }
+        }
         preview(&ctx, &mut u);
         common(&ctx, &mut u, apply)?;
         (m.apply)(&ctx, &mut u, apply)?;
@@ -380,10 +484,10 @@ pub fn run_with(
     } else {
         common(&ctx, &mut u, apply)?;
     }
-    let retired: Vec<&str> = migrations
+    let retired: Vec<(u32, &str)> = migrations
         .iter()
         .filter(|m| m.to <= u.to)
-        .map(|m| m.retired)
+        .map(|m| (m.to, m.retired))
         .collect();
     retired_concepts(&ctx, &mut u, &retired);
     stray_layers(&ctx, &mut u);
@@ -504,15 +608,15 @@ fn instruction_files(ctx: &Ctx) -> Vec<std::path::PathBuf> {
 /// retired-concepts: agent-facing text docsys did not write that still names
 /// a concept a move retired — each line listed with what replaces it, for a
 /// person and `/docsys-upgrade`; never edited.
-fn retired_concepts(ctx: &Ctx, u: &mut Upgrade, tables: &[&str]) {
-    let rows: Vec<(String, &str)> = tables
+fn retired_concepts(ctx: &Ctx, u: &mut Upgrade, tables: &[(u32, &str)]) {
+    let rows: Vec<(String, &str, u32)> = tables
         .iter()
-        .flat_map(|t| t.lines())
-        .filter(|l| !l.starts_with('#') && !l.trim().is_empty())
-        .filter_map(|l| {
+        .flat_map(|(to, t)| t.lines().map(move |l| (*to, l)))
+        .filter(|(_, l)| !l.starts_with('#') && !l.trim().is_empty())
+        .filter_map(|(to, l)| {
             let mut f = l.split('\t');
             let (_concept, literal, replacement) = (f.next()?, f.next()?, f.next()?);
-            Some((literal.to_lowercase(), replacement))
+            Some((literal.to_lowercase(), replacement, to))
         })
         .collect();
     if rows.is_empty() {
@@ -537,7 +641,11 @@ fn retired_concepts(ctx: &Ctx, u: &mut Upgrade, tables: &[&str]) {
             // one item a line, naming each concept it holds once
             let mut named: Vec<String> = Vec::new();
             let mut replaced: Vec<&str> = Vec::new();
-            for (literal, replacement) in rows.iter().filter(|(l, _)| lower.contains(l.as_str())) {
+            let mut by = 0u32;
+            for (literal, replacement, to) in
+                rows.iter().filter(|(l, _, _)| lower.contains(l.as_str()))
+            {
+                by = by.max(*to);
                 let shown = if literal.contains('`') {
                     literal.clone()
                 } else {
@@ -559,7 +667,7 @@ fn retired_concepts(ctx: &Ctx, u: &mut Upgrade, tables: &[&str]) {
                     "retired-concepts",
                     &format!("{file}:{}", i + 1),
                     format!(
-                        "names {}, which docsys/0.5 retired — {}",
+                        "names {}, which docsys/0.{by} retired — {}",
                         named.join(" and "),
                         replaced.join("; ")
                     ),
@@ -623,6 +731,12 @@ fn render_preview(u: &mut Upgrade) {
         added.len(),
         removed.len(),
     ));
+    if !u.stops.is_empty() {
+        u.preview.push(format!(
+            "no step clears the {} citation(s) of no page listed for a person: `--apply` writes nothing until each is fixed",
+            u.stops.len()
+        ));
+    }
     u.preview
         .extend(added.iter().take(25).map(|f| format!("+ {f}")));
     if added.len() > 25 {
@@ -1082,7 +1196,13 @@ fn common(ctx: &Ctx, u: &mut Upgrade, apply: bool) -> Result<(), String> {
         None => {}
         Some(crate::workflow::Existing::Untouched { from, mut params }) => 'ci: {
             let mut moved = without_approval_job(&mut params, u.to);
-            if tree_install && !matches!(params.ci.install, crate::workflow::Install::Cargo) {
+            // a tree install this version rendered needs no release read
+            let current_tree =
+                matches!(params.ci.install, crate::workflow::Install::Tree) && from == own;
+            if current_tree {
+                needs_installer = true;
+            } else if tree_install && !matches!(params.ci.install, crate::workflow::Install::Cargo)
+            {
                 if let Err(why) = read_release() {
                     unread(u, &why);
                     break 'ci;
@@ -1113,8 +1233,14 @@ fn common(ctx: &Ctx, u: &mut Upgrade, apply: bool) -> Result<(), String> {
                 }
             }
             let path = repo.join(crate::workflow::PATH);
-            let fresh = crate::workflow::render(&params);
             let current = fs::read_to_string(&path).unwrap_or_default();
+            if Era(u.to).scoped_gate()
+                && matches!(params.ci.install, crate::workflow::Install::Cargo)
+                && !current.contains("merge_group")
+            {
+                moved.push_str("; the pull request is checked by the scoped gate alone");
+            }
+            let fresh = crate::workflow::render_in(&params, Era(u.to).scoped_gate());
             if fresh != current {
                 if matches!(params.ci.install, crate::workflow::Install::Release(_)) {
                     u.item(
@@ -1155,7 +1281,7 @@ fn common(ctx: &Ctx, u: &mut Upgrade, apply: bool) -> Result<(), String> {
             if apply {
                 fs::write(
                     repo.join(crate::workflow::PATH),
-                    crate::workflow::render(&params),
+                    crate::workflow::render_in(&params, Era(u.to).scoped_gate()),
                 )
                 .map_err(|e| e.to_string())?;
             }
@@ -1274,7 +1400,7 @@ fn common(ctx: &Ctx, u: &mut Upgrade, apply: bool) -> Result<(), String> {
     let ours = existing
         .as_deref()
         .and_then(crate::workflow::installer_version);
-    if tree_install && (needs_installer || ours.is_some()) {
+    if tree_install && (needs_installer || ours.is_some()) && ours.as_deref() != Some(own) {
         let file = rel(repo, &installer);
         match (&existing, &ours) {
             (Some(_), None) => u.item(
@@ -2360,11 +2486,15 @@ fn pins(ctx: &Ctx, u: &mut Upgrade, apply: bool) -> Result<(), String> {
 /// Each `doc:` citation `before` reads on a line of code that `after` reads
 /// as prose, and that resolves: a semantic change, listed for a person
 /// (R-175), never rewritten.
+/// Each `doc:` token `before` reads on a line and `after` does not, listed
+/// for a person when it names a page (`resolving`) or when it names none,
+/// which stops the move (`!resolving`).
 fn listed_citations(
     ctx: &Ctx,
     u: &mut Upgrade,
     before: fn(&str) -> Vec<String>,
     after: fn(&str) -> Vec<String>,
+    resolving: bool,
     why: &str,
 ) {
     let (repo, root, tree) = (ctx.repo, ctx.root, &ctx.tree);
@@ -2387,8 +2517,13 @@ fn listed_citations(
         for (i, line) in text.lines().enumerate() {
             let now = after(line);
             for tok in before(line) {
-                if now.contains(&tok) || crate::checks::resolve_doc_token(&idx, &tok).is_err() {
+                if now.contains(&tok)
+                    || crate::checks::resolve_doc_token(&idx, &tok).is_ok() != resolving
+                {
                     continue;
+                }
+                if !resolving {
+                    u.stops.push(format!("{file}:{}: `doc: {tok}`", i + 1));
                 }
                 if listed < 50 {
                     u.item(
@@ -2426,7 +2561,16 @@ fn move_0_5_to_0_6(ctx: &Ctx, u: &mut Upgrade, _apply: bool) -> Result<(), Strin
             u,
             crate::checks::code_doc_tokens_on_line,
             crate::checks::code_span_tokens_on_line,
+            true,
             "opens its line with no comment leader: from 0.6 it is prose (R-072) — put it after a comment leader or in inline code (`` `doc: id` ``), or leave it as prose",
+        );
+        listed_citations(
+            ctx,
+            u,
+            crate::checks::code_span_tokens_on_line,
+            crate::checks::code_doc_tokens_on_line,
+            false,
+            "is a citation from 0.6 on, after a comment leader or in inline code, and no page has that id (R-072, R-076) — name a page, or write it without `doc:`; the move waits for it, because its commit would add the error",
         );
     }
     Ok(())
@@ -2473,6 +2617,7 @@ fn move_0_4_to_0_5(ctx: &Ctx, u: &mut Upgrade, apply: bool) -> Result<(), String
             u,
             crate::checks::doc_tokens_on_line,
             crate::checks::code_doc_tokens_on_line,
+            true,
             "sits mid-comment: from 0.5 it is prose (R-072) — move it to the start of its comment, or leave it as prose",
         );
     }

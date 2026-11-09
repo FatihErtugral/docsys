@@ -5,16 +5,32 @@ set -uo pipefail
 # docsys-template: 0.18.0
 # Hard gate: a message the gate refuses stops the commit (commit_policy: require).
 # The commit message is the journal entry: `docsys gate --message` reads it (D-125).
+docsys_gate_exit=1
+case "$(sed -n 's/^spec:[[:space:]]*//p' "docs/.docmeta.yml" 2>/dev/null | sed -e 's/[[:space:]]#.*//' -e "s/[\"'[:space:]]//g")" in
+  docsys/0.[6-9]|docsys/0.[1-9][0-9]) ;;
+  *) docsys_gate_exit=0 ;;
+esac
+docsys_pin=$(head -n 1 "docs/.docsys-version" 2>/dev/null || :)
+docsys_pinned="${DOCSYS_HOME:-${HOME:-}/.docsys}/versions/$docsys_pin/bin"
+command -v docsys >/dev/null || [ ! -x "$docsys_pinned/docsys" ] || PATH="$docsys_pinned:$PATH"
+# a missing pinned version: a docsys that pins installs it with cargo; with no cargo, or a docsys from before pins, this names the install (D-120)
+docsys_runs=1
+if [ -n "$docsys_pin" ] && [ ! -x "$docsys_pinned/docsys" ]; then
+  case "$(docsys --version 2>/dev/null || :)" in
+    "docsys $docsys_pin "*) ;;
+    "docsys "[0-9]*) { command -v cargo >/dev/null && [ -z "${DOCSYS_NO_AUTO_INSTALL:-}" ]; } || docsys_runs= ;;
+    *) docsys_runs= ;;
+  esac
+fi
 if [ -z "${DOCSYS_SKIP:-}" ] && command -v docsys >/dev/null; then
-  docsys_pin=$(head -n 1 "docs/.docsys-version" 2>/dev/null)
-  if [ -n "$docsys_pin" ] && ! docsys --version >/dev/null 2>&1; then
+  if [ -z "$docsys_runs" ]; then
     docsys_install="bash docs/.docsys-install"
     [ -f "docs/.docsys-install" ] || docsys_install="cargo install docsys --version $docsys_pin --locked"
     # a commit heard it from the pre-commit half; a merge runs this half alone
     case "$1" in *MERGE_MSG) echo "docsys: this tree pins docsys $docsys_pin; install: $docsys_install" >&2 ;; esac
-    [ "1" -eq 0 ] || exit 1
+    [ "$docsys_gate_exit" -eq 0 ] || exit 1
   else
-    docsys gate --repo . --root docs --message "$1" || [ "1" -eq 0 ] || exit 1
+    docsys gate --repo . --root docs --message "$1" || [ "$docsys_gate_exit" -eq 0 ] || exit 1
   fi
 fi
 # --- end of the docsys gate ---

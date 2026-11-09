@@ -631,9 +631,15 @@ fn tree_04(name: &str, workflow_text: &str) -> PathBuf {
     repo
 }
 
-/// The `ci-workflow` rows of a run's text output.
+/// The `ci-workflow` rows of a run's text output, of its first move: a plan
+/// shows the moves after it below.
 fn ci_rows(out: &str) -> Vec<&str> {
-    out.lines()
+    let first = out
+        .split("\nthen `--apply --commit` makes the next move")
+        .next()
+        .unwrap_or(out);
+    first
+        .lines()
         .filter(|l| l.split_whitespace().nth(1) == Some("ci-workflow"))
         .collect()
 }

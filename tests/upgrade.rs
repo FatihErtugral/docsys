@@ -573,7 +573,8 @@ fn an_uninstalled_pin_is_named_once_and_a_lost_skip_record_is_said() {
         String::from_utf8_lossy(&out.stdout).into_owned() + &String::from_utf8_lossy(&out.stderr)
     };
     let said = run(false);
-    let line = "docsys: this tree pins docsys 0.16.9; install it: ";
+    // the hook names it with no cargo here; dispatch names it for a skip
+    let line = "docsys: this tree pins docsys 0.16.9; install";
     assert_eq!(said.matches(line).count(), 1, "{said}");
     let said = run(true);
     assert_eq!(said.matches(line).count(), 1, "{said}");
@@ -691,10 +692,11 @@ fn a_tree_two_specs_behind_moves_one_commit_per_spec() {
         git(&repo, &["rev-list", "--count", &format!("{head}..HEAD")]),
         "2"
     );
-    // the pin moves with the last commit only
+    // the pin moves with the last commit only; the workflow takes the
+    // docsys/0.6 shape with the move to 0.6
     assert_eq!(
         git(&repo, &["diff", "--name-only", "HEAD~1", "HEAD"]),
-        "docs/.docmeta.yml\ndocs/.docsys-version\ndocs/work/next-spec.md"
+        ".github/workflows/docsys.yml\ndocs/.docmeta.yml\ndocs/.docsys-version\ndocs/work/next-spec.md"
     );
     assert!(fs::read_to_string(root.join(".docmeta.yml"))
         .unwrap()
@@ -1486,7 +1488,8 @@ fn the_preview_lists_the_findings_the_move_takes_away() {
         &["-c", "core.hooksPath=/dev/null", "commit", "-qm", "a limit"],
     );
     let out = docsys(&repo, &["upgrade"]);
-    let plan = String::from_utf8_lossy(&out.stdout);
+    let all = String::from_utf8_lossy(&out.stdout);
+    let plan = first_move(&all);
     assert!(
         plan.lines()
             .any(|l| l.starts_with("- ERROR R-076 src/limits.ts [it]")),
@@ -1784,7 +1787,8 @@ fn text_docsys_did_not_write_is_listed_where_it_names_a_retired_concept() {
     );
     let out = docsys(&repo, &["upgrade"]);
     assert!(out.status.success(), "{out:?}");
-    let plan = String::from_utf8_lossy(&out.stdout);
+    let all = String::from_utf8_lossy(&out.stdout);
+    let plan = first_move(&all);
     let listed: Vec<&str> = plan
         .lines()
         .filter(|l| l.contains(" retired-concepts "))
@@ -1941,9 +1945,11 @@ fn every_gate_names_the_pin_once_and_a_merge_is_a_gate_too() {
     assert!(!said.contains("OLD USAGE"), "merge: {said}");
     assert_eq!(ok, !hard, "merge: {said}");
     reset();
-    // this docsys, the pinned version missing, no cargo: the merge names it
+    // this docsys, the pinned version missing, no cargo: the merge names it,
+    // the hook's line, as no install can run here
     let (ok, said) = run(&[&this], &["merge", "--no-ff", "-m", "merge side", "side"]);
-    assert_eq!(said.matches(missing).count(), 1, "merge, no cargo: {said}");
+    assert_eq!(said.matches(old_line).count(), 1, "merge, no cargo: {said}");
+    assert!(!said.contains(missing), "merge, no cargo: {said}");
     assert_eq!(ok, !hard, "merge, no cargo: {said}");
     reset();
     // a cargo whose install fails: one attempt, and its outcome is the last word
@@ -2643,4 +2649,11 @@ fn a_pin_fresh_on_0_15_stays_fresh_after_the_move() {
         "{page}"
     );
     let _ = fs::remove_dir_all(&repo);
+}
+
+/// A plan's first move: the plans of the moves after it follow below it.
+fn first_move(plan: &str) -> &str {
+    plan.split("\nthen `--apply --commit` makes the next move")
+        .next()
+        .unwrap_or(plan)
 }

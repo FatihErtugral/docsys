@@ -6,7 +6,8 @@ Upgrading to docsys 0.18.0:
 - Every clone must install docsys >= 0.16.0 before pulling this change; a gate
   under .git/hooks cannot warn an old binary.
 - `docsys upgrade` prints the plan; `docsys upgrade --apply --commit` moves the
-  tree in one commit. The items it lists for a person are theirs to finish.
+  tree, one commit per spec version. The items it lists for a person are
+  theirs to finish.
 - docsys/0.5 keeps no page verification: the move takes every verification
   field out of every page and carries none, `.docmeta.yml` names no
   maintainer, and `verify`, `page new --unverified` and an approval job are
@@ -73,7 +74,7 @@ judged by docsys/0.5 as the tree is now: 6 new finding(s), 1 gone — the steps 
 # .claude/hooks/stop-docs-reminder.sh
 --- .claude/hooks/stop-docs-reminder.sh
 +++ .claude/hooks/stop-docs-reminder.sh
-@@ -1,8 +1,19 @@
+@@ -1,8 +1,23 @@
  #!/usr/bin/env bash
 -# docsys-template: 0.15.1
 -# stop-docs-reminder.sh — end-of-turn nudge; warns, never blocks (R-150).
@@ -86,18 +87,183 @@ judged by docsys/0.5 as the tree is now: 6 new finding(s), 1 gone — the steps 
 -[ "$(git branch --show-current)" = release ] && exit 0
 +docsys_missing() { :; }
 +cd "${CLAUDE_PROJECT_DIR:-.}" || exit 0
-+docsys_pin=$(head -n 1 "${DOCS_ROOT:-docs}/.docsys-version" 2>/dev/null)
++docsys_pin=$(head -n 1 "${DOCS_ROOT:-docs}/.docsys-version" 2>/dev/null || :)
 +docsys_install="bash ${DOCS_ROOT:-docs}/.docsys-install"
 +[ -f "${DOCS_ROOT:-docs}/.docsys-install" ] || docsys_install="cargo install docsys --version $docsys_pin --locked"
++docsys_pinned="${DOCSYS_HOME:-${HOME:-}/.docsys}/versions/$docsys_pin/bin"
++command -v docsys >/dev/null || [ ! -x "$docsys_pinned/docsys" ] || PATH="$docsys_pinned:$PATH"
 +if ! command -v docsys >/dev/null; then
 +  docsys_missing
 +  exit 0
 +fi
-+if [ -n "$docsys_pin" ] && ! docsys --version >/dev/null 2>&1; then
-+  echo "docsys: this tree pins docsys $docsys_pin; install: $docsys_install" >&2
-+  exit 1
++if [ -n "$docsys_pin" ] && [ ! -x "$docsys_pinned/docsys" ]; then
++  case "$(docsys --version 2>/dev/null || :)" in
++    "docsys $docsys_pin "*) ;;
++    *) echo "docsys: this tree pins docsys $docsys_pin; install: $docsys_install" >&2; exit 1 ;;
++  esac
 +fi
  exec docsys hook stop --root "${DOCS_ROOT:-docs}" --stdin
+
+
+# .claude/commands/docsys-sync.md
+--- .claude/commands/docsys-sync.md
++++ .claude/commands/docsys-sync.md
+@@ -1,27 +1,25 @@
+ ---
+-description: Scan code↔doc drift and un-graduated done work; propose debt items as a diff
++description: Scan code↔doc drift and un-graduated done work; propose debt items
+ allowed-tools: Bash(git log:*), Bash(git diff:*), Bash(git show:*), Bash(docsys *), Read, Grep, Glob, Edit
+ ---
+ 
+ # /docsys-sync — documentation drift check
+ 
+-Manual, never automatic; run it before a release. Report; propose `docs/work/debt.md` items as a diff
+-and wait for approval. Commit nothing.
++Manual, never automatic. Report, wait for approval, commit nothing.
+ 
+-1. Mechanical pass: `docsys lint --root docs --repo .` and `docsys refs --repo .` —
+-   include both outputs (one line each if green). Freshness errors are drift
+-   by definition: a stale pin names the region that moved, `updated:` behind
+-   history names a hand edit, an untouched draft names abandonment.
+-2. Drift suspects: `docsys seed plan --repo . --root docs --since <date of
+-   the newest journal entry>` — every feature history touched since, with
++1. Mechanical pass: the rules block's two checks — include both outputs (one
++   line each if green). Freshness errors are drift
++   by definition: a stale pin names the region that moved, an untouched draft
++   names abandonment.
++2. Drift suspects: `docsys seed plan --repo . --root docs --since <the date
++   of the last commit to docs/, `git log -1 --format=%cs -- docs/`>` — every
++   feature history touched since, with
+    its coverage. For each covered feature with commits, `git show --stat
+    <sha> -- docs/`: did its page move with the code? Name the page that
+    should have changed. An uncovered feature with commits is a seeding
+    candidate, not drift.
+-3. Graduation debt: `grep -rl '^status: done' docs/work/` — for each, what
+-   still-true knowledge exists nowhere permanent? Say concretely which section
+-   goes to which page (the R-049 table decides).
+-4. Propose debt items (`- [ ] <debt> -- deferred: <reason> -- repay when:
+-   <trigger>`) as an Edit diff; do not apply without approval.
++3. Graduation debt: `grep -rl '^status: done' docs/work/` — for each, say
++   concretely which section goes to which page.
++4. For each debt, its `docsys debt add` command, ready to run.
+ 
+ No findings → say so; never invent debt.
+
+
+then `--apply --commit` makes the next move, in a commit of its own:
+
+docsys upgrade: docsys/0.5 → docsys/0.6 — the plan
+
+Upgrading to docsys 0.18.0:
+- `docsys upgrade` prints the plan; `docsys upgrade --apply --commit` moves the
+  tree, one commit per spec version. The items it lists for a person are
+  theirs to finish.
+- The git gate becomes hard on every tree, and a pull request's check reads
+  only what the change does: an error its base already carries is named as
+  inherited, with the base's commit, and blocks nothing; an error the change
+  adds blocks, in the commit and in the pull request alike (D-136).
+- A region that merged changes moved, each of which re-read the text it
+  brought, is reported, not an error, naming the changes, until a re-read
+  acknowledges the combination; the next pull request that moves the region
+  or its page must re-read it. A change that moved a region without a re-read
+  is still an error, and names that change (R-111, D-135).
+- A code-side `doc:` counts after a comment leader or opening inline code
+  (`` `doc: id` ``); one that only opens a line's text is prose from here on,
+  so an object key or a typed field is no citation. The plan lists each
+  citation that changes meaning (R-072, D-137).
+- Where CI installs docsys from its release, the tree gets one installer,
+  `.docsys-install` beside `.docsys-version`, which holds the version and its
+  archives' sha256 values: CI runs it, and so does a clone with no docsys.
+  The workflow's pull request job runs the scoped gate alone, push runs on the
+  default branch only, and a merge queue is checked; in a workflow you edited,
+  only those lines change, and the plan shows the diff (D-138).
+
+manual  hook-scripts       .claude/hooks/stop-docs-reminder.sh  edited by its owner — the diff to this version's relay is below
+auto    git-gate           .git/hooks/pre-commit  the docsys block rewritten for this version, hard: it stops a commit only on the errors the commit adds and names the ones it inherits (D-136)
+auto    git-gate           .git/hooks/commit-msg  the docsys block rewritten, hard with the pre-commit half: it reads the commit message, and under `commit_policy: require` code with no documentation needs `Docs: <why>` (D-125)
+auto    ci-workflow        .github/workflows/docsys.yml  regenerated from 0.18.0 with its own parameters, pinned to this version; the pull request is checked by the scoped gate alone — the diff is below
+manual  assets             .claude/commands/docsys-sync.md  edited by its owner — the diff to this version's text is below
+auto    spec-line          docs/.docmeta.yml  `spec: docsys/0.5` → `spec: docsys/0.6`
+auto    pin                docs/.docsys-version  no pin → `0.18.0`: every docsys call here runs it
+-- 5 automatic, 2 for a person, 0 for information
+judged by docsys/0.6 as the tree is now: 0 new finding(s), 0 gone — the steps above clear their part
+
+# .claude/hooks/stop-docs-reminder.sh
+--- .claude/hooks/stop-docs-reminder.sh
++++ .claude/hooks/stop-docs-reminder.sh
+@@ -1,8 +1,23 @@
+ #!/usr/bin/env bash
+-# docsys-template: 0.15.1
+-# stop-docs-reminder.sh — end-of-turn nudge; warns, never blocks (R-150).
++# docsys-template: 0.18.0
++# stop-docs-reminder.sh — end-of-turn reminder; it warns, and under
++# `commit_policy: require` it holds the turn once (R-209).
+ # Reads the working tree and the commits not yet pushed (`docsys hook stop`).
+-command -v docsys >/dev/null || exit 0
+-# no nudge on the release branch
+-[ "$(git branch --show-current)" = release ] && exit 0
++docsys_missing() { :; }
++cd "${CLAUDE_PROJECT_DIR:-.}" || exit 0
++docsys_pin=$(head -n 1 "${DOCS_ROOT:-docs}/.docsys-version" 2>/dev/null || :)
++docsys_install="bash ${DOCS_ROOT:-docs}/.docsys-install"
++[ -f "${DOCS_ROOT:-docs}/.docsys-install" ] || docsys_install="cargo install docsys --version $docsys_pin --locked"
++docsys_pinned="${DOCSYS_HOME:-${HOME:-}/.docsys}/versions/$docsys_pin/bin"
++command -v docsys >/dev/null || [ ! -x "$docsys_pinned/docsys" ] || PATH="$docsys_pinned:$PATH"
++if ! command -v docsys >/dev/null; then
++  docsys_missing
++  exit 0
++fi
++if [ -n "$docsys_pin" ] && [ ! -x "$docsys_pinned/docsys" ]; then
++  case "$(docsys --version 2>/dev/null || :)" in
++    "docsys $docsys_pin "*) ;;
++    *) echo "docsys: this tree pins docsys $docsys_pin; install: $docsys_install" >&2; exit 1 ;;
++  esac
++fi
+ exec docsys hook stop --root "${DOCS_ROOT:-docs}" --stdin
+
+
+# .github/workflows/docsys.yml
+--- .github/workflows/docsys.yml
++++ .github/workflows/docsys.yml
+@@ -1,4 +1,4 @@
+-# docsys-template: 0.18.0 sha256:1de3730c5cc2ba463e340ed565893ec38ea00157ccc117c54de74aefd3bc0250 branch=main runner=ubuntu-latest install=cargo root=docs
++# docsys-template: 0.18.0 sha256:b7ea2bd1eecc9ec5d32f4ffa16ed65787598699f15704f3b50769e97e283ea74 branch=main runner=ubuntu-latest install=cargo root=docs
+ # docsys documentation workflow, written by `docsys adopt` (D-111). Line 1 records how
+ # it was rendered and a hash of everything else in this file: while the hash holds,
+ # docsys may regenerate it; once the file is edited, it is yours.
+@@ -6,16 +6,16 @@
+ 
+ on:
+   pull_request:
+-    types: [opened, synchronize, reopened, closed]
++    types: [opened, synchronize, reopened]
+   push:
+     branches: [main]
++  merge_group:
+ 
+ permissions:
+   contents: read
+ 
+ jobs:
+   docs:
+-    if: github.event.action != 'closed'
+     runs-on: ubuntu-latest
+     concurrency:
+       group: docsys-${{ github.event.pull_request.number || github.ref }}
+@@ -37,7 +37,11 @@
+           key: docsys-${{ steps.docsys-pin.outputs.version }}-${{ runner.os }}-${{ runner.arch }}
+       - if: steps.docsys-bin.outputs.cache-hit != 'true'
+         run: cargo install docsys --version "${{ steps.docsys-pin.outputs.version }}" --locked
+-      - run: docsys lint --repo . --root docs
+-      - run: docsys refs --repo . --root docs
++      - if: github.event_name == 'push'
++        run: docsys lint --repo . --root docs
++      - if: github.event_name == 'push'
++        run: docsys refs --repo . --root docs
+       - if: github.event_name == 'pull_request'
+         run: docsys gate --repo . --root docs --range "origin/${{ github.base_ref }}...HEAD"
++      - if: github.event_name == 'merge_group'
++        run: docsys gate --repo . --root docs --range "${{ github.event.merge_group.base_sha }}...HEAD"
 
 
 # .claude/commands/docsys-sync.md

@@ -764,7 +764,10 @@ fn main() -> ExitCode {
             // file it writes: the plan names those files before anything is
             // written, `--force` or not (R-177)
             let mut held = edited;
-            if opts.apply && !outside.is_empty() {
+            // what the move would commit: nothing, when all it writes is this
+            // clone's own git hooks, and then no edit of the person's is in its way
+            let mut commits_files = true;
+            if opts.apply && dirty {
                 if let Ok(plan) = docsys::upgrade::run(&repo, &opts.root, &dir, false) {
                     held.extend(
                         outside
@@ -772,6 +775,7 @@ fn main() -> ExitCode {
                             .filter(|f| plan.written.iter().any(|w| docsys::upgrade::covers(w, f)))
                             .cloned(),
                     );
+                    commits_files = !plan.written.is_empty();
                 }
             }
             if opts.apply && !held.is_empty() {
@@ -782,7 +786,12 @@ fn main() -> ExitCode {
             // outside it decides only the refusal, and the commit takes the
             // move's paths alone
             let pending = dirty && message_path.is_file() && files_path.is_file();
-            if opts.apply && !opts.force && dirty && !(pending && outside.is_empty()) {
+            if opts.apply
+                && !opts.force
+                && dirty
+                && commits_files
+                && !(pending && outside.is_empty())
+            {
                 let named = if recorded.is_empty() || outside.is_empty() {
                     "uncommitted changes".to_string()
                 } else {
@@ -883,6 +892,21 @@ fn main() -> ExitCode {
                         println!(
                             "\nthen run `docsys upgrade` again: the next move is its own commit"
                         );
+                    }
+                }
+                // a plan shows every move `--apply --commit` makes (R-176);
+                // as data it is one move, whose `last` says more follow
+                if !opts.apply && !opts.json && !u.last {
+                    match docsys::upgrade::plan_ahead(&repo, &opts.root, &dir) {
+                        Ok(plans) => {
+                            for p in &plans {
+                                println!("\nthen `--apply --commit` makes the next move, in a commit of its own:\n");
+                                print_upgrade(p, false);
+                            }
+                        }
+                        Err(e) => println!(
+                            "\nthen `--apply --commit` makes the next move, in a commit of its own; its plan could not be made here ({e}): run `docsys upgrade` again after this move"
+                        ),
                     }
                 }
                 break;
@@ -1888,7 +1912,19 @@ next: review, `git add -A && git commit`, then open an agent session here."
                             );
                         }
                     }
-                    if let Some(why) = &g.unscoped {
+                    // a commit made through a hook from before the move
+                    if opts.range.is_none() && docsys::adopt::hook_behind(&repo, &root) {
+                        let exe = std::env::var_os(docsys::dispatch::GUARD)
+                            .and(std::env::current_exe().ok())
+                            .map_or_else(|| "docsys".to_string(), |p| p.display().to_string());
+                        println!(
+                            "{}",
+                            docsys::say::gate_hook_behind(docsys::dispatch::own(), &exe)
+                        );
+                    }
+                    // one line for one cause: a range git cannot read is
+                    // also a base it cannot compare with
+                    if let Some(why) = g.unread_range.as_ref().or(g.unscoped.as_ref()) {
                         println!("{why}");
                     }
                     // Over a range there is nobody to ask once: code without
@@ -1897,7 +1933,9 @@ next: review, `git add -A && git commit`, then open an agent session here."
                         (opts.range.is_some() || (require && !history_journal)) && undocumented;
                     // the gate's own verdicts block as an error does, and
                     // the summary counts them as errors (§2.2)
-                    let verdicts = usize::from(unanswered) + usize::from(!g.plan_files.is_empty());
+                    let verdicts = usize::from(unanswered)
+                        + usize::from(!g.plan_files.is_empty())
+                        + usize::from(g.unread_range.is_some());
                     println!(
                         "{}",
                         docsys::say::gate_summary(
@@ -1914,7 +1952,11 @@ next: review, `git add -A && git commit`, then open an agent session here."
                             println!("{p}");
                         }
                     }
-                    if g.lint_errors > 0 || unanswered || !g.plan_files.is_empty() {
+                    if g.lint_errors > 0
+                        || unanswered
+                        || !g.plan_files.is_empty()
+                        || g.unread_range.is_some()
+                    {
                         ExitCode::from(1)
                     } else {
                         ExitCode::SUCCESS

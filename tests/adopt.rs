@@ -489,9 +489,11 @@ fn a_0_6_gate_is_hard_on_a_tree_with_debt() {
     );
     let hook = fs::read_to_string(repo.join(".git/hooks/pre-commit")).unwrap();
     assert!(hook.contains("docsys_gate_exit=1"), "{hook}");
+    // refs runs inside the gate; the block runs it only on a branch the
+    // gate does not scope
     assert!(
-        !hook.contains("docsys refs"),
-        "refs runs inside the gate: {hook}"
+        hook.contains("[ \"$docsys_scoped\" -eq 1 ] || docsys refs"),
+        "{hook}"
     );
     let _ = fs::remove_dir_all(&repo);
 }

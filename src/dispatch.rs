@@ -111,7 +111,14 @@ pub fn run_pinned(root: &Path, installs: bool, quiet: bool) -> Result<(), std::p
     };
     let bin = binary(&home, &pin);
     if !bin.is_file() {
-        let command = install_command(&home, &pin);
+        // a docsys/0.6 tree's installer of its pin is the command to name (D-138)
+        let installer = root.join(crate::workflow::INSTALLER);
+        let command = match std::fs::read_to_string(&installer) {
+            Ok(t) if crate::workflow::installer_version(&t).as_deref() == Some(pin.as_str()) => {
+                format!("bash {}", installer.display())
+            }
+            _ => install_command(&home, &pin),
+        };
         let cargo = || {
             Command::new("cargo")
                 .arg("--version")

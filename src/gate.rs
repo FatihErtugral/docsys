@@ -29,6 +29,9 @@ pub struct GateOutcome {
     /// Why the errors could not be compared with the base, when they could
     /// not: every error then blocks.
     pub unscoped: Option<String>,
+    /// Why the range's changes could not be listed, when they could not: the
+    /// check cannot see what the change holds, and fails (R-011).
+    pub unread_range: Option<String>,
 }
 
 fn is_plan_file(path: &str) -> bool {
@@ -141,8 +144,34 @@ fn run_scoped(
             })
             .unwrap_or_default()
     };
+    let mut unread_range = None;
     let (files, scope) = match range {
-        Some(r) => (changed(&["diff", "--name-only", r]), "range"),
+        Some(r) => match crate::git::cmd(repo)
+            .args(["diff", "--name-only", r])
+            .output()
+        {
+            Ok(o) if o.status.success() => (
+                String::from_utf8_lossy(&o.stdout)
+                    .lines()
+                    .map(str::to_string)
+                    .collect(),
+                "range",
+            ),
+            failed => {
+                let why = failed.map_or_else(
+                    |e| e.to_string(),
+                    |o| {
+                        String::from_utf8_lossy(&o.stderr)
+                            .lines()
+                            .next()
+                            .unwrap_or("git gave no reason")
+                            .to_string()
+                    },
+                );
+                unread_range = Some(crate::say::gate_unread_range(r, &why));
+                (Vec::new(), "range")
+            }
+        },
         None => {
             let staged = changed(&["diff", "--cached", "--name-only"]);
             if staged.is_empty() {
@@ -188,6 +217,7 @@ fn run_scoped(
             plan_files,
             inherited,
             unscoped,
+            unread_range,
         },
         report,
     ))

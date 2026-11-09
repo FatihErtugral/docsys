@@ -557,7 +557,7 @@ fn a_pull_request_that_touches_a_combined_region_re_reads_it() {
     let said = text(&out);
     assert_eq!(out.status.code(), Some(1), "{said}");
     assert!(
-        said.contains("(this change moves the region or its page, so it re-reads the combination)"),
+        said.contains("and this change edits the page, so it re-reads the combination)"),
         "{said}"
     );
     refresh(&repo);
@@ -567,4 +567,79 @@ fn a_pull_request_that_touches_a_combined_region_re_reads_it() {
     assert_eq!(out.status.code(), Some(0), "{said}");
     assert!(!said.contains("R-111"), "{said}");
     let _ = fs::remove_dir_all(&repo);
+}
+
+/// D-135: in a check scoped to a change, a region that change moved with no
+/// re-read is named by its history, as lint names it: the staged change in
+/// the commit gate, the commit in a pull request's range. No combination is
+/// said where no merge made one.
+#[test]
+fn a_change_that_moves_a_region_alone_is_named_and_no_combination_is_said() {
+    let repo = pinned("alone", "docsys/0.6");
+    git(&repo, &["checkout", "-q", "-b", "pr"]);
+    edit(&repo, "a + 1", "a + 2");
+    git(&repo, &["add", "-A"]);
+    let out = docsys(&repo, &["gate"]);
+    let said = text(&out);
+    assert_eq!(out.status.code(), Some(1), "{said}");
+    assert!(
+        said.contains("since the uncommitted change in the working tree —"),
+        "{said}"
+    );
+    assert!(!said.contains("combination"), "{said}");
+    commit_quietly(&repo, "ABC-3 | deliver adds two (#7)");
+    let sha = git(&repo, &["rev-parse", "--short=8", "HEAD"]);
+    let out = docsys(&repo, &["gate", "--range", "develop...HEAD"]);
+    let said = text(&out);
+    assert_eq!(out.status.code(), Some(1), "{said}");
+    assert!(
+        said.contains("since #7 \"ABC-3 | deliver adds two\"") && said.contains(&sha),
+        "{said}"
+    );
+    assert!(!said.contains("combination"), "{said}");
+    let _ = fs::remove_dir_all(&repo);
+}
+
+/// R-011: a pull request's range that git cannot list — a shallow checkout,
+/// or a base that is not there — is a check that cannot run: one line says
+/// why, and it fails, also for a range of code alone, which would otherwise
+/// pass unread.
+#[test]
+fn a_range_the_checkout_cannot_read_fails_and_says_why() {
+    let repo = pinned("unread", "docsys/0.6");
+    git(&repo, &["checkout", "-q", "-b", "pr"]);
+    write(&repo, "src/other.ts", "export const o = 1;\n");
+    commit_quietly(&repo, "code alone");
+    let out = docsys(&repo, &["gate", "--range", "origin/no-such-base...HEAD"]);
+    let said = text(&out);
+    assert_eq!(out.status.code(), Some(1), "{said}");
+    assert!(
+        said.contains("the range `origin/no-such-base...HEAD` cannot be read here"),
+        "{said}"
+    );
+    assert!(said.contains("-- 1 error(s)"), "{said}");
+    // a shallow clone of the head: its base is not there
+    let clone = tmp("unread-clone");
+    let _ = fs::remove_dir_all(&clone);
+    let url = format!("file://{}", repo.display());
+    git(
+        repo.parent().unwrap(),
+        &[
+            "clone",
+            "-q",
+            "--depth",
+            "1",
+            "--branch",
+            "pr",
+            &url,
+            clone.to_str().unwrap(),
+        ],
+    );
+    let out = docsys(&clone, &["gate", "--range", "origin/develop...HEAD"]);
+    let said = text(&out);
+    assert_eq!(out.status.code(), Some(1), "{said}");
+    assert!(said.contains("cannot be read here"), "{said}");
+    assert_eq!(said.matches("docsys: ").count(), 1, "one line: {said}");
+    let _ = fs::remove_dir_all(&repo);
+    let _ = fs::remove_dir_all(&clone);
 }

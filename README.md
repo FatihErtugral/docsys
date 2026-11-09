@@ -429,8 +429,14 @@ command on a pinned tree runs the pinned version, installed once into
 from the registry. `DOCSYS_NO_AUTO_INSTALL=1` turns that off: the command to
 run is printed instead. A machine with no docsys at all runs the tree's
 installer, `bash docs/.docsys-install`, where the tree has one: the pinned
-release, checked against its sha256, with no Rust and no credential (D-138). Two repositories on different versions work side by
-side, and a teammate who pulls a new pin runs it on the next call.
+release, checked against its sha256, with no Rust and no credential (D-138);
+the git gate and the agent's hooks run it from `~/.docsys/versions/` with no
+PATH edit. `upgrade` is the one command that runs the docsys you call, for it
+is how a newer docsys moves the tree: after pulling a move, run
+`docsys upgrade --apply` with the pinned version, which the commit gate names
+by its path while an older docsys is on the PATH. Two repositories on
+different versions work side by side, and a teammate who pulls a new pin runs
+it on the next call.
 
 No Rust toolchain? Grab a prebuilt binary for Linux (static musl,
 x86_64/aarch64) or macOS (Intel/Apple Silicon) from the
