@@ -23,6 +23,12 @@ pub struct GateOutcome {
     /// Plan files in the change set (`SEED.tsv`, `*.seed.tsv`): a plan is a
     /// conversation's draft, never documentation, and never lands (D-091).
     pub plan_files: Vec<String>,
+    /// docsys/0.6: the errors the change's base already carries — named,
+    /// not counted in `lint_errors`, never blocking (D-136).
+    pub inherited: usize,
+    /// Why the errors could not be compared with the base, when they could
+    /// not: every error then blocks.
+    pub unscoped: Option<String>,
 }
 
 fn is_plan_file(path: &str) -> bool {
@@ -60,13 +66,58 @@ fn run_scoped(
     range: Option<&str>,
     untracked: bool,
 ) -> Result<(GateOutcome, crate::checks::Report), String> {
-    let (report, _) = crate::lint_in(root, Some(repo));
+    let era = crate::era::Era::at(root);
+    let base = era
+        .scoped_gate()
+        .then(|| match range {
+            Some(r) => merge_base(repo, r),
+            None => commit_of(repo, "HEAD"),
+        })
+        .flatten();
+    let (mut report, _) =
+        crate::fresh::with_scope_base(base.as_deref(), || crate::lint_in(root, Some(repo)));
+    let mut inherited = 0usize;
+    let mut unscoped = None;
+    if era.scoped_gate() {
+        // refs is part of the verdict, so one comparison covers both (D-136)
+        if let Ok(tree) = crate::tree::DocTree::load(root) {
+            report
+                .findings
+                .extend(crate::refs::run(repo, &tree).findings);
+        }
+        let errors = report
+            .findings
+            .iter()
+            .any(|f| f.severity == Severity::Error);
+        if errors {
+            match scope(repo, root, range, base.as_deref()) {
+                Ok(Some((short, keys))) => {
+                    for f in report.findings.iter_mut() {
+                        if f.severity == Severity::Error && keys.contains(&key(repo, era, f)) {
+                            f.severity = Severity::Warn;
+                            f.message = crate::say::gate_inherited(&short, &f.message);
+                            inherited += 1;
+                        }
+                    }
+                }
+                Ok(None) => {}
+                Err(why) => unscoped = Some(why),
+            }
+        }
+    }
+    // a `git:` source a pull request adds that only its branch holds: a
+    // squash merge drops it (R-059, a warning on every tree)
+    if let Some(base) = range.and_then(|r| merge_base(repo, r)) {
+        report
+            .findings
+            .extend(crate::locator::branch_only_citations(repo, root, &base));
+    }
     let lint_errors = report
         .findings
         .iter()
         .filter(|f| f.severity == Severity::Error)
         .count();
-    let lint_warnings = report.findings.len() - lint_errors;
+    let lint_warnings = report.findings.len() - lint_errors - inherited;
     let repo_canon = repo.canonicalize().unwrap_or_else(|_| repo.to_path_buf());
     let root_canon = root.canonicalize().unwrap_or_else(|_| root.to_path_buf());
     let prefix = root_canon
@@ -135,9 +186,194 @@ fn run_scoped(
             docs,
             scope,
             plan_files,
+            inherited,
+            unscoped,
         },
         report,
     ))
+}
+
+/// The full id of a commit `rev` names; `None` when there is none (a
+/// repository with no commit yet).
+fn commit_of(repo: &Path, rev: &str) -> Option<String> {
+    crate::git::cmd(repo)
+        .args([
+            "rev-parse",
+            "--verify",
+            "--quiet",
+            &format!("{rev}^{{commit}}"),
+        ])
+        .output()
+        .ok()
+        .filter(|o| o.status.success())
+        .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+        .filter(|s| !s.is_empty())
+}
+
+/// The commit a range's change is measured from: `a...b` from their merge
+/// base, `a..b` from `a`.
+fn merge_base(repo: &Path, range: &str) -> Option<String> {
+    if let Some((a, b)) = range.split_once("...") {
+        let b = if b.is_empty() { "HEAD" } else { b };
+        let a = if a.is_empty() { "HEAD" } else { a };
+        return crate::git::cmd(repo)
+            .args(["merge-base", a, b])
+            .output()
+            .ok()
+            .filter(|o| o.status.success())
+            .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+            .filter(|s| !s.is_empty());
+    }
+    let (a, _) = range.split_once("..")?;
+    commit_of(repo, if a.is_empty() { "HEAD" } else { a })
+}
+
+/// A finding's identity across two trees (R-158): rule, file and subject,
+/// and for a pin the region's text as a hash, so a change that moves a
+/// region already stale owns the finding (D-136).
+type Key = (String, String, String, Option<String>);
+
+fn key(repo: &Path, era: crate::era::Era, f: &crate::model::Finding) -> Key {
+    let region = (f.rule.0 == "R-111" || f.rule.0 == "R-114")
+        .then(|| crate::fresh::region_of_label(repo, &f.subject, era))
+        .flatten();
+    (
+        f.rule.0.to_string(),
+        f.file.clone(),
+        f.subject.clone(),
+        region,
+    )
+}
+
+/// The error keys the change's base carries, with the base's short id; `Ok(None)`
+/// when there is no base (a first commit: every error is the change's);
+/// `Err` naming why the base could not be read — every error then blocks.
+fn scope(
+    repo: &Path,
+    root: &Path,
+    range: Option<&str>,
+    base: Option<&str>,
+) -> Result<Option<(String, std::collections::BTreeSet<Key>)>, String> {
+    let shallow = crate::git::cmd(repo)
+        .args(["rev-parse", "--is-shallow-repository"])
+        .output()
+        .ok()
+        .is_some_and(|o| String::from_utf8_lossy(&o.stdout).trim() == "true");
+    if shallow {
+        return Err(crate::say::GATE_SHALLOW.to_string());
+    }
+    let Some(base) = base else {
+        return match range {
+            Some(r) => Err(crate::say::gate_no_base(r)),
+            None => Ok(None),
+        };
+    };
+    let short: String = base.chars().take(8).collect();
+    base_errors(repo, root, base)
+        .map(|keys| Some((short, keys)))
+        .ok_or_else(|| crate::say::gate_no_base(base))
+}
+
+/// The error keys of lint and refs at commit `rev`, read in a temporary
+/// worktree by this same binary in a process of its own: a git hook exports
+/// the index of the commit being made, and lint runs `git status`, which must
+/// never read or refresh that index from another work tree.
+fn base_errors(repo: &Path, root: &Path, rev: &str) -> Option<std::collections::BTreeSet<Key>> {
+    let common = crate::git::cmd(repo)
+        .args(["rev-parse", "--path-format=absolute", "--git-common-dir"])
+        .output()
+        .ok()
+        .filter(|o| o.status.success())
+        .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())?;
+    let dir = std::path::PathBuf::from(common).join(format!("docsys-base-{}", std::process::id()));
+    let added = crate::git::foreign(Some(repo))
+        .args(["worktree", "add", "-q", "--detach"])
+        .arg(&dir)
+        .arg(rev)
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .is_ok_and(|s| s.success());
+    if !added {
+        return None;
+    }
+    let rel = crate::fresh::root_rel(repo, root);
+    let base_root = if rel.is_empty() {
+        dir.clone()
+    } else {
+        dir.join(&rel)
+    };
+    let keys = errors_at(&dir, &base_root);
+    let removed = crate::git::foreign(Some(repo))
+        .args(["worktree", "remove", "--force"])
+        .arg(&dir)
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .is_ok_and(|s| s.success());
+    if !removed {
+        let _ = std::fs::remove_dir_all(&dir);
+        let _ = crate::git::foreign(Some(repo))
+            .args(["worktree", "prune"])
+            .status();
+    }
+    keys
+}
+
+fn errors_at(dir: &Path, root: &Path) -> Option<std::collections::BTreeSet<Key>> {
+    let exe = std::env::current_exe().ok()?;
+    let era = crate::era::Era::at(root);
+    let mut keys = std::collections::BTreeSet::new();
+    for command in ["lint", "refs"] {
+        let mut c = std::process::Command::new(&exe);
+        c.arg(command)
+            .arg("--json")
+            .arg("--root")
+            .arg(root)
+            .arg("--repo")
+            .arg(dir)
+            .current_dir(dir)
+            .env(crate::dispatch::GUARD, "1")
+            .stdin(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null());
+        for var in [
+            "GIT_DIR",
+            "GIT_WORK_TREE",
+            "GIT_INDEX_FILE",
+            "GIT_OBJECT_DIRECTORY",
+            "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+            "GIT_COMMON_DIR",
+            "GIT_PREFIX",
+        ] {
+            c.env_remove(var);
+        }
+        let out = c.output().ok()?;
+        // 0 and 1 are verdicts; anything else could not evaluate the base
+        if !matches!(out.status.code(), Some(0 | 1)) {
+            return None;
+        }
+        let json = crate::hook::parse_json(&String::from_utf8_lossy(&out.stdout))?;
+        let crate::hook::Json::Obj(fields) = json else {
+            return None;
+        };
+        let Some((_, crate::hook::Json::Arr(findings))) =
+            fields.into_iter().find(|(k, _)| k == "findings")
+        else {
+            return None;
+        };
+        for f in &findings {
+            if f.string_at(&["severity"]) != Some(crate::model::Severity::Error.tag()) {
+                continue;
+            }
+            let field = |k: &str| f.string_at(&[k]).unwrap_or("").to_string();
+            let (rule, subject) = (field("rule"), field("subject"));
+            let region = (rule == "R-111" || rule == "R-114")
+                .then(|| crate::fresh::region_of_label(dir, &subject, era))
+                .flatten();
+            keys.insert((rule, field("file"), subject, region));
+        }
+    }
+    Some(keys)
 }
 
 /// Whether a commit in `range` carries the `Docs:` trailer: on docsys/0.5

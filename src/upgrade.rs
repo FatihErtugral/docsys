@@ -42,14 +42,24 @@ pub struct Migration {
 }
 
 /// Every move this binary knows, in order.
-pub const MIGRATIONS: [Migration; 1] = [Migration {
-    from: 4,
-    to: 5,
-    note: NOTE,
-    steps: STEPS,
-    retired: RETIRED,
-    apply: move_0_4_to_0_5,
-}];
+pub const MIGRATIONS: [Migration; 2] = [
+    Migration {
+        from: 4,
+        to: 5,
+        note: NOTE,
+        steps: STEPS,
+        retired: RETIRED,
+        apply: move_0_4_to_0_5,
+    },
+    Migration {
+        from: 5,
+        to: 6,
+        note: include_str!("../migrations/0.5-0.6-note.md"),
+        steps: include_str!("../migrations/0.5-0.6.tsv"),
+        retired: include_str!("../migrations/0.5-0.6-retired.tsv"),
+        apply: move_0_5_to_0_6,
+    },
+];
 
 /// What a step works on.
 pub struct Ctx<'a> {
@@ -891,7 +901,7 @@ fn common(ctx: &Ctx, u: &mut Upgrade, apply: bool) -> Result<(), String> {
             let what = if crate::agents::released(hook, &fresh, "") == Some(release) {
                 "only its template line names this version".to_string()
             } else {
-                "it now starts in the project directory, names the tree's root, and names the pinned docsys to a binary from before pins".to_string()
+                "with no docsys on the machine it names the install command, the prompt relay telling the agent to run it, and a pinned docsys that cannot run is named in one line (D-138)".to_string()
             };
             u.item(
                 "auto",
@@ -919,7 +929,7 @@ fn common(ctx: &Ctx, u: &mut Upgrade, apply: bool) -> Result<(), String> {
 
     // git-gate: the block in this clone's pre-commit hook, its mode kept
     let message = Era(u.to).journal_from_history();
-    match crate::adopt::gate_current(repo, root_rel, message) {
+    match crate::adopt::gate_current(repo, root_rel, Era(u.to)) {
         // a clone with no gate gets the one adopt writes: `docsys upgrade
         // --apply` is the step every clone takes after pulling a move
         // git that runs no hooks here (`core.hooksPath` names no directory):
@@ -937,11 +947,13 @@ fn common(ctx: &Ctx, u: &mut Upgrade, apply: bool) -> Result<(), String> {
             );
         }
         None => {
-            let hard = crate::adopt::gate_clean(root, repo);
+            let hard = Era(u.to).scoped_gate() || crate::adopt::gate_clean(root, repo);
             let hooks =
                 crate::adopt::gate_hooks_dir(repo).unwrap_or_else(|| repo.join(".git/hooks"));
             let file = rel(repo, &hooks.join("pre-commit"));
-            let mode = if hard {
+            let mode = if Era(u.to).scoped_gate() {
+                "hard: it stops a commit only on the errors the commit adds (D-136)"
+            } else if hard {
                 "hard, the tree linting clean"
             } else {
                 "in warn mode while lint or refs report an error (D-072)"
@@ -966,7 +978,7 @@ fn common(ctx: &Ctx, u: &mut Upgrade, apply: bool) -> Result<(), String> {
                     u.written.push(rel(repo, &hooks.join("commit-msg")));
                 }
             }
-            if apply && crate::adopt::ensure_git_gate(repo, root_rel, hard, message) == "failed" {
+            if apply && crate::adopt::ensure_git_gate(repo, root_rel, hard, Era(u.to)) == "failed" {
                 return Err("the git gate could not be written in this clone".to_string());
             }
         }
@@ -999,7 +1011,11 @@ fn common(ctx: &Ctx, u: &mut Upgrade, apply: bool) -> Result<(), String> {
                 "auto",
                 "git-gate",
                 &file,
-                "the docsys block rewritten for this version, its mode kept".to_string(),
+                if Era(u.to).scoped_gate() {
+                    "the docsys block rewritten for this version, hard: it stops a commit only on the errors the commit adds and names the ones it inherits (D-136)".to_string()
+                } else {
+                    "the docsys block rewritten for this version, its mode kept".to_string()
+                },
             );
             // the half that reads the message, which a docsys/0.5 gate adds (D-125)
             let msg = hooks.join("commit-msg");
@@ -1009,11 +1025,16 @@ fn common(ctx: &Ctx, u: &mut Upgrade, apply: bool) -> Result<(), String> {
                 } else {
                     "written"
                 };
+                let mode = if Era(u.to).scoped_gate() {
+                    "hard with the pre-commit half"
+                } else {
+                    "its mode kept"
+                };
                 u.item(
                     "auto",
                     "git-gate",
                     &rel(repo, &msg),
-                    format!("the docsys block {verb}, its mode kept: it reads the commit message, and under `commit_policy: require` code with no documentation needs `Docs: <why>` (D-125)"),
+                    format!("the docsys block {verb}, {mode}: it reads the commit message, and under `commit_policy: require` code with no documentation needs `Docs: <why>` (D-125)"),
                 );
             }
             if tracked {
@@ -1023,7 +1044,7 @@ fn common(ctx: &Ctx, u: &mut Upgrade, apply: bool) -> Result<(), String> {
                 }
             }
             if apply {
-                let done = crate::adopt::ensure_git_gate(repo, root_rel, false, message);
+                let done = crate::adopt::ensure_git_gate(repo, root_rel, false, Era(u.to));
                 if done == "failed" {
                     return Err(format!("{file}: the gate block could not be written"));
                 }
@@ -1038,6 +1059,10 @@ fn common(ctx: &Ctx, u: &mut Upgrade, apply: bool) -> Result<(), String> {
     let own = crate::dispatch::own();
     let copied = "copied from the release page — docsys cannot know them";
     let pinned = Era(u.to).pinned_ci_install();
+    // docsys/0.6: a release install runs the tree's installer, the one home
+    // of the release's sha256 values (D-138)
+    let tree_install = Era(u.to).tree_installer();
+    let mut needs_installer = false;
     // the release's values, read once and only when a release step is written
     let mut release: Option<Result<Vec<(String, String)>, String>> = None;
     let mut read_release = || {
@@ -1057,10 +1082,21 @@ fn common(ctx: &Ctx, u: &mut Upgrade, apply: bool) -> Result<(), String> {
         None => {}
         Some(crate::workflow::Existing::Untouched { from, mut params }) => 'ci: {
             let mut moved = without_approval_job(&mut params, u.to);
+            if tree_install && !matches!(params.ci.install, crate::workflow::Install::Cargo) {
+                if let Err(why) = read_release() {
+                    unread(u, &why);
+                    break 'ci;
+                }
+                if !matches!(params.ci.install, crate::workflow::Install::Tree) {
+                    moved.push_str("; its install runs the tree's installer, which holds the release's sha256 values, and the pull request is checked by the scoped gate alone");
+                }
+                params.ci.install = crate::workflow::Install::Tree;
+                needs_installer = true;
+            }
             let release_install = match &params.ci.install {
                 crate::workflow::Install::Release(_) => pinned,
                 crate::workflow::Install::ReleasePinned(sums) => from != own || sums.is_empty(),
-                crate::workflow::Install::Cargo => false,
+                crate::workflow::Install::Cargo | crate::workflow::Install::Tree => false,
             };
             if release_install {
                 match read_release() {
@@ -1128,7 +1164,21 @@ fn common(ctx: &Ctx, u: &mut Upgrade, apply: bool) -> Result<(), String> {
         Some(crate::workflow::Existing::Owned { .. }) if pinned => 'ci: {
             let path = repo.join(crate::workflow::PATH);
             let text = fs::read_to_string(&path).unwrap_or_default();
-            let mut done = crate::workflow::reinstall(&text, root_rel, own, None);
+            let mut done = if tree_install {
+                crate::workflow::reinstall_tree(&text, root_rel, own)
+            } else {
+                crate::workflow::reinstall(&text, root_rel, own, None)
+            };
+            if let crate::workflow::Reinstall::Rewritten { text: new, .. } = &done {
+                // the rewrite runs the tree's installer: it is written with it
+                if tree_install && new.contains(crate::workflow::INSTALLER) {
+                    if let Err(why) = read_release() {
+                        unread(u, &why);
+                        break 'ci;
+                    }
+                    needs_installer = true;
+                }
+            }
             if done == crate::workflow::Reinstall::NeedsRelease {
                 match read_release() {
                     Ok(sums) => {
@@ -1140,39 +1190,128 @@ fn common(ctx: &Ctx, u: &mut Upgrade, apply: bool) -> Result<(), String> {
                     }
                 }
             }
-            match done {
-                crate::workflow::Reinstall::Pinned | crate::workflow::Reinstall::NeedsRelease => {}
-                crate::workflow::Reinstall::Rewritten { text: new, what } => {
-                    u.item(
-                        "auto",
-                        "ci-workflow",
-                        crate::workflow::PATH,
-                        format!("the workflow is yours, and only what installs docsys changes: {what}"),
-                    );
-                    u.diffs.push((
-                        crate::workflow::PATH.to_string(),
-                        crate::diff::unified(
-                            &text,
-                            &new,
-                            crate::workflow::PATH,
-                            crate::workflow::PATH,
-                            3,
-                        ),
-                    ));
-                    if apply {
-                        fs::write(&path, new).map_err(|e| e.to_string())?;
-                    }
-                    u.written.push(crate::workflow::PATH.to_string());
+            let (mut new, mut what) = match done {
+                crate::workflow::Reinstall::Pinned | crate::workflow::Reinstall::NeedsRelease => {
+                    (text.clone(), Vec::new())
                 }
-                crate::workflow::Reinstall::Unclear { line, what } => u.item(
-                    "manual",
-                    "ci-workflow",
-                    &format!("{}:{line}", crate::workflow::PATH),
-                    format!("the workflow is yours, and what installs docsys is not clear here, so nothing in it changed: {what}"),
+                crate::workflow::Reinstall::Rewritten { text: new, what } => (
+                    new,
+                    vec![format!("only what installs docsys changes: {what}")],
                 ),
+                crate::workflow::Reinstall::Unclear { line, what } => {
+                    u.item(
+                        "manual",
+                        "ci-workflow",
+                        &format!("{}:{line}", crate::workflow::PATH),
+                        format!("the workflow is yours, and what installs docsys is not clear here, so nothing in it changed: {what}"),
+                    );
+                    break 'ci;
+                }
+            };
+            if new.contains(crate::workflow::INSTALLER) && tree_install {
+                needs_installer = true;
+            }
+            if tree_install {
+                let branch = crate::workflow::default_branch(repo);
+                match crate::workflow::scope_owner(&new, root_rel, &branch) {
+                    Ok(Some((scoped, changes))) => {
+                        new = scoped;
+                        what.extend(changes);
+                    }
+                    Ok(None) => {}
+                    Err((line, why)) => u.item(
+                        "manual",
+                        "ci-workflow",
+                        &format!("{}:{line}", crate::workflow::PATH),
+                        format!("the workflow is yours, and its triggers are not clear here, so they stay as they are: {why}"),
+                    ),
+                }
+            }
+            if new != text {
+                let kept = "every other line stays as you wrote it — the diff is below";
+                let row = if tree_install {
+                    let parts: Vec<String> = what
+                        .iter()
+                        .map(|w| {
+                            w.trim_start_matches("only what installs docsys changes: ")
+                                .trim_end_matches(kept)
+                                .trim_end_matches("; ")
+                                .to_string()
+                        })
+                        .filter(|w| !w.is_empty())
+                        .collect();
+                    format!(
+                        "the workflow is yours, and these lines change: {}; {kept}",
+                        parts.join("; ")
+                    )
+                } else {
+                    format!("the workflow is yours, and {}", what.join("; "))
+                };
+                u.item("auto", "ci-workflow", crate::workflow::PATH, row);
+                u.diffs.push((
+                    crate::workflow::PATH.to_string(),
+                    crate::diff::unified(
+                        &text,
+                        &new,
+                        crate::workflow::PATH,
+                        crate::workflow::PATH,
+                        3,
+                    ),
+                ));
+                if apply {
+                    fs::write(&path, new).map_err(|e| e.to_string())?;
+                }
+                u.written.push(crate::workflow::PATH.to_string());
             }
         }
         Some(crate::workflow::Existing::Owned { .. }) => {}
+    }
+
+    // installer: the tree's own, written with the pin it installs, where the
+    // tree installs docsys from its release (D-138)
+    let installer = root.join(crate::workflow::INSTALLER);
+    let existing = fs::read_to_string(&installer).ok();
+    let ours = existing
+        .as_deref()
+        .and_then(crate::workflow::installer_version);
+    if tree_install && (needs_installer || ours.is_some()) {
+        let file = rel(repo, &installer);
+        match (&existing, &ours) {
+            (Some(_), None) => u.item(
+                "manual",
+                "installer",
+                &file,
+                format!("a file docsys did not write holds this name, so it stays as it is: move it, and `docsys upgrade --apply` writes the tree's installer of {own} here"),
+            ),
+            _ => match read_release() {
+                Ok(sums) => {
+                    let fresh = crate::workflow::installer_text(own, &sums);
+                    if existing.as_deref() != Some(fresh.as_str()) {
+                        u.item(
+                            "auto",
+                            "installer",
+                            &file,
+                            format!("the tree's installer of docsys {own}, its archives' sha256 values read from the release: CI and a clone with no docsys run it — the diff is below"),
+                        );
+                        u.diffs.push((
+                            file.clone(),
+                            crate::diff::unified(
+                                existing.as_deref().unwrap_or(""),
+                                &fresh,
+                                &file,
+                                &file,
+                                3,
+                            ),
+                        ));
+                        if apply {
+                            fs::write(&installer, fresh).map_err(|e| e.to_string())?;
+                        }
+                        u.written.push(file);
+                    }
+                }
+                Err(why) => unread(u, &why),
+            },
+        }
     }
 
     // rules-block: refreshed where its markers are (D-110, D-114)
@@ -2218,9 +2357,84 @@ fn pins(ctx: &Ctx, u: &mut Upgrade, apply: bool) -> Result<(), String> {
     Ok(())
 }
 
+/// Each `doc:` citation `before` reads on a line of code that `after` reads
+/// as prose, and that resolves: a semantic change, listed for a person
+/// (R-175), never rewritten.
+fn listed_citations(
+    ctx: &Ctx,
+    u: &mut Upgrade,
+    before: fn(&str) -> Vec<String>,
+    after: fn(&str) -> Vec<String>,
+    why: &str,
+) {
+    let (repo, root, tree) = (ctx.repo, ctx.root, &ctx.tree);
+    let idx = crate::checks::build_index(tree);
+    let mut listed = 0usize;
+    let mut more = 0usize;
+    for f in crate::migrate::repo_text_files(repo, root) {
+        let Ok(text) = fs::read_to_string(&f) else {
+            continue;
+        };
+        let file = rel(repo, &f);
+        if tree
+            .docmeta_list("scan_exclude")
+            .iter()
+            .filter_map(|e| crate::tree::scan_prefix(e).ok())
+            .any(|p| crate::tree::under_prefix(&file, &p))
+        {
+            continue;
+        }
+        for (i, line) in text.lines().enumerate() {
+            let now = after(line);
+            for tok in before(line) {
+                if now.contains(&tok) || crate::checks::resolve_doc_token(&idx, &tok).is_err() {
+                    continue;
+                }
+                if listed < 50 {
+                    u.item(
+                        "manual",
+                        "code-citations",
+                        &format!("{file}:{}", i + 1),
+                        format!("`doc: {tok}` {why}"),
+                    );
+                    listed += 1;
+                } else {
+                    more += 1;
+                }
+            }
+        }
+    }
+    if more > 0 {
+        u.item(
+            "manual",
+            "code-citations",
+            "-",
+            format!("… and {more} more of the same"),
+        );
+    }
+}
+
+/// The steps of the move from docsys/0.5 to docsys/0.6
+/// (`migrations/0.5-0.6.tsv`): the gate, the workflow, the installer, the
+/// relays and the rules block are the steps every run takes, read at the
+/// version the move reaches; the move itself lists the citations that change
+/// meaning.
+fn move_0_5_to_0_6(ctx: &Ctx, u: &mut Upgrade, _apply: bool) -> Result<(), String> {
+    if !ctx.kb {
+        listed_citations(
+            ctx,
+            u,
+            crate::checks::code_doc_tokens_on_line,
+            crate::checks::code_span_tokens_on_line,
+            "opens its line with no comment leader: from 0.6 it is prose (R-072) — put it after a comment leader or in inline code (`` `doc: id` ``), or leave it as prose",
+        );
+    }
+    Ok(())
+}
+
 /// The steps of the move from docsys/0.4 to docsys/0.5 (`migrations/0.4-0.5.tsv`).
 fn move_0_4_to_0_5(ctx: &Ctx, u: &mut Upgrade, apply: bool) -> Result<(), String> {
-    let (repo, root, tree, kb) = (ctx.repo, ctx.root, &ctx.tree, ctx.kb);
+    let (root, tree, kb) = (ctx.root, &ctx.tree, ctx.kb);
     let prefix = ctx.prefix.as_str();
     pins(ctx, u, apply)?;
 
@@ -2254,45 +2468,13 @@ fn move_0_4_to_0_5(ctx: &Ctx, u: &mut Upgrade, apply: bool) -> Result<(), String
 
     // code-citations: a `doc:` 0.15 read mid-comment that 0.5 reads as prose
     if !kb {
-        let idx = crate::checks::build_index(tree);
-        let mut listed = 0usize;
-        let mut more = 0usize;
-        for f in crate::migrate::repo_text_files(repo, root) {
-            let Ok(text) = fs::read_to_string(&f) else {
-                continue;
-            };
-            let file = rel(repo, &f);
-            if tree
-                .docmeta_list("scan_exclude")
-                .iter()
-                .filter_map(|e| crate::tree::scan_prefix(e).ok())
-                .any(|p| crate::tree::under_prefix(&file, &p))
-            {
-                continue;
-            }
-            for (i, line) in text.lines().enumerate() {
-                let now: Vec<String> = crate::checks::code_doc_tokens_on_line(line);
-                for tok in crate::checks::doc_tokens_on_line(line) {
-                    if now.contains(&tok) || crate::checks::resolve_doc_token(&idx, &tok).is_err() {
-                        continue;
-                    }
-                    if listed < 50 {
-                        u.item("manual", "code-citations", &format!("{file}:{}", i + 1), format!("`doc: {tok}` sits mid-comment: from 0.5 it is prose (R-072) — move it to the start of its comment, or leave it as prose"));
-                        listed += 1;
-                    } else {
-                        more += 1;
-                    }
-                }
-            }
-        }
-        if more > 0 {
-            u.item(
-                "manual",
-                "code-citations",
-                "-",
-                format!("… and {more} more of the same"),
-            );
-        }
+        listed_citations(
+            ctx,
+            u,
+            crate::checks::doc_tokens_on_line,
+            crate::checks::code_doc_tokens_on_line,
+            "sits mid-comment: from 0.5 it is prose (R-072) — move it to the start of its comment, or leave it as prose",
+        );
     }
 
     // raw-records: what a project's records become (D-112)

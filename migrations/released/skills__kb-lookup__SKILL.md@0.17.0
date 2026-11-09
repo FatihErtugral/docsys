@@ -1,0 +1,25 @@
+---
+name: kb-lookup
+description: Answer from the knowledge base — "what do my notes say about X", "check my brain for X", "did I write anything about X". Read-only; answers source first, then the base's own record, each labelled, or says it does not know.
+---
+
+# kb-lookup — the read gate
+
+Read-only. Never write, never fix what you find; report gaps instead.
+
+1. `docsys lookup <words> --root <base>` — the mechanical first hop: every
+   page, local and consumed (`@namespace/id`), that names all the words,
+   scored by where they occur. Read the page it points at; a consumed page
+   is another tree's contract and is cited as `@namespace/id`.
+2. Nothing? `wiki/index.md` → the domain → `wiki/<domain>/index.md` → the
+   page; then grep `wiki/` for tags and headings.
+3. **Source first.** A consumed page, or a record the person gave as a
+   source, answers first, labelled as the source; a wiki page answers after
+   it, labelled as the base's own record. Say which one each part of the
+   answer rests on, with its path.
+4. Neither → **say you do not know: it is not in the base.** Never answer
+   from your own knowledge while implying the base said it; offer to capture
+   the question.
+
+Any other `raw/` record is evidence, not an answer: quote it only to show
+where a page came from.

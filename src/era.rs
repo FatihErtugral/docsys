@@ -15,6 +15,7 @@ pub struct Era(pub u32);
 /// readable is treated as it.
 const FIRST: u32 = 4;
 const V05: u32 = 5;
+const V06: u32 = 6;
 
 thread_local! {
     /// The era every gate answers with while `docsys upgrade` previews what a
@@ -103,6 +104,44 @@ impl Era {
 
     fn v05(self) -> bool {
         self.0 >= V05
+    }
+
+    fn v06(self) -> bool {
+        self.0 >= V06
+    }
+
+    /// D-135 (R-111): a region that merged changes moved, each of which
+    /// acknowledged the text it brought, is reported while history shows it;
+    /// a change scoped to a pull request that moves it or its page fails.
+    /// Before: an error on every run.
+    pub fn combined_rereads(self) -> bool {
+        self.v06()
+    }
+
+    /// D-136 (§2.2): a gate scoped to a change — a pull request's range or a
+    /// commit — blocks on the errors the change introduces and names those
+    /// its base carries; the git gate is hard from adoption on, and `refs`
+    /// runs inside it. Before: every error of the tree blocked, and a tree
+    /// with debt got a warn-mode gate.
+    pub fn scoped_gate(self) -> bool {
+        self.v06()
+    }
+
+    /// D-137 (R-072): a code-side citation is `doc:` right after a comment
+    /// leader or opening an inline code span. Before: also `doc:` opening a
+    /// line's text (D-107), which read object keys and fields as citations.
+    pub fn code_span_citations(self) -> bool {
+        self.v06()
+    }
+
+    /// D-138: the tree carries `.docsys-install` beside `.docsys-version`,
+    /// the one installer of the pinned release that CI and every clone run;
+    /// the workflow's pull request job runs the scoped gate alone, push runs
+    /// on the default branch only, and a merge queue is checked. Before: the
+    /// workflow installed the release itself, and a machine without docsys
+    /// was told to build it with cargo.
+    pub fn tree_installer(self) -> bool {
+        self.v06()
     }
 
     /// §2.4 for R-106 and R-085: a page's last change is its last CONTENT

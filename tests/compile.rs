@@ -195,7 +195,7 @@ fn a_knowledge_base_howto_needs_a_verification_on_a_0_4_base_only() {
     // a docsys/0.4 base compiles a verified howto only, as 0.15.1 did (D-118)
     let text = fs::read_to_string(&dm)
         .unwrap()
-        .replace("spec: docsys/0.5", "spec: docsys/0.4");
+        .replace("spec: docsys/0.6", "spec: docsys/0.4");
     fs::write(&dm, text).unwrap();
     let page_text = fs::read_to_string(&page)
         .unwrap()

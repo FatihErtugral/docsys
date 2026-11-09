@@ -1,0 +1,4 @@
+# Concepts the docsys/0.5 → docsys/0.6 move retires, as agent-facing text names them (R-173).
+# concept <TAB> literal (found case-insensitively in a line) <TAB> what replaces it
+warn-mode-gate	warn-mode	the git gate is hard on every tree: it stops a commit on the errors the commit adds and names those it inherits (D-136)
+adoption-debt-gate	adoption debt is triaged	the git gate is hard on every tree: debt the commit inherits is named and never blocks (D-136)

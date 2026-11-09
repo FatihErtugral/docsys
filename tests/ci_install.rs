@@ -214,23 +214,26 @@ fn a_05_tree_takes_a_release_install_without_sha256_and_refuses_the_flag() {
             sum.clone()
         )])))
     );
-    // the binary: a new tree is docsys/0.5
+    // the binary: a new tree is docsys/0.6, and its release install runs the
+    // tree's installer, which holds the sha256 values (D-138)
     let repo = tmp("adopt-release");
     git(&repo, &["init", "-q", "-b", "main"]);
     fs::create_dir_all(repo.join(".github")).unwrap();
     let out = docsys(&repo, &["adopt", "--ci-install", "release"]);
     ok(&out);
     let text = fs::read_to_string(repo.join(FILE)).unwrap();
-    assert!(text.lines().next().unwrap().contains(" install=release "));
+    assert!(text.lines().next().unwrap().contains(" install=tree "));
     assert!(
-        text.contains("the release the tree pins, checked against the sha256 its upgrade wrote"),
+        text.contains("run: bash docs/.docsys-install --print-dir >> \"$GITHUB_PATH\""),
         "{text}"
     );
+    let installer = fs::read_to_string(repo.join("docs/.docsys-install")).unwrap();
     for (target, sum) in stub_sums() {
         assert!(
-            text.contains(&format!(" target={target} sum={sum} ;;\n")),
-            "{text}"
+            installer.contains(&format!(" target={target} sum={sum} ;;\n")),
+            "{installer}"
         );
+        assert!(!text.contains(&sum), "the workflow holds no copy: {text}");
     }
     let refused = tmp("adopt-release-sha");
     git(&refused, &["init", "-q", "-b", "main"]);
@@ -379,6 +382,37 @@ fn owner_moved_to(owner: &str, step: &str) -> String {
 
 fn owner_moved(owner: &str) -> String {
     owner_moved_to(owner, &release_step())
+}
+
+/// The step that runs the tree's installer, as a docsys/0.6 move writes it
+/// (D-138).
+const TREE_STEP: &str = "      - name: docsys, the release the tree pins, by the tree's installer\n        shell: bash\n        run: bash docs/.docsys-install --print-dir >> \"$GITHUB_PATH\"\n";
+
+/// `owner` as the move to docsys/0.6 leaves it: its install the tree's
+/// installer, `lint` and `refs` on push, a merge queue's group checked by the
+/// gate (D-136, D-138).
+fn owner_moved_06(owner: &str) -> String {
+    owner_moved_to(owner, TREE_STEP)
+        .replacen(
+            "    branches: [develop]\n\npermissions:",
+            "    branches: [develop]\n  merge_group:\n\npermissions:",
+            1,
+        )
+        .replacen(
+            "      - run: docsys lint --root docs --repo .\n",
+            "      - if: github.event_name == 'push'\n        run: docsys lint --root docs --repo .\n",
+            1,
+        )
+        .replacen(
+            "      - run: docsys refs --repo . --root docs\n",
+            "      - if: github.event_name == 'push'\n        run: docsys refs --repo . --root docs\n",
+            1,
+        )
+        .replacen(
+            "        run: docsys gate --repo . --root docs --range \"origin/${{ github.base_ref }}...HEAD\"\n",
+            "        run: docsys gate --repo . --root docs --range \"origin/${{ github.base_ref }}...HEAD\"\n      - if: github.event_name == 'merge_group'\n        run: docsys gate --repo . --root docs --range \"${{ github.event.merge_group.base_sha }}...HEAD\"\n",
+            1,
+        )
 }
 
 #[test]
@@ -635,16 +669,30 @@ fn the_move_replaces_an_owners_install_and_leaves_nothing_for_ci() {
     assert_eq!(fs::read_to_string(repo.join(FILE)).unwrap(), OWNER);
     let json = ok(&docsys(&repo, &["upgrade", "--json"]));
     assert!(json.contains("\"step\": \"ci-workflow\""), "{json}");
+    // one commit a spec (R-177): 0.5 pins the release step, 0.6 runs the
+    // tree's installer in its place
     ok(&docsys(&repo, &["upgrade", "--apply", "--commit"]));
     assert_eq!(
         fs::read_to_string(repo.join(FILE)).unwrap(),
-        owner_moved(OWNER)
+        owner_moved_06(OWNER)
     );
     assert_eq!(
         fs::read_to_string(repo.join("docs/.docsys-version")).unwrap(),
         format!("{own}\n")
     );
-    assert!(git(&repo, &["show", "--stat", "HEAD"]).contains("docsys.yml"));
+    let installer = fs::read_to_string(repo.join("docs/.docsys-install")).unwrap();
+    for (target, sum) in stub_sums() {
+        assert!(
+            installer.contains(&format!(" target={target} sum={sum} ;;")),
+            "{installer}"
+        );
+    }
+    let head = git(&repo, &["show", "--stat", "HEAD"]);
+    assert!(
+        head.contains("docsys.yml") && head.contains(".docsys-install"),
+        "{head}"
+    );
+    assert!(git(&repo, &["show", "--stat", "HEAD~1"]).contains("docsys.yml"));
     let idle = ok(&docsys(&repo, &["upgrade"]));
     assert!(ci_rows(&idle).is_empty(), "{idle}");
     let _ = fs::remove_dir_all(&repo);
@@ -698,8 +746,9 @@ fn an_untouched_04_release_install_is_regenerated_without_sha256() {
     };
     let repo = tree_04("untouched-release", &workflow::render(&old));
     let out = ok(&docsys(&repo, &["upgrade", "--apply", "--commit"]));
+    // one row a spec: 0.5 pins the release step, 0.6 runs the tree's installer
     let rows = ci_rows(&out);
-    assert_eq!(rows.len(), 1, "{out}");
+    assert_eq!(rows.len(), 2, "{out}");
     assert!(
         rows.first()
             .unwrap()
@@ -709,18 +758,25 @@ fn an_untouched_04_release_install_is_regenerated_without_sha256() {
             ),
         "{out}"
     );
+    assert!(
+        rows.last()
+            .unwrap()
+            .contains("its install runs the tree's installer"),
+        "{out}"
+    );
     let text = fs::read_to_string(repo.join(FILE)).unwrap();
     assert_eq!(
         text,
         workflow::render(&Workflow {
             version: docsys::agents::TEMPLATE_VERSION.to_string(),
             ci: Ci {
-                install: Install::ReleasePinned(stub_sums()),
+                install: Install::Tree,
                 ..old.ci.clone()
             },
             ..old.clone()
         })
     );
+    assert!(!text.contains(&"a".repeat(64)), "{text}");
     let idle = ok(&docsys(&repo, &["upgrade"]));
     assert!(ci_rows(&idle).is_empty(), "{idle}");
     let _ = fs::remove_dir_all(&repo);

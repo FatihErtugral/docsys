@@ -1874,7 +1874,13 @@ next: review, `git add -A && git commit`, then open an agent session here."
                     // reads the message, is the one that speaks (D-125)
                     let deferred = history_journal && require && opts.range.is_none();
                     if undocumented && !deferred {
-                        println!("{}", docsys::say::gate_undocumented(g.scope, &g.code));
+                        println!(
+                            "{}",
+                            docsys::say::era_text(
+                                &root,
+                                &docsys::say::gate_undocumented(g.scope, &g.code)
+                            )
+                        );
                         if require && !history_journal {
                             println!(
                                 "{}",
@@ -1882,9 +1888,23 @@ next: review, `git add -A && git commit`, then open an agent session here."
                             );
                         }
                     }
+                    if let Some(why) = &g.unscoped {
+                        println!("{why}");
+                    }
+                    // Over a range there is nobody to ask once: code without
+                    // documentation fails the check, as CI must.
+                    let unanswered =
+                        (opts.range.is_some() || (require && !history_journal)) && undocumented;
+                    // the gate's own verdicts block as an error does, and
+                    // the summary counts them as errors (§2.2)
+                    let verdicts = usize::from(unanswered) + usize::from(!g.plan_files.is_empty());
                     println!(
-                        "-- {} error(s), {} warning(s)",
-                        g.lint_errors, g.lint_warnings
+                        "{}",
+                        docsys::say::gate_summary(
+                            g.lint_errors + verdicts,
+                            g.inherited,
+                            g.lint_warnings
+                        )
                     );
                     if docsys::era::Era::at(&root).finding_pointers() {
                         for p in docsys::feedback::pointers_once(
@@ -1894,10 +1914,6 @@ next: review, `git add -A && git commit`, then open an agent session here."
                             println!("{p}");
                         }
                     }
-                    // Over a range there is nobody to ask once: code without
-                    // documentation fails the check, as CI must.
-                    let unanswered =
-                        (opts.range.is_some() || (require && !history_journal)) && undocumented;
                     if g.lint_errors > 0 || unanswered || !g.plan_files.is_empty() {
                         ExitCode::from(1)
                     } else {
@@ -1934,11 +1950,20 @@ next: review, `git add -A && git commit`, then open an agent session here."
             }
         }
         ("fetch", None) => match docsys::consume::providers_readable(&opts.root)
-            .and_then(|()| docsys::export::fetch(&opts.root))
+            .and_then(|()| docsys::export::fetch_all(&opts.root))
         {
-            Ok(summary) => {
-                for s in &summary {
+            Ok(done) => {
+                for s in &done.lines {
                     println!("{s}");
+                }
+                if done.failed > 0 {
+                    // D-005: a provider that could not be read is a check
+                    // that could not run, never a pass
+                    eprintln!(
+                        "fetch: {} provider(s) could not be read; the others are current",
+                        done.failed
+                    );
+                    return ExitCode::from(2);
                 }
                 ExitCode::SUCCESS
             }

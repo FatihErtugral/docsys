@@ -1,0 +1,52 @@
+---
+name: kb-ingest
+description: Process the knowledge-base inbox — "process my inbox", "empty the inbox", "file these notes", or the note just captured. Distils raw notes into wiki pages, archives the source, runs the gate.
+---
+
+# kb-ingest — raw becomes knowledge
+
+Distillation, not movement (R-092): the raw note is evidence and stays; the
+wiki page is authored. Full discipline is applied HERE, so capture can stay
+free.
+
+For each file in `raw/inbox/`, or the one note just captured:
+
+1. **Classify the domain** against `domains:` in `.docmeta.yml`, the closest
+   declared domain first. Fits none? Add the domain to `domains:`, create
+   `wiki/<domain>/` with this note's page, and tell the person in one line.
+   A note that holds nothing to keep (noise) stays in the inbox with one open
+   question naming it (`docsys question add`), so the inbox never grows in
+   silence; deleting is never yours. The question is written in the base's
+   language.
+2. **A job done once?** A note that records a job finished for the first
+   time is archived to its domain (step 8) with no page. When a second
+   record of the same job arrives, the two become a `howto`: its steps, its
+   pitfalls, and each step's why in one clause — a longer why is an
+   `explanation` page the howto links. Both records go in its `sources:`.
+3. **Pick the type** — `reference` (facts, values), `howto` (steps),
+   `explanation` (why), `tutorial` (guided first run). Never mix types on one
+   page (R-031); if a page starts holding steps AND concepts, split it. A
+   rule — a correction, an "always" or a "never" from the person — is one
+   line with its why in the domain's `reference` page of rules.
+4. **A contradiction?** When the note says otherwise than a page, never write
+   over the page: show the person both, each with its source, and let them
+   decide; then update the one page that holds it. With the person away,
+   leave the page and record an open question.
+5. **Author or update** `wiki/<domain>/<type>/<slug>.md` with frontmatter:
+   `id` (stable, kebab-case, never renamed), `type`, `domain`,
+   `sources: [raw/…]`. A claim that
+   rests on a consumed project's own page cites it as `@namespace/id`
+   (materialized under `.federation/`; AGENTS.md → Sources beyond the inbox);
+   a claim that rests on a connector record cites the record's path like any
+   note.
+6. Open with one or two sentences that stand alone (R-032): a reader arrives
+   here from a search, not from the top of a chain.
+7. **Route it**: add the page to `wiki/<domain>/index.md`, and the domain to
+   `wiki/index.md` if new (R-035 grammar).
+8. **Archive the source**: `docsys raw move raw/inbox/<note> <domain>
+   --root <base>` — the note lands in `raw/<domain>/` with the same filename
+   and the same bytes (R-023), and every `sources:` entry that pointed at the
+   old path is rewritten by the tool (R-027). Never `git mv` and edit
+   `sources:` by hand: the hand edit is where evidence trails were severed.
+9. Gate: `docsys lint --root <base>` — finish clean or report what blocks;
+   then commit what this ingest wrote, staged by path.

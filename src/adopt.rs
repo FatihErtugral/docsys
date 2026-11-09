@@ -20,7 +20,7 @@ const GATE_END: &str = "# --- end of the docsys gate";
 /// under a docsys from before pins is named in one line (D-120). A skipped
 /// commit whose record cannot be written says so. The template stamp names a
 /// block behind the binary.
-const GATE_BLOCK: &str = r#"
+const GATE_BLOCK_05: &str = r#"
 # --- docsys documentation gate ---------------------------------------------
 # docsys-template: @VERSION@
 @MODE@
@@ -46,7 +46,7 @@ fi
 /// The git commit-msg block on a docsys/0.5 tree: the message is the journal
 /// entry, and the one place a hook can read it (D-125). Under
 /// `commit_policy: require`, code with no documentation needs `Docs: <why>`.
-const MESSAGE_BLOCK: &str = r#"
+const MESSAGE_BLOCK_05: &str = r#"
 # --- docsys documentation gate ---------------------------------------------
 # docsys-template: @VERSION@
 @MODE@
@@ -64,8 +64,71 @@ fi
 # --- end of the docsys gate ---
 "#;
 
-fn message_block(root_rel: &str, hard: bool) -> String {
-    MESSAGE_BLOCK
+/// The git pre-commit block on a docsys/0.6 tree (D-136, D-138): hard,
+/// because the gate blocks only on the errors the commit adds and names the
+/// ones it inherits; `gate` runs `refs` itself. A clone's hook serves every
+/// branch, and on one whose tree still declares an older spec the gate is not
+/// scoped, so there it warns, as before the move. A machine with no docsys
+/// is told in one line how to install it, and the commit goes on: a gate that
+/// cannot run is said, not passed silently (D-138). A docsys that cannot run
+/// the pinned version stops the commit, as on 0.5 (D-120).
+const GATE_BLOCK: &str = r#"
+# --- docsys documentation gate ---------------------------------------------
+# docsys-template: @VERSION@
+@MODE@
+# One-off skip: DOCSYS_SKIP=1 git commit ... (under commit_policy: require it leaves a debt item)
+docsys_gate_exit=@EXIT@
+# a branch whose tree declares an older spec is not scoped: it only warns (D-136)
+case "$(sed -n 's/^spec:[[:space:]]*//p' "@ROOT@/.docmeta.yml" 2>/dev/null | tr -d "\"'[:space:]")" in
+  docsys/0.[0-5]) docsys_gate_exit=0 ;;
+esac
+docsys_install="bash @ROOT@/.docsys-install"
+[ -f "@ROOT@/.docsys-install" ] || docsys_install="cargo install docsys --version $(head -n 1 "@ROOT@/.docsys-version" 2>/dev/null) --locked"
+if [ -z "${DOCSYS_SKIP:-}" ] && command -v docsys >/dev/null; then
+  docsys_pin=$(head -n 1 "@ROOT@/.docsys-version" 2>/dev/null)
+  if [ -n "$docsys_pin" ] && ! docsys --version >/dev/null 2>&1; then
+    echo "docsys: this tree pins docsys $docsys_pin; install: $docsys_install" >&2
+    [ "$docsys_gate_exit" -eq 0 ] || exit 1
+  elif ! docsys gate --repo . --root @ROOT@ && [ "$docsys_gate_exit" -ne 0 ]; then
+    exit 1
+  fi
+elif [ -n "${DOCSYS_SKIP:-}" ] && command -v docsys >/dev/null; then
+  docsys gate --repo . --root @ROOT@ --skipped >/dev/null || echo "docsys: this skipped commit is not recorded — the line above says why" >&2
+elif [ -z "${DOCSYS_SKIP:-}" ]; then
+  echo "docsys: not installed, so this commit is not checked; install the version this tree pins: $docsys_install" >&2
+fi
+# --- end of the docsys gate ---
+"#;
+
+/// The git commit-msg block on a docsys/0.6 tree: as 0.5's, and a merge that
+/// cannot run the pinned version is told how to install it (D-138).
+const MESSAGE_BLOCK: &str = r#"
+# --- docsys documentation gate ---------------------------------------------
+# docsys-template: @VERSION@
+@MODE@
+# The commit message is the journal entry: `docsys gate --message` reads it (D-125).
+if [ -z "${DOCSYS_SKIP:-}" ] && command -v docsys >/dev/null; then
+  docsys_pin=$(head -n 1 "@ROOT@/.docsys-version" 2>/dev/null)
+  if [ -n "$docsys_pin" ] && ! docsys --version >/dev/null 2>&1; then
+    docsys_install="bash @ROOT@/.docsys-install"
+    [ -f "@ROOT@/.docsys-install" ] || docsys_install="cargo install docsys --version $docsys_pin --locked"
+    # a commit heard it from the pre-commit half; a merge runs this half alone
+    case "$1" in *MERGE_MSG) echo "docsys: this tree pins docsys $docsys_pin; install: $docsys_install" >&2 ;; esac
+    [ "@EXIT@" -eq 0 ] || exit 1
+  else
+    docsys gate --repo . --root @ROOT@ --message "$1" || [ "@EXIT@" -eq 0 ] || exit 1
+  fi
+fi
+# --- end of the docsys gate ---
+"#;
+
+fn message_block(root_rel: &str, hard: bool, era: crate::era::Era) -> String {
+    let block = if era.scoped_gate() {
+        MESSAGE_BLOCK
+    } else {
+        MESSAGE_BLOCK_05
+    };
+    block
         .replace("@VERSION@", agents::TEMPLATE_VERSION)
         .replace(
             "@MODE@",
@@ -79,6 +142,21 @@ fn message_block(root_rel: &str, hard: bool) -> String {
         .replace("@ROOT@", root_rel)
 }
 
+/// Whether a docsys block is a docsys/0.6 one: it serves a branch at an
+/// older spec too, so a move to that spec keeps it (D-136).
+fn is_scoped(block: &[&str]) -> bool {
+    block.iter().any(|l| l.trim() == crate::say::GATE_SCOPED)
+}
+
+/// The docsys block of this clone's pre-commit hook, its lines.
+fn pre_commit_block(repo: &Path) -> Option<Vec<String>> {
+    let hook = gate_hooks_dir(repo)?.join("pre-commit");
+    let text = fs::read_to_string(hook).ok()?;
+    let lines: Vec<&str> = text.lines().collect();
+    let (s0, e0) = gate_span(&lines)?;
+    Some(lines.get(s0..=e0)?.iter().map(|l| l.to_string()).collect())
+}
+
 /// Whether a docsys block is in warn mode.
 fn is_warn(block: &[&str]) -> bool {
     block.iter().any(|l| {
@@ -86,10 +164,15 @@ fn is_warn(block: &[&str]) -> bool {
     })
 }
 
-fn gate_block(root_rel: &str, hard: bool) -> String {
-    GATE_BLOCK
+fn gate_block(root_rel: &str, hard: bool, era: crate::era::Era) -> String {
+    let (block, hard_line) = if era.scoped_gate() {
+        (GATE_BLOCK, crate::say::GATE_SCOPED)
+    } else {
+        (GATE_BLOCK_05, HARD_MODE_LINE)
+    };
+    block
         .replace("@VERSION@", agents::TEMPLATE_VERSION)
-        .replace("@MODE@", if hard { HARD_MODE_LINE } else { WARN_MODE_LINE })
+        .replace("@MODE@", if hard { hard_line } else { WARN_MODE_LINE })
         .replace("@EXIT@", if hard { "1" } else { "0" })
         .replace("@ROOT@", root_rel)
 }
@@ -213,6 +296,24 @@ fn ensure_ci_workflow(repo: &Path, root_rel: &str, ci: Option<&Ci>) -> CiOutcome
                     opens_pull_requests: false,
                 };
             }
+        }
+    }
+    // docsys/0.6: the workflow runs the tree's installer, written with it
+    // from the release's values (D-138)
+    if matches!(ci.install, workflow::Install::Tree) {
+        let written = workflow::release_sums_of(agents::TEMPLATE_VERSION).and_then(|sums| {
+            fs::write(
+                repo.join(root_rel).join(workflow::INSTALLER),
+                workflow::installer_text(agents::TEMPLATE_VERSION, &sums),
+            )
+            .map_err(|e| e.to_string())
+        });
+        if let Err(why) = written {
+            return CiOutcome {
+                summary: format!("not written — the release could not be read ({why}); run `docsys adopt --ci-install release` again once it can be"),
+                verify_job: false,
+                opens_pull_requests: false,
+            };
         }
     }
     let verify = ci.verify;
@@ -395,8 +496,19 @@ pub(crate) fn ensure_git_gate(
     repo: &Path,
     root_rel: &str,
     clean: bool,
-    message: bool,
+    era: crate::era::Era,
 ) -> &'static str {
+    let message = era.journal_from_history();
+    // docsys/0.6: the gate is hard on any tree, its debt inherited (D-136)
+    let clean = clean || era.scoped_gate();
+    // a clone's hook serves every branch: a move to an older spec on one of
+    // them keeps the block a later move wrote, which warns there
+    if !era.scoped_gate()
+        && pre_commit_block(repo)
+            .is_some_and(|b| is_scoped(&b.iter().map(String::as_str).collect::<Vec<_>>()))
+    {
+        return "kept";
+    }
     // a base that is its own repository names itself `.`
     let root_rel = if root_rel.is_empty() { "." } else { root_rel };
     // A tracked .githooks/ is the project's own convention: when nothing
@@ -420,7 +532,7 @@ pub(crate) fn ensure_git_gate(
     };
     let pre = ensure_block(&hooks_dir, "pre-commit", clean, &|hard| {
         if message {
-            gate_block(root_rel, hard)
+            gate_block(root_rel, hard, era)
         } else {
             gate_block_015(root_rel, hard)
         }
@@ -435,7 +547,7 @@ pub(crate) fn ensure_git_gate(
         .and_then(|(s, e)| pre_lines.get(s..=e))
         .is_some_and(|b| !is_warn(b));
     match ensure_block(&hooks_dir, "commit-msg", hard, &|h| {
-        message_block(root_rel, h)
+        message_block(root_rel, h, era)
     }) {
         "failed" => "failed",
         "written" | "upgraded" | "hardened" if pre == "kept" => "upgraded",
@@ -656,9 +768,9 @@ pub fn run_placed(
     // 4 · git pre-commit gate — hard when the tree is clean as the hook will
     // see it (inside the repository: pins and history included), warn-mode
     // while it carries debt (D-072)
-    let clean = gate_clean(root, repo);
-    let message = crate::era::Era::at(root).journal_from_history();
-    let gate = ensure_git_gate(repo, &root_rel, clean, message);
+    let era = crate::era::Era::at(root);
+    let clean = era.scoped_gate() || gate_clean(root, repo);
+    let gate = ensure_git_gate(repo, &root_rel, clean, era);
     changed |= gate != "kept";
     let mode = if clean {
         "hard"
@@ -1143,7 +1255,8 @@ pub(crate) fn gate_root(repo: &Path) -> Option<String> {
 /// binary writes, its mode kept — `None` when there is no block. For `docsys
 /// upgrade`'s plan, which rewrites a block behind the binary and never changes
 /// its mode.
-pub(crate) fn gate_current(repo: &Path, root_rel: &str, message: bool) -> Option<bool> {
+pub(crate) fn gate_current(repo: &Path, root_rel: &str, era: crate::era::Era) -> Option<bool> {
+    let message = era.journal_from_history();
     let root_rel = if root_rel.is_empty() { "." } else { root_rel };
     let hook = gate_hooks_dir(repo)?.join("pre-commit");
     let existing = fs::read_to_string(hook).ok()?;
@@ -1151,9 +1264,17 @@ pub(crate) fn gate_current(repo: &Path, root_rel: &str, message: bool) -> Option
     let (s0, e0) = gate_span(&lines)?;
     let old = lines.get(s0..=e0)?;
     let was_warn = is_warn(old);
+    // a docsys/0.6 gate is hard: a warn-mode block is behind it (D-136)
+    if era.scoped_gate() && was_warn {
+        return Some(false);
+    }
+    // a block a later move wrote serves an older spec too
+    if !era.scoped_gate() && is_scoped(old) {
+        return Some(true);
+    }
     // the block `ensure_git_gate` writes for this era
     let fresh = if message {
-        gate_block(root_rel, !was_warn)
+        gate_block(root_rel, !was_warn, era)
     } else {
         gate_block_015(root_rel, !was_warn)
     };
@@ -1167,7 +1288,7 @@ pub(crate) fn gate_current(repo: &Path, root_rel: &str, message: bool) -> Option
     }
     let msg = fs::read_to_string(gate_hooks_dir(repo)?.join("commit-msg")).unwrap_or_default();
     let mlines: Vec<&str> = msg.lines().collect();
-    let fresh = message_block(root_rel, !was_warn);
+    let fresh = message_block(root_rel, !was_warn, era);
     let fresh_lines: Vec<&str> = fresh.trim_matches('\n').lines().collect();
     Some(
         gate_span(&mlines)

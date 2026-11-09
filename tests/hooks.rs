@@ -94,7 +94,7 @@ fn build_repo04(name: &str) -> PathBuf {
         &dm,
         fs::read_to_string(&dm)
             .unwrap()
-            .replace("spec: docsys/0.5", "spec: docsys/0.4"),
+            .replace("spec: docsys/0.6", "spec: docsys/0.4"),
     )
     .unwrap();
     fs::create_dir_all(repo.join("docs/work")).unwrap();
@@ -953,6 +953,10 @@ fn commit_through_gate(repo: &Path, args: &[&str], env: &[(&str, &str)]) -> (i32
 fn a_skipped_commit_says_only_what_its_record_needs() {
     let repo = adopted("skip-lint");
     require(&repo);
+    // a docsys/0.5 gate counts every lint error of the tree (D-136 scopes it)
+    let meta = repo.join("docs/.docmeta.yml");
+    let spec = fs::read_to_string(&meta).unwrap();
+    fs::write(&meta, spec.replace("spec: docsys/0.6", "spec: docsys/0.5")).unwrap();
     commit_through_gate(
         &repo,
         &["-q", "-m", "policy", "-m", "Docs: the policy"],

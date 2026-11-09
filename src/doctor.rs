@@ -294,7 +294,11 @@ pub fn run(repo: &Path, root: &Path, claude_dir: &Path) -> Diagnosis {
                 let behind = if crate::era::Era::at(root).journal_from_history() {
                     text.contains("docsys documentation gate") && !text.contains(&stamp)
                 } else {
-                    crate::adopt::gate_current(repo, &crate::fresh::root_rel(repo, root), false)
+                    crate::adopt::gate_current(
+                        repo,
+                        &crate::fresh::root_rel(repo, root),
+                        crate::era::Era::at(root),
+                    )
                         == Some(false)
                 };
                 if behind {

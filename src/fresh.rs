@@ -15,7 +15,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use crate::checks::Report;
 use crate::era::Era;
@@ -441,6 +441,21 @@ fn region_hash_now(repo: &Path, pin: &Pin, era: Era) -> Result<String, (RuleId, 
     region_now(repo, pin, era).map(|text| crate::ack::region_hash(&text, &pin.path))
 }
 
+/// The region hash a pin label (`path` or `path#symbol`) names in the tree
+/// at `repo`: what a scoped gate keys an R-111 or R-114 finding by (D-136).
+pub fn region_of_label(repo: &Path, label: &str, era: Era) -> Option<String> {
+    let (path, symbol) = match label.split_once('#') {
+        Some((p, s)) => (p, Some(s.to_string())),
+        None => (label, None),
+    };
+    let pin = Pin {
+        path: path.to_string(),
+        symbol,
+        hash: String::new(),
+    };
+    region_hash_now(repo, &pin, era).ok()
+}
+
 fn page_id(fm: &Frontmatter) -> Option<String> {
     fm.fields
         .get("id")
@@ -466,14 +481,9 @@ fn pin_problem(
     if era.acknowledged_pins() && pin.hash.is_empty() {
         return match region_hash_now(repo, pin, era) {
             Err(e) => Some(e),
-            Ok(now) if !id.is_some_and(|i| crate::ack::holds(root, i, &now)) => Some((
-                R111,
-                format!(
-                    "stale: `{}` reads differently from every acknowledgement of this \
-                     page — re-read the page against it, then `docsys pin --refresh {rel}`",
-                    pin.label()
-                ),
-            )),
+            Ok(now) if !id.is_some_and(|i| crate::ack::holds(root, i, &now)) => {
+                Some((R111, stale_message(pin, rel, "")))
+            }
             Ok(_) => None,
         };
     }
@@ -500,10 +510,24 @@ fn pin_problem(
     }
 }
 
-/// R-110/R-111/R-113/R-114 over every pinned permanent page.
+/// R-111's message for a region no acknowledgement matches; `since` names
+/// the change that moved it, when history knows (empty otherwise).
+fn stale_message(pin: &Pin, rel: &str, since: &str) -> String {
+    format!(
+        "stale: `{}` reads differently from every acknowledgement of this page{since} — \
+         re-read the page against it, then `docsys pin --refresh {rel}`",
+        pin.label()
+    )
+}
+
+/// R-110/R-111/R-113/R-114 over every pinned permanent page. A region no
+/// acknowledgement matches is traced in history: the change that moved it is
+/// named, and on a docsys/0.6 tree a combination of changes that each
+/// acknowledged their own text is reported, not an error (D-135).
 pub fn check_pins(tree: &DocTree, repo: &Path, r: &mut Report) {
     let era = Era::of(tree);
     let mut inspected = 0usize;
+    let mut trace = Trace::new(repo, &tree.root);
     for page in &tree.pages {
         if page.kind != Kind::Permanent {
             continue;
@@ -517,8 +541,52 @@ pub fn check_pins(tree: &DocTree, repo: &Path, r: &mut Report) {
             else {
                 continue;
             };
-            r.findings
-                .push(Finding::err(rule, &page.rel, &pin.label(), msg));
+            let acknowledged = era.acknowledged_pins() && pin.hash.is_empty() && rule == R111;
+            let traced = match id.as_deref() {
+                Some(i) if acknowledged && region_hash_now(repo, &pin, era).is_ok() => {
+                    Some(trace.judge(i, &pin, &page.rel, era))
+                }
+                _ => None,
+            };
+            let finding = match traced {
+                Some(Verdict::Combined(names)) if era.combined_rereads() => Finding::warn(
+                    rule,
+                    &page.rel,
+                    &pin.label(),
+                    format!(
+                        "`{}` combines {}, each re-read on its own and never together — \
+                         re-read the page against the combination with the next change to \
+                         this region or page, then `docsys pin --refresh {}`",
+                        pin.label(),
+                        names.join(" and "),
+                        page.rel
+                    ),
+                ),
+                Some(Verdict::Combined(names)) => Finding::err(
+                    rule,
+                    &page.rel,
+                    &pin.label(),
+                    stale_message(
+                        &pin,
+                        &page.rel,
+                        &format!(
+                            " — it combines {}, each re-read on its own",
+                            names.join(" and ")
+                        ),
+                    ),
+                ),
+                Some(Verdict::Unread(change)) => Finding::err(
+                    rule,
+                    &page.rel,
+                    &pin.label(),
+                    stale_message(&pin, &page.rel, &format!(" since {change}")),
+                ),
+                Some(Verdict::Cannot(why)) if era.combined_rereads() => {
+                    Finding::err(rule, &page.rel, &pin.label(), format!("{msg} ({why})"))
+                }
+                _ => Finding::err(rule, &page.rel, &pin.label(), msg),
+            };
+            r.findings.push(finding);
         }
     }
     let unit = if era.page_verification() {
@@ -527,6 +595,406 @@ pub fn check_pins(tree: &DocTree, repo: &Path, r: &mut Report) {
         "pins"
     };
     r.inspected.insert(unit, inspected);
+}
+
+// ---------------------------------------------------------------- pin history
+
+/// What history says about a region no acknowledgement matches (D-135).
+pub enum Verdict {
+    /// Every change since the region's last acknowledged text acknowledged
+    /// the text it brought; the changes, oldest first.
+    Combined(Vec<String>),
+    /// This change moved the region and acknowledged nothing it brought.
+    Unread(String),
+    /// History cannot tell, and why.
+    Cannot(String),
+}
+
+thread_local! {
+    /// The commit a scoped gate measures its change from (D-135): a change
+    /// that moves a combined region or its page re-reads the combination.
+    static SCOPE_BASE: std::cell::RefCell<Option<String>> = const { std::cell::RefCell::new(None) };
+}
+
+/// Run `f` with the change measured from `base` — the scoped gate's lint.
+pub fn with_scope_base<T>(base: Option<&str>, f: impl FnOnce() -> T) -> T {
+    SCOPE_BASE.with(|b| *b.borrow_mut() = base.map(str::to_string));
+    let out = f();
+    SCOPE_BASE.with(|b| *b.borrow_mut() = None);
+    out
+}
+
+fn scope_base() -> Option<String> {
+    SCOPE_BASE.with(|b| b.borrow().clone())
+}
+
+/// The most changes of a pinned file one trace reads back.
+const TRACE_LIMIT: usize = 200;
+
+struct Change {
+    sha: String,
+    parents: Vec<String>,
+    author: String,
+    day: String,
+    subject: String,
+    /// `(status, old blob, new blob, path)` of each path it changed
+    paths: Vec<(String, String, String, String)>,
+}
+
+/// `(number, title)` of the pull request a commit subject names: a squash
+/// ends in `(#n)`, a merge commit opens with `Merge pull request #n`.
+fn pull_request(subject: &str) -> Option<(String, Option<String>)> {
+    let digits = |s: &str| -> String { s.chars().take_while(char::is_ascii_digit).collect() };
+    if let Some(rest) = subject.strip_prefix("Merge pull request #") {
+        let n = digits(rest);
+        return (!n.is_empty()).then_some((n, None));
+    }
+    let at = subject.rfind(" (#")?;
+    let rest = subject.get(at + 3..)?;
+    let n = digits(rest);
+    (!n.is_empty() && rest.get(n.len()..) == Some(")"))
+        .then(|| (n, subject.get(..at).map(str::to_string)))
+}
+
+/// History, read for the pins of one lint run: one blob reader, and one
+/// answer to whether history is complete here.
+pub struct Trace {
+    repo: PathBuf,
+    root: PathBuf,
+    root_rel: String,
+    complete: Option<Result<(), String>>,
+    blobs: Option<crate::git::Blobs>,
+}
+
+impl Trace {
+    pub fn new(repo: &Path, root: &Path) -> Trace {
+        Trace {
+            repo: repo.to_path_buf(),
+            root: root.to_path_buf(),
+            root_rel: root_rel(repo, root),
+            complete: None,
+            blobs: None,
+        }
+    }
+
+    fn in_repo(&self, rel: &str) -> String {
+        if self.root_rel.is_empty() {
+            rel.to_string()
+        } else {
+            format!("{}/{rel}", self.root_rel)
+        }
+    }
+
+    fn git(&self, args: &[&str]) -> Option<String> {
+        crate::git::cmd(&self.repo)
+            .args(args)
+            .output()
+            .ok()
+            .filter(|o| o.status.success())
+            .map(|o| String::from_utf8_lossy(&o.stdout).to_string())
+    }
+
+    /// Whether history can answer here: the repository's own top, with its
+    /// whole history (R-011: a cut history is no answer).
+    fn complete(&mut self) -> Result<(), String> {
+        if self.complete.is_none() {
+            let top = crate::git::toplevel(&self.repo).and_then(|t| t.canonicalize().ok());
+            let here = self.repo.canonicalize().ok();
+            let answer = if top.is_none() || top != here {
+                Err("no version-control history here to read the change from".to_string())
+            } else if self
+                .git(&["rev-parse", "--is-shallow-repository"])
+                .is_none_or(|s| s.trim() != "false")
+            {
+                Err(
+                    "history is shallow here, so a merge of re-read changes cannot be told \
+                     from an unread change — check out with fetch-depth: 0"
+                        .to_string(),
+                )
+            } else {
+                Ok(())
+            };
+            self.complete = Some(answer);
+        }
+        self.complete.clone().unwrap_or(Ok(()))
+    }
+
+    fn read(&mut self, name: &str) -> Option<String> {
+        if self.blobs.is_none() {
+            self.blobs = crate::git::Blobs::open(&self.repo);
+        }
+        self.blobs.as_mut()?.read(name)
+    }
+
+    fn hash_of(source: &str, pin: &Pin, era: Era) -> Option<String> {
+        let symbol = pin.symbol.as_deref();
+        let text = if era.declaration_pins() {
+            declared_region(source, &pin.path, symbol)
+        } else {
+            region(source, &pin.path, symbol)
+        }
+        .ok()?;
+        Some(crate::ack::region_hash(&text, &pin.path))
+    }
+
+    fn hash_at(&mut self, object: &str, pin: &Pin, era: Era) -> Option<String> {
+        let source = self.read(object)?;
+        Self::hash_of(&source, pin, era)
+    }
+
+    /// The first-parent changes of the pinned file and of the page's
+    /// acknowledgements, newest first.
+    fn log(&self, path: &str, acks: &str) -> Vec<Change> {
+        let limit = TRACE_LIMIT.to_string();
+        let Some(text) = self.git(&[
+            "log",
+            "--first-parent",
+            "--diff-merges=first-parent",
+            "--no-renames",
+            "--raw",
+            "--no-abbrev",
+            "--format=@@%H%x09%P%x09%an%x09%as%x09%s",
+            "-n",
+            &limit,
+            "HEAD",
+            "--",
+            path,
+            acks,
+        ]) else {
+            return Vec::new();
+        };
+        let mut out: Vec<Change> = Vec::new();
+        for line in text.lines() {
+            if let Some(head) = line.strip_prefix("@@") {
+                let mut f = head.splitn(5, '\t');
+                let mut next = || f.next().unwrap_or("").to_string();
+                let sha = next();
+                let parents = next()
+                    .split(' ')
+                    .filter(|p| !p.is_empty())
+                    .map(str::to_string)
+                    .collect();
+                out.push(Change {
+                    sha,
+                    parents,
+                    author: next(),
+                    day: next(),
+                    subject: next(),
+                    paths: Vec::new(),
+                });
+            } else if let Some((meta, p)) = line.strip_prefix(':').and_then(|l| l.split_once('\t'))
+            {
+                let f: Vec<&str> = meta.split(' ').collect();
+                if let (Some(c), Some(old), Some(new), Some(status)) =
+                    (out.last_mut(), f.get(2), f.get(3), f.get(4))
+                {
+                    c.paths.push((
+                        status.to_string(),
+                        old.to_string(),
+                        new.to_string(),
+                        p.to_string(),
+                    ));
+                }
+            }
+        }
+        out
+    }
+
+    /// A change as a reader finds it: its pull request when the subject names
+    /// one, else its commit.
+    fn short(c: &Change) -> String {
+        match pull_request(&c.subject) {
+            Some((n, _)) => format!("#{n}"),
+            None => c.sha.chars().take(8).collect(),
+        }
+    }
+
+    /// A change in full: pull request, title, author, day and commit. A merge
+    /// commit's title is its message's first body line, and its author the
+    /// merged head's.
+    fn name(&self, c: &Change) -> String {
+        let sha: String = c.sha.chars().take(8).collect();
+        let merged = c.parents.get(1);
+        let author = merged
+            .and_then(|p| self.git(&["log", "-1", "--format=%an", p]))
+            .map(|a| a.trim().to_string())
+            .filter(|a| !a.is_empty())
+            .unwrap_or_else(|| c.author.clone());
+        match pull_request(&c.subject) {
+            Some((n, title)) => {
+                let title = title
+                    .or_else(|| {
+                        self.git(&["log", "-1", "--format=%b", &c.sha])
+                            .and_then(|b| {
+                                b.lines()
+                                    .map(str::trim)
+                                    .find(|l| !l.is_empty())
+                                    .map(str::to_string)
+                            })
+                    })
+                    .unwrap_or_else(|| c.subject.clone());
+                format!("#{n} \"{title}\" ({author}, {}, {sha})", c.day)
+            }
+            None => format!("{sha} \"{}\" ({author}, {})", c.subject, c.day),
+        }
+    }
+
+    /// `ours` with the change `base` → `theirs` applied; `None` on a conflict.
+    fn merged_text(&mut self, ours: &str, base: &str, theirs: &str) -> Option<String> {
+        let texts = [self.read(ours)?, self.read(base)?, self.read(theirs)?];
+        let dir = std::env::temp_dir().join(format!(
+            "docsys-trace-{}-{}",
+            std::process::id(),
+            sha256_hex(format!("{ours}{base}{theirs}").as_bytes())
+                .get(..12)
+                .unwrap_or("")
+        ));
+        fs::create_dir_all(&dir).ok()?;
+        let files: Vec<PathBuf> = ["ours", "base", "theirs"]
+            .iter()
+            .zip(&texts)
+            .map(|(name, text)| {
+                let f = dir.join(name);
+                fs::write(&f, text).map(|()| f)
+            })
+            .collect::<Result<_, _>>()
+            .ok()?;
+        let out = std::process::Command::new("git")
+            .arg("merge-file")
+            .arg("-p")
+            .args(&files)
+            .output();
+        let _ = fs::remove_dir_all(&dir);
+        out.ok()
+            .filter(|o| o.status.success())
+            .map(|o| String::from_utf8_lossy(&o.stdout).to_string())
+    }
+
+    /// Whether change `c` acknowledged the text it brought to the region. A
+    /// merge commit's merged head holds that acknowledgement; a squash or a
+    /// direct commit must have added it, and it must name the change's own
+    /// text: the commit's change to the file, applied to an earlier state of
+    /// the line, is the text the pull request read.
+    fn read_alone(
+        &mut self,
+        c: &Change,
+        earlier: &[Change],
+        pin: &Pin,
+        acks: &str,
+        era: Era,
+    ) -> bool {
+        if let Some(head) = c.parents.get(1) {
+            return match self.hash_at(&format!("{head}:{}", pin.path), pin, era) {
+                Some(h) => self.read(&format!("{head}:{acks}/{h}")).is_some(),
+                None => false,
+            };
+        }
+        let prefix = format!("{acks}/");
+        let added: Vec<&str> = c
+            .paths
+            .iter()
+            .filter(|p| p.0.starts_with('A'))
+            .filter_map(|p| p.3.strip_prefix(&prefix))
+            .collect();
+        let Some((_, before, after, _)) = c.paths.iter().find(|p| p.3 == pin.path) else {
+            return false;
+        };
+        if added.is_empty() {
+            return false;
+        }
+        let mut states = vec![before.clone()];
+        for p in earlier
+            .iter()
+            .flat_map(|e| &e.paths)
+            .filter(|p| p.3 == pin.path)
+        {
+            for blob in [&p.2, &p.1] {
+                if !blob.bytes().all(|b| b == b'0') && !states.contains(blob) {
+                    states.push(blob.clone());
+                }
+            }
+        }
+        states.iter().any(|state| {
+            self.merged_text(state, before, after)
+                .and_then(|text| Self::hash_of(&text, pin, era))
+                .is_some_and(|h| added.contains(&h.as_str()))
+        })
+    }
+
+    /// The verdict for a pin of page `id` no acknowledgement matches.
+    pub fn judge(&mut self, id: &str, pin: &Pin, page_rel: &str, era: Era) -> Verdict {
+        if let Err(why) = self.complete() {
+            return Verdict::Cannot(why);
+        }
+        let Ok(now) = region_hash_now(&self.repo, pin, era) else {
+            return Verdict::Cannot("the region cannot be read".to_string());
+        };
+        if let Some(base) = scope_base().filter(|_| era.combined_rereads()) {
+            let at_base = self.hash_at(&format!("{base}:{}", pin.path), pin, era);
+            let page = self.in_repo(page_rel);
+            let page_base = self.read(&format!("{base}:{page}"));
+            let page_now = fs::read_to_string(self.root.join(page_rel)).ok();
+            if at_base.as_deref() != Some(now.as_str()) || page_base != page_now {
+                return Verdict::Cannot(
+                    "this change moves the region or its page, so it re-reads the combination"
+                        .to_string(),
+                );
+            }
+        }
+        if self
+            .hash_at(&format!("HEAD:{}", pin.path), pin, era)
+            .as_deref()
+            != Some(now.as_str())
+        {
+            return Verdict::Unread("the uncommitted change in the working tree".to_string());
+        }
+        let acks = self.in_repo(&format!("{}/{id}", crate::ack::DIR));
+        let changes = self.log(&pin.path, &acks);
+        let mut current = now;
+        let mut read: Vec<String> = Vec::new();
+        for (k, c) in changes.iter().enumerate() {
+            let file = c.paths.iter().find(|p| p.3 == pin.path);
+            let before = file.map(|p| self.hash_at(&p.1, pin, era));
+            if self.read(&format!("{}:{acks}/{current}", c.sha)).is_some() {
+                if read.is_empty() {
+                    return Verdict::Cannot(
+                        "history acknowledges this text and the tree does not".to_string(),
+                    );
+                }
+                let moved = before
+                    .as_ref()
+                    .is_some_and(|b| b.as_deref() != Some(current.as_str()));
+                read.push(if moved {
+                    Self::short(c)
+                } else {
+                    format!("the text {} acknowledged", Self::short(c))
+                });
+                read.reverse();
+                return Verdict::Combined(read);
+            }
+            let Some(before) = before else { continue };
+            if before.as_deref() == Some(current.as_str()) {
+                continue;
+            }
+            if !self.read_alone(c, changes.get(k + 1..).unwrap_or(&[]), pin, &acks, era) {
+                return Verdict::Unread(self.name(c));
+            }
+            read.push(Self::short(c));
+            match before {
+                Some(h) => current = h,
+                None => {
+                    return Verdict::Cannot(format!(
+                        "the region has no version before {}",
+                        Self::short(c)
+                    ))
+                }
+            }
+        }
+        Verdict::Cannot(format!(
+            "no acknowledged version of the region in the last {} change(s) of its file",
+            changes.len()
+        ))
+    }
 }
 
 // ---------------------------------------------------------------- history
@@ -548,6 +1016,11 @@ fn days_of(iso: &str) -> Option<i64> {
     let m: i64 = it.next()?.parse().ok()?;
     let d: i64 = it.next()?.parse().ok()?;
     Some(days_from_civil(y, m, d))
+}
+
+/// Whole days from one ISO date to a later one.
+pub(crate) fn days_between(from: &str, to: &str) -> Option<i64> {
+    Some(days_of(to)? - days_of(from)?)
 }
 
 /// What version control knows about the tree: the last content change of

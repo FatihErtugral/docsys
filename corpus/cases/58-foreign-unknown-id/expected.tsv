@@ -1,0 +1,4 @@
+# A consumed namespace that was fetched and holds no such id: the citation is dangling (R-139), not "not materialized"
+EXIT	1
+ERROR	R-076	reference/notes.md	@svc-a/missing-page
+WARN	R-076	reference/notes.md	@svc-z/x

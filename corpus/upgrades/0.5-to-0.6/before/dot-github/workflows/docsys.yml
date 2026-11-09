@@ -1,0 +1,49 @@
+# docsys documentation workflow — written by `docsys adopt`; edit freely, it is not regenerated.
+name: docsys
+
+on:
+  push:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+jobs:
+  docs:
+    # The runners that reach the network this repository needs.
+    runs-on: [self-hosted, linux]
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4.2.2
+        with:
+          fetch-depth: 0
+
+      - name: docsys 0.16.1, the release the tree pins, checked against the sha256 its upgrade wrote
+        shell: bash
+        run: |
+          # `docsys upgrade` wrote this version and its archives' sha256 values from
+          # the release, reviewed with it: a pin moved alone installs nothing.
+          v=$(head -n 1 "docs/.docsys-version" 2>/dev/null | tr -d '[:space:]' || true)
+          if [ "$v" != "0.16.1" ]; then
+            echo "docsys: docs/.docsys-version names ${v:-no version}, and this workflow installs 0.16.1 — run docsys upgrade --apply, which pins both" >&2
+            exit 1
+          fi
+          case "$(uname -s)-$(uname -m)" in
+            Linux-x86_64) target=x86_64-unknown-linux-musl sum=f84a36bcce535f8b6991d9dffebc149e97ae25371c6d47e78468cc111eccfc5c ;;
+            Linux-aarch64) target=aarch64-unknown-linux-musl sum=1bdab21a951478b3ca473e011897346f3f9477da44e6f28ab85bebadf7d6fbd6 ;;
+            Darwin-x86_64) target=x86_64-apple-darwin sum=1695dae4588378c9f5ea9f080f71f765c4a326ffa531c35430c041dc39731ef1 ;;
+            Darwin-arm64) target=aarch64-apple-darwin sum=ad91a7b75ca0c6ee9ec477a08ea86e255d475868e4370e1fb97c4f58dfd649a1 ;;
+            *) echo "docsys: no release archive for a $(uname -s)-$(uname -m) runner" >&2; exit 1 ;;
+          esac
+          name="docsys-v0.16.1-$target"
+          curl -fsSL -o "$RUNNER_TEMP/$name.tar.gz" "https://github.com/FatihErtugral/docsys/releases/download/v0.16.1/$name.tar.gz"
+          got=$(cd "$RUNNER_TEMP" && { sha256sum "$name.tar.gz" 2>/dev/null || shasum -a 256 "$name.tar.gz"; } | cut -d ' ' -f 1)
+          if [ "$got" != "$sum" ]; then
+            echo "docsys: $name.tar.gz hashes to $got, not the $sum this workflow pins" >&2
+            exit 1
+          fi
+          tar -xzf "$RUNNER_TEMP/$name.tar.gz" -C "$RUNNER_TEMP"
+          echo "$RUNNER_TEMP/$name" >> "$GITHUB_PATH"
+
+      - run: docsys lint --root docs --repo .
+      - run: docsys refs --repo . --root docs
+      - if: github.event_name == 'pull_request'
+        run: docsys gate --repo . --root docs --range "origin/${{ github.base_ref }}...HEAD"

@@ -1,0 +1,9 @@
+spec: docsys/0.6
+profile: project
+default_content_language: en
+# The name a consumer uses for this tree — `consume: [team-before]` (D-075).
+namespace: team-before
+created: 2026-11-09
+
+# The commit gate: ask (asks once) | require (no commit without its documentation, R-209).
+commit_policy: ask

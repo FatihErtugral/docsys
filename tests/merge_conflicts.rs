@@ -184,7 +184,7 @@ fn base(name: &str, spec: &str) -> PathBuf {
     let v04 = spec == "docsys/0.4";
     let mut text = fs::read_to_string(&meta)
         .unwrap()
-        .replace("spec: docsys/0.5", &format!("spec: {spec}"));
+        .replace("spec: docsys/0.6", &format!("spec: {spec}"));
     if v04 {
         text.push_str("maintainers: [\"t <t@example.invalid> @t\"]\n");
     }
@@ -431,17 +431,17 @@ fn branch(repo: &Path, n: usize, action: &str, v04: bool) -> String {
                 day,
             );
         }
-        // the move to this version: the pin and the CI install step it
+        // the move to this version: the pin and the tree's installer it
         // pins, the same lines on every branch that makes it (0.5 only)
         "upgrade" if v04 => {}
         "upgrade" => {
             docsys(repo, &["upgrade", "--apply"], day);
             let pin = fs::read_to_string(repo.join("docs/.docsys-version")).unwrap();
             assert_eq!(pin.trim(), env!("CARGO_PKG_VERSION"));
-            let workflow = fs::read_to_string(repo.join(docsys::workflow::PATH)).unwrap();
+            let installer = fs::read_to_string(repo.join("docs/.docsys-install")).unwrap();
             assert!(
-                workflow.contains(&format!("sum={} ;;", "e".repeat(64))),
-                "{workflow}"
+                installer.contains(&format!("sum={} ;;", "e".repeat(64))),
+                "{installer}"
             );
         }
         // a docsys/0.4 maintainer verifies the page; on 0.5 a cross-check

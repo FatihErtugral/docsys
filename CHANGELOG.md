@@ -5,6 +5,80 @@ All notable changes to docsys are documented here. The format follows
 [SemVer](https://semver.org/). Release notes are extracted from this file
 by the release workflow — the tag's section becomes the GitHub release body.
 
+## [0.18.0] - 2026-11-09
+
+### Upgrading from 0.17.0 or 0.16.1
+
+- Spec docsys/0.6. A docsys/0.5 tree keeps today's findings and its gate
+  until `docsys upgrade --apply --commit` moves it, one commit: nothing is
+  edited by hand. Every clone runs `docsys upgrade --apply` once after
+  pulling the move, as before; a clone whose gate is tracked in `.githooks/`
+  gets it with the pull.
+- The move hardens the git gate — it blocks only on what a commit adds — and,
+  where CI installs docsys from its release, writes `.docsys-install` beside
+  `.docsys-version` and makes the workflow's install step run it. In a
+  workflow you edited, only the install step, an unfiltered `push:`, the
+  `lint` and `refs` steps beside a `gate --range` step, and a merge queue's
+  step change; the plan shows the diff.
+- A script of your own that reads the sha256 values out of the workflow's
+  install step finds none after the move: they are in `.docsys-install`.
+- The plan lists each code citation 0.6 reads as prose (`doc:` that only
+  opens its line): put it after a comment leader or in inline code.
+
+### Changed
+
+- A check scoped to a change blocks on what the change adds (§2.2, D-136):
+  `gate --range` compares its range with the merge base, and the commit gate
+  with `HEAD`. An error the base already carries is named "inherited from
+  <base>, not this change's", and the summary reads `N error(s) (M
+  inherited, not blocking)`. A shallow checkout says so in one line, and
+  every error blocks. `refs` runs inside the gate.
+- The git gate of a docsys/0.6 tree is hard from adoption on: warn mode had
+  one reason, inherited debt, and the debt no longer blocks (D-136). On a
+  branch whose tree still declares an older spec it warns.
+- A merge of changes that each re-read a pinned region is reported, not an
+  error: the warning names the changes until a re-read acknowledges the
+  combination, and a pull request that moves the region or edits its page
+  must re-read it (R-111, D-135). History is read along the first parent; a
+  squash is checked against the pull request's own text.
+- A stale pin names the change that moved its region: its pull request,
+  title, author, day and commit (R-111).
+- A code-side `doc:` is a citation after a comment leader or opening inline
+  code, `` `doc: id` ``; opening a line's text is code, so an object key or a
+  typed field is no citation (R-072, D-137). A Markdown file outside the tree
+  cites in inline code.
+- A pull request's refusal of code with no documentation names its way out —
+  "add the page, or a `Docs: <why>` line to a commit of this range" — and the
+  summary counts it as an error; the local question asks for that `Docs:`
+  line too (R-209, D-125).
+- One installer, `<root>/.docsys-install`, holds the pinned release's sha256
+  values; CI and a clone with no docsys run it, with no credential (D-138).
+  The docsys/0.6 workflow checks the pull request with `gate --range` alone,
+  pushes on the default branch only, drops the `closed` run and checks a
+  merge queue's group.
+- With no docsys on the machine, the git gate says how to install the pinned
+  version and lets the commit go on; the prompt relay and the rules block
+  tell the agent to install it without asking (D-138).
+- A `git:` source a shallow clone lacks is reported as "history is shallow
+  here", never as a severed trail, in a knowledge base too; in a full clone
+  the message names the squash or rebase cause; `gate --range` warns about a
+  cited commit only the branch holds (R-059, D-139).
+
+### Fixed
+
+- A citation of an id that a fetched namespace does not hold is an error that
+  names the namespace and its fetch date (R-139); before, it was the warning
+  "not materialized here", also when the namespace was there. Code, page and
+  `sources:` citations go through one resolver (D-140).
+- `docsys fetch` removes a materialized page and its sidecar when a provider
+  it read no longer exports the page, so a citation of it is dangling and a
+  leftover copy does not answer it (D-140).
+- `docsys fetch` reads each provider on its own: one that cannot be read
+  keeps its pages, and its line names why and how old they are; every other
+  provider is fetched, and the command exits 2 (D-140).
+- A git provider whose declared location changed is fetched from the new
+  location; before, an existing checkout kept its first URL (D-034).
+
 ## [0.17.0] - 2026-10-05
 
 ### Upgrading from 0.16.1

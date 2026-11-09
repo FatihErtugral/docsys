@@ -254,8 +254,14 @@ fn a_0_4_tree_moves_to_the_expected_0_5_tree_and_a_second_run_changes_nothing() 
         )),
         "{out:?}"
     );
+    // one commit a spec (R-177): this case's move is the first, and the move
+    // to docsys/0.6 follows it as its own commit
+    assert_eq!(
+        git(&repo, &["rev-list", "--count", &format!("{head}..HEAD")]),
+        "2"
+    );
     // what a person pulling it reads: the release's note byte for byte (D-120)
-    let body = git(&repo, &["log", "-1", "--format=%B"]);
+    let body = git(&repo, &["log", "-1", "--format=%B", "HEAD~1"]);
     // the move's note, as this version says it, under this version
     let note = docsys::upgrade::NOTE.trim();
     assert!(note.contains("before pulling this change"), "{note}");
@@ -266,21 +272,46 @@ fn a_0_4_tree_moves_to_the_expected_0_5_tree_and_a_second_run_changes_nothing() 
         )),
         "{body}"
     );
-    let moved_at = git(&repo, &["rev-parse", "--short=7", "HEAD"]);
+    let moved_at = git(&repo, &["rev-parse", "--short=7", "HEAD~1"]);
+    // the pin moves with the last move (D-120)
     assert_eq!(
         fs::read_to_string(repo.join("docs/.docsys-version")).unwrap(),
         format!("{}\n", env!("CARGO_PKG_VERSION"))
     );
-    assert_eq!(
-        git(&repo, &["rev-list", "--count", &format!("{head}..HEAD")]),
-        "1"
-    );
     assert_eq!(git(&repo, &["status", "--porcelain"]), "");
 
+    // the expected 0.5 tree is the tree this case's move committed
     let after_dir = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join(CASE)
         .join("after");
-    let got = snapshot(&repo, &rev, false);
+    let moved_tree = tmp("conformance-0.5");
+    let archive = Command::new("git")
+        .args(["archive", "--format=tar", "HEAD~1"])
+        .current_dir(&repo)
+        .output()
+        .unwrap();
+    assert!(archive.status.success(), "{archive:?}");
+    let mut untar = Command::new("tar")
+        .args(["-x", "-C"])
+        .arg(&moved_tree)
+        .stdin(std::process::Stdio::piped())
+        .spawn()
+        .unwrap();
+    {
+        use std::io::Write as _;
+        untar
+            .stdin
+            .take()
+            .unwrap()
+            .write_all(&archive.stdout)
+            .unwrap();
+    }
+    assert!(untar.wait().unwrap().success());
+    assert!(fs::read_to_string(moved_tree.join("docs/.docmeta.yml"))
+        .unwrap()
+        .contains("spec: docsys/0.5"));
+    let got = snapshot(&moved_tree, &rev, false);
+    let _ = fs::remove_dir_all(&moved_tree);
     if bless() {
         let _ = fs::remove_dir_all(&after_dir);
         for (rel, text) in &got {
@@ -317,13 +348,14 @@ fn a_0_4_tree_moves_to_the_expected_0_5_tree_and_a_second_run_changes_nothing() 
 
     // a second run: nothing automatic, nothing written, no commit
     let head = git(&repo, &["rev-parse", "HEAD"]);
+    let now = snapshot(&repo, &rev, false);
     let out = docsys(&repo, &["upgrade", "--apply", "--commit"]);
     assert!(out.status.success(), "{out:?}");
     let stdout = String::from_utf8_lossy(&out.stdout);
     assert!(!stdout.lines().any(|l| l.starts_with("auto ")), "{stdout}");
     assert!(!stdout.contains("committed:"), "{stdout}");
     assert_eq!(git(&repo, &["rev-parse", "HEAD"]), head);
-    assert_eq!(snapshot(&repo, &rev, false), got, "the second run wrote");
+    assert_eq!(snapshot(&repo, &rev, false), now, "the second run wrote");
     let _ = fs::remove_dir_all(&repo);
 }
 
@@ -624,6 +656,9 @@ fn a_tree_two_specs_behind_moves_one_commit_per_spec() {
         },
     ];
     let (repo, _) = build("chain");
+    // the moves commit from this process: a hook would run whichever docsys
+    // this machine has, and that is no part of the chain
+    git(&repo, &["config", "core.hooksPath", "/dev/null"]);
     let head = git(&repo, &["rev-parse", "HEAD"]);
     let (root, claude) = (repo.join("docs"), repo.join(".claude"));
     let mut messages = Vec::new();
@@ -857,7 +892,7 @@ fn a_relay_that_differs_in_its_template_line_alone_says_so() {
     let idle = docsys(&repo, &["upgrade"]);
     let said = String::from_utf8_lossy(&idle.stdout);
     assert!(
-        said.contains("auto    hook-scripts       .claude/hooks/session-intent.sh  refreshed: a text docsys 0.16.0 wrote, untouched — only its template line names this version"),
+        said.contains("auto    hook-scripts       .claude/hooks/session-intent.sh  refreshed: a text docsys 0.18.0 wrote, untouched — only its template line names this version"),
         "{said}"
     );
     let _ = fs::remove_dir_all(&repo);
@@ -894,16 +929,18 @@ fn every_text_this_version_writes_is_a_released_one() {
     );
 }
 
-/// The project profile is the one 0.16.1 wrote: every text its layer writes
-/// is a text a release up to 0.16.1 wrote, so a team tree pinned there reads
-/// the same layer from this version (D-132).
+/// The project profile is the one 0.16.1 wrote but for its relays: every text
+/// its layer writes is a text a release up to 0.16.1 wrote (D-132), and a
+/// relay is the one 0.18.0 wrote, which names the install command on a
+/// machine with no docsys (D-138).
 #[test]
 fn the_project_layer_is_the_one_0_16_1_wrote() {
     use docsys::agents::{owned_assets, relay_for, relays, released};
-    let frozen = |release: &str| {
+    let up_to = |release: &str, last: [u32; 3]| {
         let v: Vec<u32> = release.split('.').map(|n| n.parse().unwrap()).collect();
-        v <= vec![0, 16, 1]
+        v <= last.to_vec()
     };
+    let frozen = |release: &str| up_to(release, [0, 16, 1]);
     let mut moved = Vec::new();
     for (asset, text, _) in owned_assets(false) {
         if !released(asset, text, "").is_some_and(frozen) {
@@ -913,14 +950,14 @@ fn the_project_layer_is_the_one_0_16_1_wrote() {
     for hook in relays(false) {
         for root in ["docs", "."] {
             let text = relay_for(hook, root).unwrap();
-            if !released(hook, &text, "").is_some_and(frozen) {
+            if released(hook, &text, "") != Some("0.18.0") {
                 moved.push(format!("{hook} (root {root})"));
             }
         }
     }
     assert!(
         moved.is_empty(),
-        "project-layer texts that differ from 0.16.1's: {moved:#?}"
+        "project-layer texts that differ from 0.16.1's, relays from 0.18.0's: {moved:#?}"
     );
 }
 
@@ -1226,11 +1263,12 @@ fn a_clone_whose_git_runs_no_hooks_is_upgraded_without_a_gate() {
         said.contains("info    git-gate           pre-commit  git runs no hooks in this clone (core.hooksPath is /dev/null), so no gate is written"),
         "{said}"
     );
+    // with --commit every move lands, one commit a spec (R-177)
     assert!(
         fs::read_to_string(repo.join("docs/.docmeta.yml"))
             .unwrap()
-            .contains("spec: docsys/0.5"),
-        "the move applied"
+            .contains("spec: docsys/0.6"),
+        "the moves applied"
     );
     let _ = fs::remove_dir_all(&repo);
 }
@@ -1423,8 +1461,9 @@ fn an_untracked_asset_holding_this_versions_text_goes_into_the_commit() {
     );
     let out = docsys(&repo, &["upgrade", "--apply", "--commit"]);
     assert!(out.status.success(), "{out:?}");
+    // the first move's commit takes it; the move to 0.6 follows (R-177)
     assert!(
-        git(&repo, &["show", "--stat", "HEAD"]).contains(".claude/commands/docsys-upgrade.md"),
+        git(&repo, &["show", "--stat", "HEAD~1"]).contains(".claude/commands/docsys-upgrade.md"),
         "{out:?}"
     );
     assert_eq!(git(&repo, &["status", "--porcelain"]), "");
@@ -2030,7 +2069,9 @@ fn a_bare_apply_names_the_commit_that_works() {
     let out = docsys(&repo, &["upgrade", "--apply"]);
     assert!(out.status.success(), "{out:?}");
     let said = String::from_utf8_lossy(&out.stdout);
-    assert_eq!(said.matches("Upgrading to docsys").count(), 1, "{said}");
+    // the applied move's note once; the plan of the move after it follows
+    let note = docsys::upgrade::NOTE.lines().next().unwrap();
+    assert_eq!(said.matches(note).count(), 1, "{said}");
     let line = said
         .lines()
         .find(|l| l.starts_with("now commit it"))
@@ -2223,8 +2264,14 @@ fn a_move_committed_by_hand_leaves_no_record_that_takes_later_edits() {
     .unwrap();
     fs::write(repo.join("other.rs"), "fn other() {}\n").unwrap();
     git(&repo, &["add", "other.rs"]);
+    // the move after it would write into the edited file: refused, and
+    // nothing of the person's is taken into a commit (R-177)
     let out = docsys(&repo, &["upgrade", "--apply", "--commit", "--force"]);
-    assert!(out.status.success(), "{out:?}");
+    assert_eq!(out.status.code(), Some(2), "{out:?}");
+    assert!(
+        String::from_utf8_lossy(&out.stderr).contains("the move writes docs/.docmeta.yml"),
+        "{out:?}"
+    );
     assert_eq!(git(&repo, &["rev-parse", "HEAD"]), head, "{out:?}");
     let status = git(&repo, &["status", "--porcelain", "--untracked-files=no"]);
     assert!(
@@ -2452,10 +2499,11 @@ fn the_move_declares_the_spec_whatever_the_line_held() {
             text.lines()
                 .filter(|l| l.starts_with("spec:"))
                 .collect::<Vec<_>>(),
-            ["spec: docsys/0.5"],
+            ["spec: docsys/0.6"],
             "{line:?}: {text}"
         );
-        assert_eq!(docsys::era::Era::at(&repo.join("docs")).0, 5);
+        // every move lands with --commit, the last at this version's spec
+        assert_eq!(docsys::era::Era::at(&repo.join("docs")).0, 6);
         let _ = fs::remove_dir_all(&repo);
     }
 }
@@ -2484,11 +2532,12 @@ fn the_move_strips_every_verification_and_carries_none() {
     let head = git(&repo, &["rev-parse", "HEAD"]);
     let out = docsys(&repo, &["upgrade", "--apply", "--commit"]);
     assert!(out.status.success(), "{out:?}");
+    // one commit a spec: the move to 0.5, then the move to 0.6 (R-177)
     assert_eq!(
         git(&repo, &["rev-list", "--count", &format!("{head}..HEAD")]),
-        "1"
+        "2"
     );
-    let message = git(&repo, &["log", "-1", "--format=%B"]);
+    let message = git(&repo, &["log", "-2", "--format=%B"]);
     assert!(
         !message.contains("Approved-by:") && !message.contains("Verifies:"),
         "{message}"

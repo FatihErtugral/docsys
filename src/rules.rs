@@ -220,10 +220,13 @@ pub fn agents_md() -> String {
 /// release.
 pub const VERSION_SECTION: &str =
     "Version: a tree that pins its docsys in `.docsys-version` (beside `.docmeta.yml`)\n\
-runs that version on every docsys call, installed on first use. The pin moves\n\
-only with `docsys upgrade`, never by hand. After pulling an upgrade, run\n\
-`docsys upgrade --apply` once in this clone. On a line naming `docsys upgrade`\n\
-or an install command, run `/docsys-upgrade` and ask the person first.\n";
+runs that version on every docsys call, installed on first use. When `docsys`\n\
+is not installed, install the pinned version yourself, without asking first:\n\
+`bash .docsys-install` in the directory of `.docsys-version`, or where that file\n\
+does not exist, `cargo install docsys --version <the pin> --locked`; it changes\n\
+no file in the repository. The pin moves only with `docsys upgrade`, never by\n\
+hand. After pulling an upgrade, run `docsys upgrade --apply` once in this clone.\n\
+On a line naming `docsys upgrade`, run `/docsys-upgrade` and ask the person first.\n";
 
 /// R-165: the always-loaded text must fit the budget; the floor is the
 /// rendered mandatory set. Returns Err with an explanation when violated.

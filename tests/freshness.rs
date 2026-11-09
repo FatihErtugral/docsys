@@ -495,9 +495,12 @@ fn adopt_writes_the_ci_workflow_and_hardens_the_gate_once_clean() {
     git(&repo, &["add", "-A"]);
     git(&repo, &["commit", "-q", "-m", "init"]);
 
-    // a tree with debt: the gate warns, the workflow lands
+    // a docsys/0.5 tree with debt: the gate warns, the workflow lands
     let docs = repo.join("docs");
     docsys::migrate::init_profile(&docs, "en", "project").unwrap();
+    let meta = docs.join(".docmeta.yml");
+    let spec = fs::read_to_string(&meta).unwrap();
+    fs::write(&meta, spec.replace("spec: docsys/0.6", "spec: docsys/0.5")).unwrap();
     let index = docs.join("index.md");
     let mut text = fs::read_to_string(&index).unwrap();
     text.push_str("\n- [[reference/ghost|Ghost]] -- dangling on purpose.\n");

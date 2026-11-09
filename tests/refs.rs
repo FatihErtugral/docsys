@@ -113,6 +113,81 @@ fn a_code_citation_opens_a_comment_and_doc_mid_sentence_is_prose() {
     let _ = fs::remove_dir_all(&repo);
 }
 
+/// R-072 on a docsys/0.6 tree (D-137): `doc:` counts right after a comment
+/// leader or where it opens inline code. A Markdown file outside the tree
+/// cites in inline code; an object key, a typed field and a template literal
+/// that opens its line are code, not citations; a docstring line with no
+/// leader is prose. A docsys/0.5 tree keeps D-107's reading.
+#[test]
+fn a_0_6_citation_follows_a_comment_leader_or_opens_inline_code() {
+    for spec in ["docsys/0.6", "docsys/0.5"] {
+        let repo = tmp(&format!("span-{}", &spec[7..]));
+        let docs = repo.join("docs");
+        fs::create_dir_all(docs.join("reference")).unwrap();
+        fs::write(
+            docs.join(".docmeta.yml"),
+            format!("spec: {spec}\nprofile: project\ndefault_content_language: en\n"),
+        )
+        .unwrap();
+        fs::write(
+            docs.join("reference/real-id.md"),
+            "---\nid: real-id\ntype: reference\n---\nBody.\n",
+        )
+        .unwrap();
+        fs::create_dir_all(repo.join("src")).unwrap();
+        fs::create_dir_all(repo.join("notes")).unwrap();
+        for (file, text) in [
+            ("src/line.rs", "// doc: real-id\nfn a() {}\n"),
+            (
+                "notes/overview.md",
+                "Real: `doc: real-id` and missing: `doc: ghost`.\n",
+            ),
+            (
+                "src/paths.mjs",
+                "export const f = {\n  doc: f.doc.split(path.sep).join(\"/\"),\n  doc: page,\n};\n",
+            ),
+            ("src/types.ts", "interface P {\n  doc: ProviderDoc;\n}\n"),
+            ("src/tpl.js", "const s = `doc: ${x}`;\n"),
+            (
+                "src/doc.py",
+                "def d():\n    \"\"\"Read the page.\n\n    doc: real-id\n    \"\"\"\n",
+            ),
+        ] {
+            fs::write(repo.join(file), text).unwrap();
+        }
+        let tree = DocTree::load(&docs).unwrap();
+        let report = refs::run(&repo, &tree);
+        let mut found: Vec<String> = report
+            .findings
+            .iter()
+            .map(|f| format!("{} {} [{}]", f.severity.tag(), f.file, f.subject))
+            .collect();
+        found.sort();
+        if spec == "docsys/0.6" {
+            assert_eq!(
+                found,
+                vec!["ERROR notes/overview.md [ghost]".to_string()],
+                "{:?}",
+                report.findings
+            );
+            // line.rs and the inline real-id in the notes
+            assert_eq!(report.inspected.get("code-doc-refs"), Some(&3));
+        } else {
+            assert!(
+                found
+                    .iter()
+                    .any(|f| f.starts_with("ERROR src/paths.mjs [page]")),
+                "{found:?}"
+            );
+            assert!(
+                !found.iter().any(|f| f.contains("notes/overview.md")),
+                "{found:?}"
+            );
+        }
+        let _ = fs::remove_dir_all(&repo);
+    }
+}
+
 #[test]
 fn agents_install_writes_assets_and_respects_existing() {
     // a docsys/0.5 tree: its three relays, the commands and the skills

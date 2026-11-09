@@ -463,9 +463,43 @@ fn adopt_merges_the_hook_wires_into_an_existing_settings_file() {
 }
 
 #[test]
+fn a_0_6_gate_is_hard_on_a_tree_with_debt() {
+    // D-136: the gate blocks only on what a commit adds, so the debt a
+    // docsys/0.6 tree carries leaves it hard
+    let repo = tmp("gate-scoped");
+    git_init(&repo);
+    fs::create_dir_all(repo.join("src")).unwrap();
+    fs::write(
+        repo.join("src/lib.rs"),
+        "// doc: nowhere-yet\npub fn f() {}\n",
+    )
+    .unwrap();
+    let docs = repo.join("docs");
+    let out = docsys::adopt::run(&repo, &docs, "en").unwrap();
+    let gate_line = out
+        .summary
+        .iter()
+        .find(|s| s.starts_with("git pre-commit gate:"))
+        .cloned()
+        .unwrap_or_default();
+    assert!(
+        gate_line.contains("hard"),
+        "{gate_line} / {:?}",
+        out.summary
+    );
+    let hook = fs::read_to_string(repo.join(".git/hooks/pre-commit")).unwrap();
+    assert!(hook.contains("docsys_gate_exit=1"), "{hook}");
+    assert!(
+        !hook.contains("docsys refs"),
+        "refs runs inside the gate: {hook}"
+    );
+    let _ = fs::remove_dir_all(&repo);
+}
+
+#[test]
 fn the_gate_mode_follows_lint_and_refs_together() {
     // D-088: a dangling `doc:` in code blocks a commit at the gate, so a
-    // repository carrying one gets a warn-mode gate, not a hard one
+    // docsys/0.5 repository carrying one gets a warn-mode gate, not a hard one
     let repo = tmp("gate-refs");
     git_init(&repo);
     fs::create_dir_all(repo.join("src")).unwrap();
@@ -475,6 +509,10 @@ fn the_gate_mode_follows_lint_and_refs_together() {
     )
     .unwrap();
     let docs = repo.join("docs");
+    docsys::migrate::init_profile(&docs, "en", "project").unwrap();
+    let meta = docs.join(".docmeta.yml");
+    let text = fs::read_to_string(&meta).unwrap();
+    fs::write(&meta, text.replace("spec: docsys/0.6", "spec: docsys/0.5")).unwrap();
     let out = docsys::adopt::run(&repo, &docs, "en").unwrap();
     let gate_line = out
         .summary

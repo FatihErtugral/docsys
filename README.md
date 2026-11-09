@@ -233,7 +233,11 @@ flowchart LR
   `<root>/.pins/<page-id>/` (a `docsys/0.4` tree names the list `verifies:`
   and keeps the hash on the page);
   lint recomputes it on every run and a moved region is an error until the
-  page is re-read and `pin --refresh`ed (§11, R-111, D-119). A symbol resolves to its declaration — never to a use, a comment
+  page is re-read and `pin --refresh`ed, naming the change that moved it
+  (§11, R-111, D-119). On a docsys/0.6 tree a region that merged changes
+  moved, each re-read on its own, is reported, naming them, until someone
+  re-reads the combination; a pull request that moves it or edits its page
+  must (D-135). A symbol resolves to its declaration — never to a use, a comment
   or a string — read per language family (Rust; TS/JS and the `<script>` of
   Vue and Svelte files; Python; Go; a generic rule for other brace
   languages), and `Class.method` or `Type::method` resolves inside its
@@ -247,18 +251,23 @@ flowchart LR
   error (R-085, D-070, D-071).
 - **Compiled skills** — `docsys compile <howto>` carries the page's hash; the
   skill is an error once the page moved (R-095).
-- **CI** — `adopt` writes `.github/workflows/docsys.yml` (lint, refs, and
-  `gate --range` on a pull request), and the pre-commit gate is hard as soon
-  as the tree lints clean (D-072). The workflow runs on pull requests and
+- **CI** — `adopt` writes `.github/workflows/docsys.yml`: on a docsys/0.6
+  tree a pull request is checked by `gate --range` alone, which blocks only
+  on the errors its range adds and names the ones its base carries, a push to
+  the default branch by `lint` and `refs` over the whole tree, and a merge
+  queue's group by the gate (D-136). The pre-commit gate is hard from
+  adoption on and blocks only on what a commit adds (on a docsys/0.5 tree:
+  hard as soon as the tree lints clean, D-072). The workflow runs on pull requests and
   pushes to the default branch with `permissions: contents: read`, cancels a
   superseded run, and installs the docsys version the tree pins
   (`.docsys-version`): `cargo install docsys --version <v> --locked`, cached,
   on `ubuntu-latest`. `--ci-runner <label>[,<label>…]` names other runners,
   and `--ci-install release` installs the release archive instead — for
   runners without a Rust toolchain: the version and each archive's sha256,
-  which `docsys upgrade` reads from the release and writes into the step,
-  reviewed with the upgrade; a pull request that moves `.docsys-version`
-  alone installs nothing. Line 1 records these
+  which `docsys upgrade` reads from the release and writes, reviewed with the
+  upgrade, into the tree's installer `<root>/.docsys-install` on a
+  docsys/0.6 tree, which the step runs (into the step itself on 0.5); a pull
+  request that moves `.docsys-version` alone installs nothing (D-138). Line 1 records these
   parameters and a hash of the file: a file nobody edited can be regenerated
   with them, and an edited one is yours (D-111).
 
@@ -322,7 +331,11 @@ repository is 70 MB. Foreign pages compose only from the fetched local state
 (never a live query); an unfetched or locally edited materialization is refused
 by name, `internal: true` pages never cross the boundary, and every foreign
 stamp carries its fetch date so a stale composition is visible. A provider
-that publishes no manifest is still consumable — the tree is the index then.
+that cannot be reached keeps its pages and their fetch date while every other
+provider is fetched, a page a provider no longer exports leaves the consumer,
+and a citation of an id a fetched namespace lacks is an error (D-140). A
+provider that publishes no manifest is still consumable — the tree is the
+index then.
 
 The consumer's list grows without hand-editing and lives nowhere but in its
 own `.docmeta.yml`: `docsys consume discover ~/code` lists the docsys trees
@@ -414,7 +427,9 @@ and moved only by `docsys upgrade` (D-120). Whatever docsys you call, a
 command on a pinned tree runs the pinned version, installed once into
 `~/.docsys/versions/` (`DOCSYS_HOME` moves it) with `cargo install --locked`
 from the registry. `DOCSYS_NO_AUTO_INSTALL=1` turns that off: the command to
-run is printed instead. Two repositories on different versions work side by
+run is printed instead. A machine with no docsys at all runs the tree's
+installer, `bash docs/.docsys-install`, where the tree has one: the pinned
+release, checked against its sha256, with no Rust and no credential (D-138). Two repositories on different versions work side by
 side, and a teammate who pulls a new pin runs it on the next call.
 
 No Rust toolchain? Grab a prebuilt binary for Linux (static musl,
@@ -443,7 +458,9 @@ rewritten. It lands:
   ignores `AGENTS.md`, and `--rules-file <path>` names the file (D-110)
 - `pre-commit` in the directory git runs hooks from (`core.hooksPath`, a
   tracked `.githooks/`, a linked worktree's common hooks, else `.git/hooks/`)
-  — the lint + refs gate, in warn mode until both are clean
+  — the lint + refs gate: on a docsys/0.6 tree hard, blocking only on what a
+  commit adds; with no docsys installed it says how to install the pinned
+  version and lets the commit go on (D-136, D-138)
 - `ADOPTION.md` — the report, with a checklist of every judgment call left to
   you; `--report-dir <dir>` puts it elsewhere, `--no-report` only prints it,
   and a re-run finds it wherever it was moved (D-110)
@@ -607,7 +624,7 @@ with the page path — or says the base does not have it.
 What the binary guarantees underneath: `raw/` is content-immutable (an edited
 or deleted record is an error; the hook blocks the attempt; relocation is the
 expected flow, and `docsys raw move` does it while rewriting every citing page's
-`sources:`), and every `sources:` entry must resolve (R-024, R-059).
+`sources:`), and every `sources:` entry must resolve (R-024, R-059); a clone too shallow to hold a cited commit says so and does not fail (D-139).
 
 ### 7 · Your own assistant (a base that learns from your projects)
 

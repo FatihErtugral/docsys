@@ -1,12 +1,17 @@
 # docsys Specification
 
-**Version:** 0.5
+**Version:** 0.6
 **Status:** frozen core + experimental federation. Rule numbers are permanent;
 rule text may be clarified, not redefined, within a minor version. From 0.4 the
 fix policy is **deletion-first**: no change adds net normative rules — text
 grows only when a smaller text was tried and failed. 0.5 adds two rules (R-210,
 R-211), each naming the smaller text that failed, and one EXPERIMENTAL section
-(§21); its other changes are clarifications.
+(§21); its other changes are clarifications. 0.6 adds no rule; it redefines
+four, each where its smaller text failed in the field: R-111's "the case a merge
+must not hide" turned a base red after a batch merge of changes that each
+re-read the region; R-072's line opener read object keys and typed fields as
+citations; "on every run" (§2.2) blocked every change on debt it inherited; and
+R-209 named no severity for a pull request's check, which refuses.
 
 This document defines a documentation system for software projects and personal
 knowledge bases. It is implementation-independent: any tool that satisfies the
@@ -105,6 +110,13 @@ escalation criterion in R-151:
 |---|---|---|
 | **is an error** / **fails** | Blocks: nonzero exit, pipeline stops | Only when the outcome is irreversible or silently wrong (R-151) |
 | **is reported** | Warns: named in output, exit unaffected | Everything else |
+
+A run scoped to a change — a pull request's check over its range, or the
+commit gate over a commit — reads an error by its identity (R-158) on the
+change's base too: one the change introduces blocks; one the base already
+carries is reported, naming the base, and blocks the base's own run. Where the
+base cannot be read, as in a shallow checkout, every error blocks and the run
+says why.
 
 **R-015** `lint` · MUST — An implementation MUST be able to list which rules it
 treats as blocking, so two implementations can be compared on the behavior teams
@@ -750,12 +762,13 @@ by path, and the reference opens a comment's text:
 // doc: @svc-auth/token-ttl
 ```
 
-`doc:` counts as a reference where it opens a line's text after leading
-whitespace, or follows a comment leader directly (`//`, `/*`, `*`, `#`, `--`,
-`;`, `%`, `<!--`, after optional spaces) — the comment line, the docblock line,
-the docstring line, a trailing comment. Elsewhere in a comment, in code, or in
-a string the word is prose: "see the provider doc: it caps" names no
-identifier (D-107).
+`doc:` counts as a reference where it follows a comment leader directly (`//`,
+`/*`, `*`, `#`, `--`, `;`, `%`, `<!--`, after optional spaces) — the comment
+line, the docblock line, a trailing comment — or where it opens an inline code
+span, `` `doc: id` ``, as a docstring or a Markdown file outside the tree cites.
+Elsewhere in a comment, in code, in a string, or opening a line's text the word
+is prose: "see the provider doc: it caps" names no identifier, and neither does
+an object key `doc: page,` (D-107, D-137).
 
 **R-073** `lint` · MUST — A token containing `<`, `>`, `{` or `}` is a
 metasyntactic placeholder, not a reference: prose that documents the citation form itself
@@ -1143,16 +1156,22 @@ refresh writes acknowledgements, never the page — so two changes that refresh
 different regions, or the same region to the same text, merge without a
 conflict, and no page changes for bookkeeping (D-119).
 
-**R-111** `lint` · MUST — Staleness **is an error** on every run until resolved,
-naming the page and the region that moved. A pin is a promise the author made
-about a region of code; once the region moves the page is silently wrong until
-someone re-reads it, which is R-151's criterion exactly. The cost is bounded:
-the fix is one re-read followed by `docsys pin --refresh <page>`, or dropping a
-pin that was never worth keeping (D-070). This is the only mechanism in this
-specification that detects code-documentation drift mechanically. A region that
-two merged changes both moved matches neither one's acknowledgement, so the
-merged page is stale until someone reads the combination — the case a merge must
-not hide. A pin that still carries a `hash:` (a record written before 0.5) is
+**R-111** `lint` · MUST — Staleness **is an error** until resolved, naming the
+page, the region that moved, and the change that moved it. A pin is a promise
+the author made about a region of code; once the region moves the page is
+silently wrong until someone re-reads it, which is R-151's criterion exactly.
+The cost is bounded: the fix is one re-read followed by `docsys pin --refresh
+<page>`, or dropping a pin that was never worth keeping (D-070). This is the
+only mechanism in this specification that detects code-documentation drift
+mechanically. A region that merged changes moved, each of which acknowledged
+the text it brought, matches none of their acknowledgements: each change was
+read, and the combination was not. Where version-control history shows this —
+read along the first parent from the region's last acknowledged text — the
+staleness **is reported**, naming the changes, on every run until a re-read
+acknowledges the combination; a change scoped to a pull request that moves
+such a region or its page **fails** until it does. Where history cannot show
+it, as in a shallow checkout, the staleness is an error, and the run says why
+(D-135). A pin that still carries a `hash:` (a record written before 0.5) is
 checked against that hash in R-113's canonical form until `docsys upgrade` or a
 refresh moves it into an acknowledgement (D-119).
 
@@ -1484,7 +1503,10 @@ the person's, never a word in the agent's command — still bypasses once; under
 `require` the bypass leaves a dated debt item under `work/debt/` (derived, not
 authored — R-156), so an undocumented commit, or one carried past a lint
 error, is visible, never silent
-(R-151's second criterion: silently wrong). The first turn of a session names
+(R-151's second criterion: silently wrong). A pull request's check, where
+nobody is asked, **fails** on a range that changes code and no documentation
+under either policy, until a commit of the range carries a `Docs:` line, and
+its refusal names that line (D-125). The first turn of a session names
 the tree's own state — permanent pages, work in flight, the policy — before the
 work type is chosen.
 

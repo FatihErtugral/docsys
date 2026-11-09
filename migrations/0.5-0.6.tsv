@@ -1,0 +1,8 @@
+# docsys upgrade, docsys/0.5 → docsys/0.6 (R-173, R-174). step <TAB> strategy <TAB> scope <TAB> what — in the order they run
+hook-scripts	auto/manual	tracked	a relay in a docsys template's shape refreshed — with no docsys on the machine it names the install command, and the prompt relay tells the agent to run it; an edited one a diff (D-099, D-138)
+git-gate	auto	local	the docsys block in this clone's pre-commit hook rewritten and hard: it stops a commit on the errors the commit adds and names those it inherits, runs `refs` inside `gate`, and with no docsys names the install command (D-136, D-138)
+ci-workflow	auto/manual	tracked	an untouched workflow regenerated: a release install runs the tree's installer, the pull request is checked by the scoped gate alone, push on the default branch only, a merge queue checked; of an owner's, the install step, an unfiltered `push:`, and the `lint` and `refs` steps beside a `gate --range` step (D-111, D-136, D-138)
+installer	auto/manual	tracked	`<root>/.docsys-install` written beside `.docsys-version` where the tree installs docsys from its release: the pinned version and its archives' sha256 values, read from the release; a file of that name docsys did not write named (D-138)
+rules-block	auto	tracked	the docsys:rules block refreshed where its markers are: with no docsys installed, the agent installs the pinned version without asking (D-110, D-138)
+code-citations	manual	-	a `doc:` opening a line's text that 0.6 reads as prose, listed: a citation follows a comment leader or opens inline code (D-137)
+spec-line	auto	tracked	spec: docsys/0.5 → docsys/0.6, last of the move (D-118)

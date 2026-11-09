@@ -655,13 +655,7 @@ fn check_sources(tree: &DocTree, r: &mut Report) {
     // in (D-061); looked up once, only if a page names one.
     let mut repo: Option<Option<std::path::PathBuf>> = None;
     for page in &tree.pages {
-        // knowledge base: the wiki's permanent pages (R-024); project: any
-        // page that declares sources — a seeded work file most of all
-        let in_scope = match tree.profile {
-            Profile::KnowledgeBase => page.kind == Kind::Permanent,
-            Profile::Project => matches!(page.kind, Kind::Permanent | Kind::Tracked),
-        };
-        if !in_scope {
+        if !cites_sources(tree, page) {
             continue;
         }
         let Some(fm) = &page.fm else { continue };
@@ -680,12 +674,42 @@ fn check_sources(tree: &DocTree, r: &mut Report) {
                 continue; // URLs are out of scope (D-030)
             }
             inspected += 1;
+            if let Some(msg) = unchecked_source(tree, s, &mut repo) {
+                // a clone without the history is no wrong tree: a report in
+                // either profile
+                r.findings.push(Finding::warn(R059, &page.rel, s, msg));
+                continue;
+            }
             if let Some(msg) = unresolved_source(tree, s, &mut repo, &forms) {
                 r.findings.push(finding(&page.rel, s, msg));
             }
         }
     }
     r.inspected.insert("sources", inspected);
+}
+
+/// The pages whose `sources:` R-059 checks: in a knowledge base the wiki's
+/// permanent pages (R-024); in a project any page that declares sources — a
+/// seeded work file most of all.
+pub(crate) fn cites_sources(tree: &DocTree, page: &Page) -> bool {
+    match tree.profile {
+        Profile::KnowledgeBase => page.kind == Kind::Permanent,
+        Profile::Project => matches!(page.kind, Kind::Permanent | Kind::Tracked),
+    }
+}
+
+/// A version-control entry this clone cannot check (`locator::unchecked`),
+/// or `None` when its history can answer.
+fn unchecked_source(
+    tree: &DocTree,
+    s: &str,
+    repo: &mut Option<Option<std::path::PathBuf>>,
+) -> Option<String> {
+    let loc = crate::locator::parse(s)?;
+    let repo = repo
+        .get_or_insert_with(|| crate::locator::repo_of(&tree.root))
+        .as_ref()?;
+    crate::locator::unchecked(repo, &loc).map(|why| format!("sources entry `{s}` — {why}"))
 }
 
 /// Why a `sources:` entry does not resolve (R-059), or `None` when it does —
@@ -699,20 +723,14 @@ pub(crate) fn unresolved_source(
     repo: &mut Option<Option<std::path::PathBuf>>,
     forms: &str,
 ) -> Option<String> {
-    if let Some(rest) = s.strip_prefix('@') {
-        let resolved = rest.split_once('/').is_some_and(|(ns, id)| {
-            tree.root
-                .join(".federation")
-                .join(ns)
-                .join(format!("{id}.md"))
-                .is_file()
-        });
-        return (!resolved).then(|| {
-            format!(
+    if s.starts_with('@') {
+        return match foreign(&tree.root, s) {
+            Foreign::NotFetched => Some(format!(
                 "sources entry `{s}` is not materialized — `docsys consume add` the \
                  namespace and `docsys fetch`, then cite it"
-            )
-        });
+            )),
+            at => at.problem().map(|why| format!("sources entry `{s}` {why}")),
+        };
     }
     if let Some(loc) = crate::locator::parse(s) {
         let repo = repo.get_or_insert_with(|| crate::locator::repo_of(&tree.root));
@@ -1166,10 +1184,30 @@ pub fn code_doc_tokens_on_line(line: &str) -> Vec<String> {
         .collect()
 }
 
+/// The code side on a docsys/0.6 tree (R-072, D-137): `doc:` counts right
+/// after a comment leader, or where a backtick right before it opens an
+/// inline code span. Opening a line's text is no longer enough: an object key
+/// or a typed field is code.
+pub fn code_span_tokens_on_line(line: &str) -> Vec<String> {
+    line.match_indices("doc: ")
+        .filter(|(at, _)| {
+            let before = line.get(..*at).unwrap_or("");
+            let opens_span = before.ends_with('`') && before.matches('`').count() % 2 == 1;
+            let text = before.trim_end();
+            opens_span || COMMENT_LEADERS.iter().any(|l| text.ends_with(l))
+        })
+        .filter_map(|(at, _)| doc_token_at(line, at))
+        .collect()
+}
+
 /// The citations a line of code carries, by the tree's era (D-118): where R-072
-/// puts them on a docsys/0.5 tree (D-107), anywhere on the line before.
+/// puts them — after a comment leader or opening inline code on a docsys/0.6
+/// tree (D-137), also opening a line's text on 0.5 (D-107), anywhere on the
+/// line before.
 pub fn code_citations(era: crate::era::Era, line: &str) -> Vec<String> {
-    if era.positional_citations() {
+    if era.code_span_citations() {
+        code_span_tokens_on_line(line)
+    } else if era.positional_citations() {
         code_doc_tokens_on_line(line)
     } else {
         doc_tokens_on_line(line)
@@ -1234,17 +1272,72 @@ pub enum Resolved {
     Archived,
 }
 
-/// Is a foreign `@namespace/id` materialized under this root's `.federation/`?
-pub fn materialized(root: &std::path::Path, token: &str) -> bool {
-    token
-        .strip_prefix('@')
-        .and_then(|r| r.split_once('/'))
-        .is_some_and(|(ns, id)| {
-            root.join(".federation")
-                .join(ns)
-                .join(format!("{id}.md"))
-                .is_file()
-        })
+/// Where a foreign `@namespace/id` stands under this root's `.federation/`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Foreign {
+    Present,
+    /// The namespace was fetched — fetch writes its directory for every
+    /// provider it read — and its provider exports no such id: R-071's
+    /// dangling class, which R-139 makes an error.
+    UnknownId {
+        ns: String,
+        id: String,
+        /// The newest `fetched:` date among the namespace's pages.
+        fetched: Option<String>,
+    },
+    /// Nothing of the namespace is here: consume it and fetch.
+    NotFetched,
+}
+
+/// The one resolver of a foreign `@namespace/id` against the local
+/// materialization (D-078), for code citations, page citations and
+/// `sources:` alike.
+pub fn foreign(root: &std::path::Path, token: &str) -> Foreign {
+    let Some((ns, id)) = token.strip_prefix('@').and_then(|r| r.split_once('/')) else {
+        return Foreign::NotFetched;
+    };
+    let dir = root.join(".federation").join(ns);
+    if dir.join(format!("{id}.md")).is_file() {
+        return Foreign::Present;
+    }
+    if !dir.is_dir() {
+        return Foreign::NotFetched;
+    }
+    let fetched = std::fs::read_dir(&dir)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .filter(|e| e.file_name().to_string_lossy().ends_with(".provenance.yml"))
+        .filter_map(|e| std::fs::read_to_string(e.path()).ok())
+        .filter_map(|t| crate::fresh::sidecar_field(&t, "fetched"))
+        .max();
+    Foreign::UnknownId {
+        ns: ns.to_string(),
+        id: id.to_string(),
+        fetched,
+    }
+}
+
+impl Foreign {
+    /// The words a finding about an unresolved foreign token says, or `None`
+    /// when it resolves.
+    pub fn problem(&self) -> Option<String> {
+        match self {
+            Foreign::Present => None,
+            Foreign::UnknownId { ns, id, fetched } => Some(format!(
+                "names no page: `@{ns}` has no identifier `{id}`{} — cite an id it exports, or \
+                 `docsys fetch` if its provider added this one since",
+                fetched
+                    .as_deref()
+                    .map(|d| format!(" (fetched {d})"))
+                    .unwrap_or_default()
+            )),
+            Foreign::NotFetched => Some(
+                "is not materialized here — `docsys consume add` the namespace and `docsys fetch`"
+                    .to_string(),
+            ),
+        }
+    }
 }
 
 pub fn resolve_doc_token(idx: &ResolutionIndex, token: &str) -> Result<Resolved, DocRefFail> {
@@ -1614,17 +1707,15 @@ fn check_doc_refs(tree: &DocTree, r: &mut Report) {
                     // materialization, never a live provider (D-078); absent,
                     // it is reported with the two commands that land it.
                     Err(DocRefFail::Foreign) => {
-                        if !materialized(&tree.root, &token) {
-                            r.findings.push(Finding::warn(
-                                R076,
-                                &page.rel,
-                                &token,
-                                format!(
-                                    "line {}: `doc: {token}` is not materialized here — \
-                                     `docsys consume add` the namespace and `docsys fetch`",
-                                    line + 1
-                                ),
-                            ));
+                        let at = foreign(&tree.root, &token);
+                        if let Some(why) = at.problem() {
+                            let msg = format!("line {}: `doc: {token}` {why}", line + 1);
+                            r.findings.push(match at {
+                                Foreign::UnknownId { .. } => {
+                                    Finding::err(R076, &page.rel, &token, msg)
+                                }
+                                _ => Finding::warn(R076, &page.rel, &token, msg),
+                            });
                         }
                     }
                     Err(DocRefFail::BadGrammar) => r.findings.push(Finding::warn(
@@ -2766,6 +2857,35 @@ mod tests {
         assert_eq!(code_doc_tokens_on_line("// doc: a."), vec!["a"]);
         // the docs side is unchanged: mid-sentence is a reference there
         assert_eq!(doc_tokens_on_line("// see doc: a for why"), vec!["a"]);
+    }
+
+    #[test]
+    fn a_docsys_0_6_citation_follows_a_comment_leader_or_opens_inline_code() {
+        for line in [
+            "// doc: a",
+            "/// doc: a",
+            " * doc: a",
+            "# doc: a",
+            "x(); // doc: a",
+            "<!-- doc: a -->",
+            "Real: `doc: a`",
+            "// see `doc: a` for why",
+        ] {
+            assert_eq!(code_span_tokens_on_line(line), vec!["a"], "{line}");
+        }
+        for line in [
+            "doc: a",
+            "    doc: a",
+            "  doc: f.doc.split(path.sep).join(\"/\"),",
+            "  doc: page,",
+            "  doc: ProviderDoc;",
+            "// see doc: a for why",
+            "x = doc: a",
+            "`a` then doc: b",
+            "const s = `doc: ${x}`;",
+        ] {
+            assert!(code_span_tokens_on_line(line).is_empty(), "{line}");
+        }
     }
 
     #[test]

@@ -577,3 +577,89 @@ fn an_approval_job_is_refused_on_0_5_and_each_era_gets_its_own() {
     assert!(!repo.join(FILE).exists(), "nothing written");
     let _ = fs::remove_dir_all(&repo);
 }
+
+/// D-136, D-138: a docsys/0.6 rendering checks the pull request with the
+/// scoped gate alone, a push to the default branch over the whole tree, and
+/// a merge queue's group with the gate; the pull request triggers no
+/// `closed` run, and the install runs the tree's installer.
+#[test]
+fn a_0_6_rendering_checks_a_pull_request_once_and_a_merge_queue_too() {
+    let text = workflow::render(&params(
+        "develop",
+        &["ubuntu-latest"],
+        Install::Tree,
+        Verify::Off,
+        "docs",
+    ));
+    for line in [
+        "  pull_request:\n    types: [opened, synchronize, reopened]\n",
+        "  push:\n    branches: [develop]\n",
+        "  merge_group:\n",
+        "        run: bash docs/.docsys-install --print-dir >> \"$GITHUB_PATH\"\n",
+        "      - if: github.event_name == 'push'\n        run: docsys lint --repo . --root docs\n",
+        "      - if: github.event_name == 'push'\n        run: docsys refs --repo . --root docs\n",
+        "      - if: github.event_name == 'pull_request'\n        run: docsys gate --repo . --root docs --range \"origin/${{ github.base_ref }}...HEAD\"\n",
+        "      - if: github.event_name == 'merge_group'\n        run: docsys gate --repo . --root docs --range \"${{ github.event.merge_group.base_sha }}...HEAD\"\n",
+    ] {
+        assert!(text.contains(line), "`{line}` not in:\n{text}");
+    }
+    assert!(!text.contains("closed"), "{text}");
+    assert!(text.lines().next().unwrap().contains(" install=tree "));
+    // the stamp holds: the rendering is regenerable as untouched
+    let current = params(
+        "develop",
+        &["ubuntu-latest"],
+        Install::Cargo,
+        Verify::Off,
+        "docs",
+    );
+    assert!(matches!(
+        workflow::classify_text(&text, &current),
+        Existing::Untouched { .. }
+    ));
+}
+
+/// D-136, item 9 of 0.18.0: of an owner's workflow, an unfiltered `push:`
+/// runs on the default branch, at the file's own indentation; `lint` and
+/// `refs` run on push beside a pull request's `gate --range`, and a merge
+/// queue is checked. A `push:` with a filter is the owner's and stays.
+#[test]
+fn an_owners_workflow_is_scoped_at_its_own_indentation() {
+    let four = "name: docsys\n\non:\n    push:\n    pull_request:\n\njobs:\n    docs:\n        runs-on: [self-hosted, linux]\n        steps:\n            - uses: actions/checkout@v4\n              with:\n                  fetch-depth: 0\n            - run: docsys lint --root docs --repo .\n            - run: docsys refs --repo . --root docs\n            - if: github.event_name == 'pull_request'\n              run: docsys gate --repo . --root docs --range \"origin/${{ github.base_ref }}...HEAD\"\n";
+    let (new, what) = workflow::scope_owner(four, "docs", "develop")
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        new,
+        "name: docsys\n\non:\n    push:\n        branches: [develop]\n    pull_request:\n    merge_group:\n\njobs:\n    docs:\n        runs-on: [self-hosted, linux]\n        steps:\n            - uses: actions/checkout@v4\n              with:\n                  fetch-depth: 0\n            - if: github.event_name == 'push'\n              run: docsys lint --root docs --repo .\n            - if: github.event_name == 'push'\n              run: docsys refs --repo . --root docs\n            - if: github.event_name == 'pull_request'\n              run: docsys gate --repo . --root docs --range \"origin/${{ github.base_ref }}...HEAD\"\n            - if: github.event_name == 'merge_group'\n              run: docsys gate --repo . --root docs --range \"${{ github.event.merge_group.base_sha }}...HEAD\"\n"
+    );
+    assert_eq!(what.len(), 3, "{what:?}");
+    // scoped once, nothing more to do
+    assert_eq!(workflow::scope_owner(&new, "docs", "develop"), Ok(None));
+    // a filtered push is the owner's choice
+    let filtered = four.replace("    push:\n", "    push:\n        branches-ignore: [wip]\n");
+    let (kept, _) = workflow::scope_owner(&filtered, "docs", "develop")
+        .unwrap()
+        .unwrap();
+    assert!(
+        kept.contains("    push:\n        branches-ignore: [wip]\n    pull_request:\n"),
+        "{kept}"
+    );
+    // no `gate --range` step: the steps stay, for a pull request would
+    // otherwise be checked by nothing
+    let no_gate = "on:\n  push:\n  pull_request:\njobs:\n  docs:\n    steps:\n      - run: docsys lint --root docs --repo .\n";
+    let (only_push, what) = workflow::scope_owner(no_gate, "docs", "main")
+        .unwrap()
+        .unwrap();
+    assert!(
+        only_push.contains("  push:\n    branches: [main]\n"),
+        "{only_push}"
+    );
+    assert!(
+        only_push.contains("      - run: docsys lint --root docs --repo .\n"),
+        "{only_push}"
+    );
+    assert_eq!(what.len(), 1, "{what:?}");
+    // triggers on one line: named, nothing written
+    assert!(workflow::scope_owner("on: [push, pull_request]\n", "docs", "main").is_err());
+}

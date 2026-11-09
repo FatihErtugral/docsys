@@ -4,6 +4,11 @@
 
 use std::path::Path;
 
+use crate::fm::Value;
+use crate::model::{Finding, RuleId};
+
+const R059: RuleId = RuleId("R-059");
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Locator {
     Commit {
@@ -79,14 +84,56 @@ pub fn repo_of(root: &Path) -> Option<std::path::PathBuf> {
     crate::git::toplevel(root)
 }
 
+/// What a clone that lacks the history says of an entry it cannot check.
+pub const SHALLOW: &str =
+    "history is shallow here; this entry cannot be checked — check out with fetch-depth: 0";
+
+/// What a clone that lacks a branch commit says of it: a squash or rebase
+/// merge leaves the commits a branch cited on no branch.
+fn missing_commit(sha: &str) -> String {
+    format!(
+        "commit {sha} is not in this repository (a squash merge or a rebase drops a branch \
+         commit — cite the commit that landed, the pull request URL, or a path)"
+    )
+}
+
+fn has_commit(repo: &Path, sha: &str) -> bool {
+    git_ok(repo, &["cat-file", "-e", &format!("{sha}^{{commit}}")])
+}
+
+/// Is `repo` a shallow clone? It holds only the newest commits, so a commit
+/// it lacks may exist all the same.
+pub fn is_shallow(repo: &Path) -> bool {
+    crate::git::cmd(repo)
+        .args(["rev-parse", "--is-shallow-repository"])
+        .output()
+        .ok()
+        .filter(|o| o.status.success())
+        .is_some_and(|o| o.stdout.trim_ascii() == b"true")
+}
+
+/// Why `repo` cannot check the locator, or `None` when its history can
+/// answer: a commit or a tag that a shallow clone lacks is unknown, never
+/// missing.
+pub fn unchecked(repo: &Path, loc: &Locator) -> Option<&'static str> {
+    let present = match loc {
+        Locator::Commit { sha } | Locator::Blob { sha, .. } => has_commit(repo, sha),
+        Locator::Tag { name } => git_ok(
+            repo,
+            &["rev-parse", "-q", "--verify", &format!("refs/tags/{name}")],
+        ),
+    };
+    (!present && is_shallow(repo)).then_some(SHALLOW)
+}
+
 /// Does the locator resolve in `repo`? `Err` carries what is missing.
 pub fn resolve(repo: &Path, loc: &Locator) -> Result<(), String> {
     match loc {
         Locator::Commit { sha } => {
-            if git_ok(repo, &["cat-file", "-e", &format!("{sha}^{{commit}}")]) {
+            if has_commit(repo, sha) {
                 Ok(())
             } else {
-                Err(format!("commit {sha} is not in this repository"))
+                Err(missing_commit(sha))
             }
         }
         Locator::Tag { name } => {
@@ -100,6 +147,9 @@ pub fn resolve(repo: &Path, loc: &Locator) -> Result<(), String> {
             }
         }
         Locator::Blob { sha, path, lines } => {
+            if !has_commit(repo, sha) {
+                return Err(missing_commit(sha));
+            }
             let spec = format!("{sha}:{path}");
             let out = crate::git::cmd(repo)
                 .args(["cat-file", "-p", &spec])
@@ -117,6 +167,85 @@ pub fn resolve(repo: &Path, loc: &Locator) -> Result<(), String> {
             Ok(())
         }
     }
+}
+
+fn git_text(repo: &Path, args: &[&str]) -> Option<String> {
+    crate::git::cmd(repo)
+        .args(args)
+        .output()
+        .ok()
+        .filter(|o| o.status.success())
+        .map(|o| String::from_utf8_lossy(&o.stdout).into_owned())
+}
+
+/// `sha` is a commit here and no ancestor of `base`. Any other answer — no
+/// such commit, no such base — says nothing.
+fn only_on_this_branch(repo: &Path, sha: &str, base: &str) -> bool {
+    has_commit(repo, sha)
+        && crate::git::cmd(repo)
+            .args(["merge-base", "--is-ancestor", sha, base])
+            .status()
+            .is_ok_and(|s| s.code() == Some(1))
+}
+
+/// R-059 over a pull request (`gate --range <base>...HEAD`): each `git:`
+/// entry the range adds to a page's `sources:` whose commit is not on
+/// `base`. It resolves now, and a squash merge leaves it on no branch; a
+/// report, because a merge commit keeps it.
+pub fn branch_only_citations(repo: &Path, root: &Path, base: &str) -> Vec<Finding> {
+    let Ok(tree) = crate::tree::DocTree::load(root) else {
+        return Vec::new();
+    };
+    let prefix = crate::fresh::root_rel(repo, root);
+    let mut out = Vec::new();
+    for page in &tree.pages {
+        if !crate::checks::cites_sources(&tree, page) {
+            continue;
+        }
+        let Some(srcs) = page
+            .fm
+            .as_ref()
+            .and_then(|f| f.fields.get("sources"))
+            .and_then(Value::as_list)
+        else {
+            continue;
+        };
+        let path = if prefix.is_empty() {
+            page.rel.clone()
+        } else {
+            format!("{prefix}/{}", page.rel)
+        };
+        let before: Vec<String> = git_text(repo, &["show", &format!("{base}:{path}")])
+            .and_then(|t| crate::fm::parse(&t))
+            .and_then(|f| {
+                f.fields
+                    .get("sources")
+                    .and_then(Value::as_list)
+                    .map(<[String]>::to_vec)
+            })
+            .unwrap_or_default();
+        for s in srcs {
+            if before.iter().any(|b| b.trim() == s.trim()) {
+                continue;
+            }
+            let sha = match parse(s) {
+                Some(Locator::Commit { sha } | Locator::Blob { sha, .. }) => sha,
+                _ => continue,
+            };
+            if only_on_this_branch(repo, &sha, base) {
+                out.push(Finding::warn(
+                    R059,
+                    &page.rel,
+                    s,
+                    format!(
+                        "sources entry `{s}`: this commit exists only on this branch; a squash \
+                         merge drops it — cite the commit that lands, the pull request URL, or a path"
+                    ),
+                ));
+            }
+        }
+    }
+    out
 }
 
 #[cfg(test)]

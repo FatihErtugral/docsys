@@ -427,8 +427,11 @@ fn git_sync(url: &str, cache: &Path) -> Result<(), String> {
         }
     };
     if cache.join(".git").is_dir() {
-        run(&["fetch", "-q", "--depth", "1", "origin"], Some(cache))?;
-        run(&["reset", "-q", "--hard", "FETCH_HEAD"], Some(cache))
+        // the declared location every time: `origin` keeps the URL of the
+        // first clone, and a moved provider must be read where it is now
+        run(&["fetch", "-q", "--depth", "1", url], Some(cache))?;
+        run(&["reset", "-q", "--hard", "FETCH_HEAD"], Some(cache))?;
+        run(&["remote", "set-url", "origin", url], Some(cache))
     } else {
         if let Some(parent) = cache.parent() {
             std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
@@ -497,12 +500,32 @@ fn ignore_checkouts(root: &Path) -> Result<(), String> {
     std::fs::write(&file, "*\n").map_err(|e| e.to_string())
 }
 
+/// What `fetch` did: one line per provider, and how many could not be read.
+#[derive(Debug, Default)]
+pub struct Fetched {
+    pub lines: Vec<String>,
+    pub failed: usize,
+}
+
 /// Materialize every consumed namespace under `.federation/` (filesystem
 /// transport, R-145's simplest conformant channel). The provider tree is read
 /// directly; each exported page lands as reconstructed frontmatter (R-136) +
 /// verbatim body, with a provenance sidecar (R-149). `internal: true` pages
-/// are never materialized (R-135).
+/// are never materialized (R-135). `Err` names every line when a provider
+/// could not be read; the others were fetched all the same.
 pub fn fetch(root: &Path) -> Result<Vec<String>, String> {
+    let done = fetch_all(root)?;
+    if done.failed > 0 {
+        return Err(done.lines.join("\n"));
+    }
+    Ok(done.lines)
+}
+
+/// `fetch`, each provider on its own (R-148): one that cannot be read keeps
+/// the pages fetched from it before and says how old they are, and every
+/// other provider is fetched. Only a `consume:` list that cannot be read as a
+/// whole fails before anything is fetched.
+pub fn fetch_all(root: &Path) -> Result<Fetched, String> {
     let tree = DocTree::load(root).map_err(|e| e.to_string())?;
     if !tree.docmeta_present {
         return Err(format!("`{}` has no .docmeta.yml", root.display()));
@@ -517,10 +540,10 @@ pub fn fetch(root: &Path) -> Result<Vec<String>, String> {
     // At estate scale nobody maintains three hundred locations by hand
     // (R-002): one template names them all, `{ns}` substituted per entry.
     let base = tree.docmeta_str("consume_base");
-    let mut summary = Vec::new();
+    let mut providers = Vec::new();
     for entry in entries {
         let (ns, loc) = match entry.split_once('=') {
-            Some((n, l)) => (n.trim(), l.trim().to_string()),
+            Some((n, l)) => (n.trim().to_string(), l.trim().to_string()),
             None => {
                 let Some(base) = base else {
                     return Err(format!(
@@ -528,172 +551,249 @@ pub fn fetch(root: &Path) -> Result<Vec<String>, String> {
                          template is declared"
                     ));
                 };
-                (entry.trim(), base.replace("{ns}", entry.trim()))
+                (entry.trim().to_string(), base.replace("{ns}", entry.trim()))
             }
         };
-        // `<location>#<subdir>` — the docs root inside the repository.
-        let (loc, sub) = match loc.split_once('#') {
-            Some((l, s)) => (l.trim().to_string(), s.trim().to_string()),
-            None => (loc, String::new()),
-        };
-        let provider_root = if is_git_url(&loc) {
-            // The checkout cache lives under a dot-directory: the tree walk
-            // never reads it, only fetch does.
-            let cache = root.join(".federation").join(".checkouts").join(ns);
-            ignore_checkouts(root)?;
-            git_sync(&loc, &cache)?;
-            cache.join(if sub.is_empty() { "docs" } else { sub.as_str() })
-        } else {
-            let p = Path::new(&loc);
-            let base_dir = if p.is_absolute() {
-                p.to_path_buf()
-            } else {
-                root.join(p)
-            };
-            let local = if sub.is_empty() {
-                base_dir
-            } else {
-                base_dir.join(&sub)
-            };
-            // a provider in the consumer's own repository changes with it, so
-            // its working tree is read; any other repository's default branch
-            let top = |d: &Path| {
-                crate::git::foreign(Some(d))
-                    .args(["rev-parse", "--show-toplevel"])
-                    .output()
-                    .ok()
-                    .filter(|o| o.status.success())
-                    .map(|o| PathBuf::from(String::from_utf8_lossy(&o.stdout).trim()))
-            };
-            match (top(&local), local.canonicalize()) {
-                (Some(repo), Ok(at)) if top(root).as_ref() != Some(&repo) => {
-                    let Some(rev) = crate::git::default_ref(&repo) else {
-                        summary.push(format!(
-                            "{ns}: nothing committed yet in `{}` — its pages are read once its default branch has a commit",
-                            repo.display()
-                        ));
-                        continue;
-                    };
-                    let rel = at
-                        .strip_prefix(&repo)
-                        .unwrap_or(Path::new(""))
-                        .to_path_buf();
-                    let cache = root.join(".federation").join(".checkouts").join(ns);
-                    ignore_checkouts(root)?;
-                    local_sync(&repo, rev, &cache)?;
-                    cache.join(rel)
-                }
-                _ => local,
+        providers.push((ns, loc));
+    }
+    let mut done = Fetched::default();
+    for (ns, loc) in providers {
+        match fetch_one(root, &ns, loc) {
+            Ok(line) => done.lines.push(line),
+            Err(e) => {
+                done.failed += 1;
+                done.lines.push(kept(root, &ns, &e));
             }
-        };
-        let provider = DocTree::load(&provider_root)
-            .map_err(|e| format!("{ns}: cannot read `{}`: {e}", provider_root.display()))?;
-        if !provider.docmeta_present {
-            return Err(format!(
-                "{ns}: `{}` has no .docmeta.yml — not a docsys tree",
-                provider_root.display()
-            ));
         }
-        let dir = root.join(".federation").join(ns);
-        std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
-        // Manifest first (D-038): the provider's index answers "what changed?"
-        // before a single body is read. A provider that publishes none is
-        // still consumable — the tree itself is the index then.
-        let mut unchanged = 0usize;
-        let published: BTreeMap<String, String> =
-            std::fs::read_to_string(provider_root.join("manifest.docsys"))
+    }
+    Ok(done)
+}
+
+/// The line for a provider that could not be read: why, and what stays.
+fn kept(root: &Path, ns: &str, why: &str) -> String {
+    let why = why.lines().next().unwrap_or(why);
+    let dir = root.join(".federation").join(ns);
+    let mut pages = 0usize;
+    let mut oldest: Option<String> = None;
+    for entry in std::fs::read_dir(&dir).into_iter().flatten().flatten() {
+        let name = entry.file_name().to_string_lossy().into_owned();
+        if name.ends_with(".provenance.yml") {
+            let date = std::fs::read_to_string(entry.path())
                 .ok()
-                .map(|text| parse_manifest(&text))
-                .transpose()
-                .map_err(|e| format!("{ns}: {e}"))?
-                .map(|(_, entries)| {
-                    entries
-                        .into_iter()
-                        .filter(|e| !e.withdrawn)
-                        .map(|e| (e.id, e.hash))
-                        .collect()
-                })
+                .and_then(|t| crate::fresh::sidecar_field(&t, "fetched"));
+            if let Some(d) = date {
+                if oldest.as_ref().is_none_or(|o| d < *o) {
+                    oldest = Some(d);
+                }
+            }
+        } else if name.ends_with(".md") {
+            pages += 1;
+        }
+    }
+    let held = match (pages, oldest) {
+        (0, _) => "nothing of it is materialized here".to_string(),
+        (n, Some(d)) => {
+            let age = crate::fresh::days_between(&d, &today())
+                .map(|days| format!(" ({days} day(s) old)"))
                 .unwrap_or_default();
-        let mut count = 0usize;
-        let provider_dates = crate::fresh::Dates::of(&provider);
-        for page in &provider.pages {
-            if page.kind != Kind::Permanent {
-                continue;
-            }
-            let Some(fm) = &page.fm else { continue };
-            let Some(id) = fm.fields.get("id").and_then(Value::as_str) else {
-                continue;
-            };
-            if fm.fields.get("internal").and_then(Value::as_str) == Some("true") {
-                continue; // R-135
-            }
-            let body = strip_frontmatter(&page.text).replace("\r\n", "\n");
-            let body = body.trim_matches('\n');
-            // Nothing to do when the published hash equals what we hold: the
-            // file keeps its bytes and its fetch date, so nothing downstream
-            // re-triggers on an unchanged page (the write_if_changed rule,
-            // applied to materialization).
-            let held = std::fs::read_to_string(dir.join(format!("{id}.provenance.yml")))
+            format!("keeping {n} page(s) under .federation/{ns}/, fetched {d}{age}")
+        }
+        (n, None) => format!("keeping {n} page(s) under .federation/{ns}/"),
+    };
+    format!("{ns}: not fetched — {why}; {held}")
+}
+
+/// One provider: read it, materialize what it exports, and remove what it no
+/// longer exports.
+fn fetch_one(root: &Path, ns: &str, loc: String) -> Result<String, String> {
+    // `<location>#<subdir>` — the docs root inside the repository.
+    let (loc, sub) = match loc.split_once('#') {
+        Some((l, s)) => (l.trim().to_string(), s.trim().to_string()),
+        None => (loc, String::new()),
+    };
+    let provider_root = if is_git_url(&loc) {
+        // The checkout cache lives under a dot-directory: the tree walk
+        // never reads it, only fetch does.
+        let cache = root.join(".federation").join(".checkouts").join(ns);
+        ignore_checkouts(root)?;
+        git_sync(&loc, &cache)?;
+        cache.join(if sub.is_empty() { "docs" } else { sub.as_str() })
+    } else {
+        let p = Path::new(&loc);
+        let base_dir = if p.is_absolute() {
+            p.to_path_buf()
+        } else {
+            root.join(p)
+        };
+        let local = if sub.is_empty() {
+            base_dir
+        } else {
+            base_dir.join(&sub)
+        };
+        // a provider in the consumer's own repository changes with it, so
+        // its working tree is read; any other repository's default branch
+        let top = |d: &Path| {
+            crate::git::foreign(Some(d))
+                .args(["rev-parse", "--show-toplevel"])
+                .output()
                 .ok()
-                .and_then(|s| crate::fresh::sidecar_field(&s, "hash"));
-            let publish_hash = published.get(id);
-            let current = format!("fnv:{:016x}", fnv(body.as_bytes()));
-            if let (Some(h), Some(p)) = (held.as_deref(), publish_hash) {
-                if h == p && h == current && dir.join(format!("{id}.md")).is_file() {
-                    unchanged += 1;
-                    count += 1;
-                    continue;
-                }
-            }
-            let mut head = String::from("---\n");
-            let _ = writeln!(head, "id: {id}");
-            for k in ["type", "updated", "lang", "audience"] {
-                let v = if k == "updated" {
-                    // the provider's date, derived where its tree derives it
-                    Some(provider_dates.of_page(&page.rel, Some(fm))).filter(|d| d != "unknown")
-                } else {
-                    fm.fields.get(k).and_then(Value::as_str).map(str::to_string)
+                .filter(|o| o.status.success())
+                .map(|o| PathBuf::from(String::from_utf8_lossy(&o.stdout).trim()))
+        };
+        match (top(&local), local.canonicalize()) {
+            (Some(repo), Ok(at)) if top(root).as_ref() != Some(&repo) => {
+                let Some(rev) = crate::git::default_ref(&repo) else {
+                    return Ok(format!(
+                        "{ns}: nothing committed yet in `{}` — its pages are read once its default branch has a commit",
+                        repo.display()
+                    ));
                 };
-                if let Some(v) = v {
-                    let _ = writeln!(head, "{k}: {v}");
-                }
+                let rel = at
+                    .strip_prefix(&repo)
+                    .unwrap_or(Path::new(""))
+                    .to_path_buf();
+                let cache = root.join(".federation").join(".checkouts").join(ns);
+                ignore_checkouts(root)?;
+                local_sync(&repo, rev, &cache)?;
+                cache.join(rel)
             }
-            head.push_str("---\n\n");
-            // with or without a manifest, a page whose bytes we already hold
-            // keeps them and its fetch date (D-133)
-            let text = format!("{head}{body}\n");
-            let md = dir.join(format!("{id}.md"));
-            if held.as_deref() == Some(current.as_str())
-                && std::fs::read_to_string(&md).is_ok_and(|t| t == text)
-            {
+            _ => local,
+        }
+    };
+    let provider = DocTree::load(&provider_root)
+        .map_err(|e| format!("cannot read `{}`: {e}", provider_root.display()))?;
+    if !provider.docmeta_present {
+        return Err(format!(
+            "`{}` has no .docmeta.yml — not a docsys tree",
+            provider_root.display()
+        ));
+    }
+    let dir = root.join(".federation").join(ns);
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    // Manifest first (D-038): the provider's index answers "what changed?"
+    // before a single body is read. A provider that publishes none is
+    // still consumable — the tree itself is the index then.
+    let mut unchanged = 0usize;
+    let published: BTreeMap<String, String> =
+        std::fs::read_to_string(provider_root.join("manifest.docsys"))
+            .ok()
+            .map(|text| parse_manifest(&text))
+            .transpose()?
+            .map(|(_, entries)| {
+                entries
+                    .into_iter()
+                    .filter(|e| !e.withdrawn)
+                    .map(|e| (e.id, e.hash))
+                    .collect()
+            })
+            .unwrap_or_default();
+    let mut count = 0usize;
+    let mut exported: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
+    let provider_dates = crate::fresh::Dates::of(&provider);
+    for page in &provider.pages {
+        if page.kind != Kind::Permanent {
+            continue;
+        }
+        let Some(fm) = &page.fm else { continue };
+        let Some(id) = fm.fields.get("id").and_then(Value::as_str) else {
+            continue;
+        };
+        if fm.fields.get("internal").and_then(Value::as_str) == Some("true") {
+            continue; // R-135
+        }
+        exported.insert(id.to_string());
+        let body = strip_frontmatter(&page.text).replace("\r\n", "\n");
+        let body = body.trim_matches('\n');
+        // Nothing to do when the published hash equals what we hold: the
+        // file keeps its bytes and its fetch date, so nothing downstream
+        // re-triggers on an unchanged page (the write_if_changed rule,
+        // applied to materialization).
+        let held = std::fs::read_to_string(dir.join(format!("{id}.provenance.yml")))
+            .ok()
+            .and_then(|s| crate::fresh::sidecar_field(&s, "hash"));
+        let publish_hash = published.get(id);
+        let current = format!("fnv:{:016x}", fnv(body.as_bytes()));
+        if let (Some(h), Some(p)) = (held.as_deref(), publish_hash) {
+            if h == p && h == current && dir.join(format!("{id}.md")).is_file() {
                 unchanged += 1;
                 count += 1;
                 continue;
             }
-            std::fs::write(&md, text).map_err(|e| e.to_string())?;
-            let sidecar = format!(
-                "namespace: {ns}\nid: {id}\nhash: fnv:{:016x}\nfetched: {}\n",
-                fnv(body.as_bytes()),
-                today()
-            );
-            std::fs::write(dir.join(format!("{id}.provenance.yml")), sidecar)
-                .map_err(|e| e.to_string())?;
-            count += 1;
         }
-        let note = if published.is_empty() && unchanged > 0 {
-            format!(" (no manifest published — read from the tree; {unchanged} unchanged, skipped)")
-        } else if published.is_empty() {
-            " (no manifest published — read from the tree)".to_string()
-        } else if unchanged > 0 {
-            format!(" ({unchanged} unchanged, skipped)")
-        } else {
-            String::new()
-        };
-        summary.push(format!(
-            "{ns}: {count} page(s) under .federation/{ns}/{note}"
-        ));
+        let mut head = String::from("---\n");
+        let _ = writeln!(head, "id: {id}");
+        for k in ["type", "updated", "lang", "audience"] {
+            let v = if k == "updated" {
+                // the provider's date, derived where its tree derives it
+                Some(provider_dates.of_page(&page.rel, Some(fm))).filter(|d| d != "unknown")
+            } else {
+                fm.fields.get(k).and_then(Value::as_str).map(str::to_string)
+            };
+            if let Some(v) = v {
+                let _ = writeln!(head, "{k}: {v}");
+            }
+        }
+        head.push_str("---\n\n");
+        // with or without a manifest, a page whose bytes we already hold
+        // keeps them and its fetch date (D-133)
+        let text = format!("{head}{body}\n");
+        let md = dir.join(format!("{id}.md"));
+        if held.as_deref() == Some(current.as_str())
+            && std::fs::read_to_string(&md).is_ok_and(|t| t == text)
+        {
+            unchanged += 1;
+            count += 1;
+            continue;
+        }
+        std::fs::write(&md, text).map_err(|e| e.to_string())?;
+        let sidecar = format!(
+            "namespace: {ns}\nid: {id}\nhash: fnv:{:016x}\nfetched: {}\n",
+            fnv(body.as_bytes()),
+            today()
+        );
+        std::fs::write(dir.join(format!("{id}.provenance.yml")), sidecar)
+            .map_err(|e| e.to_string())?;
+        count += 1;
     }
-    Ok(summary)
+    let note = if published.is_empty() && unchanged > 0 {
+        format!(" (no manifest published — read from the tree; {unchanged} unchanged, skipped)")
+    } else if published.is_empty() {
+        " (no manifest published — read from the tree)".to_string()
+    } else if unchanged > 0 {
+        format!(" ({unchanged} unchanged, skipped)")
+    } else {
+        String::new()
+    };
+    // a page the provider no longer exports — removed, retired or made
+    // internal — leaves with its sidecar, so a citation of it is dangling
+    // rather than answered by a leftover copy (R-139)
+    let mut removed = 0usize;
+    for entry in std::fs::read_dir(&dir)
+        .map_err(|e| e.to_string())?
+        .flatten()
+    {
+        let name = entry.file_name().to_string_lossy().into_owned();
+        let Some(id) = name
+            .strip_suffix(".provenance.yml")
+            .or_else(|| name.strip_suffix(".md"))
+        else {
+            continue;
+        };
+        if !exported.contains(id) {
+            std::fs::remove_file(entry.path()).map_err(|e| e.to_string())?;
+            if name.ends_with(".md") {
+                removed += 1;
+            }
+        }
+    }
+    let note = if removed > 0 {
+        format!("{note}; {removed} no longer exported, removed")
+    } else {
+        note
+    };
+    Ok(format!(
+        "{ns}: {count} page(s) under .federation/{ns}/{note}"
+    ))
 }
 
 /// The shared composer. Every entry must resolve to a permanent page;

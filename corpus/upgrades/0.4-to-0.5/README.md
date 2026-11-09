@@ -10,9 +10,9 @@ expected repository. `tests/upgrade.rs` runs it.
 | `edits/` | The second commit: one verified page's body moves, and the code under one pin changes. |
 | `hooks/pre-commit` | This clone's git gate as 0.15.1 wrote it, in warn mode. |
 | `plan.txt` | What `docsys upgrade` prints before anything is written. |
-| `after/` | The repository after the upgrade commit. |
-| `hooks/pre-commit.after` | The gate after the upgrade: rewritten, its mode kept. |
-| `expected.tsv` | The findings on the upgraded tree. |
+| `after/` | The repository the move's commit holds, at docsys/0.5. The pin moves with the last move, so it holds no `.docsys-version`. |
+| `hooks/pre-commit.after` | This clone's gate after `--apply --commit`, which takes the move to docsys/0.6 after this one, each its own commit (R-177): hard (D-136). |
+| `expected.tsv` | The findings on the tree both moves leave. |
 
 A top-level `dot-<name>` stands for `.<name>` (`dot-claude/` is `.claude/`), so
 an agent working in this repository never loads the case's skills or hooks.

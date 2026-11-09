@@ -425,7 +425,7 @@ fn the_children_of_a_dispatched_command_resolve_the_pin_themselves() {
     assert!(adopt.status.success(), "{adopt:?}");
     let meta = r.join("docs/.docmeta.yml");
     let text = fs::read_to_string(&meta).unwrap();
-    fs::write(&meta, text.replace("spec: docsys/0.5", "spec: docsys/0.4")).unwrap();
+    fs::write(&meta, text.replace("spec: docsys/0.6", "spec: docsys/0.4")).unwrap();
     fs::create_dir_all(r.join("docs/reference")).unwrap();
     fs::create_dir_all(r.join("src")).unwrap();
     fs::write(r.join("src/p.rs"), "pub fn p() {}\n").unwrap();

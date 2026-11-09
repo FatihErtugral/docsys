@@ -1,10 +1,11 @@
 #![allow(clippy::panic, clippy::unwrap_used, clippy::expect_used)]
-// D-111, D-120: on a docsys/0.5 tree the CI workflow installs the docsys
-// version `docsys upgrade` pinned in it, and checks the archive against the
-// sha256 values the upgrade wrote there from the release — fetched when the
-// upgrade runs, reviewed with it, never fetched when CI runs. A pull request
-// that moves `.docsys-version` alone installs nothing. The release is a
-// `file://` directory here: no test reaches the network.
+// D-111, D-120, D-138: on a docsys/0.6 tree CI and every clone run one
+// installer, the tree's `.docsys-install`, which holds the docsys version
+// `docsys upgrade` pinned and the sha256 values the upgrade read from the
+// release — fetched when the upgrade runs, reviewed with it, never fetched
+// when the installer runs. A pull request that moves `.docsys-version` alone
+// installs nothing. The release is a `file://` directory here: no test
+// reaches the network.
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -129,36 +130,9 @@ fn project(name: &str) -> PathBuf {
     repo
 }
 
-/// The `run:` script of the install step in `yaml`.
-fn install_script(yaml: &str) -> String {
-    let at = yaml
-        .find("the release the tree pins")
-        .unwrap_or_else(|| panic!("no release install in:\n{yaml}"));
-    let block = yaml[at..]
-        .split_once("        run: |\n")
-        .map(|(_, b)| b)
-        .unwrap();
-    block
-        .lines()
-        .take_while(|l| l.starts_with("          ") || l.is_empty())
-        .map(|l| format!("{}\n", l.get(10..).unwrap_or("")))
-        .collect()
-}
-
-/// `script` as a runner's `shell: bash` step runs it.
-fn bash(script: &str, dir: &Path, envs: &[(&str, &str)]) -> Output {
-    let mut c = Command::new("bash");
-    c.args(["--noprofile", "--norc", "-eo", "pipefail", "-c", script])
-        .current_dir(dir);
-    for (k, v) in envs {
-        c.env(k, v);
-    }
-    run(&mut c)
-}
-
-/// `adopt --ci-install release` pins this version and its archives' sha256
-/// values, read from the release, into the install step; nothing is read at
-/// CI time but the archive itself.
+/// `adopt --ci-install release` writes the tree's installer with this version
+/// and its archives' sha256 values, read from the release, and a workflow
+/// that runs it and holds no copy of them (D-138).
 #[test]
 fn adopt_pins_this_version_and_its_sha256_values() {
     let releases_dir = tmp("adopt-releases");
@@ -171,26 +145,33 @@ fn adopt_pins_this_version_and_its_sha256_values() {
     ));
     let yaml = fs::read_to_string(repo.join(FILE)).unwrap();
     assert!(
-        yaml.contains(&format!(
-            "      - name: docsys {OWN}, the release the tree pins, checked against the sha256 its upgrade wrote\n"
-        )),
+        yaml.contains("      - name: docsys, the release the tree pins, by the tree's installer\n        shell: bash\n        run: bash docs/.docsys-install --print-dir >> \"$GITHUB_PATH\"\n"),
         "{yaml}"
+    );
+    let installer = fs::read_to_string(repo.join("docs/.docsys-install")).unwrap();
+    assert!(
+        installer.contains(&format!("\nversion={OWN}\n")),
+        "{installer}"
     );
     for target in TARGETS {
         let sum = sum_of(&releases_dir, OWN, target);
         assert!(
-            yaml.contains(&format!(" target={target} sum={sum} ;;\n")),
-            "{target}: {yaml}"
+            installer.contains(&format!(" target={target} sum={sum} ;;\n")),
+            "{target}: {installer}"
         );
+        assert!(!yaml.contains(&sum), "a second copy: {yaml}");
     }
-    assert!(!yaml.contains("SHA256SUMS"), "{yaml}");
+    assert!(!yaml.contains("SHA256SUMS") && !installer.contains("SHA256SUMS"));
     let _ = fs::remove_dir_all(&repo);
     let _ = fs::remove_dir_all(&releases_dir);
 }
 
-/// The install step installs the version it pins and only that: its archive
-/// checked against the pinned sha256; a `.docsys-version` naming another
-/// version — a pull request that moves the pin alone — installs nothing.
+/// The workflow's install step, run as a runner runs it, with no credential
+/// and no `gh` on the PATH: the tree's installer installs the version it pins
+/// and only that, its archive checked against the pinned sha256; a
+/// `.docsys-version` naming another version — a pull request that moves the
+/// pin alone — installs nothing. A clone with no docsys runs the same
+/// installer and gets a `docsys` on its PATH (D-138).
 #[test]
 fn the_step_installs_only_the_pinned_version_and_archive() {
     let base = tmp("step");
@@ -204,41 +185,64 @@ fn the_step_installs_only_the_pinned_version_and_archive() {
         &releases,
     ));
     let yaml = fs::read_to_string(repo.join(FILE)).unwrap();
-    let script = install_script(&yaml).replace(docsys::workflow::RELEASES, &releases);
-    let attempt = |name: &str| {
+    let step = yaml
+        .lines()
+        .find_map(|l| l.trim().strip_prefix("run: bash docs/.docsys-install"))
+        .map(|rest| format!("bash docs/.docsys-install{rest}"))
+        .unwrap_or_else(|| panic!("no installer step in:\n{yaml}"));
+    // a runner or a clone with nothing but the system's tools and no token
+    let attempt = |name: &str, script: &str| {
         let runner = base.join(name);
-        fs::create_dir_all(&runner).unwrap();
+        fs::create_dir_all(runner.join("home")).unwrap();
         let path = runner.join("path");
-        let out = bash(
-            &script,
-            &repo,
-            &[
-                ("RUNNER_TEMP", &runner.display().to_string()),
-                ("GITHUB_PATH", &path.display().to_string()),
-                ("PATH", &std::env::var("PATH").unwrap_or_default()),
-            ],
-        );
-        (out, fs::read_to_string(path).unwrap_or_default())
+        let mut c = Command::new("bash");
+        c.args(["--noprofile", "--norc", "-eo", "pipefail", "-c", script])
+            .current_dir(&repo)
+            .env_clear()
+            .env("PATH", "/usr/bin:/bin")
+            .env("HOME", runner.join("home"))
+            .env("GITHUB_PATH", &path)
+            .env("DOCSYS_RELEASES", &releases);
+        (
+            run(&mut c),
+            fs::read_to_string(path).unwrap_or_default(),
+            runner,
+        )
     };
-    // the pinned version: installed, and it runs
-    let (out, added) = attempt("runner-ok");
+    // the pinned version: installed where every docsys looks, and it runs
+    let (out, added, runner) = attempt("runner-ok", &step);
     ok(&out);
     let dir = added.trim().to_string();
-    assert!(dir.contains(&format!("docsys-v{OWN}-")), "{added}");
+    assert_eq!(
+        Path::new(&dir),
+        runner.join(format!("home/.docsys/versions/{OWN}/bin")),
+        "{added}"
+    );
     let said = ok(&run(&mut Command::new(Path::new(&dir).join("docsys"))));
+    assert!(said.starts_with(&format!("docsys {OWN} ")), "{said}");
+    // a clone with no docsys: the same installer, and docsys on its PATH
+    let (out, _, runner) = attempt("clone", "bash docs/.docsys-install");
+    let told = ok(&out);
+    assert!(
+        told.contains(&format!("docsys {OWN} is installed")),
+        "{told}"
+    );
+    let linked = runner.join("home/.local/bin/docsys");
+    let said = ok(&run(&mut Command::new(&linked)));
     assert!(said.starts_with(&format!("docsys {OWN} ")), "{said}");
     // the pin moved alone, to a release that exists: one line, nothing installed
     write(&repo, "docs/.docsys-version", "9.9.9\n");
-    let (out, added) = attempt("runner-moved");
+    let (out, added, runner) = attempt("runner-moved", &step);
     assert_eq!(out.status.code(), Some(1), "{out:?}");
     assert_eq!(
         String::from_utf8_lossy(&out.stderr),
-        format!("docsys: docs/.docsys-version names 9.9.9, and this workflow installs {OWN} — run docsys upgrade --apply, which pins both\n")
+        format!("docsys-install: .docsys-version names 9.9.9, and this installer holds {OWN} — run docsys upgrade --apply, which writes both\n")
     );
     assert_eq!(added, "");
+    assert!(!runner.join("home/.docsys").exists());
     // no pin: the same line
     fs::remove_file(repo.join("docs/.docsys-version")).unwrap();
-    let (out, added) = attempt("runner-unpinned");
+    let (out, added, _) = attempt("runner-unpinned", &step);
     assert_eq!(out.status.code(), Some(1), "{out:?}");
     assert!(
         String::from_utf8_lossy(&out.stderr).contains("names no version"),
@@ -255,13 +259,16 @@ fn the_step_installs_only_the_pinned_version_and_archive() {
         bytes.extend_from_slice(b"tampered");
         fs::write(&p, bytes).unwrap();
     }
-    let (out, added) = attempt("runner-tampered");
+    let (out, added, runner) = attempt("runner-tampered", &step);
     assert_eq!(out.status.code(), Some(1), "{out:?}");
     assert!(
-        String::from_utf8_lossy(&out.stderr).contains("this workflow pins"),
+        String::from_utf8_lossy(&out.stderr).contains("this installer pins"),
         "{out:?}"
     );
     assert_eq!(added, "");
+    assert!(!runner
+        .join(format!("home/.docsys/versions/{OWN}/bin/docsys"))
+        .exists());
     let _ = fs::remove_dir_all(&repo);
     let _ = fs::remove_dir_all(&base);
 }
@@ -328,10 +335,11 @@ fn changed(out: &str) -> Vec<String> {
         .collect()
 }
 
-/// An untouched 0.16.0 workflow: its SHA256SUMS step becomes this version's
-/// pinned one — the version and each archive's sha256 read from the release —
-/// shown as a diff, written by `--apply` into the upgrade commit; nothing else
-/// of the file moves, and the leftover check after lists nothing for it.
+/// An untouched 0.16.0 workflow on a docsys/0.5 tree: the move to 0.6
+/// regenerates it to run the tree's installer, which the move writes with
+/// this version and each archive's sha256 read from the release — shown as a
+/// diff, written by `--apply` into the upgrade commit; the runners stay, and
+/// the leftover check after lists nothing for it (D-138).
 #[test]
 fn the_upgrade_replaces_0_16_0s_sums_step_with_the_pinned_one() {
     let releases_dir = tmp("sums-releases");
@@ -347,31 +355,40 @@ fn the_upgrade_replaces_0_16_0s_sums_step_with_the_pinned_one() {
             .starts_with(&format!("auto    ci-workflow        {FILE}  ")),
         "{plan}"
     );
+    assert!(
+        plan.contains("auto    installer          docs/.docsys-install  "),
+        "{plan}"
+    );
     let lines = changed(&plan);
     let x86 = sum_of(&releases_dir, OWN, "x86_64-unknown-linux-musl");
     for must in [
         "-          curl -fsSL -o SHA256SUMS \"$RELEASES/v$v/SHA256SUMS\""
             .replace("$RELEASES", docsys::workflow::RELEASES),
-        format!("+            Linux-x86_64) target=x86_64-unknown-linux-musl sum={x86} ;;"),
+        "+      - name: docsys, the release the tree pins, by the tree's installer".to_string(),
+        "+  merge_group:".to_string(),
     ] {
         assert!(lines.contains(&must), "`{must}` not in {lines:#?}");
     }
-    assert!(
-        lines
-            .iter()
-            .all(|l| !l.contains("runs-on") && !l.contains("docsys lint")),
-        "{lines:#?}"
-    );
+    assert!(lines.iter().all(|l| !l.contains("runs-on")), "{lines:#?}");
     assert_eq!(fs::read_to_string(repo.join(FILE)).unwrap(), before);
+    assert!(!repo.join("docs/.docsys-install").exists());
     ok(&docsys(
         &repo,
         &["upgrade", "--apply", "--commit"],
         &releases,
     ));
     let after = fs::read_to_string(repo.join(FILE)).unwrap();
-    assert!(after.contains(&format!("sum={x86} ;;")), "{after}");
-    assert!(!after.contains("SHA256SUMS"), "{after}");
-    assert!(git(&repo, &["show", "--stat", "HEAD"]).contains("docsys.yml"));
+    assert!(
+        !after.contains("SHA256SUMS") && !after.contains(&x86),
+        "{after}"
+    );
+    let installer = fs::read_to_string(repo.join("docs/.docsys-install")).unwrap();
+    assert!(installer.contains(&format!("sum={x86} ;;")), "{installer}");
+    let head = git(&repo, &["show", "--stat", "HEAD"]);
+    assert!(
+        head.contains("docsys.yml") && head.contains(".docsys-install"),
+        "{head}"
+    );
     assert_eq!(git(&repo, &["status", "--porcelain"]), "");
     let idle = ok(&docsys(&repo, &["upgrade"], &releases));
     assert!(ci_rows(&idle).is_empty(), "{idle}");
@@ -379,8 +396,9 @@ fn the_upgrade_replaces_0_16_0s_sums_step_with_the_pinned_one() {
     let _ = fs::remove_dir_all(&releases_dir);
 }
 
-/// An owner's workflow that carries 0.16.0's SHA256SUMS step: that step
-/// alone becomes the pinned one, every other line as the owner wrote it.
+/// An owner's workflow that carries 0.16.0's SHA256SUMS step: the move to
+/// 0.6 makes that step run the tree's installer, its runners and timeout as
+/// the owner wrote them (D-138).
 #[test]
 fn an_owners_sums_step_alone_is_replaced() {
     let releases_dir = tmp("owner-releases");
@@ -395,18 +413,23 @@ fn an_owners_sums_step_alone_is_replaced() {
         &releases,
     ));
     let after = fs::read_to_string(repo.join(FILE)).unwrap();
-    let step = |t: &str| {
-        let from = t.find("      - name: docsys").unwrap();
-        let to = t[from..].find("      - run: docsys lint").unwrap() + from;
-        (t[..from].to_string(), t[to..].to_string())
-    };
-    assert_eq!(step(&after), step(&owner), "{after}");
     assert!(
-        after.contains(&format!(
+        after.contains("      - name: docsys, the release the tree pins, by the tree's installer\n        shell: bash\n        run: bash docs/.docsys-install --print-dir >> \"$GITHUB_PATH\"\n"),
+        "{after}"
+    );
+    assert!(
+        after.contains("    runs-on: [self-hosted, linux, 'req:2cpu']\n")
+            && after.contains("    timeout-minutes: 15\n"),
+        "{after}"
+    );
+    assert!(!after.contains("SHA256SUMS"), "{after}");
+    let installer = fs::read_to_string(repo.join("docs/.docsys-install")).unwrap();
+    assert!(
+        installer.contains(&format!(
             "sum={} ;;",
             sum_of(&releases_dir, OWN, "aarch64-apple-darwin")
         )),
-        "{after}"
+        "{installer}"
     );
     let _ = fs::remove_dir_all(&repo);
     let _ = fs::remove_dir_all(&releases_dir);
@@ -424,7 +447,13 @@ fn offline_the_workflow_stays_and_the_rerun_is_named_once() {
     let out = docsys(&repo, &["upgrade", "--apply", "--commit"], &unreachable);
     let said = ok(&out);
     assert_eq!(fs::read_to_string(repo.join(FILE)).unwrap(), before);
-    let rows = ci_rows(&said);
+    assert!(!repo.join("docs/.docsys-install").exists(), "{said}");
+    // the move names the rerun once; the leftover check after it names what
+    // the move left, this workflow among it
+    let (moved, left) = said
+        .split_once("— what an earlier version left")
+        .unwrap_or((&said, ""));
+    let rows = ci_rows(moved);
     assert_eq!(rows.len(), 1, "{said}");
     let row = rows.first().unwrap();
     assert!(
@@ -433,10 +462,11 @@ fn offline_the_workflow_stays_and_the_rerun_is_named_once() {
     );
     assert!(row.contains("docsys upgrade --apply"), "{row}");
     assert_eq!(
-        said.matches("docsys upgrade --apply` again").count(),
+        moved.matches("docsys upgrade --apply` again").count(),
         1,
         "{said}"
     );
+    assert_eq!(ci_rows(left).len(), 1, "{said}");
     assert_eq!(git(&repo, &["status", "--porcelain"]), "");
     let _ = fs::remove_dir_all(&repo);
 }

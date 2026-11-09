@@ -113,7 +113,7 @@ fn project(name: &str, files: &[(&str, &str)], pages: &[(&str, &[(&str, &str)])]
     docsys(&repo, day, &["init", "--root", "docs"]);
     let dm = repo.join("docs/.docmeta.yml");
     let text = fs::read_to_string(&dm).unwrap();
-    fs::write(&dm, text.replace("spec: docsys/0.4", "spec: docsys/0.5")).unwrap();
+    fs::write(&dm, text.replace("spec: docsys/0.6", "spec: docsys/0.5")).unwrap();
     for (path, body) in files {
         let p = repo.join(path);
         fs::create_dir_all(p.parent().unwrap()).unwrap();

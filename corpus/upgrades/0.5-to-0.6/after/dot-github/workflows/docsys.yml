@@ -1,0 +1,32 @@
+# docsys documentation workflow — written by `docsys adopt`; edit freely, it is not regenerated.
+name: docsys
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    types: [opened, synchronize, reopened]
+  merge_group:
+
+jobs:
+  docs:
+    # The runners that reach the network this repository needs.
+    runs-on: [self-hosted, linux]
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4.2.2
+        with:
+          fetch-depth: 0
+
+      - name: docsys, the release the tree pins, by the tree's installer
+        shell: bash
+        run: bash docs/.docsys-install --print-dir >> "$GITHUB_PATH"
+
+      - if: github.event_name == 'push'
+        run: docsys lint --root docs --repo .
+      - if: github.event_name == 'push'
+        run: docsys refs --repo . --root docs
+      - if: github.event_name == 'pull_request'
+        run: docsys gate --repo . --root docs --range "origin/${{ github.base_ref }}...HEAD"
+      - if: github.event_name == 'merge_group'
+        run: docsys gate --repo . --root docs --range "${{ github.event.merge_group.base_sha }}...HEAD"

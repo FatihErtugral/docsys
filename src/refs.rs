@@ -119,17 +119,15 @@ pub fn run(repo: &Path, tree: &DocTree) -> Report {
                     // R-139: code citing a consumed page resolves against the
                     // local materialization (D-078); absent, it is reported
                     Err(DocRefFail::Foreign) => {
-                        if !checks::materialized(&tree.root, &token) {
-                            r.findings.push(Finding::warn(
-                                R076,
-                                &frel,
-                                &token,
-                                format!(
-                                    "line {}: `doc: {token}` is not materialized here — \
-                                     `docsys consume add` the namespace and `docsys fetch`",
-                                    i + 1
-                                ),
-                            ));
+                        let at = checks::foreign(&tree.root, &token);
+                        if let Some(why) = at.problem() {
+                            let msg = format!("line {}: `doc: {token}` {why}", i + 1);
+                            r.findings.push(match at {
+                                checks::Foreign::UnknownId { .. } => {
+                                    Finding::err(R076, &frel, &token, msg)
+                                }
+                                _ => Finding::warn(R076, &frel, &token, msg),
+                            });
                         }
                     }
                     Err(DocRefFail::BadGrammar) => r.findings.push(Finding::warn(

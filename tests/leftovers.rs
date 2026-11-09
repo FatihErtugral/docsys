@@ -252,7 +252,7 @@ fn a_moved_tree_with_no_leftover_says_so_in_one_line() {
         lint.contains("ERROR R-111 reference/expiry.md [src/auth.rs#expire]"),
         "{lint}"
     );
-    let one = "docsys upgrade: docsys/0.5 — no leftover of an earlier version\n";
+    let one = "docsys upgrade: docsys/0.6 — no leftover of an earlier version\n";
     assert_eq!(idle(&repo), one);
     let out = docsys(&repo, &["upgrade", "--apply", "--commit"]);
     assert!(out.status.success(), "{out:?}");
@@ -321,6 +321,70 @@ fn assert_only_what_moves(out: &str) {
     }
 }
 
+/// What an owner's release-install workflow changes with a docsys/0.6 tree,
+/// and nothing else (D-138): its version and sha256 lines go, its install
+/// step runs the tree's installer, and the installer the move writes holds
+/// the sha256 values read from the release — never a value made up.
+fn assert_only_what_moves_06(out: &str) {
+    let wf = ".github/workflows/docsys.yml";
+    let line = row(out, "auto", "ci-workflow", wf).unwrap_or_else(|| panic!("{out}"));
+    assert!(line.contains("runs the tree's installer"), "{line}");
+    let section = |file: &str| -> Vec<String> {
+        let diff = out
+            .split_once(&format!("\n# {file}\n"))
+            .map(|(_, d)| d)
+            .unwrap_or_else(|| panic!("no diff for {file}: {out}"));
+        diff.lines()
+            .take_while(|l| !l.starts_with("# "))
+            .filter(|l| {
+                (l.starts_with('-') || l.starts_with('+'))
+                    && !l.starts_with("---")
+                    && !l.starts_with("+++")
+            })
+            .map(str::to_string)
+            .collect()
+    };
+    let changed = section(wf);
+    assert!(
+        changed.contains(&"-      DOCSYS_VERSION: v0.15.1".to_string())
+            && changed.contains(
+                &"+        run: bash docs/.docsys-install --print-dir >> \"$GITHUB_PATH\""
+                    .to_string()
+            ),
+        "{changed:#?}"
+    );
+    for l in &changed {
+        assert!(
+            !l.contains("runs-on") && !l.contains("branches"),
+            "`{l}` in {changed:#?}"
+        );
+        assert!(
+            !(l.starts_with('+')
+                && l.split(|c: char| !c.is_ascii_hexdigit())
+                    .any(|t| t.len() == 64)),
+            "a sha256 in the workflow: `{l}`"
+        );
+    }
+    let installer = section("docs/.docsys-install");
+    let x86 = format!(
+        "+  Linux-x86_64) target=x86_64-unknown-linux-musl sum={} ;;",
+        "a".repeat(64)
+    );
+    assert!(installer.contains(&x86), "{installer:#?}");
+    let released: Vec<String> = release_sums().into_iter().map(|(_, h)| h).collect();
+    for l in installer.iter().filter(|l| l.starts_with('+')) {
+        for t in l
+            .split(|c: char| !c.is_ascii_hexdigit())
+            .filter(|t| t.len() == 64)
+        {
+            assert!(
+                released.iter().any(|h| h == t),
+                "a sha256 not the release's: `{l}`"
+            );
+        }
+    }
+}
+
 /// An owner's workflow, in the move's plan: only what installs docsys moves
 /// with the tree, shown as a diff, and the move writes it.
 #[test]
@@ -342,8 +406,10 @@ fn an_owners_workflow_hears_only_what_moves_with_the_tree() {
         moved.starts_with("name: docs\non:\n  pull_request:\n  push:\n    branches: [develop]\njobs:\n  docs:\n    runs-on: [self-hosted, linux, docs-runner]\n    steps:\n"),
         "{moved}"
     );
+    // one commit a spec: 0.5 pinned a release step, 0.6 runs the tree's
+    // installer in its place (D-138)
     assert!(
-        moved.ends_with("          echo \"$RUNNER_TEMP/$name\" >> \"$GITHUB_PATH\"\n      - run: docsys lint --repo . --root docs\n"),
+        moved.ends_with("      - name: docsys, the release the tree pins, by the tree's installer\n        shell: bash\n        run: bash docs/.docsys-install --print-dir >> \"$GITHUB_PATH\"\n      - run: docsys lint --repo . --root docs\n"),
         "{moved}"
     );
     assert!(
@@ -397,12 +463,15 @@ fn a_workflow_that_installs_another_version_is_a_leftover() {
     commit_all(&repo, "a release install an earlier build stamped");
     let out = idle(&repo);
     let line = row(&out, "auto", "ci-workflow", wf).unwrap_or_else(|| panic!("{out}"));
+    // on a docsys/0.6 tree the values go to the tree's installer (D-138)
     assert!(
         line.contains("regenerated from 0.15.9")
-            && line.contains(
-                "pins this version and its archives' sha256 values, read from the release"
-            ),
+            && line.contains("its install runs the tree's installer"),
         "{line}"
+    );
+    assert!(
+        row(&out, "auto", "installer", "docs/.docsys-install").is_some(),
+        "{out}"
     );
     // the diff shows the old value leaving and the release's coming in
     assert!(out.contains("\n# .github/workflows/docsys.yml\n"), "{out}");
@@ -425,10 +494,11 @@ fn a_workflow_that_installs_another_version_is_a_leftover() {
         row(&out, "auto", "ci-workflow", wf).is_some_and(|l| l.contains("the 0.15 workflow")),
         "{out}"
     );
-    // the owner's: its version and sha256 lines go, its install reads the pin
+    // the owner's: its version and sha256 lines go, its install runs the
+    // tree's installer
     write(&repo, wf, &owned_workflow("0.15.1"));
     commit_all(&repo, "ci: our runners");
-    assert_only_what_moves(&idle(&repo));
+    assert_only_what_moves_06(&idle(&repo));
     // the owner's, naming the version the tree pins today: the next upgrade
     // would need it edited, so it moves too; once moved, nothing is left
     write(&repo, wf, &owned_workflow(own));
@@ -442,7 +512,7 @@ fn a_workflow_that_installs_another_version_is_a_leftover() {
     assert!(out.status.success(), "{out:?}");
     assert_eq!(
         idle(&repo),
-        "docsys upgrade: docsys/0.5 — no leftover of an earlier version\n"
+        "docsys upgrade: docsys/0.6 — no leftover of an earlier version\n"
     );
     let _ = fs::remove_dir_all(&repo);
 }
@@ -809,13 +879,21 @@ fn the_move_ends_with_the_leftover_check() {
         let out = docsys(&repo, args);
         assert!(out.status.success(), "{out:?}");
         let text = stdout(&out);
+        // with --commit every move lands, one commit a spec (R-177), and the
+        // check reads the moved tree; without, the first move waits for its
+        // commit, and the check shows the move after it
+        let head = if commit {
+            "docsys upgrade: docsys/0.6 — "
+        } else {
+            "docsys upgrade: docsys/0.5 → docsys/0.6 — the plan"
+        };
         let at = text
-            .rfind("docsys upgrade: docsys/0.5 — ")
+            .rfind(head)
             .unwrap_or_else(|| panic!("commit: {commit}\n{text}"));
         let tail = text.get(at..).unwrap_or_default();
         assert!(
             tail.contains(" for information\n")
-                || tail == "docsys upgrade: docsys/0.5 — no leftover of an earlier version\n",
+                || tail == "docsys upgrade: docsys/0.6 — no leftover of an earlier version\n",
             "commit: {commit}\n{tail}"
         );
         if commit {

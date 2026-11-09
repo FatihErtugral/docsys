@@ -4,7 +4,7 @@
 //! regenerable with the same parameters — from one that is its owner's, which
 //! is never written, only shown as a diff.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
 /// Where a release's archives are downloaded from.
@@ -59,6 +59,10 @@ pub enum Install {
     /// checked against the sha256 values it wrote from that release:
     /// `(target, hex)`, empty while they are still to be read
     ReleasePinned(Vec<(String, String)>),
+    /// docsys/0.6: the tree's own installer, `<root>/.docsys-install`, which
+    /// holds the pinned release's sha256 values — the one installer CI and
+    /// every clone run (D-138)
+    Tree,
 }
 
 /// What a docsys/0.4 tree's verify-on-approval job does with the records
@@ -186,7 +190,12 @@ impl Ci {
                 return Err("--ci-sha256: on a docsys/0.5 tree docsys reads the release archives' sha256 values from the release and writes them itself — leave the flag out".to_string());
             }
             if install == Some("release") {
-                ci.install = Install::ReleasePinned(Vec::new());
+                // docsys/0.6: the tree's installer holds the values (D-138)
+                ci.install = if era.tree_installer() {
+                    Install::Tree
+                } else {
+                    Install::ReleasePinned(Vec::new())
+                };
                 return Ok(Some(ci));
             }
         }
@@ -314,6 +323,110 @@ const INSTALL_RELEASE: &str = r#"      - name: docsys @VERSION@, the release arc
           tar -xzf "$RUNNER_TEMP/$name.tar.gz" -C "$RUNNER_TEMP"
           echo "$RUNNER_TEMP/$name" >> "$GITHUB_PATH"
 "#;
+
+/// The docsys/0.6 install: the tree's installer, which holds the version and
+/// the sha256 values, puts docsys on the PATH (D-138).
+const INSTALL_TREE: &str = r#"      - name: docsys, the release the tree pins, by the tree's installer
+        shell: bash
+        run: bash @ROOT@/.docsys-install --print-dir >> "$GITHUB_PATH"
+"#;
+
+/// The file name of the tree's installer, beside `.docsys-version` (D-138).
+pub const INSTALLER: &str = ".docsys-install";
+
+/// The line that marks an installer as docsys's own: a file without it is
+/// its owner's and is never written.
+const INSTALLER_MARK: &str = "# docsys-install: written by `docsys upgrade`";
+
+const INSTALLER_TEXT: &str = r#"#!/usr/bin/env bash
+# docsys-install: written by `docsys upgrade` — do not edit; the version and the
+# sha256 values move with the pin, and only `docsys upgrade` moves them (D-138).
+# Installs the docsys release this tree pins, its archive checked against the
+# sha256 values below: CI runs it, and so does a clone with no docsys. It needs
+# curl, tar and sha256sum or shasum, and no credential. It writes the binary
+# under ${DOCSYS_HOME:-~/.docsys}/versions/, where every docsys looks for a
+# pinned version, and links it into ${DOCSYS_BIN_DIR:-~/.local/bin} when no
+# docsys is on the PATH; it changes no file in the repository.
+# --print-dir prints the directory that holds the binary, for a CI PATH.
+set -euo pipefail
+version=@VERSION@
+case "$(uname -s)-$(uname -m)" in
+@ARMS@  *) echo "docsys-install: no release archive for $(uname -s)-$(uname -m); install with cargo: cargo install docsys --version $version --locked" >&2; exit 1 ;;
+esac
+here=$(cd "$(dirname "$0")" && pwd)
+pin=$(head -n 1 "$here/.docsys-version" 2>/dev/null | tr -d '[:space:]' || true)
+if [ "$pin" != "$version" ]; then
+  echo "docsys-install: .docsys-version names ${pin:-no version}, and this installer holds $version — run docsys upgrade --apply, which writes both" >&2
+  exit 1
+fi
+dest="${DOCSYS_HOME:-$HOME/.docsys}/versions/$version/bin"
+if [ ! -x "$dest/docsys" ]; then
+  name="docsys-v$version-$target"
+  tmp=$(mktemp -d)
+  trap 'rm -rf "$tmp"' EXIT
+  curl -fsSL --retry 3 -o "$tmp/$name.tar.gz" "${DOCSYS_RELEASES:-@RELEASES@}/v$version/$name.tar.gz"
+  got=$(cd "$tmp" && { sha256sum "$name.tar.gz" 2>/dev/null || shasum -a 256 "$name.tar.gz"; } | cut -d ' ' -f 1)
+  if [ "$got" != "$sum" ]; then
+    echo "docsys-install: $name.tar.gz hashes to $got, not the $sum this installer pins" >&2
+    exit 1
+  fi
+  tar -xzf "$tmp/$name.tar.gz" -C "$tmp"
+  mkdir -p "$dest"
+  install -m 0755 "$tmp/$name/docsys" "$dest/docsys"
+fi
+if [ "${1:-}" = "--print-dir" ]; then
+  echo "$dest"
+  exit 0
+fi
+if ! command -v docsys >/dev/null; then
+  bin="${DOCSYS_BIN_DIR:-$HOME/.local/bin}"
+  mkdir -p "$bin"
+  ln -sf "$dest/docsys" "$bin/docsys"
+  case ":$PATH:" in
+    *":$bin:"*) ;;
+    *) echo "docsys-install: $bin is not on PATH; add it to your shell profile" >&2 ;;
+  esac
+fi
+echo "docsys-install: docsys $version is installed in $dest"
+"#;
+
+/// The installer of release `version` for the tree, its archives' sha256
+/// values `sums` as `docsys upgrade` read them from the release.
+pub fn installer_text(version: &str, sums: &[(String, String)]) -> String {
+    let arms: String = sums
+        .iter()
+        .map(|(target, hex)| {
+            let uname = TARGETS
+                .iter()
+                .find(|(t, _)| t == target)
+                .map_or("", |(_, u)| *u);
+            format!("  {uname}) target={target} sum={hex} ;;\n")
+        })
+        .collect();
+    fill(
+        INSTALLER_TEXT,
+        &[
+            ("VERSION", version),
+            ("ARMS", &arms),
+            ("RELEASES", RELEASES),
+        ],
+    )
+}
+
+/// The version an installer docsys wrote holds; `None` for a file docsys did
+/// not write, which is its owner's.
+pub fn installer_version(text: &str) -> Option<String> {
+    if !text
+        .lines()
+        .nth(1)
+        .is_some_and(|l| l.starts_with(INSTALLER_MARK))
+    {
+        return None;
+    }
+    text.lines()
+        .find_map(|l| l.strip_prefix("version="))
+        .map(|v| v.trim().to_string())
+}
 
 /// The marker of a docsys/0.5 release install, in its step's name.
 const PINNED_MARK: &str = "the release the tree pins";
@@ -483,6 +596,7 @@ fn params_line(w: &Workflow) -> String {
         match w.ci.install {
             Install::Cargo => "cargo",
             Install::Release(_) | Install::ReleasePinned(_) => "release",
+            Install::Tree => "tree",
         },
         root_of(&w.root)
     )
@@ -495,6 +609,44 @@ fn stamp_hash(version: &str, params: &str, body: &str) -> String {
 }
 
 /// The workflow file, line 1 stamped.
+/// A docsys/0.6 rendering (D-136, D-138): the pull request is checked by
+/// the scoped gate alone, a push to the default branch over the whole tree,
+/// and a merge queue's group by the scoped gate on the combined state.
+const BODY_06: &str = r#"# docsys documentation workflow, written by `docsys adopt` (D-111). Line 1 records how
+# it was rendered and a hash of everything else in this file: while the hash holds,
+# docsys may regenerate it; once the file is edited, it is yours.
+name: docsys
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+  push:
+    branches: [@BRANCH@]
+  merge_group:
+
+permissions:
+  contents: read
+
+jobs:
+  docs:
+    runs-on: @RUNNER@
+    concurrency:
+      group: docsys-${{ github.event.pull_request.number || github.ref }}
+      cancel-in-progress: true
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+@INSTALL@      - if: github.event_name == 'push'
+        run: docsys lint --repo . --root @ROOT@
+      - if: github.event_name == 'push'
+        run: docsys refs --repo . --root @ROOT@
+      - if: github.event_name == 'pull_request'
+        run: docsys gate --repo . --root @ROOT@ --range "origin/${{ github.base_ref }}...HEAD"
+      - if: github.event_name == 'merge_group'
+        run: docsys gate --repo . --root @ROOT@ --range "${{ github.event.merge_group.base_sha }}...HEAD"
+"#;
+
 pub fn render(w: &Workflow) -> String {
     let runner = match w.ci.runner.as_slice() {
         [one] => one.clone(),
@@ -513,7 +665,22 @@ pub fn render(w: &Workflow) -> String {
             ],
         ),
         Install::ReleasePinned(sums) => release_pinned_step(&w.version, root, sums),
+        Install::Tree => fill(INSTALL_TREE, &[("ROOT", root)]),
     };
+    if matches!(w.ci.install, Install::Tree) {
+        let body = fill(
+            BODY_06,
+            &[
+                ("BRANCH", &w.branch),
+                ("RUNNER", &runner),
+                ("INSTALL", &install),
+                ("ROOT", root),
+            ],
+        );
+        let params = params_line(w);
+        let hash = stamp_hash(&w.version, &params, &body);
+        return format!("{STAMP}{} sha256:{hash} {params}\n{body}", w.version);
+    }
     let job = |head_where: &str, pr: &str, steps: &str| {
         let head = fill(
             VERIFY_HEAD,
@@ -654,6 +821,7 @@ fn stamped(text: &str) -> Option<(String, Workflow)> {
     };
     let install = match field("install")? {
         "cargo" => Install::Cargo,
+        "tree" => Install::Tree,
         // a docsys/0.5 release install names the tree's pin in its step;
         // 0.16.0's read the release's SHA256SUMS and pinned no value
         "release" if body.contains(PINNED_MARK) => Install::ReleasePinned(release_sums(body)),
@@ -1058,6 +1226,23 @@ pub fn reinstall(
     version: &str,
     release: Option<&[(String, String)]>,
 ) -> Reinstall {
+    reinstall_with(text, root, version, release, false)
+}
+
+/// `reinstall` on a docsys/0.6 tree: what installs docsys becomes the step
+/// that runs the tree's installer, which holds the version and its sha256
+/// values, so the workflow holds no second copy (D-138).
+pub fn reinstall_tree(text: &str, root: &str, version: &str) -> Reinstall {
+    reinstall_with(text, root, version, None, true)
+}
+
+fn reinstall_with(
+    text: &str,
+    root: &str,
+    version: &str,
+    release: Option<&[(String, String)]>,
+    tree: bool,
+) -> Reinstall {
     let crlf = text.contains("\r\n");
     let text = text.replace("\r\n", "\n");
     let root = root_of(root);
@@ -1087,8 +1272,13 @@ pub fn reinstall(
     // version, or the release's SHA256SUMS read when CI runs, is not
     let stale: Vec<(Step, Kind)> = installs
         .iter()
-        .filter(|(s, _)| {
+        .filter(|(s, k)| {
             let b = body(s);
+            // docsys/0.6: a release install in the workflow is a second copy
+            // of the values the tree's installer holds (D-138)
+            if tree && *k == Kind::Release {
+                return true;
+            }
             let own = b.lines().any(|l| version_in(l) == Some(version));
             b.lines().any(|l| {
                 version_in(l).is_some_and(|v| v != version)
@@ -1192,6 +1382,7 @@ pub fn reinstall(
     }
     let sums = match release {
         Some(sums) => sums,
+        None if tree => &[],
         None if stale.iter().any(|(_, k)| *k != Kind::Cargo) => {
             return Reinstall::NeedsRelease;
         }
@@ -1204,6 +1395,7 @@ pub fn reinstall(
     while let Some(l) = lines.get(i) {
         if let Some((_, s, kind)) = replaced.iter().find(|(a, _, _)| *a == i) {
             let step = match kind {
+                _ if tree => fill(INSTALL_TREE, &[("ROOT", root)]),
                 Kind::Cargo => fill(INSTALL_CARGO, &[("VERSION", version), ("ROOT", root)]),
                 _ => release_pinned_step(version, root, sums),
             };
@@ -1237,7 +1429,9 @@ pub fn reinstall(
         1 => "the `env:` line that names its version or a sha256 goes, with the comment right above it; ".to_string(),
         n => format!("the {n} `env:` lines that name its version or sha256 values go, with the comments right above them; "),
     };
-    let how = if stale.iter().all(|(_, k)| *k == Kind::Cargo) {
+    let how = if tree {
+        format!("runs the tree's installer, `{root}/{INSTALLER}`, which installs the version {pin} names")
+    } else if stale.iter().all(|(_, k)| *k == Kind::Cargo) {
         format!("installs the version {pin} names with cargo")
     } else {
         format!("installs docsys {version} and checks its archive against the sha256 values this upgrade read from the release")
@@ -1251,4 +1445,158 @@ pub fn reinstall(
         text: new,
         what: format!("{entries}{steps}every other line stays as you wrote it — the diff is below"),
     }
+}
+
+/// A one-line `- run: docsys <command> …` value of a step's first line, the
+/// run text after `run:`.
+fn run_value(l: &str) -> Option<&str> {
+    let t = l.trim_start();
+    let t = t.strip_prefix("- ").unwrap_or(t).trim_start();
+    t.strip_prefix("run:").map(str::trim)
+}
+
+/// The docsys/0.6 shape of an owner's workflow, every other line kept as the
+/// owner wrote it (D-136, D-138): a `push:` with no filter runs on the
+/// default branch only; where a `gate --range` step checks the pull request,
+/// `lint` and `refs` run on push alone and a merge queue's group is checked
+/// by the gate on the combined state. `Ok(None)` when nothing changes; `Err`
+/// names the 1-based line a person changes, when the shape cannot be told.
+/// An owner's workflow in the docsys/0.6 shape and what changed in it; `None`
+/// when nothing does; `Err` the 1-based line a person changes, and why.
+pub type Scoped = Result<Option<(String, Vec<String>)>, (usize, String)>;
+
+pub fn scope_owner(text: &str, root: &str, branch: &str) -> Scoped {
+    let crlf = text.contains("\r\n");
+    let text = text.replace("\r\n", "\n");
+    let root = root_of(root);
+    let lines: Vec<&str> = text.lines().collect();
+    let Some(on) = lines.iter().position(|l| {
+        let t = l.split(" #").next().unwrap_or(l).trim_end();
+        t == "on:" || t.starts_with("on: ") || t == "\"on\":" || t == "'on':"
+    }) else {
+        return Ok(None);
+    };
+    let line = |i: usize| lines.get(i).copied().unwrap_or("");
+    if line(on).split(" #").next().unwrap_or("").trim_end() != "on:" {
+        return Err((on + 1, "the triggers are written on one line — write them as a block (`on:`, then one trigger per line), and `docsys upgrade` narrows `push:` to the default branch and adds `merge_group:`".to_string()));
+    }
+    // the `on:` block: its lines, the column of its keys
+    let mut end = on;
+    let mut col: Option<usize> = None;
+    let mut keys: Vec<(usize, String)> = Vec::new();
+    for (i, l) in lines.iter().enumerate().skip(on + 1) {
+        if l.trim().is_empty() || is_comment(l) {
+            continue;
+        }
+        let ind = indent_of(l);
+        if ind == 0 {
+            break;
+        }
+        end = i;
+        let c = *col.get_or_insert(ind);
+        if ind == c {
+            let k = l.trim().split(':').next().unwrap_or("").trim().to_string();
+            keys.push((i, k));
+        }
+    }
+    let Some(col) = col else {
+        return Ok(None);
+    };
+    let mut after: BTreeMap<usize, Vec<String>> = BTreeMap::new();
+    let mut replace: BTreeMap<usize, Vec<String>> = BTreeMap::new();
+    let mut what: Vec<String> = Vec::new();
+
+    // push: with no filter → the default branch
+    if let Some((i, _)) = keys.iter().find(|(_, k)| k == "push") {
+        let value = line(*i).split_once(':').map_or("", |(_, v)| v);
+        let value = value.split(" #").next().unwrap_or("").trim();
+        let filtered = lines
+            .iter()
+            .skip(i + 1)
+            .take_while(|l| l.trim().is_empty() || is_comment(l) || indent_of(l) > col)
+            .any(|l| !l.trim().is_empty() && !is_comment(l));
+        if value.is_empty() && !filtered {
+            after
+                .entry(*i)
+                .or_default()
+                .push(format!("{}branches: [{branch}]", " ".repeat(col * 2)));
+            what.push(format!(
+                "`push:` runs on {branch} only, so a branch with a pull request is checked once"
+            ));
+        }
+    }
+
+    // the steps: lint and refs on push, a merge queue's group by the gate
+    let steps = steps_of(&lines);
+    let step_text = |s: &Step| lines.get(s.first..=s.last).unwrap_or(&[]).join("\n");
+    let gate = steps.iter().find(|s| {
+        let b = step_text(s);
+        b.contains("docsys gate") && b.contains("--range") && b.contains("pull_request")
+    });
+    if let Some(gate) = gate {
+        for s in &steps {
+            let first = line(s.first);
+            let b = step_text(s);
+            let runs = (s.first..=s.last).find_map(|i| run_value(line(i)));
+            let whole_tree =
+                runs.is_some_and(|r| r.starts_with("docsys lint") || r.starts_with("docsys refs"));
+            if !whole_tree || b.contains("if:") {
+                continue;
+            }
+            let pad = " ".repeat(s.col + 2);
+            if s.first == s.last {
+                let run = run_value(first).unwrap_or("");
+                replace.insert(
+                    s.first,
+                    vec![
+                        format!("{}- if: github.event_name == 'push'", " ".repeat(s.col)),
+                        format!("{pad}run: {run}"),
+                    ],
+                );
+            } else {
+                after
+                    .entry(s.first)
+                    .or_default()
+                    .push(format!("{pad}if: github.event_name == 'push'"));
+            }
+        }
+        if !replace.is_empty() || after.keys().any(|k| *k > end) {
+            what.push("`lint` and `refs` check the whole tree on push; the pull request is checked by `gate --range` alone, which reads both".to_string());
+        }
+        if !text.contains("merge_group") {
+            after.entry(gate.last).or_default().extend([
+                format!("{}- if: github.event_name == 'merge_group'", " ".repeat(gate.col)),
+                format!(
+                    "{}run: docsys gate --repo . --root {root} --range \"${{{{ github.event.merge_group.base_sha }}}}...HEAD\"",
+                    " ".repeat(gate.col + 2)
+                ),
+            ]);
+            after
+                .entry(end)
+                .or_default()
+                .push(format!("{}merge_group:", " ".repeat(col)));
+            what.push("a merge queue's group is checked by the gate on the combined state (`merge_group:`)".to_string());
+        }
+    }
+    if what.is_empty() {
+        return Ok(None);
+    }
+    let mut out: Vec<String> = Vec::new();
+    for (i, l) in lines.iter().enumerate() {
+        match replace.get(&i) {
+            Some(new) => out.extend(new.iter().cloned()),
+            None => out.push((*l).to_string()),
+        }
+        if let Some(extra) = after.get(&i) {
+            out.extend(extra.iter().cloned());
+        }
+    }
+    let mut new = out.join("\n");
+    if text.ends_with('\n') {
+        new.push('\n');
+    }
+    if crlf {
+        new = new.replace('\n', "\r\n");
+    }
+    Ok(Some((new, what)))
 }

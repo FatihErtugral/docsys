@@ -20,7 +20,7 @@ fn rerun(adds: bool) -> &'static str {
 /// what moved (D-040).
 pub fn ask(adds: bool) -> String {
     format!(
-        "If a contract moved, update the page (or say why in the commit message: `Docs: <why>`) and commit; if nothing user-visible moved, {} — this gate asks once.\n",
+        "If a contract moved, update the page (or say why in the commit message: `Docs: <why>`) and commit; if nothing user-visible moved, {} with that `Docs:` line in its message — a pull request's check reads only the line — this gate asks once.\n",
         rerun(adds)
     )
 }
@@ -145,9 +145,41 @@ pub fn gate_undocumented(scope: &str, code: &[String]) -> String {
     } else {
         String::new()
     };
+    // over a range nobody is asked: the refusal names the way out (R-209)
+    let way = if scope == "range" {
+        " — add the page, or a `Docs: <why>` line to a commit of this range"
+    } else {
+        ""
+    };
     format!(
-        "GATE {scope} changes with no docs change: {}{tail}",
+        "GATE {scope} changes with no docs change: {}{tail}{way}",
         head.join(", ")
+    )
+}
+
+/// A scoped gate's error its base already carries (D-136): named, not
+/// counted, never blocking.
+pub fn gate_inherited(base: &str, message: &str) -> String {
+    format!("inherited from {base}, not this change's: {message}")
+}
+
+/// The gate's last line: every blocking result counted as an error, the
+/// errors a change inherits beside them.
+pub fn gate_summary(errors: usize, inherited: usize, warnings: usize) -> String {
+    if inherited > 0 {
+        format!("-- {errors} error(s) ({inherited} inherited, not blocking), {warnings} warning(s)")
+    } else {
+        format!("-- {errors} error(s), {warnings} warning(s)")
+    }
+}
+
+/// Why a scoped gate could not compare with its base: every error blocks.
+pub const GATE_SHALLOW: &str = "docsys: history is shallow here, so this check cannot tell the errors this change adds from those its base carries — every error blocks; check out with fetch-depth: 0";
+
+/// The base a scoped gate needs is not in this checkout.
+pub fn gate_no_base(rev: &str) -> String {
+    format!(
+        "docsys: `{rev}` cannot be checked out here, so this check cannot tell the errors this change adds from those its base carries — every error blocks"
     )
 }
 
@@ -192,6 +224,9 @@ pub fn message_budget(entry: usize, max: usize) -> String {
 
 /// The mode line of the pre-commit block: what stops the commit.
 pub const GATE_HARD: &str = "# Hard gate: lint errors and dangling references stop the commit.";
+/// The mode line of a docsys/0.6 pre-commit block: hard on any tree (D-136).
+pub const GATE_SCOPED: &str =
+    "# Hard gate: the lint errors and dangling references a commit adds stop it; those it inherits are named.";
 pub const GATE_WARN: &str =
     "# Warn-mode until the adoption debt is triaged; `docsys adopt` hardens it once lint is clean.";
 /// The mode line of the commit-msg block: what this half stops, which is the
@@ -210,7 +245,11 @@ pub fn upgrade_preview(to: u32, added: usize, removed: usize) -> String {
 
 /// Each phrase of the agent text that names the journal, as a docsys/0.5
 /// tree hears it and as a 0.4 tree heard it from 0.15.1 (D-118).
-const ERA_PHRASES: [(&str, &str); 15] = [
+const ERA_PHRASES: [(&str, &str); 16] = [
+    (
+        " — add the page, or a `Docs: <why>` line to a commit of this range",
+        "",
+    ),
     (
         "improvement (refactor, performance, cleanup), research. If the",
         "improvement (refactor, performance, cleanup), research, idea-note. If the",

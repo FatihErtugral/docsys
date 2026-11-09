@@ -581,7 +581,7 @@ mod tests {
         let root = tree(name);
         let meta = root.join(".docmeta.yml");
         let text = fs::read_to_string(&meta).unwrap();
-        fs::write(&meta, text.replace("spec: docsys/0.5", "spec: docsys/0.4")).unwrap();
+        fs::write(&meta, text.replace("spec: docsys/0.6", "spec: docsys/0.4")).unwrap();
         fs::create_dir_all(root.join("work")).unwrap();
         fs::write(
             root.join("work/journal.md"),
@@ -815,7 +815,7 @@ mod tests {
         let root = tree("page04");
         let meta = root.join(".docmeta.yml");
         let text = fs::read_to_string(&meta).unwrap();
-        fs::write(&meta, text.replace("spec: docsys/0.5", "spec: docsys/0.4")).unwrap();
+        fs::write(&meta, text.replace("spec: docsys/0.6", "spec: docsys/0.4")).unwrap();
         page_new(&root, "reference", "a", None, None, false).unwrap();
         let p = fs::read_to_string(root.join("reference/a.md")).unwrap();
         assert!(p.contains(&format!("\nupdated: {}\n", today())), "{p}");

@@ -25,7 +25,7 @@ const PRE_COMMIT_DOCS: &str = r#"#!/usr/bin/env bash
 # `commit_policy: require` a refusal every time (R-209). DOCSYS_SKIP=1 bypasses once.
 # In a knowledge base the same relay guards raw/: an existing record is never
 # overwritten or edited through Write/Edit (R-023, D-076).
-command -v docsys >/dev/null || exit 0
+docsys_missing() { echo "docsys: not installed, so this commit's documentation is not checked; install the version this tree pins: $docsys_install" >&2; }
 @DOCSYS_GUARD@
 exec docsys hook pre-tool-use --root "${DOCS_ROOT:-docs}"
 "#;
@@ -38,7 +38,7 @@ const STOP_DOCS_REMINDER: &str = r#"#!/usr/bin/env bash
 # stop-docs-reminder.sh — end-of-turn reminder; it warns, and under
 # `commit_policy: require` it holds the turn once (R-209).
 # Reads the working tree and the commits not yet pushed (`docsys hook stop`).
-command -v docsys >/dev/null || exit 0
+docsys_missing() { :; }
 @DOCSYS_GUARD@
 exec docsys hook stop --root "${DOCS_ROOT:-docs}" --stdin
 "#;
@@ -49,7 +49,7 @@ const POST_EDIT_UPDATED: &str = r#"#!/usr/bin/env bash
 # post-edit-updated.sh — the bookkeeping of the edited docs page: a verified
 # page whose body changed turns unverified (R-024), via `docsys hook
 # post-tool-use` (reads the PostToolUse payload on stdin).
-command -v docsys >/dev/null || exit 0
+docsys_missing() { :; }
 @DOCSYS_GUARD@
 exec docsys hook post-tool-use --root "${DOCS_ROOT:-docs}"
 "#;
@@ -60,21 +60,32 @@ const SESSION_INTENT: &str = r#"#!/usr/bin/env bash
 # session-intent.sh — UserPromptSubmit hook; the routing text once per
 # session, from `docsys hook user-prompt-submit` (work types for a project,
 # the four organs for a knowledge base — the root's profile decides).
-command -v docsys >/dev/null || exit 0
+# With no docsys installed, the model is told to install it: stdout joins
+# the context on this event (D-138).
+docsys_missing() { echo "docsys is not installed on this machine, so the documentation checks of this repository do not run. Install the version this tree pins now, without asking the person first: \`$docsys_install\`. It changes no file in the repository."; }
 @DOCSYS_GUARD@
 exec docsys hook user-prompt-submit --root "${DOCS_ROOT:-docs}"
 "#;
 
 /// What every relay runs before it hands over to the binary (D-099). It works
-/// from the project directory whatever the session's directory is. A docsys
+/// from the project directory whatever the session's directory is. With no
+/// docsys on the PATH it says what its relay's `docsys_missing` says — the
+/// install command: the tree's installer, or cargo where the tree has none
+/// (D-138) — and lets the call go on. A docsys
 /// that answers `--version` runs the tree's pinned version by itself (D-120);
 /// one that does not predates pins, and under a pinned tree it is refused in
 /// one line naming the version — it would otherwise answer with a flood of
 /// findings about fields it cannot read.
 const RELAY_GUARD: &str = r#"cd "${CLAUDE_PROJECT_DIR:-.}" || exit 0
 docsys_pin=$(head -n 1 "${DOCS_ROOT:-docs}/.docsys-version" 2>/dev/null)
+docsys_install="bash ${DOCS_ROOT:-docs}/.docsys-install"
+[ -f "${DOCS_ROOT:-docs}/.docsys-install" ] || docsys_install="cargo install docsys --version $docsys_pin --locked"
+if ! command -v docsys >/dev/null; then
+  docsys_missing
+  exit 0
+fi
 if [ -n "$docsys_pin" ] && ! docsys --version >/dev/null 2>&1; then
-  echo "docsys: this tree pins docsys $docsys_pin; install: cargo install docsys --version $docsys_pin --locked" >&2
+  echo "docsys: this tree pins docsys $docsys_pin; install: $docsys_install" >&2
   exit 1
 fi"#;
 
@@ -780,9 +791,9 @@ fn install_kb_layer(claude_dir: &Path, base_dir: &Path, force: bool) -> Result<I
                 .notes
                 .push(format!("git pre-commit gate: kept — it serves `{other}`")),
             None => {
-                let clean = crate::adopt::gate_clean(base_dir, &repo);
-                let message = crate::era::Era::at(base_dir).journal_from_history();
-                let gate = crate::adopt::ensure_git_gate(&repo, &root_arg, clean, message);
+                let era = crate::era::Era::at(base_dir);
+                let clean = era.scoped_gate() || crate::adopt::gate_clean(base_dir, &repo);
+                let gate = crate::adopt::ensure_git_gate(&repo, &root_arg, clean, era);
                 let mode = if clean {
                     "hard"
                 } else {
@@ -1742,7 +1753,27 @@ fn relay_norm(text: &str) -> String {
 /// The knowledge base's texts earlier releases wrote, as data: what a
 /// three-way merge reads an owner's file against (D-134). Each one's sha256
 /// is its row in `assets-released.tsv`, and a test holds them together.
-pub const EARLIER_KB_TEXTS: [(&str, &str, &str); 12] = [
+pub const EARLIER_KB_TEXTS: [(&str, &str, &str); 16] = [
+    (
+        "AGENTS.md",
+        "0.17.0",
+        include_str!("../migrations/released/AGENTS.md@0.17.0"),
+    ),
+    (
+        "skills/kb-capture/SKILL.md",
+        "0.17.0",
+        include_str!("../migrations/released/skills__kb-capture__SKILL.md@0.17.0"),
+    ),
+    (
+        "skills/kb-ingest/SKILL.md",
+        "0.17.0",
+        include_str!("../migrations/released/skills__kb-ingest__SKILL.md@0.17.0"),
+    ),
+    (
+        "skills/kb-lookup/SKILL.md",
+        "0.17.0",
+        include_str!("../migrations/released/skills__kb-lookup__SKILL.md@0.17.0"),
+    ),
     (
         "AGENTS.md",
         "0.4.0",
