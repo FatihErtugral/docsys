@@ -66,8 +66,26 @@ pub fn run(repo: &Path, tree: &DocTree) -> Report {
             files_scanned -= 1;
             continue;
         }
-        for (i, line) in text.lines().enumerate() {
-            for token in checks::code_citations(crate::era::Era::of(tree), line) {
+        let markdown = frel.ends_with(".md");
+        let lines = if markdown {
+            checks::scannable_lines_pub(&text)
+        } else {
+            text.lines().enumerate().collect()
+        };
+        for (i, line) in lines {
+            let mut citations = checks::code_citations(crate::era::Era::of(tree), line);
+            if markdown {
+                // Add prose foreign citations without changing the existing
+                // code-citation policy (including legacy local references).
+                citations.extend(
+                    checks::doc_tokens_on_line(line)
+                        .into_iter()
+                        .filter(|token| token.starts_with('@')),
+                );
+                citations.sort();
+                citations.dedup();
+            }
+            for token in citations {
                 tokens += 1;
                 match resolve_doc_token(&idx, &token) {
                     Ok(Resolved::Permanent) => {}
@@ -120,15 +138,11 @@ pub fn run(repo: &Path, tree: &DocTree) -> Report {
                     // local materialization (D-078); absent, it is reported
                     Err(DocRefFail::Foreign) => {
                         if !checks::materialized(&tree.root, &token) {
-                            r.findings.push(Finding::warn(
-                                R076,
+                            r.findings.push(checks::missing_foreign_citation(
+                                tree,
                                 &frel,
                                 &token,
-                                format!(
-                                    "line {}: `doc: {token}` is not materialized here — \
-                                     `docsys consume add` the namespace and `docsys fetch`",
-                                    i + 1
-                                ),
+                                i + 1,
                             ));
                         }
                     }

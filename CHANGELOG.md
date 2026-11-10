@@ -5,6 +5,17 @@ All notable changes to docsys are documented here. The format follows
 [SemVer](https://semver.org/). Release notes are extracted from this file
 by the release workflow — the tag's section becomes the GitHub release body.
 
+## [Unreleased]
+
+### Fixed
+
+- Missing foreign citations fail `lint` and `refs` when the tree consumes
+  providers or holds a local federation snapshot (R-139). Trees without any
+  federation declaration or state retain the warning required by R-076.
+- `refs` checks explicit foreign citations in repository Markdown outside the
+  documentation tree. Ignored/excluded files, fenced examples, and provider
+  materializations remain outside that scan. Neither check fetches providers.
+
 ## [0.17.0] - 2026-10-05
 
 ### Upgrading from 0.16.1

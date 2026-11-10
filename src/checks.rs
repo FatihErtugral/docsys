@@ -1234,6 +1234,24 @@ pub enum Resolved {
     Archived,
 }
 
+/// R-139 blocks missing identifiers once a tree declares or holds federation.
+pub(crate) fn missing_foreign_citation(
+    tree: &DocTree,
+    file: &str,
+    token: &str,
+    line: usize,
+) -> Finding {
+    let message = format!(
+        "line {line}: `doc: {token}` is not materialized here — \
+         `docsys consume add` the namespace and `docsys fetch`"
+    );
+    if !tree.docmeta_list("consume").is_empty() || tree.root.join(".federation").is_dir() {
+        Finding::err(R076, file, token, message)
+    } else {
+        Finding::warn(R076, file, token, message)
+    }
+}
+
 /// Is a foreign `@namespace/id` materialized under this root's `.federation/`?
 pub fn materialized(root: &std::path::Path, token: &str) -> bool {
     token
@@ -1615,15 +1633,11 @@ fn check_doc_refs(tree: &DocTree, r: &mut Report) {
                     // it is reported with the two commands that land it.
                     Err(DocRefFail::Foreign) => {
                         if !materialized(&tree.root, &token) {
-                            r.findings.push(Finding::warn(
-                                R076,
+                            r.findings.push(missing_foreign_citation(
+                                tree,
                                 &page.rel,
                                 &token,
-                                format!(
-                                    "line {}: `doc: {token}` is not materialized here — \
-                                     `docsys consume add` the namespace and `docsys fetch`",
-                                    line + 1
-                                ),
+                                line + 1,
                             ));
                         }
                     }

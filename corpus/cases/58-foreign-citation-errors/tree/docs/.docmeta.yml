@@ -1,0 +1,5 @@
+spec: docsys/0.4
+profile: project
+default_content_language: en
+namespace: consumer
+consume: [upstream=../provider#docs]

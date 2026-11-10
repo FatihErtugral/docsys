@@ -1376,7 +1376,13 @@ the consuming repository's pipeline. Existence is evaluated against the newest
 *verified* federation state held locally — the last materialized manifest
 (R-148) — never against a live provider query: an identifier absent from that
 state does not exist, and one present in it exists even while its provider is
-unreachable, with the state's age reported. This is an instance of the R-151
+unreachable, with the state's age reported. A tree that declares `consume:` or
+holds `.federation/` is a consumer: a missing materialized identifier is an
+error in both `lint` and `refs`. A tree with neither keeps R-076's diagnostic
+warning. `refs` also checks explicit `doc: @namespace/id` citations in repository
+Markdown outside the documentation tree, respecting version-control ignores,
+`scan_exclude` and fenced code examples. Consumed provider bodies are excluded;
+their citations belong to the provider. No check fetches a provider. This is an instance of the R-151
 exception: an agent that cannot resolve a reference invents an answer, so the
 failure is silent and harmful.
 
