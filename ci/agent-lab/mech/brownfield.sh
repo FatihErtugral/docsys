@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # mech/brownfield.sh [workdir] — flow 4 without an agent: a project with
-# years of history and no documentation. `adopt` (the gate follows lint AND
-# refs, D-088), the `seed plan` inventory (mega-commit excluded, features by
-# directory+scope, a foreign type word named), refusals (`already covered`,
+# years of history and no documentation. `adopt` (the gate is hard, and the
+# adoption inherits the debt its code carries, D-136), the `seed plan`
+# inventory (mega-commit excluded, features by directory+scope, a foreign type
+# word named), refusals (`already covered`,
 # `nothing in history names this feature`), one feature's evidence (birth,
 # root cause, manifest, dangling `doc:`, the comment block verbatim, tags),
 # `--since`, `seed gaps`, a SEED.tsv landed by `seed apply` (idempotent,
@@ -19,15 +20,16 @@ O="$WORK/out"; mkdir -p "$O"
 cd "$WORK/ledgerkit"
 TODAY=$(date +%F)
 
-say "$F · 1 adopt: the gate's mode follows lint and refs"
+say "$F · 1 adopt: the gate is hard, and the adoption inherits the debt its code carries"
 docsys adopt > "$O/adopt.out" 2>&1 || check $F adopt FAIL "$(cat "$O/adopt.out")"
-expect_in $F adopt-gate-warn "git pre-commit gate: written (warn-mode until lint and refs are clean)" "$O/adopt.out"
+expect_in $F adopt-gate-hard "git pre-commit gate: written (hard)" "$O/adopt.out"
 expect_in $F adopt-namespace "namespace: ledgerkit" docs/.docmeta.yml
 expect_true $F adoption-report "ADOPTION.md" test -f ADOPTION.md
 expect_clean $F adopt-lint-clean docs .
 (docsys refs --repo . --root docs || true) > "$O/refs.out"
 expect_re $F refs-dangling-cite '^ERROR R-076 packages/sync/src/replay\.ts \[sync-replay\]' "$O/refs.out"
-git add -A && git commit -qm "adopt docsys" 2>"$O/commit.err" || check $F commit-adopt FAIL "a warn-mode gate must let the adoption land: $(cat "$O/commit.err")"
+git add -A && git commit -qm "adopt docsys" 2>"$O/commit-adopt.err" || check $F commit-adopt FAIL "the hard gate must let the adoption land, its code's debt inherited: $(cat "$O/commit-adopt.err")"
+expect_in $F commit-adopt-inherits "-- 0 error(s) (1 inherited, not blocking)" "$O/commit-adopt.err"
 docsys doctor --repo . --root docs > "$O/doctor.out" 2>&1 || true
 expect_in $F doctor-alive "-- pipeline alive" "$O/doctor.out"
 
@@ -144,7 +146,7 @@ expect_absent $F dangling-cite-gone "R-076" "$O/refs2.out"
 expect_clean $F after-graduation docs .
 git add -A && git commit -qm "graduate: sync learned" 2>"$O/commit.err" || check $F commit-graduate FAIL "$(cat "$O/commit.err")"
 docsys adopt > "$O/adopt2.out" 2>&1 || true
-expect_in $F gate-hardened "git pre-commit gate: hardened" "$O/adopt2.out"
+expect_in $F gate-still-hard "git pre-commit gate: kept (hard)" "$O/adopt2.out"
 
 say "$F · 7 a base learns from this repository through the connector"
 "$LAB_DIR/fixtures/gen-kb.sh" "$WORK/kb" >/dev/null

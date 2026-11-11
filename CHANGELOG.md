@@ -44,7 +44,8 @@ by the release workflow — the tag's section becomes the GitHub release body.
   `gate --range` compares its range with the merge base, and the commit gate
   with `HEAD`. An error the base already carries is named "inherited from
   <base>, not this change's", and the summary reads `N error(s) (M
-  inherited, not blocking)`. A shallow checkout says so in one line, and
+  inherited, not blocking)`. The commit that adopts docsys inherits what
+  its code already cites. A shallow checkout says so in one line, and
   every error blocks; a range the checkout cannot read fails, in one line
   that says why. `refs` runs inside the gate.
 - The git gate of a docsys/0.6 tree is hard from adoption on: warn mode had

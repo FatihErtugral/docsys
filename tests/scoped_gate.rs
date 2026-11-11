@@ -236,6 +236,57 @@ fn a_shallow_checkout_blocks_on_every_error_and_says_why() {
     let _ = fs::remove_dir_all(&clone);
 }
 
+/// D-136: the commit and the pull request that adopt docsys measure from a
+/// base that holds no tree. What the base's code cites, read against no
+/// pages, is the base's: it is inherited, while a citation or a page error
+/// the adoption adds blocks.
+#[test]
+fn the_adoption_inherits_what_its_code_already_cites() {
+    let repo = tmp("adopt-base");
+    git(&repo, &["init", "-q", "-b", "main"]);
+    write(&repo, "src/a.ts", "export const a = 1; // doc: ghost\n");
+    commit_quietly(&repo, "code before any documentation");
+    let base = git(&repo, &["rev-parse", "--short=8", "HEAD"]);
+    git(&repo, &["checkout", "-q", "-b", "adopt"]);
+    let out = docsys(&repo, &["adopt", "--no-report"]);
+    assert!(out.status.success(), "{out:?}");
+    write(&repo, "src/b.ts", "export const b = 2; // doc: phantom\n");
+    write(
+        &repo,
+        "docs/reference/b.md",
+        &page("b", "This page links [[reference/nowhere]]."),
+    );
+    let (code, said) = commit_through_gate(&repo, "adopt docsys");
+    assert_eq!(code, 1, "{said}");
+    assert!(said.contains("ERROR R-076 src/b.ts [phantom]"), "{said}");
+    assert!(
+        said.contains("ERROR R-071 reference/b.md [reference/nowhere]"),
+        "{said}"
+    );
+    assert!(
+        said.contains("-- 2 error(s) (1 inherited, not blocking)"),
+        "{said}"
+    );
+    write(&repo, "src/b.ts", "export const b = 2;\n");
+    write(
+        &repo,
+        "docs/reference/b.md",
+        &page("b", "This page describes b."),
+    );
+    let (code, said) = commit_through_gate(&repo, "adopt docsys");
+    assert_eq!(code, 0, "{said}");
+    assert!(said.contains(&format!("inherited from {base}")), "{said}");
+    assert!(
+        said.contains("-- 0 error(s) (1 inherited, not blocking)"),
+        "{said}"
+    );
+    let out = docsys(&repo, &["gate", "--range", "main...HEAD"]);
+    let said = text(&out);
+    assert_eq!(out.status.code(), Some(0), "{said}");
+    assert!(said.contains(&format!("inherited from {base}")), "{said}");
+    let _ = fs::remove_dir_all(&repo);
+}
+
 /// R-209, D-125: a range that changes code and no documentation is refused,
 /// the refusal names its way out, and the summary counts it as an error; a
 /// `Docs:` line in a commit of the range answers it.

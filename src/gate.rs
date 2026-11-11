@@ -333,7 +333,23 @@ fn base_errors(repo: &Path, root: &Path, rev: &str) -> Option<std::collections::
     } else {
         dir.join(&rel)
     };
-    let keys = errors_at(&dir, &base_root);
+    // a base with no tree is the adoption's: its code is read against the
+    // change's configuration and no page, so what it already cites is its own
+    let config = base_root.join(".docmeta.yml");
+    let commands: &[&str] = if config.exists() {
+        &["lint", "refs"]
+    } else if std::fs::create_dir_all(&base_root).is_ok()
+        && std::fs::copy(root.join(".docmeta.yml"), &config).is_ok()
+    {
+        &["refs"]
+    } else {
+        &[]
+    };
+    let keys = if commands.is_empty() {
+        None
+    } else {
+        errors_at(&dir, &base_root, commands)
+    };
     let removed = crate::git::foreign(Some(repo))
         .args(["worktree", "remove", "--force"])
         .arg(&dir)
@@ -350,11 +366,15 @@ fn base_errors(repo: &Path, root: &Path, rev: &str) -> Option<std::collections::
     keys
 }
 
-fn errors_at(dir: &Path, root: &Path) -> Option<std::collections::BTreeSet<Key>> {
+fn errors_at(
+    dir: &Path,
+    root: &Path,
+    commands: &[&str],
+) -> Option<std::collections::BTreeSet<Key>> {
     let exe = std::env::current_exe().ok()?;
     let era = crate::era::Era::at(root);
     let mut keys = std::collections::BTreeSet::new();
-    for command in ["lint", "refs"] {
+    for command in commands {
         let mut c = std::process::Command::new(&exe);
         c.arg(command)
             .arg("--json")
