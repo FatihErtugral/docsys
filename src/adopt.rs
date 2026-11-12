@@ -493,9 +493,10 @@ fn ensure_docmeta(root: &Path, lang: &str) -> Result<&'static str, String> {
 }
 
 /// Append the gate to the repo's pre-commit hook (idempotent). Hard — lint
-/// errors and dangling references stop the commit — when the tree lints clean
-/// at adoption; warn-mode when it carries debt, because a gate that blocks
-/// every commit on day one gets bypassed forever (R-150). A warn-mode gate is
+/// errors and dangling references stop the commit — on a docsys/0.6 tree
+/// (D-136), and below it when the tree lints clean at adoption; warn-mode when
+/// a tree below docsys/0.6 carries debt, because a gate that blocks every
+/// commit on day one gets bypassed forever (R-150). A warn-mode gate is
 /// hardened by a later `adopt` once the tree is clean (D-072).
 /// The verdict the gate itself will reach: no lint error AND no refs error
 /// (a dangling `doc:` in code blocks a commit just as a broken page does,
@@ -817,9 +818,10 @@ pub fn run_placed(
         }
     };
 
-    // 4 · git pre-commit gate — hard when the tree is clean as the hook will
-    // see it (inside the repository: pins and history included), warn-mode
-    // while it carries debt (D-072)
+    // 4 · git pre-commit gate — hard on a docsys/0.6 tree (D-136); below it,
+    // hard when the tree is clean as the hook will see it (inside the
+    // repository: pins and history included), warn-mode while it carries debt
+    // (D-072)
     let era = crate::era::Era::at(root);
     let clean = era.scoped_gate() || gate_clean(root, repo);
     let gate = ensure_git_gate(repo, &root_rel, clean, era);
@@ -914,10 +916,15 @@ pub fn run_placed(
     if !exact || errors > 0 {
         md.push_str(
             "- [ ] Triage the error findings: dangling references are usually decisions\n\
-             \x20     cited but never distilled — graduate them (`docsys graduate plan`).\n\
-             - [ ] When errors reach zero, run `docsys adopt` again: the pre-commit gate\n\
-             \x20     hardens by itself (lint errors then stop the commit).\n",
+             \x20     cited but never distilled — graduate them (`docsys graduate plan`).\n",
         );
+        // a docsys/0.6 gate is hard from adoption on (D-136)
+        if !era.scoped_gate() {
+            md.push_str(
+                "- [ ] When errors reach zero, run `docsys adopt` again: the pre-commit gate\n\
+                 \x20     hardens by itself (lint errors then stop the commit).\n",
+            );
+        }
     }
     md.push_str(if !exact {
         ""

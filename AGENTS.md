@@ -29,8 +29,10 @@ short because each one was paid for.
 ## Severity doctrine
 
 Only the irreversible or the silently-wrong blocks (R-151). A red gate nobody
-can honestly clear teaches people to bypass it (R-150) — that is why adoption
-gates start in warn mode and harden when the debt reaches zero.
+can honestly clear teaches people to bypass it (R-150) — that is why a gate
+blocks only on the errors a change adds, and names the debt the tree already
+carries without blocking on it (D-136). A tree below docsys/0.6 keeps a
+warn-mode gate until its debt reaches zero.
 
 ## Hard constraints
 

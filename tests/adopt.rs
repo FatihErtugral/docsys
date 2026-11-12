@@ -499,6 +499,26 @@ fn a_0_6_gate_is_hard_on_a_tree_with_debt() {
 }
 
 #[test]
+fn a_0_6_adoption_report_names_no_gate_to_harden() {
+    // D-136: the gate of a docsys/0.6 tree with debt is hard already, so the
+    // report asks to triage the debt and names no later hardening
+    let repo = tmp("report-scoped");
+    git_init(&repo);
+    fs::create_dir_all(repo.join("src")).unwrap();
+    fs::write(
+        repo.join("src/lib.rs"),
+        "// doc: nowhere-yet\npub fn f() {}\n",
+    )
+    .unwrap();
+    let docs = repo.join("docs");
+    docsys::adopt::run(&repo, &docs, "en").unwrap();
+    let report = fs::read_to_string(repo.join("ADOPTION.md")).unwrap();
+    assert!(report.contains("Triage the error findings"), "{report}");
+    assert!(!report.contains("hardens"), "{report}");
+    let _ = fs::remove_dir_all(&repo);
+}
+
+#[test]
 fn the_gate_mode_follows_lint_and_refs_together() {
     // D-088: a dangling `doc:` in code blocks a commit at the gate, so a
     // docsys/0.5 repository carrying one gets a warn-mode gate, not a hard one

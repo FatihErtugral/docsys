@@ -481,8 +481,8 @@ happen without being asked:
 
 CI asks the same questions of every pull request and every push to the
 default branch: `adopt` writes `.github/workflows/docsys.yml` when the
-repository has a `.github/`, and the git pre-commit gate is hard as soon as
-the tree lints clean.
+repository has a `.github/`, and the git pre-commit gate is hard from
+adoption on: it blocks only on what a commit adds (D-136).
 
 `docsys lint --root docs` is the check CI runs: errors exit 1, warnings do
 not. Everything else — feeling the severity doctrine on a clean tree, seeding
@@ -752,9 +752,11 @@ derived navigation (0.9) make the right single-file write the cheap one and
 give the tree backlinks, unlinked mentions and a graph. Freshness (0.11) is
 mechanical: a page pins a code region (`verifies:`, §11) and lint recomputes
 the hash on every run; history dates every page, and a draft nobody touched
-for `stale_active_days` is an error, not a hope. `adopt` writes the CI workflow and hardens the pre-commit gate once the
-tree is clean. A mature howto compiles into an executable skill that carries
-its source hash, and goes stale with the page (0.12, R-094, R-095).
+for `stale_active_days` is an error, not a hope. `adopt` writes the CI
+workflow and a pre-commit gate that is hard from adoption on and blocks only
+on what a commit adds (D-136). A mature howto compiles into an executable
+skill that carries its source hash, and goes stale with the page (0.12,
+R-094, R-095).
 
 The assistant's memory (0.12–0.13) grew out of an agent lab: three sample
 projects adopted, fifteen headless sessions watched, a knowledge base created

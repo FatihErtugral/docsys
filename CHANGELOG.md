@@ -5,7 +5,7 @@ All notable changes to docsys are documented here. The format follows
 [SemVer](https://semver.org/). Release notes are extracted from this file
 by the release workflow — the tag's section becomes the GitHub release body.
 
-## [0.18.0] - 2026-11-09
+## [0.18.0] - 2026-11-12
 
 ### Upgrading from 0.17.0 or 0.16.1
 
@@ -49,7 +49,8 @@ by the release workflow — the tag's section becomes the GitHub release body.
   every error blocks; a range the checkout cannot read fails, in one line
   that says why. `refs` runs inside the gate.
 - The git gate of a docsys/0.6 tree is hard from adoption on: warn mode had
-  one reason, inherited debt, and the debt no longer blocks (D-136). On a
+  one reason, inherited debt, and the debt no longer blocks (D-136). Its
+  adoption report asks to triage the debt and names no later hardening. On a
   branch whose tree is read below docsys/0.6 the gate is not scoped: there
   it keeps the mode this clone's hook had before the move, and runs `refs`.
 - A merge of changes that each re-read a pinned region is reported, not an

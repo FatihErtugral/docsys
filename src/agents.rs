@@ -776,8 +776,9 @@ fn install_kb_layer(claude_dir: &Path, base_dir: &Path, force: bool) -> Result<I
         fs::write(&agents, kb_contract()).map_err(|e| e.to_string())?;
         out.written.push("AGENTS.md".to_string());
     }
-    // The git gate, as for a project: hard when the base lints clean inside
-    // its repository, warn-mode while it carries debt (D-072). A linked
+    // The git gate, as for a project: hard on a docsys/0.6 base (D-136); below
+    // it, hard when the base lints clean inside its repository, warn-mode
+    // while it carries debt (D-072). A linked
     // worktree's `.git` is a file; git says whether this is a repository.
     // The gate is the repository's: a base inside another repository, or a
     // gate that serves another tree, is left as it is.
