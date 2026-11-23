@@ -44,6 +44,7 @@ Judgment stays with you, but inside these rules:
 - R-092: Order matters.
 - R-093: Before archiving anything, the question is asked: does this information exist anywhere else? If not, and it is still true, it graduates first.
 - R-096: Compilation MUST NOT invent steps.
+- R-115: A page MUST NOT state the count or the list of the members of a set that grows with the code; it states the rule that holds for every member.
 - R-121: Content language is free and declared as `default_content_language` in `.docmeta.yml`.
 - R-122: When editing an existing page, its language is preserved.
 

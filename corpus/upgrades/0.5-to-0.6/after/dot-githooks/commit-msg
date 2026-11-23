@@ -2,7 +2,7 @@
 set -uo pipefail
 
 # --- docsys documentation gate ---------------------------------------------
-# docsys-template: 0.18.0
+# docsys-template: 0.19.0
 # Hard gate: a message the gate refuses stops the commit (commit_policy: require).
 # The commit message is the journal entry: `docsys gate --message` reads it (D-125).
 docsys_gate_exit=1

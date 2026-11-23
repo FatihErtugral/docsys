@@ -104,6 +104,14 @@ pub fn stop_undocumented(where_: &str) -> String {
     )
 }
 
+/// The reminder the session's last turn ended with, on its next prompt: a
+/// turn that is not held reads nothing a Stop hook says (R-209, D-141).
+pub fn carried_reminder(text: &str) -> String {
+    format!(
+        "<docs-at-turn-end>\nThe last turn ended with this reminder:\n{text}</docs-at-turn-end>\n"
+    )
+}
+
 /// The turn held under `require`: on 0.5 the reason above names the way out.
 pub const HELD: &str = "commit_policy: require — this turn holds until the work is named and recorded as said above.\n";
 pub const HELD_015: &str = "commit_policy: require — before this session ends, name the work (feature | bug | improvement | research) and record it: a work file under work/<category>/, or a commit whose message says why with `Docs: <why>`. Then stop.\n";
@@ -154,6 +162,25 @@ pub fn gate_undocumented(scope: &str, code: &[String]) -> String {
     format!(
         "GATE {scope} changes with no docs change: {}{tail}{way}",
         head.join(", ")
+    )
+}
+
+/// The pages bound to the changed code, from the repository's top: the
+/// pages the change can make false (R-209, D-142).
+pub fn gate_bound(pages: &[String]) -> String {
+    format!(
+        "pages bound to the changed code — read each against the change: {}\n",
+        crate::hook::shown(pages)
+    )
+}
+
+/// The pages the session changed beside its code, and the command that reads
+/// them against their evidence (D-142).
+pub fn gate_crosscheck(pages: &[String]) -> String {
+    format!(
+        "pages this session changed: {} — `docsys crosscheck {}` reads them against their code and sources.\n",
+        crate::hook::shown(pages),
+        pages.join(" ")
     )
 }
 
@@ -367,6 +394,10 @@ pub fn catalog() -> Vec<String> {
     out.push(DROPPED_ADD.to_string());
     out.push(raw_record("raw/inbox/a.md"));
     out.push(format!("{}{HELD}", stop_undocumented("this session")));
+    out.push(carried_reminder(&stop_undocumented("this session")));
+    let pages = vec!["docs/reference/a.md".to_string()];
+    out.push(gate_bound(&pages));
+    out.push(gate_crosscheck(&pages));
     out.push(stop_kb(2, 1));
     out.push(inbox_waiting(2));
     out.push(gate_seed_plan(&plans));

@@ -20,13 +20,16 @@ is what a page names in `sources:` and the code its pins resolve to now.
    only where they leave a statement open.
 4. A statement the code or a source contradicts: correct that statement,
    and nothing the evidence does not touch.
-5. What you cannot settle — a statement the evidence neither confirms nor
+5. A sentence that counts or lists a growing set — the handlers, the files
+   of a directory, the callers of a function — is a finding while it is
+   still true (R-115): rewrite it as P/R-115 says.
+6. What you cannot settle — a statement the evidence neither confirms nor
    contradicts, two sources that disagree, a pin that no longer resolves
    while the code does not say which side is wrong: record it as the rules
    block says, `docsys question add` or `docsys debt add` with
    `--topic <page-id>`, and leave the page's words as they are.
-6. The corrections go in one ordinary commit whose message says what was
+7. The corrections go in one ordinary commit whose message says what was
    corrected on which page. Nothing marks a page as cross-checked: write no
    verification field, trailer or record, in the page or anywhere else.
-7. End with a short report: the pages read, what was corrected, and each
+8. End with a short report: the pages read, what was corrected, and each
    question or debt item recorded.

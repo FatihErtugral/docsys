@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
 # --- docsys documentation gate ---------------------------------------------
-# docsys-template: 0.18.0
+# docsys-template: 0.19.0
 # Hard gate: the lint errors and dangling references a commit adds stop it; those it inherits are named.
 # One-off skip: DOCSYS_SKIP=1 git commit ... (under commit_policy: require it leaves a debt item)
 docsys_gate_exit=1

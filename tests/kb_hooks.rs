@@ -388,3 +388,43 @@ fn the_installed_layer_names_the_sources_beyond_the_inbox() {
     );
     let _ = fs::remove_dir_all(&base);
 }
+
+/// D-141: a knowledge base never holds a turn, so every word its end of a
+/// turn says — the notes waiting, the errors the gate will stop — reaches the
+/// agent with the session's next prompt, once, and the base gains no file.
+#[test]
+fn the_end_of_a_turn_reaches_the_agent_on_the_next_prompt() {
+    let base = build_base("stop-carried");
+    let prompt =
+        r#"{"session_id":"SESSION","hook_event_name":"UserPromptSubmit","prompt":"go on"}"#;
+    let stop = r#"{"session_id":"SESSION","stop_hook_active":false}"#;
+    run_relay(&base, "session-intent.sh", prompt, "s6");
+    let (code, _, err) = run_relay(&base, "stop-docs-reminder.sh", stop, "s6");
+    assert_eq!(code, 0, "{err}");
+    let (_, next, _) = run_relay(&base, "session-intent.sh", prompt, "s6");
+    assert!(
+        next.contains("<docs-at-turn-end>") && next.contains("1 note(s) waiting in raw/inbox"),
+        "{next}"
+    );
+    let (_, after, _) = run_relay(&base, "session-intent.sh", prompt, "s6");
+    assert!(!after.contains("<docs-at-turn-end>"), "{after}");
+    // a deleted record is a lint error (R-023): that nudge is carried too
+    fs::remove_file(base.join("raw/inbox/2026-09-02-note.md")).unwrap();
+    run_relay(&base, "stop-docs-reminder.sh", stop, "s6");
+    let (_, next, _) = run_relay(&base, "session-intent.sh", prompt, "s6");
+    assert!(
+        next.contains("<docs-at-turn-end>") && next.contains("error(s)"),
+        "{next}"
+    );
+    let out = Command::new("git")
+        .args(["status", "--porcelain", "--untracked-files=all"])
+        .current_dir(&base)
+        .output()
+        .unwrap();
+    let moved: Vec<String> = String::from_utf8_lossy(&out.stdout)
+        .lines()
+        .map(|l| l[3..].to_string())
+        .filter(|p| !p.starts_with(".markers/"))
+        .collect();
+    assert_eq!(moved, vec!["raw/inbox/2026-09-02-note.md".to_string()]);
+}

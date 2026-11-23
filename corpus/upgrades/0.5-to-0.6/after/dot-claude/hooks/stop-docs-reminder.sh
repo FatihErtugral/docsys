@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# docsys-template: 0.18.0
+# docsys-template: 0.19.0
 # stop-docs-reminder.sh — end-of-turn reminder; it warns, and under
 # `commit_policy: require` it holds the turn once (R-209).
 # Reads the working tree and the commits not yet pushed (`docsys hook stop`).

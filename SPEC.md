@@ -6,7 +6,8 @@ rule text may be clarified, not redefined, within a minor version. From 0.4 the
 fix policy is **deletion-first**: no change adds net normative rules — text
 grows only when a smaller text was tried and failed. 0.5 adds two rules (R-210,
 R-211), each naming the smaller text that failed, and one EXPERIMENTAL section
-(§21); its other changes are clarifications. 0.6 adds no rule; it redefines
+(§21); its other changes are clarifications. 0.6 adds one rule, R-115, whose
+smaller text, a pin on a glob of files, was measured and failed. It redefines
 four, each where its smaller text failed in the field: R-111's "the case a merge
 must not hide" turned a base red after a batch merge of changes that each
 re-read the region; R-072's line opener read object keys and typed fields as
@@ -1209,6 +1210,23 @@ resolves symbols for that language, and MUST report an error rather than guess
 when a symbol is ambiguous or unresolvable. The reference implementation's
 resolution is registered as D-106 (superseding D-069).
 
+**R-115** `agent` · MUST NOT — A page MUST NOT state the count or the list of
+the members of a set that grows with the code; it states the rule that holds
+for every member. A member that joins the set moves no pinned region, so no pin
+can follow the set, and such a sentence turns false with no signal (R-111). A
+list that is a contract lives in a test that reads the set from the code and
+fails on a member it does not list; the page names the rule and the test. State
+that lives outside the repository is linked, not copied. Recognizing such a
+sentence requires reading the prose, so this is not a static check.
+
+> Rationale: in an audit of documentation trees, 6 of 9 verified errors were
+> such sentences — a count of handlers, of test files, the one module said to
+> load a thing — each true when it was written. A pin on a glob of files,
+> hashed over the matching paths, was measured first: in a repository with many
+> authors it turned red on every pull request that added a file to the set, also
+> from teams that do not own the page, and two such pull requests at the same
+> time left a combination that nobody acknowledged.
+
 ---
 
 ## 12. Language
@@ -1489,8 +1507,10 @@ of existing normative text, not authorship (R-005).
 **R-209** `cmd` · MUST — `.docmeta.yml` MAY declare `commit_policy: ask` (the
 default) or `commit_policy: require`. Under `ask` the commit gate asks the
 code-without-docs question once per change set (D-040) and the end of a turn
-reminds. Under `require`, a commit whose change set touches code and no
-documentation **is refused** by the gate — the agent relay and the git hook
+reminds; a turn that ends without being held has no channel to the agent, so
+the reminder reaches it with the session's next prompt. Under `require`, a
+commit whose change set touches code and no documentation **is refused** by
+the gate — the agent relay and the git hook
 alike, every time; the hook is `commit-msg`, the one that reads the message —
 until the work is recorded: a work file under
 `work/<category>/` or, at minimum, a journal entry — a `Docs:` trailer in the
@@ -1506,9 +1526,12 @@ error, is visible, never silent
 (R-151's second criterion: silently wrong). A pull request's check, where
 nobody is asked, **fails** on a range that changes code and no documentation
 under either policy, until a commit of the range carries a `Docs:` line, and
-its refusal names that line (D-125). The first turn of a session names
-the tree's own state — permanent pages, work in flight, the policy — before the
-work type is chosen.
+its refusal names that line (D-125). The relay's question and refusal and the
+end of a turn name the pages bound to the changed files — each page that pins
+one of them (R-110) or rests on one in `sources:`, and each page one of them
+cites (R-072) — the files a change may have made false (R-152). The first
+turn of a session names the tree's own state — permanent pages, work in
+flight, the policy — before the work type is chosen.
 
 ### 14.1 Repair
 
@@ -1726,6 +1749,23 @@ rule, indented so none parses as a rule declaration. Procedures name the
                the journal links there
     VERIFY   : R-101 length report; audit duplicate check
     NEVER    : park permanent knowledge in the journal "for now"
+
+    P/R-115 — state a set that grows with the code
+    EVIDENCE : the sentence; the code that holds the set (a directory, a
+               registry, the callers of a function)
+    QUESTION : does the sentence count or list the members of a set that a
+               change to the code can grow?
+    OPTIONS  : no → keep the sentence
+               yes, and the list is a contract → a test reads the set from
+               the code and fails on a member it does not list; the page
+               names the rule and the test
+               yes, and the set lives outside the repository → link it
+               yes → state the rule that holds for every member
+    DEFAULT  : state the rule that holds for every member
+    ESCAPE   : no rule holds for every member and no test can read the set
+               → leave the sentence + question item naming the page
+    VERIFY   : `/docsys-crosscheck` reports each such sentence it reads
+    NEVER    : keep a count or a list that a pin cannot follow
 
     P/R-121 — choose a page's language
     EVIDENCE : .docmeta.yml default_content_language; the page's lang:

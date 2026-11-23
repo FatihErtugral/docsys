@@ -1186,3 +1186,184 @@ fn the_bypass_a_relay_names_is_the_persons() {
     assert_eq!(code, 2, "{again}");
     let _ = fs::remove_dir_all(&repo);
 }
+
+/// The UserPromptSubmit relay for a session: what joins the agent's context.
+fn run_prompt(repo: &Path, session: &str) -> String {
+    let bin = PathBuf::from(env!("CARGO_BIN_EXE_docsys"));
+    let path = format!(
+        "{}:{}",
+        bin.parent().unwrap().display(),
+        std::env::var("PATH").unwrap_or_default()
+    );
+    let mut child = Command::new("bash")
+        .arg(repo.join(".claude/hooks/session-intent.sh"))
+        .current_dir(repo)
+        .env("PATH", path)
+        .env("TMPDIR", repo.join(".markers"))
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .spawn()
+        .unwrap();
+    use std::io::Write as _;
+    child
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(format!(r#"{{"session_id":"{session}","prompt":"go on"}}"#).as_bytes())
+        .unwrap();
+    String::from_utf8_lossy(&child.wait_with_output().unwrap().stdout).into_owned()
+}
+
+fn stop_payload(session: &str, held: bool) -> String {
+    format!(r#"{{"session_id":"{session}","stop_hook_active":{held}}}"#)
+}
+
+/// D-141: under `ask` nothing reads a Stop hook that exits 0, so the session's
+/// next prompt carries the reminder, once, to that session alone; a turn that
+/// recorded its work leaves nothing, and no file in the repository changes.
+#[test]
+fn under_ask_the_reminder_reaches_the_agent_on_the_next_prompt() {
+    let repo = build_repo("carried");
+    fs::create_dir_all(repo.join(".markers")).unwrap();
+    assert!(!run_prompt(&repo, "s").contains("<docs-at-turn-end>"));
+    fs::write(repo.join("main.rs"), "fn main() {}\n").unwrap();
+    let (code, err) = run_stop_with(&repo, &stop_payload("s", false));
+    assert_eq!(code, 0, "the turn is not held: {err}");
+    assert!(err.contains("changed code but no documentation"), "{err}");
+    assert!(!run_prompt(&repo, "t").contains("<docs-at-turn-end>"));
+    let next = run_prompt(&repo, "s");
+    assert!(
+        next.contains("<docs-at-turn-end>") && next.contains("changed code but no documentation"),
+        "{next}"
+    );
+    assert!(!run_prompt(&repo, "s").contains("<docs-at-turn-end>"));
+    let out = Command::new("git")
+        .args(["status", "--porcelain", "--untracked-files=all"])
+        .current_dir(&repo)
+        .output()
+        .unwrap();
+    let moved: Vec<String> = String::from_utf8_lossy(&out.stdout)
+        .lines()
+        .map(|l| l[3..].to_string())
+        .filter(|p| !p.starts_with(".markers/"))
+        .collect();
+    assert_eq!(moved, vec!["main.rs".to_string()]);
+    // the next turn records the work: it ends with nothing to carry
+    run_stop_with(&repo, &stop_payload("s", false));
+    write_page(&repo);
+    let (_, err) = run_stop_with(&repo, &stop_payload("s", false));
+    assert!(err.is_empty(), "{err}");
+    assert!(!run_prompt(&repo, "s").contains("<docs-at-turn-end>"));
+    let _ = fs::remove_dir_all(&repo);
+}
+
+/// D-141: under `require` the hold gives the agent the text; the Stop after
+/// the hold keeps nothing for the next prompt.
+#[test]
+fn under_require_a_held_turn_carries_nothing_to_the_next_prompt() {
+    let repo = build_repo("carried-require");
+    fs::create_dir_all(repo.join(".markers")).unwrap();
+    require(&repo);
+    git(&repo, &["add", "-A"]);
+    git(&repo, &["commit", "-q", "-m", "policy"]);
+    run_prompt(&repo, "s");
+    fs::write(repo.join("main.rs"), "fn main() {}\n").unwrap();
+    let (code, err) = run_stop_with(&repo, &stop_payload("s", false));
+    assert_eq!(code, 2, "{err}");
+    let (code, _) = run_stop_with(&repo, &stop_payload("s", true));
+    assert_eq!(code, 0);
+    assert!(!run_prompt(&repo, "s").contains("<docs-at-turn-end>"));
+    let _ = fs::remove_dir_all(&repo);
+}
+
+fn docsys_in(repo: &Path, args: &[&str]) -> String {
+    let out = Command::new(env!("CARGO_BIN_EXE_docsys"))
+        .args(args)
+        .current_dir(repo)
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "docsys {args:?}: {out:?}");
+    String::from_utf8_lossy(&out.stdout).into_owned()
+}
+
+/// D-142: the commit question, the end-of-turn reminder and `backlinks
+/// <code-file>` name the pages bound to the changed file — the page that pins
+/// a region of it, and the page it cites — and no other page; the question
+/// also names the pages the session changed, with the command that reads them
+/// against their code.
+#[test]
+fn the_relays_name_the_pages_bound_to_the_changed_code() {
+    let repo = build_repo("bound");
+    fs::create_dir_all(repo.join(".markers")).unwrap();
+    fs::create_dir_all(repo.join("src")).unwrap();
+    fs::write(
+        repo.join("src/math.ts"),
+        "// doc: notes\nexport function add(a: number, b: number) {\n  return a + b;\n}\n",
+    )
+    .unwrap();
+    for id in ["arithmetic", "notes", "unrelated"] {
+        docsys_in(&repo, &["page", "new", "reference", id]);
+    }
+    docsys_in(
+        &repo,
+        &[
+            "pin",
+            "reference/arithmetic",
+            "src/math.ts",
+            "--symbol",
+            "add",
+        ],
+    );
+    git(&repo, &["add", "-A"]);
+    git(&repo, &["commit", "-q", "-m", "pages"]);
+    let backlinks = docsys_in(&repo, &["backlinks", "src/math.ts"]);
+    assert!(
+        backlinks.contains("reference/arithmetic.md pins src/math.ts#add")
+            && backlinks.contains("reference/notes.md is cited at src/math.ts:1"),
+        "{backlinks}"
+    );
+    fs::write(
+        repo.join("src/math.ts"),
+        fs::read_to_string(repo.join("src/math.ts")).unwrap()
+            + "export function sub(a: number, b: number) {\n  return a - b;\n}\n",
+    )
+    .unwrap();
+    git(&repo, &["add", "src/math.ts"]);
+    let line = "pages bound to the changed code — read each against the change: docs/reference/arithmetic.md, docs/reference/notes.md\n";
+    let (code, err) = run_stop(&repo);
+    assert_eq!(code, 0);
+    assert!(err.contains(line), "{err}");
+    fs::write(
+        repo.join("docs/reference/unrelated.md"),
+        fs::read_to_string(repo.join("docs/reference/unrelated.md")).unwrap() + "\nMore.\n",
+    )
+    .unwrap();
+    let (code, msg) = run_hook(&repo, commit_payload(), &[]);
+    assert_eq!(code, 2, "{msg}");
+    assert!(msg.contains(line), "{msg}");
+    assert!(
+        msg.contains("pages this session changed: docs/reference/unrelated.md — `docsys crosscheck docs/reference/unrelated.md`"),
+        "{msg}"
+    );
+    let _ = fs::remove_dir_all(&repo);
+}
+
+/// D-118: a docsys/0.4 tree's question says what 0.15.1 said — no page line.
+#[test]
+fn a_0_4_tree_hears_no_page_line() {
+    let repo = build_repo04("bound-04");
+    write_page(&repo);
+    fs::write(repo.join("main.rs"), "// doc: entry\nfn main() {}\n").unwrap();
+    git(&repo, &["add", "-A"]);
+    git(&repo, &["commit", "-q", "-m", "page"]);
+    fs::write(repo.join("main.rs"), "// doc: entry\nfn main() { run() }\n").unwrap();
+    git(&repo, &["add", "main.rs"]);
+    let (code, msg) = run_hook(&repo, commit_payload(), &[]);
+    assert_eq!(code, 2, "{msg}");
+    assert!(
+        msg.contains("GATE staged changes with no docs change: main.rs"),
+        "{msg}"
+    );
+    assert!(!msg.contains("pages bound"), "{msg}");
+    let _ = fs::remove_dir_all(&repo);
+}

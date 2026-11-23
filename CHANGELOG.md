@@ -5,6 +5,48 @@ All notable changes to docsys are documented here. The format follows
 [SemVer](https://semver.org/). Release notes are extracted from this file
 by the release workflow — the tag's section becomes the GitHub release body.
 
+## [0.19.0] - 2026-11-23
+
+### Upgrading from 0.18.0, 0.17.0 or 0.16.1
+
+- `docsys upgrade --apply --commit`, one commit. A docsys/0.6 tree gets the
+  new rules block and `/docsys-crosscheck` while they are a text a release
+  wrote, and its pin. A docsys/0.5 tree also moves to docsys/0.6, as the
+  0.18.0 section says. Every clone runs `docsys upgrade --apply` once after
+  pulling the move, as before. From 0.18.0 a relay changes only in its
+  template line.
+
+### Changed
+
+- The commit question, the `require` refusal and the end-of-turn reminder
+  name the pages bound to the changed files: each page that pins one of
+  them, rests on one in `sources:`, or that one of them cites with `doc:`.
+  The commit question and the refusal also name the pages the session
+  changed, with `docsys crosscheck <pages>`. Nothing new blocks, and a
+  replay of real commits measured the length of the list before the release
+  (R-209, D-142).
+- `docsys backlinks <code-file>` also lists the pages that a `doc:`
+  citation in the file names (D-142).
+
+### Added
+
+- R-115 (`agent`): a page states the rule that holds for every member of a
+  set that grows with the code, not the count or the list of its members;
+  a list that is a contract lives in a test that reads the set from the
+  code. The rules block carries it, `docsys rules --procedures` gives its
+  procedure, and `/docsys-crosscheck` reads such a sentence as a finding.
+  Lint, frontmatter and pins do not change (D-143).
+
+### Fixed
+
+- Under `commit_policy: ask` the end-of-turn reminder reaches the agent:
+  the session's next prompt carries it. Before, it went only to the Stop
+  hook's stderr, which the agent never reads. The turn is not held, and no
+  file in the repository changes (R-209, D-141).
+- A knowledge base's end-of-turn nudge — the notes waiting in `raw/inbox/`,
+  the errors the gate will stop — reaches the agent the same way, on the
+  session's next prompt (D-141).
+
 ## [0.18.0] - 2026-11-12
 
 ### Upgrading from 0.17.0 or 0.16.1

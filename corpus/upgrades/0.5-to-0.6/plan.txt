@@ -1,6 +1,6 @@
 docsys upgrade: docsys/0.5 → docsys/0.6 — the plan
 
-Upgrading to docsys 0.18.0:
+Upgrading to docsys 0.19.0:
 - `docsys upgrade` prints the plan; `docsys upgrade --apply --commit` moves the
   tree, one commit per spec version. The items it lists for a person are
   theirs to finish.
@@ -30,11 +30,12 @@ auto    hook-scripts       .claude/hooks/session-intent.sh  refreshed: a text do
 auto    git-gate           .githooks/pre-commit  the docsys block rewritten for this version, hard: it stops a commit only on the errors the commit adds and names the ones it inherits (D-136)
 auto    git-gate           .githooks/commit-msg  the docsys block rewritten, hard with the pre-commit half: it reads the commit message, and under `commit_policy: require` code with no documentation needs `Docs: <why>` (D-125)
 auto    ci-workflow        .github/workflows/docsys.yml  the workflow is yours, and these lines change: the install step becomes this version's, which runs the tree's installer, `docs/.docsys-install`, which installs the version docs/.docsys-version names; `push:` runs on main only, so a branch with a pull request is checked once; `lint` and `refs` check the whole tree on push; the pull request is checked by `gate --range` alone, which reads both; a merge queue's group is checked by the gate on the combined state (`merge_group:`); every other line stays as you wrote it — the diff is below
-auto    installer          docs/.docsys-install  the tree's installer of docsys 0.18.0, its archives' sha256 values read from the release: CI and a clone with no docsys run it — the diff is below
+auto    installer          docs/.docsys-install  the tree's installer of docsys 0.19.0, its archives' sha256 values read from the release: CI and a clone with no docsys run it — the diff is below
 auto    rules-block        AGENTS.md  the generated block refreshed in place
+auto    assets             .claude/commands/docsys-crosscheck.md  refreshed: a text docsys 0.16.0 wrote, untouched
 auto    spec-line          docs/.docmeta.yml  `spec: docsys/0.5` → `spec: docsys/0.6`
-auto    pin                docs/.docsys-version  `0.16.1` → `0.18.0`: every docsys call here runs it
--- 10 automatic, 0 for a person, 0 for information
+auto    pin                docs/.docsys-version  `0.16.1` → `0.19.0`: every docsys call here runs it
+-- 11 automatic, 0 for a person, 0 for information
 judged by docsys/0.6 as the tree is now: 0 new finding(s), 0 gone — the steps above clear their part
 
 # .github/workflows/docsys.yml
@@ -111,7 +112,7 @@ judged by docsys/0.6 as the tree is now: 0 new finding(s), 0 gone — the steps 
 +# docsys is on the PATH; it changes no file in the repository.
 +# --print-dir prints the directory that holds the binary, for a CI PATH.
 +set -euo pipefail
-+version=0.18.0
++version=0.19.0
 +case "$(uname -s)-$(uname -m)" in
 +  Linux-x86_64) target=x86_64-unknown-linux-musl sum=1111111111111111111111111111111111111111111111111111111111111111 ;;
 +  Linux-aarch64) target=aarch64-unknown-linux-musl sum=2222222222222222222222222222222222222222222222222222222222222222 ;;

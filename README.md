@@ -136,7 +136,7 @@ flowchart LR
     SI --> WORK["agent works<br/>judgment via docsys rules --procedures"]
     WORK -- "a person asks: still right?" --> CC["/docsys-crosscheck<br/>pages read against sources and code"]
     WORK -- "commit" --> PC["pre-commit hook<br/>docsys gate"]
-    WORK -- "turn ends" --> ST["stop hook<br/>code moved, no docs and no Docs: line?<br/>(tree + unpushed commits) → remind"]
+    WORK -- "turn ends" --> ST["stop hook<br/>code moved, no docs and no Docs: line?<br/>(tree + unpushed commits) → remind on the next prompt"]
     PC -- "lint errors" --> BLOCK[BLOCKED — fix first]
     PC -- "code moved, docs didn't" --> ASK["asks ONCE — the same<br/>commit again proceeds"]
     PC -- "docs moved too" --> DONE([commit])

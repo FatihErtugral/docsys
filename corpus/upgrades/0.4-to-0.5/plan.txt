@@ -1,6 +1,6 @@
 docsys upgrade: docsys/0.4 → docsys/0.5 — the plan
 
-Upgrading to docsys 0.18.0:
+Upgrading to docsys 0.19.0:
 - Nothing has to move on the day this docsys is installed: a docsys/0.4 tree
   keeps its findings, its file formats and its hooks.
 - Every clone must install docsys >= 0.16.0 before pulling this change; a gate
@@ -78,7 +78,7 @@ judged by docsys/0.5 as the tree is now: 6 new finding(s), 1 gone — the steps 
  #!/usr/bin/env bash
 -# docsys-template: 0.15.1
 -# stop-docs-reminder.sh — end-of-turn nudge; warns, never blocks (R-150).
-+# docsys-template: 0.18.0
++# docsys-template: 0.19.0
 +# stop-docs-reminder.sh — end-of-turn reminder; it warns, and under
 +# `commit_policy: require` it holds the turn once (R-209).
  # Reads the working tree and the commits not yet pushed (`docsys hook stop`).
@@ -154,7 +154,7 @@ then `--apply --commit` makes the next move, in a commit of its own:
 
 docsys upgrade: docsys/0.5 → docsys/0.6 — the plan
 
-Upgrading to docsys 0.18.0:
+Upgrading to docsys 0.19.0:
 - `docsys upgrade` prints the plan; `docsys upgrade --apply --commit` moves the
   tree, one commit per spec version. The items it lists for a person are
   theirs to finish.
@@ -181,10 +181,10 @@ Upgrading to docsys 0.18.0:
 manual  hook-scripts       .claude/hooks/stop-docs-reminder.sh  edited by its owner — the diff to this version's relay is below
 auto    git-gate           .git/hooks/pre-commit  the docsys block rewritten for this version, hard: it stops a commit only on the errors the commit adds and names the ones it inherits (D-136)
 auto    git-gate           .git/hooks/commit-msg  the docsys block rewritten, hard with the pre-commit half: it reads the commit message, and under `commit_policy: require` code with no documentation needs `Docs: <why>` (D-125)
-auto    ci-workflow        .github/workflows/docsys.yml  regenerated from 0.18.0 with its own parameters, pinned to this version; the pull request is checked by the scoped gate alone — the diff is below
+auto    ci-workflow        .github/workflows/docsys.yml  regenerated from 0.19.0 with its own parameters, pinned to this version; the pull request is checked by the scoped gate alone — the diff is below
 manual  assets             .claude/commands/docsys-sync.md  edited by its owner — the diff to this version's text is below
 auto    spec-line          docs/.docmeta.yml  `spec: docsys/0.5` → `spec: docsys/0.6`
-auto    pin                docs/.docsys-version  no pin → `0.18.0`: every docsys call here runs it
+auto    pin                docs/.docsys-version  no pin → `0.19.0`: every docsys call here runs it
 -- 5 automatic, 2 for a person, 0 for information
 judged by docsys/0.6 as the tree is now: 0 new finding(s), 0 gone — the steps above clear their part
 
@@ -195,7 +195,7 @@ judged by docsys/0.6 as the tree is now: 0 new finding(s), 0 gone — the steps 
  #!/usr/bin/env bash
 -# docsys-template: 0.15.1
 -# stop-docs-reminder.sh — end-of-turn nudge; warns, never blocks (R-150).
-+# docsys-template: 0.18.0
++# docsys-template: 0.19.0
 +# stop-docs-reminder.sh — end-of-turn reminder; it warns, and under
 +# `commit_policy: require` it holds the turn once (R-209).
  # Reads the working tree and the commits not yet pushed (`docsys hook stop`).
@@ -226,8 +226,8 @@ judged by docsys/0.6 as the tree is now: 0 new finding(s), 0 gone — the steps 
 --- .github/workflows/docsys.yml
 +++ .github/workflows/docsys.yml
 @@ -1,4 +1,4 @@
--# docsys-template: 0.18.0 sha256:1de3730c5cc2ba463e340ed565893ec38ea00157ccc117c54de74aefd3bc0250 branch=main runner=ubuntu-latest install=cargo root=docs
-+# docsys-template: 0.18.0 sha256:b7ea2bd1eecc9ec5d32f4ffa16ed65787598699f15704f3b50769e97e283ea74 branch=main runner=ubuntu-latest install=cargo root=docs
+-# docsys-template: 0.19.0 sha256:c251d2bf6cba6c93c0237f897b8d10773d33555c54270bd4cd02a41410ec9d08 branch=main runner=ubuntu-latest install=cargo root=docs
++# docsys-template: 0.19.0 sha256:44ab4ed9020b74ab6ad599943451730e140e429280729eb59a8d546da5c57128 branch=main runner=ubuntu-latest install=cargo root=docs
  # docsys documentation workflow, written by `docsys adopt` (D-111). Line 1 records how
  # it was rendered and a hash of everything else in this file: while the hash holds,
  # docsys may regenerate it; once the file is edited, it is yours.

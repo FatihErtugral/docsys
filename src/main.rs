@@ -1306,7 +1306,11 @@ fn main() -> ExitCode {
                     // a code file, not a page: the pages that describe it
                     Some(w) if !docsys::graph::is_page(&tree, w) => {
                         match code_file(w, repo_or_cwd.as_path()) {
-                            Some(rel) => Ok(docsys::graph::describing(&tree, &rel)),
+                            Some(rel) => Ok(docsys::graph::describing(
+                                &tree,
+                                repo_or_cwd.as_path(),
+                                &rel,
+                            )),
                             None => docsys::graph::backlinks(&tree, repo, w),
                         }
                     }
@@ -1411,7 +1415,7 @@ fn main() -> ExitCode {
                 "post-tool-use" => {
                     docsys::hook::post_tool_use(&repo, &root, &payload, &migrate::today())
                 }
-                "user-prompt-submit" => docsys::hook::user_prompt_submit(&payload, &root),
+                "user-prompt-submit" => docsys::hook::user_prompt_submit(&repo, &payload, &root),
                 other => {
                     eprintln!("hook: unknown event `{other}` (pre-tool-use | stop | post-tool-use | user-prompt-submit)");
                     return ExitCode::from(2);

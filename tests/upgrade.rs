@@ -931,10 +931,12 @@ fn every_text_this_version_writes_is_a_released_one() {
     );
 }
 
-/// The project profile is the one 0.16.1 wrote but for its relays: every text
-/// its layer writes is a text a release up to 0.16.1 wrote (D-132), and a
-/// relay is the one 0.18.0 wrote, which names the install command on a
-/// machine with no docsys (D-138).
+/// The project profile is the one 0.16.1 wrote but for its relays and its
+/// cross-check: every text its layer writes is a text a release up to 0.16.1
+/// wrote (D-132), a relay is the one 0.18.0 wrote, which names the install
+/// command on a machine with no docsys (D-138), and `/docsys-crosscheck` is
+/// the one 0.19.0 wrote, which reads a count of a growing set as a finding
+/// (R-115, D-143).
 #[test]
 fn the_project_layer_is_the_one_0_16_1_wrote() {
     use docsys::agents::{owned_assets, relay_for, relays, released};
@@ -945,7 +947,13 @@ fn the_project_layer_is_the_one_0_16_1_wrote() {
     let frozen = |release: &str| up_to(release, [0, 16, 1]);
     let mut moved = Vec::new();
     for (asset, text, _) in owned_assets(false) {
-        if !released(asset, text, "").is_some_and(frozen) {
+        let release = released(asset, text, "");
+        let held = if asset == "commands/docsys-crosscheck.md" {
+            release == Some("0.19.0")
+        } else {
+            release.is_some_and(frozen)
+        };
+        if !held {
             moved.push(asset.to_string());
         }
     }
@@ -959,7 +967,7 @@ fn the_project_layer_is_the_one_0_16_1_wrote() {
     }
     assert!(
         moved.is_empty(),
-        "project-layer texts that differ from 0.16.1's, relays from 0.18.0's: {moved:#?}"
+        "project-layer texts that differ from 0.16.1's, relays from 0.18.0's, the cross-check from 0.19.0's: {moved:#?}"
     );
 }
 

@@ -34,25 +34,31 @@ fn find_page<'a>(tree: &'a DocTree, what: &str) -> Option<&'a crate::tree::Page>
         .or_else(|| tree.pages.iter().find(|p| id_of(p).as_deref() == Some(w)))
 }
 
-/// Pages linking to `what`, and — with a repository — code files citing its id.
-/// The pages that describe a code file, `file` relative to the repository:
-/// the pins on it, symbol by symbol, and the pages whose `sources:` name it —
-/// the binding read from the code's side, with nothing written into the code.
-pub fn describing(tree: &DocTree, file: &str) -> String {
-    let mut out = format!("# pages that describe {file}\n");
-    let mut n = 0usize;
+/// How a page is bound to a code file.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Bond {
+    /// the page pins the file, or the named symbol in it (§11)
+    Pin(Option<String>),
+    /// the page names the file in `sources:`
+    Sources,
+    /// the file cites the page on this 1-based line (R-072)
+    Cited(usize),
+}
+
+/// The pages bound to a code file, `file` relative to the repository: the
+/// pins on it, symbol by symbol, the pages whose `sources:` name it, and the
+/// pages it cites, read as `refs` reads a file (§7.4) — each page by its path
+/// under the root. A file that is gone keeps the pins and the `sources:` that
+/// name it.
+pub fn bound(tree: &DocTree, repo: &Path, file: &str) -> Vec<(String, Bond)> {
+    let mut out = Vec::new();
     for p in &tree.pages {
         let Some(fm) = &p.fm else { continue };
         for pin in crate::fresh::pins_of(fm)
             .iter()
             .filter(|pin| pin.path == file)
         {
-            let region = pin
-                .symbol
-                .as_ref()
-                .map_or(file.to_string(), |s| format!("{file}#{s}"));
-            out.push_str(&format!("{} pins {region}\n", p.rel));
-            n += 1;
+            out.push((p.rel.clone(), Bond::Pin(pin.symbol.clone())));
         }
         let rests = fm
             .fields
@@ -60,11 +66,62 @@ pub fn describing(tree: &DocTree, file: &str) -> String {
             .and_then(crate::fm::Value::as_list)
             .is_some_and(|l| l.iter().any(|s| s.trim() == file));
         if rests {
-            out.push_str(&format!("{} rests on it (sources:)\n", p.rel));
-            n += 1;
+            out.push((p.rel.clone(), Bond::Sources));
         }
     }
-    if n == 0 {
+    let era = crate::era::Era::of(tree);
+    let path = repo.join(file);
+    let scanned = std::fs::metadata(&path)
+        .is_ok_and(|m| m.is_file() && m.len() <= crate::migrate::SCAN_MAX_BYTES);
+    if let Some(text) = scanned
+        .then(|| std::fs::read_to_string(&path).ok())
+        .flatten()
+    {
+        for (i, l) in text.lines().enumerate() {
+            for tok in crate::checks::code_citations(era, l) {
+                if let Some(page) = (!tok.starts_with('@'))
+                    .then(|| find_page(tree, &tok))
+                    .flatten()
+                {
+                    out.push((page.rel.clone(), Bond::Cited(i + 1)));
+                }
+            }
+        }
+    }
+    out
+}
+
+/// The pages bound to any of `files`, each once, in the order first found.
+pub fn bound_pages(tree: &DocTree, repo: &Path, files: &[String]) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    for file in files {
+        for (page, _) in bound(tree, repo, file) {
+            if !out.contains(&page) {
+                out.push(page);
+            }
+        }
+    }
+    out
+}
+
+/// The pages that describe a code file, `file` relative to the repository:
+/// the binding read from the code's side (`bound`).
+pub fn describing(tree: &DocTree, repo: &Path, file: &str) -> String {
+    let mut out = format!("# pages that describe {file}\n");
+    let bonds = bound(tree, repo, file);
+    for (page, bond) in &bonds {
+        match bond {
+            Bond::Pin(symbol) => {
+                let region = symbol
+                    .as_ref()
+                    .map_or(file.to_string(), |s| format!("{file}#{s}"));
+                out.push_str(&format!("{page} pins {region}\n"));
+            }
+            Bond::Sources => out.push_str(&format!("{page} rests on it (sources:)\n")),
+            Bond::Cited(line) => out.push_str(&format!("{page} is cited at {file}:{line}\n")),
+        }
+    }
+    if bonds.is_empty() {
         out.push_str("-- no page pins it or rests on it\n");
     }
     out

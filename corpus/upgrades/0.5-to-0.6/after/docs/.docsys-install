@@ -9,7 +9,7 @@
 # docsys is on the PATH; it changes no file in the repository.
 # --print-dir prints the directory that holds the binary, for a CI PATH.
 set -euo pipefail
-version=0.18.0
+version=0.19.0
 case "$(uname -s)-$(uname -m)" in
   Linux-x86_64) target=x86_64-unknown-linux-musl sum=1111111111111111111111111111111111111111111111111111111111111111 ;;
   Linux-aarch64) target=aarch64-unknown-linux-musl sum=2222222222222222222222222222222222222222222222222222222222222222 ;;

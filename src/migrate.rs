@@ -600,6 +600,10 @@ pub fn init_profile(root: &Path, lang: &str, profile: &str) -> Result<(), String
 
 const REPO_SKIP_DIRS: [&str; 6] = [".git", "node_modules", "target", "build", "dist", ".venv"];
 
+/// The largest file a scan of the repository reads (§7.4): a larger one is a
+/// build output or a data file, not code that cites documentation.
+pub const SCAN_MAX_BYTES: u64 = 2_000_000;
+
 pub fn repo_text_files(repo: &Path, docs_root: &Path) -> Vec<PathBuf> {
     fn walk(dir: &Path, docs_canon: Option<&Path>, out: &mut Vec<PathBuf>) {
         let Ok(entries) = fs::read_dir(dir) else {
@@ -619,7 +623,7 @@ pub fn repo_text_files(repo: &Path, docs_root: &Path) -> Vec<PathBuf> {
                 }
                 walk(&p, docs_canon, out);
             } else if fs::metadata(&p)
-                .map(|m| m.len() <= 2_000_000)
+                .map(|m| m.len() <= SCAN_MAX_BYTES)
                 .unwrap_or(false)
             {
                 out.push(p);
@@ -684,7 +688,7 @@ fn git_listed_files(repo: &Path, docs_canon: Option<&Path>) -> Option<Vec<PathBu
             continue;
         }
         if fs::metadata(&p)
-            .map(|m| m.len() > 2_000_000)
+            .map(|m| m.len() > SCAN_MAX_BYTES)
             .unwrap_or(true)
         {
             continue;

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# docsys-template: 0.18.0
+# docsys-template: 0.19.0
 # pre-commit-docs.sh — PreToolUse gate on `git commit`; the decision is made
 # by `docsys hook pre-tool-use` (D-051): lint errors block; code without
 # documentation is a question asked once per change set, and under

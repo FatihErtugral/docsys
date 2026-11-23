@@ -380,6 +380,58 @@ fn root_rel(repo: &Path, root: &Path) -> String {
         .unwrap_or_else(|_| root.to_string_lossy().replace('\\', "/"))
 }
 
+/// The paths the Stop hook reads as this session's: the working tree and the
+/// commits not yet pushed (D-041), each once; and whether any is unpushed.
+fn session_paths(repo: &Path) -> (Vec<String>, bool) {
+    let mut paths = porcelain_paths(&git_lines(repo, &["status", "--porcelain"]));
+    let ahead = git_lines(repo, &["diff", "--name-only", "@{u}..HEAD"]);
+    let unpushed = !ahead.is_empty();
+    paths.extend(ahead);
+    paths.sort();
+    paths.dedup();
+    (paths, unpushed)
+}
+
+/// The lines that name the pages bound to the changed code and, for the
+/// commit question, the pages this session changed (R-209, D-142), each page
+/// from the repository's top. Empty where no page is bound, and on a tree
+/// whose relays say what 0.15.1 said (D-118).
+fn bound_lines(repo: &Path, root: &Path, code: &[String], changed: bool) -> String {
+    let Ok(tree) = crate::tree::DocTree::load(root) else {
+        return String::new();
+    };
+    if !crate::era::Era::of(&tree).bound_pages() {
+        return String::new();
+    }
+    let top = root_rel(repo, root);
+    let at_top = |rel: &str| {
+        if top.is_empty() || top == "." {
+            rel.to_string()
+        } else {
+            format!("{}/{rel}", top.trim_end_matches('/'))
+        }
+    };
+    let mut out = String::new();
+    let bound: Vec<String> = crate::graph::bound_pages(&tree, repo, code)
+        .iter()
+        .map(|p| at_top(p))
+        .collect();
+    if !bound.is_empty() {
+        out.push_str(&crate::say::gate_bound(&bound));
+    }
+    if changed {
+        let pages: Vec<String> = session_paths(repo)
+            .0
+            .into_iter()
+            .filter(|p| is_live_in(repo, root, p))
+            .collect();
+        if !pages.is_empty() {
+            out.push_str(&crate::say::gate_crosscheck(&pages));
+        }
+    }
+    out
+}
+
 // ───────────────────────────── the four events
 
 /// What a hook hands back: the exit code and what goes to stderr / stdout.
@@ -478,7 +530,7 @@ pub fn record_lint_bypass(
 }
 
 /// The first five files, and how many more.
-fn shown(files: &[String]) -> String {
+pub(crate) fn shown(files: &[String]) -> String {
     let first: Vec<&str> = files.iter().take(5).map(String::as_str).collect();
     let more = files.len().saturating_sub(first.len());
     if more > 0 {
@@ -660,8 +712,9 @@ pub fn pre_tool_use(repo: &Path, root: &Path, payload: &str, skip: bool) -> Repl
         return Reply::block(era_text(
             root,
             &format!(
-                "{}\n{}",
+                "{}\n{}{}",
                 crate::say::gate_undocumented(g.scope, &g.code),
+                bound_lines(repo, root, &g.code, true),
                 gate_words(root, crate::say::require, crate::say::REQUIRE_015, adds)
             ),
         ));
@@ -690,8 +743,9 @@ pub fn pre_tool_use(repo: &Path, root: &Path, payload: &str, skip: bool) -> Repl
         return Reply::block(era_text(
             root,
             &format!(
-                "{}\n{}",
+                "{}\n{}{}",
                 crate::say::gate_undocumented(g.scope, &g.code),
+                bound_lines(repo, root, &g.code, true),
                 gate_words(root, crate::say::ask, crate::say::ASK_015, adds)
             ),
         ));
@@ -711,12 +765,67 @@ pub fn pre_tool_use(repo: &Path, root: &Path, payload: &str, skip: bool) -> Repl
     Reply::ok()
 }
 
-fn marker_dir(repo: &Path) -> PathBuf {
-    let git_dir = git_first(repo, &["rev-parse", "--git-dir"])
+fn git_dir(repo: &Path) -> PathBuf {
+    git_first(repo, &["rev-parse", "--git-dir"])
         .map(PathBuf::from)
         .map(|p| if p.is_absolute() { p } else { repo.join(p) })
-        .unwrap_or_else(std::env::temp_dir);
-    git_dir.join("docsys-gate")
+        .unwrap_or_else(std::env::temp_dir)
+}
+
+fn marker_dir(repo: &Path) -> PathBuf {
+    git_dir(repo).join("docsys-gate")
+}
+
+/// The session a payload names, as a file name.
+fn session_key(payload: &str) -> String {
+    let session = parse_json(payload)
+        .and_then(|j| j.string_at(&["session_id"]).map(str::to_string))
+        .unwrap_or_else(|| "unknown".into());
+    let safe: String = session
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric() || *c == '-' || *c == '_')
+        .collect();
+    if safe.is_empty() {
+        "unknown".into()
+    } else {
+        safe
+    }
+}
+
+/// Where the reminder a turn ended with waits for the session's next prompt
+/// (D-141): under the git directory, one file per session, never in the tree.
+fn reminder_dir(repo: &Path) -> PathBuf {
+    git_dir(repo).join("docsys-reminder")
+}
+
+/// Keep a reminder for the session's next prompt. A reminder that no prompt
+/// read within a day belongs to a session that ended: it is removed.
+fn keep_reminder(repo: &Path, session: &str, text: &str) {
+    let dir = reminder_dir(repo);
+    let _ = fs::create_dir_all(&dir);
+    let day = std::time::Duration::from_secs(24 * 60 * 60);
+    if let Ok(entries) = fs::read_dir(&dir) {
+        for e in entries.flatten() {
+            let old = e
+                .metadata()
+                .and_then(|m| m.modified())
+                .ok()
+                .and_then(|t| t.elapsed().ok())
+                .is_some_and(|age| age > day);
+            if old {
+                let _ = fs::remove_file(e.path());
+            }
+        }
+    }
+    let _ = fs::write(dir.join(session), text);
+}
+
+/// The reminder kept for the session, read once.
+fn take_reminder(repo: &Path, session: &str) -> String {
+    let file = reminder_dir(repo).join(session);
+    let text = fs::read_to_string(&file).unwrap_or_default();
+    let _ = fs::remove_file(&file);
+    text
 }
 
 /// A small stable hash for marker names (not cryptographic; identity only).
@@ -730,11 +839,20 @@ fn cksum(s: &str) -> u64 {
 }
 
 /// Stop: end-of-turn reminder over the working tree AND the commits not yet
-/// pushed (D-041). It warns on stderr; under `commit_policy: require` it holds
-/// the turn once (R-209, D-093).
+/// pushed (D-041). Under `commit_policy: require` it holds the turn once
+/// (R-209, D-093); a turn that is not held reads nothing a Stop hook says, so
+/// the reminder waits for the session's next prompt (D-141).
 pub fn stop(repo: &Path, root: &Path, payload: &str) -> Reply {
+    // what this turn ends with replaces what the last one did
+    let session = session_key(payload);
+    let _ = take_reminder(repo, &session);
     if is_knowledge_base(root) {
-        return stop_kb(repo, root);
+        // a knowledge base never holds a turn: all it says waits (D-141)
+        let reply = stop_kb(repo, root);
+        if !reply.stderr.is_empty() && crate::era::Era::at(root).carried_reminder() {
+            keep_reminder(repo, &session, &reply.stderr);
+        }
+        return reply;
     }
     // D-093: under `require` the end of a turn is where the session's knowledge
     // is captured — the commit may come later, from another session or a
@@ -760,6 +878,10 @@ pub fn stop(repo: &Path, root: &Path, payload: &str) -> Reply {
         if require && !already_held {
             Reply::block(era_text(root, &format!("{text}{held_until}")))
         } else {
+            // a hold already said it; under `ask` nothing has
+            if !require && crate::era::Era::at(root).carried_reminder() {
+                keep_reminder(repo, &session, &era_text(root, &text));
+            }
             Reply {
                 code: 0,
                 stderr: text,
@@ -767,17 +889,13 @@ pub fn stop(repo: &Path, root: &Path, payload: &str) -> Reply {
             }
         }
     };
-    let mut paths = porcelain_paths(&git_lines(repo, &["status", "--porcelain"]));
-    let ahead = git_lines(repo, &["diff", "--name-only", "@{u}..HEAD"]);
-    paths.extend(ahead.iter().cloned());
-    paths.sort();
-    paths.dedup();
+    let (paths, unpushed) = session_paths(repo);
     let root_rel = root_rel(repo, root);
     let (code, docs) = classify(&paths, &root_rel);
     if code.is_empty() {
         return Reply::ok();
     }
-    let where_ = if ahead.is_empty() {
+    let where_ = if !unpushed {
         "this session"
     } else {
         "this session (including commits not yet pushed)"
@@ -794,7 +912,11 @@ pub fn stop(repo: &Path, root: &Path, payload: &str) -> Reply {
         if recorded {
             return Reply::ok();
         }
-        return hold(crate::say::stop_undocumented(where_));
+        return hold(format!(
+            "{}{}",
+            crate::say::stop_undocumented(where_),
+            bound_lines(repo, root, &code, false)
+        ));
     }
     if docs > 0 {
         // Documentation moved with the code — but the session's own record is
@@ -1031,19 +1153,24 @@ An id is unique across the whole tree, drafts included.
 </session-doc-routing>
 ";
 
-/// UserPromptSubmit: the routing text, once per session (stdout joins the
-/// context on this event only).
-pub fn user_prompt_submit(payload: &str, root: &Path) -> Reply {
-    let session = parse_json(payload)
-        .and_then(|j| j.string_at(&["session_id"]).map(str::to_string))
-        .unwrap_or_else(|| "unknown".into());
-    let safe: String = session
-        .chars()
-        .filter(|c| c.is_ascii_alphanumeric() || *c == '-' || *c == '_')
-        .collect();
+/// UserPromptSubmit: the routing text, once per session, and the reminder
+/// the session's last turn ended with (stdout joins the context on this event
+/// only).
+pub fn user_prompt_submit(repo: &Path, payload: &str, root: &Path) -> Reply {
+    let safe = session_key(payload);
+    let reminder = take_reminder(repo, &safe);
+    let carried = if reminder.is_empty() {
+        String::new()
+    } else {
+        crate::say::carried_reminder(&reminder)
+    };
     let marker = std::env::temp_dir().join(format!(".docsys-intent-{safe}"));
     if marker.exists() {
-        return Reply::ok();
+        return Reply {
+            code: 0,
+            stderr: String::new(),
+            stdout: carried,
+        };
     }
     let _ = fs::write(&marker, "");
     let text = if is_knowledge_base(root) {
@@ -1062,7 +1189,7 @@ pub fn user_prompt_submit(payload: &str, root: &Path) -> Reply {
     Reply {
         code: 0,
         stderr: String::new(),
-        stdout: text,
+        stdout: format!("{text}{carried}"),
     }
 }
 

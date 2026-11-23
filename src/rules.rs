@@ -448,6 +448,28 @@ mod tests_teach {
         assert!(crate::agents::kb_contract().ends_with(VERSION_SECTION));
     }
 
+    /// R-115 reaches the agent where it writes and where it checks (D-143):
+    /// the block states it, §14.3 gives its procedure, and the cross-check
+    /// reads such a sentence as a finding.
+    #[test]
+    fn a_count_of_a_growing_set_is_an_agent_rule_the_cross_check_reads() {
+        assert!(agents_md().contains(
+            "\n- R-115: A page MUST NOT state the count or the list of the members of a set that grows with the code; it states the rule that holds for every member.\n"
+        ));
+        assert!(procedures()
+            .unwrap()
+            .contains("P/R-115 — state a set that grows with the code"));
+        let crosscheck = crate::agents::owned_assets(false)
+            .into_iter()
+            .find(|(asset, _, _)| *asset == "commands/docsys-crosscheck.md")
+            .map(|(_, text, _)| text)
+            .unwrap();
+        assert!(
+            crosscheck.contains("is a finding while it is\n   still true (R-115)"),
+            "{crosscheck}"
+        );
+    }
+
     /// A newcomer learns how a page and its code bind each other from the block
     /// itself: the pin is the one binding, read from the code's side by
     /// `backlinks`; nothing asks for a citation in the code.

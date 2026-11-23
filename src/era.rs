@@ -252,6 +252,21 @@ impl Era {
         self.v05()
     }
 
+    /// D-141 (R-209): what a turn ends with and is not held for — the
+    /// reminder under `ask`, a knowledge base's nudge — reaches the agent on
+    /// the session's next prompt. Before: it went to the Stop hook's stderr
+    /// alone, which the agent never reads.
+    pub fn carried_reminder(self) -> bool {
+        self.v05()
+    }
+
+    /// D-142 (R-209, R-152): the commit question, the refusal and the end of
+    /// a turn name the pages bound to the changed files, and the question
+    /// names the pages the session changed. Before: the changed files alone.
+    pub fn bound_pages(self) -> bool {
+        self.v05()
+    }
+
     /// D-111, D-120: a release install holds the version `docsys upgrade`
     /// pinned and the sha256 values it read from that release, and refuses a
     /// `.docsys-version` naming another; the upgrade replaces an owner's
